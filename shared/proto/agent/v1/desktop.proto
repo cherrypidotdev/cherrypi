@@ -1,0 +1,60 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+// DesktopService exposes the agent's already-running X desktop to the browser.
+//
+// CherryPi does not boot a desktop session: the operator provides one — a
+// desktop/Xfce session on the host the agent runs as (or, in Docker, the
+// host's X socket plus `XAUTHORITY`/`.xsession` mounted in) — and the agent
+// attaches `x11vnc` to that display. Control is a single GetDesktop call; the
+// RFB data plane is a WebSocket at /api/desktop/ws.
+//
+// The desktop is a container-wide resource (one per agent) shared by every
+// authenticated user, unlike terminals, which are per-user.
+service DesktopService {
+  // GetDesktop reports whether the agent can reach an X display and, if so,
+  // its geometry. It does not start a session or the VNC bridge.
+  rpc GetDesktop(GetDesktopRequest) returns (GetDesktopResponse);
+}
+
+// Desktop is the agent's shared X display.
+message Desktop {
+  // X display the session runs on, e.g. ":0".
+  string display = 1;
+  // Geometry reported by the X server; 0 when unknown.
+  uint32 width = 2;
+  uint32 height = 3;
+  // Whether the agent's VNC bridge is currently attached to the display.
+  bool attached = 4;
+}
+
+message GetDesktopRequest {}
+
+message GetDesktopResponse {
+  // Whether the agent can serve the desktop (x11vnc installed and an X display
+  // reachable).
+  bool available = 1;
+  // Why the desktop is unavailable, when available is false.
+  string unavailable_reason = 2;
+  // Present when a display is reachable.
+  Desktop desktop = 3;
+  // Path of the RFB WebSocket, e.g. /api/desktop/ws. Set when available.
+  string ws_path = 4;
+}

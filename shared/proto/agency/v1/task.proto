@@ -1,0 +1,948 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/artifacts.proto";
+import "agency/v1/attachments.proto";
+import "agent/v1/task.proto";
+import "google/protobuf/timestamp.proto";
+
+// TaskService owns the agency's task lifecycle, from a draft work item to a
+// running Pi session. It also forwards the runtime actions a live task needs
+// to its agent over the tunnel, resolving the agent and Pi session from the
+// task id so clients never have to track them.
+service TaskService {
+  // ListTasks returns the agency-side view of tasks. Optional filters narrow
+  // by project, agent, state and tag; `search` matches names, prompts, and
+  // `<prefix>-<seq>` task ids.
+  // Runtime fields are left empty (use GetTask for those).
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // GetTask resolves one task and, when it is running on a connected agent,
+  // enriches it with the live runtime state.
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  // CreateTask creates a draft, backlog, or queued work item. A queued task is
+  // picked up by the scheduler; an unassigned one is auto-assigned to a member
+  // agent.
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  // UpdateTask edits a task. A request that fills the draft fields (prompt,
+  // project) replaces a draft task wholesale; a request that sets one or more
+  // `set_*` attribute fields instead updates only those attributes and is
+  // allowed in any state (a title has its own RPC). Use BulkUpdateTask to
+  // apply the same attributes to many tasks at once.
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+  // QueueTask moves a backlog task to queued so the scheduler can start it.
+  // When the task has incomplete blocking references it stays queued but is
+  // reported as blocked (the scheduler skips it) until they complete.
+  rpc QueueTask(QueueTaskRequest) returns (QueueTaskResponse);
+  // PromoteTask moves a draft task to backlog: very likely to run, but not
+  // queued yet. Draft is not queued directly.
+  rpc PromoteTask(PromoteTaskRequest) returns (PromoteTaskResponse);
+  // DemoteTask moves a backlog task back to draft.
+  rpc DemoteTask(DemoteTaskRequest) returns (DemoteTaskResponse);
+  // DequeueTask moves a queued task back to backlog without starting it.
+  rpc DequeueTask(DequeueTaskRequest) returns (DequeueTaskResponse);
+  // ListTaskReferences returns the tasks a task references.
+  rpc ListTaskReferences(ListTaskReferencesRequest) returns (ListTaskReferencesResponse);
+  // AddTaskReference upserts a reference from one task to another. A blocking
+  // reference gates queuing; adding one to a queued or running task parks that
+  // task as blocked first.
+  rpc AddTaskReference(AddTaskReferenceRequest) returns (AddTaskReferenceResponse);
+  // RemoveTaskReference drops one reference. Removing a blocked task's last
+  // incomplete blocking reference promotes it to queued.
+  rpc RemoveTaskReference(RemoveTaskReferenceRequest) returns (RemoveTaskReferenceResponse);
+  // ReopenTask returns a settled, failed, completed, or cancelled task to
+  // backlog (or straight to queued when `queue` is set).
+  rpc ReopenTask(ReopenTaskRequest) returns (ReopenTaskResponse);
+  // CloseOutTask closes a non-running task as completed or cancelled.
+  rpc CloseOutTask(CloseOutTaskRequest) returns (CloseOutTaskResponse);
+  // MergeTasks creates a new draft task from the selected tasks, concatenating
+  // their prompts and folding their tags, size, attachments, links, and
+  // references together. The merged task supersedes (and cancels) the
+  // mergees. Every mergee must be in the same project and share the same
+  // assignee, and be in draft, backlog, queued, or failed.
+  rpc MergeTasks(MergeTasksRequest) returns (MergeTasksResponse);
+  // ArchiveTask hides a completed or cancelled task (archived is a boolean
+  // field, not a state) and cleans up its agent-side Pi session and workspace.
+  // When the agent is offline the archive still succeeds and the cleanup is
+  // left for CleanupTaskSession. Only a closed-out task can be archived.
+  rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  // UnarchiveTask brings an archived task back into the active lists.
+  rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
+  // CleanupTaskSession deletes an archived task's agent-side Pi session and
+  // workspace if the earlier archive had to skip it (the agent was offline).
+  rpc CleanupTaskSession(CleanupTaskSessionRequest) returns (CleanupTaskSessionResponse);
+  // DeleteTask removes a task from any state. A running task is stopped and
+  // its agent-side Pi session and workspace are deleted. Usage history stays.
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+  // RenameTask sets a task's display name in any state (forwarded to a
+  // running session so its title stays in sync).
+  rpc RenameTask(RenameTaskRequest) returns (RenameTaskResponse);
+  // SetTaskPriority sets a task's scheduler priority in any state. For a
+  // queued task it changes the order the scheduler drains it.
+  rpc SetTaskPriority(SetTaskPriorityRequest) returns (SetTaskPriorityResponse);
+  // SetTaskSize sets a task's manually estimated size in any state. Size is
+  // purely informational; it never affects scheduling.
+  rpc SetTaskSize(SetTaskSizeRequest) returns (SetTaskSizeResponse);
+  // SetTaskLinks replaces a task's labeled links (e.g. a PR or an issue).
+  // Only absolute http(s) URLs are kept; an empty list clears the links.
+  rpc SetTaskLinks(SetTaskLinksRequest) returns (SetTaskLinksResponse);
+  // SetTaskTeams replaces a task's owning teams: one or more teams attached to
+  // the task's project. A member of any owning team may prompt the task. A
+  // task keeps at least one owning team, so an empty list is rejected.
+  rpc SetTaskTeams(SetTaskTeamsRequest) returns (SetTaskTeamsResponse);
+  // SetTaskLeads replaces a task's leads: the actors accountable for it, who
+  // are shown on the task, notified of its updates, and may prompt it. Every
+  // lead must be a project member or a member of one of the task's owning
+  // teams.
+  rpc SetTaskLeads(SetTaskLeadsRequest) returns (SetTaskLeadsResponse);
+  // SetTaskSubscription subscribes or unsubscribes the caller to a task's
+  // updates. Anyone with at least view access to the task may subscribe; leads
+  // are implicit recipients and need no subscription.
+  rpc SetTaskSubscription(SetTaskSubscriptionRequest) returns (SetTaskSubscriptionResponse);
+  // BulkUpdateTask applies the same priority, size, assignee, and/or tag
+  // changes to many tasks in one call. Every task is checked individually: a
+  // missing task or one that is running/waiting for input produces a per-task
+  // error (see BulkUpdateTaskResult) while the other tasks still update.
+  rpc BulkUpdateTask(BulkUpdateTaskRequest) returns (BulkUpdateTaskResponse);
+
+  // Runtime actions for a started task (require an agent-side Pi session).
+  rpc AddToTask(AddToTaskRequest) returns (AddToTaskResponse);
+  rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
+  rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+  rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
+  rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
+  // MigrateTaskHistory makes the owning agent push its local Pi session file
+  // into the agency's canonical history. It migrates a task whose session
+  // predates automatic sync, so its history survives the agent-side cleanup.
+  rpc MigrateTaskHistory(MigrateTaskHistoryRequest) returns (MigrateTaskHistoryResponse);
+  rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
+  // GetTaskDefaults reports the model/thinking options a new task can start
+  // with on one agent, so the create form can populate its pickers.
+  rpc GetTaskDefaults(GetTaskDefaultsRequest) returns (GetTaskDefaultsResponse);
+  rpc SetTaskModel(SetTaskModelRequest) returns (SetTaskModelResponse);
+  rpc SetTaskThinkingLevel(SetTaskThinkingLevelRequest) returns (SetTaskThinkingLevelResponse);
+  rpc RespondToExtensionUi(RespondToExtensionUiRequest) returns (RespondToExtensionUiResponse);
+  // ClearTaskQueue drops every queued (not yet injected) steering message on a
+  // task. A prompt sent while a run is in flight is queued by Pi and injected
+  // between blocks; this discards it.
+  rpc ClearTaskQueue(ClearTaskQueueRequest) returns (ClearTaskQueueResponse);
+}
+
+// TaskState is the agency-side lifecycle of a task.
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  // Editable, never scheduled.
+  TASK_STATE_DRAFT = 1;
+  reserved 9; // formerly TASK_STATE_BLOCKED; blocked is now a computed flag on QUEUED
+  // Very likely to be run, parked before the queue. Promoted from DRAFT and
+  // queued from here; the only state QueueTask accepts.
+  TASK_STATE_BACKLOG = 11;
+  // Waiting for an eligible agent with a free slot. A queued task with
+  // incomplete blocking references reports `blockers > 0` and is skipped by
+  // the scheduler until they complete.
+  TASK_STATE_QUEUED = 2;
+  // Assigned to an agent; a Pi run is in flight. The agent's slot is held.
+  TASK_STATE_RUNNING = 3;
+  // A run finished and the task is idle, awaiting a follow-up or a close-out.
+  // The agent's slot stays held until then.
+  TASK_STATE_SETTLED = 4;
+  // A run errored. The agent's slot is held so a follow-up or retry can resume
+  // the warm Pi session.
+  TASK_STATE_FAILED = 5;
+  // Blocked on an extension dialog: the agent needs the user's answer before
+  // the run can continue. The agent's slot is held.
+  TASK_STATE_INPUT = 6;
+  // Closed out as done by the user.
+  TASK_STATE_COMPLETED = 7;
+  // Closed out as abandoned by the user. A superseding task cancels a draft,
+  // backlog, queued, or failed mergee into this state.
+  TASK_STATE_CANCELLED = 8;
+  reserved 10; // formerly TASK_STATE_REVIEW
+}
+
+// TaskPriority orders the scheduler's queue (higher first); ties break by
+// creation time.
+enum TaskPriority {
+  TASK_PRIORITY_UNSPECIFIED = 0;
+  TASK_PRIORITY_LOW = 1;
+  TASK_PRIORITY_NORMAL = 2;
+  TASK_PRIORITY_HIGH = 3;
+  TASK_PRIORITY_CRITICAL = 4;
+}
+
+// TaskSize is a manually set estimate of a task's scope. It is informational
+// only: the scheduler ignores it, and it can be changed in any state.
+enum TaskSize {
+  // The default on a new task; stored as MEDIUM.
+  TASK_SIZE_UNSPECIFIED = 0;
+  TASK_SIZE_SMALL = 1;
+  TASK_SIZE_MEDIUM = 2;
+  TASK_SIZE_BIG = 3;
+  // The largest scope, shown in red: a multi-week effort.
+  TASK_SIZE_EPIC = 4;
+}
+
+// TaskTeam is one team that owns a task, with its name so a client can render
+// it without another lookup.
+message TaskTeam {
+  int32 id = 1;
+  string name = 2;
+}
+
+// TaskLead is one actor accountable for a task: a project member (directly or
+// through a team) or a member of one of its owning teams, shown on the task and
+// notified of its updates. The display fields let a client render the lead
+// without another lookup.
+message TaskLead {
+  string actor_id = 1;
+  string username = 2;
+  string name = 3;
+  // "user" or "agent".
+  string kind = 4;
+  // The lead's uploaded picture, if any; empty falls back to an initials
+  // avatar.
+  string picture_url = 5;
+}
+
+// TaskRuntime is the live state of a started task, read from its agent.
+message TaskRuntime {
+  // A run is in flight (a prompt was sent and Pi has not settled).
+  bool run_in_progress = 1;
+  // Blocked on an extension dialog.
+  bool waiting_for_input = 2;
+  // The Pi process is alive (a settled task may keep it warm).
+  bool process_running = 3;
+}
+
+// Task is the agency-side work item plus, for a running task, its live
+// runtime state.
+message Task {
+  string id = 1;
+  string name = 2;
+  string prompt = 3;
+  // The project the task belongs to. Empty only on legacy orphan rows; every
+  // task created or edited through the API has one.
+  string project_id = 4;
+  // The agent the task is pinned to / running on (empty while unassigned).
+  // The actor the task is assigned to (an agent actor for now).
+  string assignee_actor_id = 5;
+  // True when a user chose the assignee (rather than the scheduler).
+  bool assignee_pinned = 6;
+  TaskPriority priority = 7;
+  TaskState state = 8;
+  // The agent-side Pi session id once the task has started (empty otherwise).
+  string session_id = 9;
+  repeated Tag tags = 10;
+  string error = 11;
+  // Live runtime (only GetTask enriches it).
+  TaskRuntime runtime = 12;
+  // The options the task will start (or started) its Pi session with.
+  string model_provider = 13;
+  string model_id = 14;
+  string thinking_level = 15;
+  bool interactive = 16;
+  string workspace = 17;
+  bool auto_title = 18;
+  google.protobuf.Timestamp queued_at = 19;
+  google.protobuf.Timestamp started_at = 20;
+  // When the run last settled, or when the task failed.
+  google.protobuf.Timestamp settled_at = 21;
+  google.protobuf.Timestamp created_at = 22;
+  google.protobuf.Timestamp updated_at = 23;
+  reserved 24, 25; // formerly archived / archived_at
+  // Labeled URLs the running agent attached to the task (e.g. a PR or an
+  // issue). The agent replaces the whole list through its `setTaskUrls` tool.
+  repeated TaskLink links = 26;
+  // Manually estimated size. Never UNSPECIFIED on a stored task.
+  TaskSize size = 27;
+  // The tasks this task references, as lightweight edges so a list can render
+  // them without loading whole tasks. A blocking reference gates queuing.
+  repeated TaskReference references = 28;
+  // The task's per-project sequence number. Together with `project_id` it is
+  // the stable reference; `id` is rendered as `<project prefix>-<seq>` and
+  // changes when the project's prefix is edited.
+  int64 seq = 29;
+  // The task's file tray: user uploads and agent artifacts. Only GetTask
+  // enriches it, so listing tasks never loads attachment rows.
+  repeated Attachment attachments = 30;
+  // The agency's ordered log of the user prompts it sent this task, each with
+  // its attachments. Only GetTask enriches it.
+  repeated TaskMessage messages = 31;
+  // The outputs the agent published for this task (A2A artifacts). Only
+  // GetTask enriches it.
+  repeated Artifact artifacts = 32;
+  // When the task's effective state last changed. Unlike `updated_at`, a plain
+  // edit (priority, tags, title) does not move it, so a list can order by
+  // "recently changed state".
+  google.protobuf.Timestamp state_updated_at = 33;
+  // The agency's change log for this task, newest first. Only GetTask enriches
+  // it.
+  repeated TaskLog logs = 34;
+  // The tasks that reference this one (incoming edges). Only GetTask enriches
+  // it.
+  repeated TaskReference referenced_by = 35;
+  // When the task's agent-side Pi session and workspace were cleaned up
+  // (through the Cleanup tab). The agency keeps the conversation, so the task
+  // page stays readable and a follow-up starts a fresh Pi session that replays
+  // it; the mark clears once that session exists. The task keeps its lifecycle
+  // state.
+  google.protobuf.Timestamp session_deleted_at = 36;
+  // Whether the agency holds this task's session history, so deleting the
+  // agent-side Pi session and workspace does not lose it. False for a task
+  // whose session predates automatic sync until MigrateTaskHistory runs.
+  // Only GetTask/MigrateTaskHistory enrich it.
+  bool history_migrated = 37;
+  // A follow-up message stashed on a resting task (completed/cancelled) until
+  // the scheduler delivers it to the warm Pi session. It is the "next message
+  // to send", so a task returned to draft shows it as the last, editable
+  // message while the task's original prompt stays in the history.
+  string pending_prompt = 38;
+  // Whether the task is archived. Archived tasks are hidden from the active
+  // lists and never hold an agent slot; archiving also cleans up the
+  // agent-side Pi session and workspace. Archive is a flag, not a state, so
+  // the lifecycle state is preserved.
+  bool archived = 39;
+  // When the task was archived.
+  google.protobuf.Timestamp archived_at = 40;
+  // The number of incomplete blocking references that hold a queued task back.
+  // Zero for an unblocked task; only meaningful when the state is QUEUED.
+  int32 blockers = 41;
+  // The actor that created the task. Empty for a task that predates phase 6
+  // or was created without an authenticated actor.
+  string creator_actor_id = 42;
+  // The creator's display name, for the task page. Empty when unknown.
+  string creator_name = 43;
+  reserved 44, 45; // formerly participation / participation_teams
+  // The creator's uploaded picture; empty falls back to an initials avatar.
+  string creator_picture_url = 51;
+  // The actor that sent the stashed pending prompt, when one exists.
+  string pending_prompt_actor_id = 46;
+  // The pending prompt sender's display name. Empty when unknown.
+  string pending_prompt_actor_name = 47;
+  // The teams that own the task. A task created after owning teams landed has
+  // at least one; a legacy task has none and falls back to project visibility.
+  repeated TaskTeam teams = 48;
+  // The actors accountable for the task, each a member of one of its owning
+  // teams. Empty for a legacy task.
+  repeated TaskLead leads = 49;
+  // Whether the calling actor is subscribed to the task's updates. Only set by
+  // GetTask: a list does not know the caller.
+  bool subscribed = 50;
+}
+
+// TaskLog is one entry in a task's change log: who changed what, when. The
+// agency appends an entry on creation and on every meaningful change (state
+// transitions, priority, size, assignee, tags, dependencies, links, title,
+// project, prompt, model).
+message TaskLog {
+  // Monotonic id, stable within a task.
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  // Who made the change: "user", "agent", or "system".
+  string actor = 3;
+  // Machine kind: "created", "state", "name", "prompt", "priority",
+  // "size", "assignee", "tags", "references", "links", "project",
+  // "model", or "session".
+  string kind = 4;
+  // Optional sub-field for kinds that carry one (e.g. "thinking" for model),
+  // empty otherwise.
+  string field = 5;
+  // The previous value, already rendered for display (a label for enums, a
+  // name for references). Empty when there is no before.
+  string old_value = 6;
+  // The new value, rendered like old_value.
+  string new_value = 7;
+  // A pre-rendered human summary, e.g. "Priority changed from Normal to High".
+  string message = 8;
+  // Kind-specific structured data as a JSON object, so a client can render
+  // badges and links instead of parsing the message. Shapes by kind:
+  //   state:        {"old":"draft","new":"queued"} (stored state values)
+  //   priority:     {"old":-1,"new":2} (stored priority values)
+  //   size:         {"old":"small","new":"big"}
+  //   name/prompt/model/thinking: {"old":"…","new":"…"}
+  //   assignee:     {"oldId":"…","oldName":"…","newId":"…","newName":"…"}
+  //   project:      same as assignee
+  //   tags:         {"added":[{"id":…,"name":…,"color":…}],"removed":[…]}
+  //   references:   {"added":[{"id":…,"name":…,"state":…,"kind":…}],
+  //                  "removed":[…],"changed":[…]}
+  //   links:        {"added":[{"url":…,"label":…}],"removed":[…]}
+  // Empty for kinds without structured data (created).
+  string data_json = 9;
+  // The acting actor's id, when known. Empty for a system or legacy entry.
+  string actor_id = 10;
+  // The acting actor's display name, when known.
+  string actor_name = 11;
+  // The acting actor's username, when known.
+  string actor_username = 12;
+}
+
+// TaskMessage is one user prompt the agency sent a task, with the files it
+// carried. The agency is the only sender, so the nth message lines up with the
+// nth UserMessage in Pi's history (the console aligns them by index).
+message TaskMessage {
+  // Client-supplied or agency-generated prompt id.
+  string id = 1;
+  string text = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // The message's files, in order.
+  repeated Attachment attachments = 4;
+  // The actor that sent the prompt. Empty for a legacy message whose author
+  // was never recorded.
+  string actor_id = 5;
+  // The sender's display name and username, when known.
+  string actor_name = 6;
+  string actor_username = 7;
+  // "user", "agent", or "system".
+  string actor_kind = 8;
+}
+
+// TaskReferenceKind is the meaning of a reference edge. BLOCKING gates
+// queuing; INFORMATIONAL is a plain relation; SUPERSEDES cancels a mergee
+// (in draft/backlog/queued/failed) when the edge is created.
+enum TaskReferenceKind {
+  TASK_REFERENCE_KIND_UNSPECIFIED = 0;
+  // The referencing task waits for the referenced task to reach `completed`
+  // before it is queued.
+  TASK_REFERENCE_KIND_BLOCKING = 1;
+  // A plain, non-gating relation.
+  TASK_REFERENCE_KIND_INFORMATIONAL = 2;
+  // The referencing task replaces the referenced one. The referenced task is
+  // cancelled when it is in draft, backlog, queued, or failed.
+  TASK_REFERENCE_KIND_SUPERSEDES = 3;
+}
+
+// TaskReference is a lightweight edge to another task: the referenced task's
+// id/name/state plus the edge's kind.
+message TaskReference {
+  string id = 1;
+  // The referenced task's display name (may be empty; clients fall back to the
+  // prompt or id).
+  string name = 2;
+  TaskState state = 3;
+  // The referenced task's prompt; clients derive the display title from it
+  // when the name is empty.
+  string prompt = 4;
+  // The meaning of the edge (blocking, informational, or supersedes).
+  TaskReferenceKind kind = 5;
+}
+
+// TaskReferenceInput identifies a referenced task and the edge's kind.
+message TaskReferenceInput {
+  string referenced_task_id = 1;
+  TaskReferenceKind kind = 2;
+}
+
+// TaskLink is a labeled URL attached to a task by its agent.
+message TaskLink {
+  string url = 1;
+  // Short human label, e.g. "PR" or "Issue #42".
+  string label = 2;
+}
+
+// Tag is a project-scoped task label. A tag's name is unique within its
+// project (case-insensitively); the same name may exist in other projects.
+// Tags are soft-deleted (archived) so completed tasks keep rendering them.
+message Tag {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  bool archived = 5;
+  int32 task_count = 6;
+  // The project that owns the tag.
+  string project_id = 7;
+  // The tag is pre-selected in the task composer for its project. Every
+  // default tag may still be removed for one task.
+  bool is_default = 8;
+}
+
+message ListTasksRequest {
+  string project_id = 1;
+  string agent_id = 2;
+  TaskState state = 3;
+  string tag_id = 4;
+  string search = 5;
+  // Archived is a boolean field, not a state: false lists active tasks (the
+  // default), true lists the archive.
+  bool archived = 6;
+  // Restrict to one manually set size. UNSPECIFIED applies no filter.
+  TaskSize size = 7;
+}
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  // Registered agents whose runtime could not be read (never fails the call).
+  repeated string offline_agents = 2;
+}
+
+message GetTaskRequest {
+  string id = 1;
+}
+message GetTaskResponse {
+  Task task = 1;
+}
+
+message CreateTaskRequest {
+  string prompt = 1;
+  // Optional display name; when empty the agent may auto-title from the prompt.
+  string name = 2;
+  // Required. A task must be created within a project.
+  string project_id = 3;
+  // Optional pinned agent. Empty leaves the task for the scheduler when queued.
+  // The actor to assign the task to (an agent actor for now).
+  string assignee_actor_id = 4;
+  repeated string tag_ids = 5;
+  TaskPriority priority = 6;
+  string model_provider = 7;
+  string model_id = 8;
+  string thinking_level = 9;
+  bool interactive = 10;
+  string workspace = 11;
+  bool auto_title = 12;
+  // The task's initial state: DRAFT, BACKLOG, or QUEUED. UNSPECIFIED (the
+  // default) queues the task immediately. The agent task tools only accept
+  // DRAFT or BACKLOG, so an agent cannot queue work directly.
+  TaskState state = 13;
+  // Manually estimated size. UNSPECIFIED (the default) stores MEDIUM.
+  TaskSize size = 14;
+  // Tasks the new task references. Queuing it with any incomplete blocking
+  // reference parks it as blocked instead.
+  repeated TaskReferenceInput references = 15;
+  reserved 16, 17; // formerly participation / participation_team_ids
+  // The teams that own the task: one or more teams attached to the project.
+  // Required for a new task; a member of any owning team may prompt it.
+  repeated int32 team_ids = 18;
+  // The task's leads, each a project member or a member of one of the owning
+  // teams.
+  repeated string lead_actor_ids = 19;
+}
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message UpdateTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  string name = 3;
+  // Required. A draft cannot be saved without a project.
+  string project_id = 4;
+  // The actor to assign the task to (an agent actor for now).
+  string assignee_actor_id = 5;
+  repeated string tag_ids = 6;
+  TaskPriority priority = 7;
+  string model_provider = 8;
+  string model_id = 9;
+  string thinking_level = 10;
+  bool interactive = 11;
+  string workspace = 12;
+  bool auto_title = 13;
+  // Manually estimated size. UNSPECIFIED (the default) stores MEDIUM.
+  TaskSize size = 14;
+  // Attribute update. Setting any of the following turns the request into an
+  // attribute-only update: the draft fields above are ignored, and only the
+  // present attributes change. The task may be in any state except running
+  // or input (a live run owns its agent). An explicitly empty
+  // `set_assignee_actor_id` clears the pin so the scheduler picks an agent.
+  optional TaskPriority set_priority = 15;
+  optional TaskSize set_size = 16;
+  optional string set_assignee_actor_id = 17;
+  // Replace the task's pending follow-up. It is a draft-only edit: the pending
+  // message is the one a re-queue delivers, so it cannot change mid-run.
+  optional string set_pending_prompt = 18;
+  // Replace the task's prompt. It is allowed while the task has not been
+  // queued yet (draft or backlog); a queued or started task's prompt is
+  // pinned into its Pi session.
+  optional string set_prompt = 19;
+}
+message UpdateTaskResponse {
+  Task task = 1;
+}
+
+message QueueTaskRequest {
+  string id = 1;
+}
+message QueueTaskResponse {
+  Task task = 1;
+}
+
+message PromoteTaskRequest {
+  string id = 1;
+}
+message PromoteTaskResponse {
+  Task task = 1;
+}
+
+message DemoteTaskRequest {
+  string id = 1;
+}
+message DemoteTaskResponse {
+  Task task = 1;
+}
+
+message DequeueTaskRequest {
+  string id = 1;
+}
+message DequeueTaskResponse {
+  Task task = 1;
+}
+
+message ListTaskReferencesRequest {
+  string id = 1;
+}
+message ListTaskReferencesResponse {
+  repeated Task tasks = 1;
+}
+
+message AddTaskReferenceRequest {
+  string id = 1;
+  string referenced_task_id = 2;
+  // The edge's kind. A BLOCKING edge to a queued task leaves it queued but
+  // blocked (the scheduler skips it until the reference completes); a
+  // SUPERSEDES edge cancels the referenced task when it is in draft, backlog,
+  // queued, or failed.
+  TaskReferenceKind kind = 3;
+}
+message AddTaskReferenceResponse {
+  Task task = 1;
+}
+
+message RemoveTaskReferenceRequest {
+  string id = 1;
+  string referenced_task_id = 2;
+}
+message RemoveTaskReferenceResponse {
+  Task task = 1;
+}
+
+message ReopenTaskRequest {
+  string id = 1;
+  // Queue the task instead of parking it in backlog.
+  bool queue = 2;
+}
+message ReopenTaskResponse {
+  Task task = 1;
+}
+
+message CloseOutTaskRequest {
+  string id = 1;
+  // Required. Must be COMPLETED or CANCELLED.
+  TaskState outcome = 2;
+}
+message CloseOutTaskResponse {
+  Task task = 1;
+}
+
+message MergeTasksRequest {
+  // The tasks to merge, in display order. Must name at least two tasks of one
+  // project with the same assignee, all in draft, backlog, queued, or failed.
+  repeated string ids = 1;
+}
+message MergeTasksResponse {
+  Task task = 1;
+}
+
+message ArchiveTaskRequest {
+  string id = 1;
+}
+message ArchiveTaskResponse {
+  Task task = 1;
+}
+
+message UnarchiveTaskRequest {
+  string id = 1;
+}
+message UnarchiveTaskResponse {
+  Task task = 1;
+}
+
+message CleanupTaskSessionRequest {
+  string id = 1;
+}
+message CleanupTaskSessionResponse {
+  Task task = 1;
+}
+
+message RenameTaskRequest {
+  string id = 1;
+  string name = 2;
+}
+message RenameTaskResponse {
+  Task task = 1;
+}
+
+message SetTaskPriorityRequest {
+  string id = 1;
+  TaskPriority priority = 2;
+}
+message SetTaskPriorityResponse {
+  Task task = 1;
+}
+
+message SetTaskSizeRequest {
+  string id = 1;
+  TaskSize size = 2;
+}
+message SetTaskSizeResponse {
+  Task task = 1;
+}
+
+message SetTaskLinksRequest {
+  string id = 1;
+  // The complete replacement list. Only absolute http(s) URLs are kept;
+  // duplicates collapse (the last label wins) and order is preserved.
+  repeated TaskLink links = 2;
+}
+message SetTaskLinksResponse {
+  Task task = 1;
+}
+
+message SetTaskTeamsRequest {
+  string id = 1;
+  // The complete replacement list. Must name at least one team, and every team
+  // must be attached to the task's project.
+  repeated int32 team_ids = 2;
+}
+message SetTaskTeamsResponse {
+  Task task = 1;
+}
+
+message SetTaskLeadsRequest {
+  string id = 1;
+  // The complete replacement list. Every actor must be a project member or a
+  // member of one of the task's owning teams.
+  repeated string lead_actor_ids = 2;
+}
+message SetTaskLeadsResponse {
+  Task task = 1;
+}
+
+message SetTaskSubscriptionRequest {
+  string id = 1;
+  // True subscribes the caller, false unsubscribes them.
+  bool subscribed = 2;
+}
+message SetTaskSubscriptionResponse {
+  Task task = 1;
+}
+
+message BulkUpdateTaskRequest {
+  repeated string ids = 1;
+  // The attributes to apply to every task. At least one attribute (a `set_*`
+  // field or a tag change) must be present; the `set_*` semantics match
+  // UpdateTask's attribute mode.
+  optional TaskPriority set_priority = 2;
+  optional TaskSize set_size = 3;
+  optional string set_assignee_actor_id = 4;
+  // Tags to attach to every task. Each tag must belong to the task's project;
+  // a task in another project is reported as an error. Attaching a tag a task
+  // already carries is a no-op.
+  repeated string add_tag_ids = 5;
+  // Tags to detach from every task. Detaching a tag a task does not carry is
+  // a no-op.
+  repeated string remove_tag_ids = 6;
+}
+message BulkUpdateTaskResponse {
+  repeated BulkUpdateTaskResult results = 1;
+}
+
+// BulkUpdateTaskResult reports one task in a bulk update: its refreshed state
+// on success, or a human-readable error when it was skipped (e.g. it is
+// running, missing, or the assignee is not a project member).
+message BulkUpdateTaskResult {
+  string id = 1;
+  Task task = 2;
+  string error = 3;
+}
+
+message DeleteTaskRequest {
+  string id = 1;
+}
+message DeleteTaskResponse {}
+
+message AddToTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  // Uploaded attachments to send with this prompt; they are linked to the
+  // resulting message and pushed to the agent with the prompt.
+  repeated int64 attachment_ids = 3;
+  // Optional client-generated message id. Empty lets the agency mint one.
+  string message_id = 4;
+}
+message AddToTaskResponse {
+  // The message id the prompt was recorded under (always set).
+  string message_id = 1;
+}
+
+message StopTaskRequest {
+  string id = 1;
+}
+message StopTaskResponse {}
+
+message RetryTaskRequest {
+  string id = 1;
+}
+message RetryTaskResponse {
+  Task task = 1;
+}
+
+message WatchTaskRequest {
+  string id = 1;
+  // Replay the persisted conversation before live events.
+  bool replay_history = 2;
+}
+message WatchTaskResponse {
+  agent.v1.TaskEvent event = 1;
+}
+
+message GetTaskHistoryRequest {
+  string id = 1;
+  string before = 2;
+  uint32 limit = 3;
+}
+message GetTaskHistoryResponse {
+  repeated agent.v1.TaskEvent events = 1;
+  string next_before = 2;
+}
+
+message MigrateTaskHistoryRequest {
+  string id = 1;
+}
+
+message MigrateTaskHistoryResponse {
+  // The task, refreshed with `history_migrated` set when the migration stored
+  // at least one entry.
+  Task task = 1;
+  // The number of entries the agent had in its local session file (0 when the
+  // file was missing, so there was nothing to migrate).
+  uint32 entries = 2;
+}
+
+message GetTaskConfigRequest {
+  string id = 1;
+}
+message GetTaskConfigResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+message GetTaskDefaultsRequest {
+  string agent_id = 1;
+}
+message GetTaskDefaultsResponse {
+  agent.v1.TaskConfig defaults = 1;
+}
+
+message SetTaskModelRequest {
+  string id = 1;
+  string provider = 2;
+  string model_id = 3;
+}
+message SetTaskModelResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+message SetTaskThinkingLevelRequest {
+  string id = 1;
+  string level = 2;
+}
+message SetTaskThinkingLevelResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+// QuestionnaireAnswer is one question/answer pair from an ask_user_question
+// wizard; see the agent proto for the full contract.
+message QuestionnaireAnswer {
+  string question = 1;
+  string answer = 2;
+}
+
+message RespondToExtensionUiRequest {
+  string id = 1;
+  string request_id = 2;
+  oneof response {
+    string value = 3;
+    bool confirmed = 4;
+    bool cancelled = 5;
+  }
+  // Every question/answer pair of the submitted questionnaire, forwarded to
+  // the agent unchanged. Empty for non-questionnaire dialogs.
+  repeated QuestionnaireAnswer questionnaire = 6;
+}
+message RespondToExtensionUiResponse {}
+
+message ClearTaskQueueRequest {
+  string id = 1;
+}
+message ClearTaskQueueResponse {}
+
+// TagService manages the per-project task tags.
+service TagService {
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+  rpc CreateTag(CreateTagRequest) returns (CreateTagResponse);
+  rpc UpdateTag(UpdateTagRequest) returns (UpdateTagResponse);
+  rpc ArchiveTag(ArchiveTagRequest) returns (ArchiveTagResponse);
+  rpc RestoreTag(RestoreTagRequest) returns (RestoreTagResponse);
+}
+
+message ListTagsRequest {
+  // Include archived tags (default false).
+  bool include_archived = 1;
+  // Restrict to one project's tags. Empty lists every project's tags.
+  string project_id = 2;
+}
+message ListTagsResponse {
+  repeated Tag tags = 1;
+}
+
+message CreateTagRequest {
+  // The project that owns the tag. Required.
+  string project_id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  // Pre-select the tag in the task composer (default false).
+  bool is_default = 5;
+}
+message CreateTagResponse {
+  Tag tag = 1;
+}
+
+message UpdateTagRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  // Pre-select the tag in the task composer.
+  bool is_default = 5;
+}
+message UpdateTagResponse {
+  Tag tag = 1;
+}
+
+message ArchiveTagRequest {
+  string id = 1;
+}
+message ArchiveTagResponse {
+  Tag tag = 1;
+}
+
+message RestoreTagRequest {
+  string id = 1;
+}
+message RestoreTagResponse {
+  Tag tag = 1;
+}

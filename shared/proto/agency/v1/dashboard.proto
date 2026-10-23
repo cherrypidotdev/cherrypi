@@ -1,0 +1,102 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+import "agent/v1/dashboard.proto";
+
+// DashboardService serves the agency's aggregated usage (across agents, from
+// the agency's own usage table) plus per-agent proxied reads.
+service DashboardService {
+  // GetUsage aggregates usage pushed by agents. `agent_id` and `project_id`
+  // optionally filter.
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  // GetTaskUsage forwards one task's usage to its agent (live overlay).
+  rpc GetTaskUsage(GetTaskUsageRequest) returns (GetTaskUsageResponse);
+  // GetDiskUsage forwards one agent's workspace sizes.
+  rpc GetDiskUsage(GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  // GetTaskDiskUsage forwards one task's workspace size to its agent.
+  rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
+}
+
+message GetUsageRequest {
+  // Optional agent filter; empty aggregates every agent.
+  string agent_id = 1;
+  // Optional project filter; empty aggregates every project. Applied through
+  // the task that owns each usage row's Pi session.
+  string project_id = 2;
+}
+
+// GetUsageResponse carries token totals for reference, but the dashboard only
+// renders cost: accumulated per UTC day and per task.
+message GetUsageResponse {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  double cost = 3;
+  // Per-task totals, keyed by agent and task.
+  repeated AgentTaskUsage tasks = 4;
+  // Settled totals per UTC day, oldest first.
+  repeated UsageDay days = 5;
+}
+
+// AgentTaskUsage retains tokens for future reference; the dashboard shows cost
+// only.
+message AgentTaskUsage {
+  string agent_id = 1;
+  string task_id = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  double cost = 5;
+  int64 active_ms = 6;
+}
+
+// UsageDay retains tokens for future reference; the dashboard shows cost only.
+message UsageDay {
+  // Midnight UTC of the day.
+  google.protobuf.Timestamp day = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+}
+
+message GetTaskUsageRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message GetTaskUsageResponse {
+  agent.v1.TaskUsage usage = 1;
+}
+
+message GetDiskUsageRequest {
+  string agent_id = 1;
+}
+
+message GetDiskUsageResponse {
+  agent.v1.GetDiskUsageResponse usage = 1;
+}
+
+message GetTaskDiskUsageRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message GetTaskDiskUsageResponse {
+  agent.v1.GetTaskDiskUsageResponse usage = 1;
+}

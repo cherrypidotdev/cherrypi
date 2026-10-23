@@ -1,0 +1,317 @@
+/*
+CherryPi: A multi-agent-multi-human self-hosted agency
+Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap");
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-vue/tailwind.css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Geist Variable", sans-serif;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    @apply font-sans;
+  }
+  /* Animated shimmer for a live activity block's title. */
+  .activity-title {
+    background-image: linear-gradient(
+      90deg,
+      var(--muted-foreground),
+      var(--foreground),
+      var(--muted-foreground)
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: activity-shimmer 2.5s linear infinite;
+  }
+  @keyframes activity-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .activity-title {
+      animation: none;
+      background-image: none;
+      color: var(--muted-foreground);
+    }
+  }
+  /* shadcn-vue (nova) does not set a pointer cursor on interactive controls. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/* A container that scrolls horizontally without rendering a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* While the sketch editor is mounted, stop macOS two-finger swipe from
+   triggering browser back/forward navigation while drawing. */
+html.sketch-editor-active,
+html.sketch-editor-active body {
+  overscroll-behavior: none;
+}
+
+/* Toasts: vue3-toastify styled as a dashboard surface — popover background,
+   hairline border, small radius, and a type-colored lucide icon + progress
+   bar. Defaults live in `lib/toast.ts`; the accent is keyed off the
+   `Toastify__toast--<type>` class. */
+.Toastify__toast-container {
+  --toastify-toast-width: 22rem;
+  --toastify-toast-min-height: 0;
+  --toastify-font-family: inherit;
+  padding: 0.25rem;
+}
+
+.Toastify__toast.cherrypi-toast {
+  margin-bottom: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 12px 32px -12px rgb(0 0 0 / 22%),
+    0 2px 8px -4px rgb(0 0 0 / 12%);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.dark .Toastify__toast.cherrypi-toast {
+  box-shadow:
+    0 16px 40px -12px rgb(0 0 0 / 60%),
+    0 2px 10px -4px rgb(0 0 0 / 40%);
+}
+
+/* Per-type accent, shared by the icon and the progress bar. */
+.cherrypi-toast.Toastify__toast--success {
+  --cherrypi-toast-accent: oklch(0.696 0.17 162.48);
+}
+.dark .cherrypi-toast.Toastify__toast--success {
+  --cherrypi-toast-accent: oklch(0.765 0.177 163.22);
+}
+.cherrypi-toast.Toastify__toast--warning {
+  --cherrypi-toast-accent: oklch(0.769 0.188 70.08);
+}
+.dark .cherrypi-toast.Toastify__toast--warning {
+  --cherrypi-toast-accent: oklch(0.828 0.189 84.43);
+}
+.cherrypi-toast.Toastify__toast--error {
+  --cherrypi-toast-accent: var(--destructive);
+}
+.cherrypi-toast.Toastify__toast--info {
+  --cherrypi-toast-accent: oklch(0.685 0.169 237.32);
+}
+.dark .cherrypi-toast.Toastify__toast--info {
+  --cherrypi-toast-accent: oklch(0.746 0.16 232.66);
+}
+
+.cherrypi-toast .Toastify__toast-body {
+  align-items: flex-start;
+  margin: 0;
+  padding: 0;
+}
+
+.cherrypi-toast .Toastify__toast-icon {
+  width: auto;
+  height: auto;
+  margin-inline-end: 0.625rem;
+  margin-block-start: 0.0625rem;
+  color: var(--cherrypi-toast-accent, var(--muted-foreground));
+}
+
+.cherrypi-toast .Toastify__toast-text-content {
+  opacity: 1;
+}
+
+.cherrypi-toast .Toastify__close-button {
+  align-self: flex-start;
+  margin: -0.125rem -0.125rem 0 0.25rem;
+  padding: 0.125rem;
+  border-radius: calc(var(--radius) - 4px);
+  color: var(--muted-foreground);
+  opacity: 1;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.cherrypi-toast .Toastify__close-button:hover,
+.cherrypi-toast .Toastify__close-button:focus-visible {
+  color: var(--foreground);
+  background-color: var(--muted);
+}
+
+.cherrypi-toast .Toastify__close-button > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.cherrypi-toast .Toastify__progress-bar {
+  height: 2px;
+  opacity: 1;
+  background: var(--cherrypi-toast-accent, var(--muted-foreground));
+}
+
+.cherrypi-toast,
+.Toastify__toast-container .Toastify--animate {
+  animation-duration: 0.24s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cherrypi-toast .Toastify--animate-icon {
+  animation-duration: 0.18s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .Toastify__toast-container .Toastify--animate,
+  .cherrypi-toast .Toastify--animate-icon {
+    /* Short rather than none: the library removes toasts on `animationend`. */
+    animation-duration: 0.01ms;
+  }
+}

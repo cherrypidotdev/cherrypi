@@ -1,0 +1,107 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// DashboardService serves the dashboard's read-only data. Usage is aggregated
+// from the `usage` table with a live `get_session_stats` overlay for tasks
+// whose Pi process is running; disk usage is computed per task workspace.
+service DashboardService {
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  rpc GetDiskUsage(GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  // GetTaskDiskUsage reports one task's workspace size on disk, without
+  // walking every other task's workspace.
+  rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
+}
+
+message GetUsageRequest {
+  // When set, only this task's bucket is returned (tasks has exactly one
+  // entry and the response totals describe it), and days is empty. Used by the
+  // task view, which polls one task and must not pay for aggregating every
+  // other task's live stats.
+  string task_id = 1;
+}
+
+// TaskUsage is one task's token/cost totals.
+message TaskUsage {
+  string task_id = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+  // True when the numbers come from a live `get_session_stats` call rather
+  // than the persisted usage table (the task's run has not settled yet).
+  bool live = 5;
+  // Current run's token rate (input + output) in tokens per second, and the
+  // extrapolated cost per hour. Zero unless a run is in flight.
+  double tokens_per_second = 6;
+  double cost_per_hour = 7;
+  // Total active work time in milliseconds, summed across settled runs and
+  // including the in-flight run's contribution. Excludes idle gaps between
+  // runs and time spent waiting on user input.
+  int64 active_ms = 8;
+  // The Pi session's context-window usage: tokens currently in context and the
+  // model's context window. Both are zero when unknown (the process is not
+  // running, or no assistant has reported usage since the last compaction), so
+  // a client can treat `context_window == 0` as "no meter".
+  int64 context_tokens = 9;
+  int64 context_window = 10;
+}
+
+// TaskDiskUsage is the size of one task's workspace on disk.
+message TaskDiskUsage {
+  string task_id = 1;
+  int64 bytes = 2;
+}
+
+message GetDiskUsageRequest {}
+
+message GetDiskUsageResponse {
+  // Total size of all task workspaces, in bytes.
+  int64 total_bytes = 1;
+  // Per-task workspace sizes, largest is not guaranteed; keyed by task.
+  repeated TaskDiskUsage tasks = 2;
+}
+
+message GetTaskDiskUsageRequest {
+  string task_id = 1;
+}
+
+message GetTaskDiskUsageResponse {
+  // Size of the task's workspace on disk, in bytes.
+  int64 bytes = 1;
+}
+
+message GetUsageResponse {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  double cost = 3;
+  repeated TaskUsage tasks = 4;
+  // Settled totals per UTC day, oldest first.
+  repeated UsageDay days = 5;
+}
+
+// UsageDay is one UTC day's settled token/cost totals.
+message UsageDay {
+  // Midnight UTC of the day.
+  google.protobuf.Timestamp day = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+}

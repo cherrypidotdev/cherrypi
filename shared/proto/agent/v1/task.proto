@@ -1,0 +1,546 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TaskService manages the agent's Pi sessions. A task is a long-lived
+// Pi conversation: createTask sends the first prompt, addToTask sends
+// follow-ups. Tasks run in parallel.
+service TaskService {
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc AddToTask(AddToTaskRequest) returns (AddToTaskResponse);
+  // RetryTask re-runs a failed task's last prompt (the pending prompt if
+  // one was persisted, otherwise the original). The task is reactivated.
+  rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+  // StopTask aborts a task's in-flight run without ending or archiving
+  // it. The task stays active and can accept a follow-up prompt.
+  rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
+  // DeleteTask removes a task: its Pi process, its server-assigned
+  // workspace directory, and its record. Token/cost usage history is kept.
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+  // RenameTask sets a task's human-friendly display name.
+  rpc RenameTask(RenameTaskRequest) returns (RenameTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
+  // GetTaskHistory returns a page of a task's persisted conversation,
+  // oldest-first. Pages walk backwards: pass a response's `next_before` as
+  // `before` to fetch the events immediately preceding it.
+  rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
+  // SyncTaskHistory forces a task's Pi process (or its persisted session file)
+  // to reconcile with the agency's stored history now: it pushes entries the
+  // agency is missing, or reconstructs a diverged/empty file from it. It is
+  // used to migrate a task whose history predates automatic sync.
+  rpc SyncTaskHistory(SyncTaskHistoryRequest) returns (SyncTaskHistoryResponse);
+  // GetTaskConfig reports a task's active model and reasoning level plus
+  // the models and levels it can switch to. It starts the task's Pi process
+  // if it was reaped.
+  rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
+  // GetTaskDefaults reports the model and thinking options a new task
+  // can start with: Pi's configured default plus every selectable model (each
+  // with the thinking levels it supports). It probes a short-lived Pi process,
+  // so the New Task form can populate its pickers before any task
+  // exists. It is independent of any task.
+  rpc GetTaskDefaults(GetTaskDefaultsRequest) returns (GetTaskDefaultsResponse);
+  // SetTaskModel switches the task's model (used by the next run).
+  rpc SetTaskModel(SetTaskModelRequest) returns (SetTaskModelResponse);
+  // SetTaskThinkingLevel sets the task's reasoning level.
+  rpc SetTaskThinkingLevel(SetTaskThinkingLevelRequest) returns (SetTaskThinkingLevelResponse);
+  // RespondToExtensionUi answers a pending dialog surfaced as a
+  // TaskEvent.extension_ui.
+  rpc RespondToExtensionUi(RespondToExtensionUiRequest) returns (RespondToExtensionUiResponse);
+  // ClearQueue drops every queued (not yet injected) message on a task. Pi
+  // queues a prompt sent mid-run and injects it between blocks; this discards
+  // the queue instead of letting it run.
+  rpc ClearQueue(ClearQueueRequest) returns (ClearQueueResponse);
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  // Persisted lifecycle value: a usable task that has not ended. Clients
+  // never receive it; an active task reports in-progress, waiting-input, or
+  // done below.
+  TASK_STATUS_ACTIVE = 1;
+  // No run is in flight: the previous run finished, or the task was ended,
+  // possibly interrupting it. Sending a new message reactivates it.
+  TASK_STATUS_DONE = 2;
+  // The last run errored before finishing.
+  TASK_STATUS_FAILED = 3;
+  // Deprecated: cancelled tasks now report DONE. Retained for compatibility
+  // with older servers/clients; never emitted.
+  TASK_STATUS_CANCELLED = 4 [deprecated = true];
+  // A run is in flight: a prompt was sent and Pi has not settled yet.
+  TASK_STATUS_IN_PROGRESS = 5;
+  // Blocked on an extension dialog awaiting the user's answer.
+  TASK_STATUS_WAITING_INPUT = 6;
+}
+
+message Task {
+  string id = 1;
+  // Displayed status. An active task reports in-progress, waiting-input, or
+  // done (no run in flight); ended tasks report done or failed. Termination
+  // itself is recorded by ended_at.
+  TaskStatus status = 2;
+  // The prompt that created the task.
+  string prompt = 3;
+  // Working directory for the task's runs. Server-assigned by default
+  // ($CHERRYPI_DIR/sessions/<id>); a client may pick another via
+  // CreateTaskRequest.workspace.
+  string workspace = 4;
+  // Pi's own session id (used to resume: `pi --session-id <id>`).
+  string pi_session_id = 5;
+  string error = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp ended_at = 9;
+  // Whether extension dialogs are surfaced to the user. Non-interactive
+  // tasks auto-decline them (`cancelled: true`).
+  bool interactive = 10;
+  // True while the task is blocked on an extension dialog.
+  bool waiting_for_input = 11;
+  // JSON of the pending dialog request, if any (empty otherwise).
+  string pending_dialog_json = 12;
+  // Whether the task's Pi process is currently alive. A settled task
+  // keeps its process warm for the idle TTL; once reaped, the next message
+  // resumes it. False when the process has been shut down or never started.
+  bool process_running = 13;
+  // Human-friendly display name, defaulting to a truncated form of the
+  // prompt. Editable via RenameTask.
+  string name = 14;
+  // Note: the task's append_system_prompt is server-side only; it is not
+  // surfaced to clients.
+  // Whether a run is in flight: a prompt was sent and Pi has not settled yet.
+  // Ending then cancels work. False for a settled task whose idle Pi
+  // process is still warm (`process_running`).
+  bool run_in_progress = 16;
+}
+
+message CreateTaskRequest {
+  string prompt = 1;
+
+  // Optional directory to use as the task's workspace. When empty, the
+  // server assigns `$CHERRYPI_DIR/sessions/<id>`. The directory is created if
+  // missing; clients own its contents (clone what you need there and share
+  // results as artifacts).
+  string workspace = 2;
+
+  // Whether extension dialogs are surfaced to the user. Defaults to false:
+  // non-interactive tasks auto-decline dialogs.
+  bool interactive = 3;
+
+  // Optional model selection for the task's runs. Both fields must be set
+  // together; empty (the default) uses Pi's configured model.
+  string model_provider = 4;
+  string model_id = 5;
+
+  // Optional reasoning level, e.g. "medium". Empty uses Pi's configured
+  // default for the selected model.
+  string thinking_level = 6;
+
+  // Optional human-friendly display title. When set, it is stored verbatim as
+  // the task's name and auto_title is ignored.
+  string title = 7;
+
+  // When true and `title` is empty, the agent generates a display name from
+  // the initial prompt asynchronously. The task starts with an empty name,
+  // which clients render as a pending/skeleton state until it is generated
+  // (or the agent falls back to a truncated prompt on failure).
+  bool auto_title = 8;
+
+  // Optional text appended to Pi's system prompt for every one of the
+  // task's runs (first run, resume after reaping, and retry). The agency
+  // composes it from the organization, project, the owning teams' prompts,
+  // agent, and agent-project scopes; the agent treats it as opaque and
+  // persists it with the task.
+  string append_system_prompt = 9;
+
+  // Files the agency attached to the initial prompt. The agent downloads each
+  // one (it holds the agency URL and its tunnel credential) and writes it into
+  // the task workspace; images are also handed to Pi as `images` content.
+  repeated AttachmentRef attachments = 10;
+
+  // The agency-side task id. The agent scopes its token to it and hands it to
+  // the bundled `uploadAttachment` and `setTaskArtifacts` tools, so an upload
+  // links back to the right task.
+  string task_id = 11;
+
+  // The agency-side task's stable reference. Unlike `task_id` (a display id
+  // that changes when the project's prefix is renamed), this identifies the
+  // task for the life of the agent's Pi session, so a resumed session can
+  // still scope its tokens.
+  TaskRef ref = 12;
+
+  // The actor the initial prompt is attributed to. The agent wraps the prompt
+  // and this sender in the `{sendingActor, messageBody}` envelope it hands to
+  // Pi, so the model sees who is speaking. Absent for a legacy call: the agent
+  // then falls back to a system placeholder.
+  PromptSender sender = 13;
+}
+
+// AttachmentRef names one agency attachment for the agent to pull. `url` is
+// the agency-relative content route; the agent joins it with its configured
+// agency URL and authenticates with its tunnel credential.
+message AttachmentRef {
+  int64 id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string url = 5;
+}
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message AddToTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  // Files sent with this follow-up, same handling as CreateTaskRequest's.
+  repeated AttachmentRef attachments = 3;
+  // The agency-side task id, re-sent so a resumed session can annotate
+  // artifacts. May be empty when the agent already knows it.
+  string task_id = 4;
+  // The task's stable reference, re-sent so a resumed session can refresh
+  // its token scope after a display-id rename. May be absent for a legacy
+  // caller; the agent then falls back to its persisted reference.
+  TaskRef ref = 5;
+  // The actor this prompt is attributed to; the agent wraps the prompt and
+  // sender in the `{sendingActor, messageBody}` envelope. Absent for a legacy
+  // caller, which falls back to a system placeholder.
+  PromptSender sender = 6;
+}
+
+// PromptSender names the actor a prompt is attributed to. The agent renders it
+// as the envelope's `sendingActor` so Pi can tell who wrote each message.
+message PromptSender {
+  int64 actor_id = 1;
+  string username = 2;
+  string name = 3;
+  // "user", "agent", or "system".
+  string kind = 4;
+}
+
+message AddToTaskResponse {}
+
+message RetryTaskRequest {
+  string id = 1;
+  // The task's stable reference, re-sent so a resumed session can refresh
+  // its token scope after a display-id rename. May be absent for a legacy
+  // caller; the agent then falls back to its persisted reference.
+  TaskRef ref = 2;
+}
+
+// TaskRef is a task's stable agency-side reference: its project and the
+// per-project sequence. A project prefix rename rewrites the rendered task
+// id (`<prefix>-<seq>`) but never this pair, so it is what an agent persists
+// to keep naming the task across restarts and renames.
+message TaskRef {
+  string project_id = 1;
+  int64 seq = 2;
+}
+
+message RetryTaskResponse {
+  Task task = 1;
+}
+
+message StopTaskRequest {
+  string id = 1;
+}
+
+message StopTaskResponse {}
+
+message DeleteTaskRequest {
+  string id = 1;
+}
+
+message DeleteTaskResponse {}
+
+message RenameTaskRequest {
+  string id = 1;
+  string name = 2;
+}
+
+message RenameTaskResponse {
+  Task task = 1;
+}
+
+message ListTasksRequest {}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+}
+
+message WatchTaskRequest {
+  string id = 1;
+  // When true, the stream first replays the task's persisted conversation
+  // history (from Pi's session file) before live events. The dashboard's
+  // console sets this so opening a finished task still shows the transcript.
+  bool replay_history = 2;
+}
+
+message WatchTaskResponse {
+  TaskEvent event = 1;
+}
+
+message GetTaskHistoryRequest {
+  string id = 1;
+  // Opaque cursor from a previous response; returns events older than it.
+  // Empty starts from the newest events.
+  string before = 2;
+  // Maximum events to return in this page (0 = server default).
+  uint32 limit = 3;
+}
+
+message GetTaskHistoryResponse {
+  // The page's events, oldest-first (the order the console renders them).
+  repeated TaskEvent events = 1;
+  // Cursor to pass as `before` for the next older page; empty when the
+  // history is exhausted.
+  string next_before = 2;
+}
+
+message SyncTaskHistoryRequest {
+  string id = 1;
+
+  // The task's stable agency reference. The agency passes it so a legacy
+  // session, which predates the agent persisting its own reference, can still
+  // push its local file. When set, the agent stores it for later flushes.
+  TaskRef ref = 2;
+}
+
+message SyncTaskHistoryResponse {
+  // The number of entries in the agent's local Pi session file after the
+  // sync; 0 means there was nothing to migrate.
+  uint32 entries = 1;
+}
+
+message TaskModel {
+  string provider = 1;
+  string id = 2;
+  string name = 3;
+  // Whether the model supports reasoning at all.
+  bool reasoning = 4;
+  // Thinking levels the model supports, in increasing order, always including
+  // "off". A model without reasoning support reports only ["off"].
+  repeated string thinking_levels = 5;
+}
+
+// TaskConfig is a task's live model and reasoning configuration.
+message TaskConfig {
+  string model_provider = 1;
+  string model_id = 2;
+  string model_name = 3;
+  // All configured models, for the model picker.
+  repeated TaskModel models = 4;
+  // Current reasoning level, e.g. "medium" ("off" when unsupported).
+  string thinking_level = 5;
+  // Levels the current model supports.
+  repeated string thinking_levels = 6;
+}
+
+message GetTaskConfigRequest {
+  string id = 1;
+}
+
+message GetTaskConfigResponse {
+  TaskConfig config = 1;
+}
+
+message GetTaskDefaultsRequest {}
+
+// GetTaskDefaultsResponse carries the same shape as a task's config, but
+// describes what a new task would start with rather than a live task.
+message GetTaskDefaultsResponse {
+  TaskConfig defaults = 1;
+}
+
+message SetTaskModelRequest {
+  string id = 1;
+  string provider = 2;
+  string model_id = 3;
+}
+
+message SetTaskModelResponse {
+  TaskConfig config = 1;
+}
+
+message SetTaskThinkingLevelRequest {
+  string id = 1;
+  string level = 2;
+}
+
+message SetTaskThinkingLevelResponse {
+  TaskConfig config = 1;
+}
+
+// TaskEvent is the normalized view of Pi's RPC stream: lifecycle, streaming
+// assistant output, tool execution, and captured stderr.
+message TaskEvent {
+  string task_id = 1;
+  google.protobuf.Timestamp at = 2;
+
+  oneof event {
+    TaskStatusChanged status_changed = 3;
+    RunStarted run_started = 4;
+    RunSettled run_settled = 5;
+    AgentText text = 6;
+    AgentThinking thinking = 7;
+    ToolExecution tool = 8;
+    LogLine log = 9;
+    ExtensionUiRequest extension_ui = 10;
+    UserMessage user_message = 11;
+    PendingMessages pending_messages = 12;
+  }
+}
+
+message TaskStatusChanged {
+  TaskStatus status = 1;
+  string error = 2;
+}
+
+// A low-level agent run started.
+message RunStarted {}
+
+// Pi will not continue automatically: the run (including retries, compaction
+// recovery, and queued messages) is finished.
+message RunSettled {}
+
+// AgentText is a chunk of assistant text. Replayed history delivers a whole
+// block as a single event; live streaming delivers deltas.
+message AgentText {
+  string delta = 1;
+}
+
+message AgentThinking {
+  string delta = 1;
+}
+
+enum ToolPhase {
+  TOOL_PHASE_UNSPECIFIED = 0;
+  TOOL_PHASE_STARTED = 1;
+  TOOL_PHASE_UPDATED = 2;
+  TOOL_PHASE_FINISHED = 3;
+}
+
+message ToolExecution {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  ToolPhase phase = 3;
+  // Raw JSON as emitted by Pi.
+  string args_json = 4;
+  string result_json = 5;
+  bool is_error = 6;
+  // Raw JSON `details` of the Pi tool result, kept for tools whose structured
+  // output the console renders (the questionnaire's answers). History replay
+  // carries it too, so an answered questionnaire stays reviewable.
+  string details_json = 7;
+}
+
+message LogLine {
+  string line = 1;
+}
+
+// UserMessage is a prompt sent to the task (the initial prompt or a
+// follow-up). It is replayed from history and emitted live when a prompt is
+// sent, so the console can render the user's turns.
+message UserMessage {
+  // The raw text Pi received. Since phase 6 this is the
+  // `{sendingActor, messageBody}` envelope; older sessions carry plain text.
+  string text = 1;
+  // The envelope's sending actor. Unset for a legacy plain prompt or a system
+  // placeholder.
+  PromptSender sender = 2;
+  // The envelope's plain message text, parsed so a console need not decode
+  // JSON itself. Empty for a legacy prompt, where `text` is already plain.
+  string body = 3;
+  // The envelope's files, so a console can render the message's chips without
+  // parsing the (recently removed) attachment trailer. Empty for a legacy
+  // prompt, where the trailer carries the ids.
+  repeated MessageAttachment attachments = 4;
+}
+
+// MessageAttachment names one file a prompt carried, as the console renders it.
+// The envelope's on-disk path stays private to the agent; a client resolves the
+// file through its task tray by id.
+message MessageAttachment {
+  int64 id = 1;
+  string filename = 2;
+}
+
+// PendingMessages is Pi's current message queue: prompts it has accepted but
+// not injected yet. A steering message is injected between blocks (after the
+// current assistant turn's tool calls, before the next model call), and the
+// event is re-emitted on every queue change so a console can show what is
+// waiting and clear it.
+message PendingMessages {
+  repeated string steering = 1;
+  repeated string follow_up = 2;
+}
+
+// ExtensionUiRequest forwards Pi's extension-UI subprotocol. Dialog methods
+// (select/confirm/input/editor) block the run and expect a
+// RespondToExtensionUi; the rest (notify/setStatus/setWidget/setTitle/
+// set_editor_text) are fire-and-forget.
+message ExtensionUiRequest {
+  string request_id = 1;
+  string method = 2;
+  string title = 3;
+  string message = 4;
+  string placeholder = 5;
+  string prefill = 6;
+  repeated string options = 7;
+  uint32 timeout = 8;
+  // Raw JSON of the original request, for method-specific fields.
+  string raw_json = 9;
+}
+
+// QuestionnaireAnswer is one question/answer pair from an ask_user_question
+// wizard. The console sends the whole set alongside the first answer when it
+// submits a questionnaire whose dialog survived an agent restart, so the agent
+// can carry every answer into the resume prompt even though only one dialog
+// was persisted.
+message QuestionnaireAnswer {
+  string question = 1;
+  string answer = 2;
+}
+
+message RespondToExtensionUiRequest {
+  // Task id.
+  string id = 1;
+  // The extension request's id (ExtensionUiRequest.request_id).
+  string request_id = 2;
+  oneof response {
+    // The chosen/entered value for select/input/editor dialogs.
+    string value = 3;
+    // The answer for confirm dialogs.
+    bool confirmed = 4;
+    // Decline the dialog.
+    bool cancelled = 5;
+  }
+  // Every question/answer pair of the submitted questionnaire. Populated on
+  // the first answer of an ask_user_question wizard, empty for other dialogs.
+  repeated QuestionnaireAnswer questionnaire = 6;
+}
+
+message RespondToExtensionUiResponse {}
+
+message ClearQueueRequest {
+  string id = 1;
+}
+message ClearQueueResponse {}

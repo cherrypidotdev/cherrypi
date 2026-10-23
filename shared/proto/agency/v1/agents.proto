@@ -1,0 +1,363 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/attachments.proto";
+import "agency/v1/task.proto";
+import "google/protobuf/timestamp.proto";
+
+// AgentService manages the fleet of agents that connect to the agency. An
+// agent is registered here before it can connect; its tunnel credentials are
+// managed separately from the agency's user credentials.
+service AgentService {
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  // CreateAgent registers a new agent and generates its first tunnel
+  // credential, returned exactly once.
+  rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
+
+  // Default model and thinking level for tasks started on the agent. The
+  // agency stores them; the scheduler applies them when a task has no explicit
+  // selection. Owners (or administrators) may change them; every authenticated
+  // actor may read them so the agent page can show the model read-only.
+  rpc GetAgentDefaults(GetAgentDefaultsRequest) returns (GetAgentDefaultsResponse);
+  rpc UpdateAgentDefaults(UpdateAgentDefaultsRequest) returns (UpdateAgentDefaultsResponse);
+
+  // Task concurrency limits, stored agency-side and enforced by the scheduler.
+  rpc GetAgentTaskLimits(GetAgentTaskLimitsRequest) returns (GetAgentTaskLimitsResponse);
+  rpc UpdateAgentTaskLimits(UpdateAgentTaskLimitsRequest) returns (UpdateAgentTaskLimitsResponse);
+
+  // Agent logs are the operational records an agent pushes over its event
+  // stream (task/session lifecycle, connectivity), persisted centrally.
+  rpc ListAgentLogs(ListAgentLogsRequest) returns (ListAgentLogsResponse);
+
+  rpc ListAgentCredentials(ListAgentCredentialsRequest) returns (ListAgentCredentialsResponse);
+  // CreateAgentCredential adds another credential pair (rotation, or a second
+  // machine) and returns the generated password exactly once.
+  rpc CreateAgentCredential(CreateAgentCredentialRequest) returns (CreateAgentCredentialResponse);
+  rpc RevokeAgentCredential(RevokeAgentCredentialRequest) returns (RevokeAgentCredentialResponse);
+
+  // Personal access tokens (`pat_…`) are the go-forward agent credential: a
+  // long-lived, rotatable actor credential that the tunnel, the bundled Pi
+  // tools and artifact uploads all share. These management calls are
+  // administrator-only until agent ownership lands (phase 4).
+  rpc ListAgentTokens(ListAgentTokensRequest) returns (ListAgentTokensResponse);
+  // CreateAgentToken mints a token and returns the plaintext exactly once.
+  rpc CreateAgentToken(CreateAgentTokenRequest) returns (CreateAgentTokenResponse);
+  rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse);
+}
+
+// AgentStatus is derived from the tunnel hub, never stored as truth. Until the
+// tunnel lands (Phase C) every agent reports OFFLINE.
+enum AgentStatus {
+  AGENT_STATUS_UNSPECIFIED = 0;
+  // No active tunnel connection.
+  AGENT_STATUS_OFFLINE = 1;
+  // Connected and idle.
+  AGENT_STATUS_ONLINE = 2;
+}
+
+// AgentVersionStatus is the compatibility verdict derived by comparing an
+// agent's reported protocol version with the running agency's. It is never
+// stored: the tunnel reports it, and an offline agent reports UNSPECIFIED
+// unless it was refused (then INCOMPATIBLE, so the UI can explain why).
+//
+// While the protocol is pre-1.0 (beta) the compatibility line is the minor, so
+// a different minor is a break and only a smaller patch is a nudge; after 1.0
+// the line is the major.
+enum AgentVersionStatus {
+  AGENT_VERSION_STATUS_UNSPECIFIED = 0;
+  // Same compatibility line as the agency, equal or newer: nothing to do.
+  AGENT_VERSION_STATUS_CURRENT = 1;
+  // Same compatibility line but older: usable, but the binary should be
+  // updated.
+  AGENT_VERSION_STATUS_OUTDATED = 2;
+  // A different compatibility line, or no reported version: the tunnel was
+  // refused.
+  AGENT_VERSION_STATUS_INCOMPATIBLE = 3;
+}
+
+// Agent is one registered worker.
+message Agent {
+  string id = 1;
+  // Stable identifier used for the agent's tunnel username.
+  string username = 2;
+  string display_name = 3;
+  string description = 4;
+  // Derived presence (see AgentStatus).
+  AgentStatus status = 5;
+  // Agent build version reported on connect (empty until the agent reports
+  // one).
+  string version = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+  // Socket address the agent's tunnel connected from (empty while offline).
+  string remote_addr = 10;
+  // The agent's picture, unset when it uses the jdenticon fallback.
+  Attachment picture = 11;
+  // The actor id of the agent, for matching actor-level references.
+  string actor_id = 12;
+  // Agent↔agency protocol version reported on connect (empty until the agent
+  // reports one).
+  string protocol_version = 13;
+  // Compatibility verdict derived from the reported protocol version.
+  AgentVersionStatus version_status = 14;
+}
+
+// AgentCredential is a username–password pair an agent authenticates its tunnel
+// with. The password is write-only: it is returned only when created.
+message AgentCredential {
+  string username = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp last_used_at = 3;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+}
+
+message GetAgentRequest {
+  string id = 1;
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message CreateAgentRequest {
+  // Stable username; also the first credential's username.
+  string username = 1;
+  string display_name = 2;
+  string description = 3;
+  // Optional initial agent prompt, stored as the first version of the agent's
+  // PROMPT_SCOPE_AGENT prompt. Empty stores no prompt.
+  string prompt = 4;
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+  // The generated credential's username (= the agent username).
+  string credential_username = 2;
+  // The generated password, returned exactly once.
+  string credential_password = 3;
+  // A personal access token minted for the agent, returned exactly once. The
+  // agent stores it and uses it for its tunnel and REST calls; the legacy
+  // credential remains usable as a fallback.
+  string token = 4;
+}
+
+message UpdateAgentRequest {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+}
+
+message UpdateAgentResponse {
+  Agent agent = 1;
+}
+
+message DeleteAgentRequest {
+  string id = 1;
+}
+
+message DeleteAgentResponse {}
+
+// AgentDefaults is the model/thinking pair a new task starts with unless the
+// task pins its own. Empty fields fall back to Pi's configured default.
+message AgentDefaults {
+  string model_provider = 1;
+  string model_id = 2;
+  string model_name = 3;
+  string thinking_level = 4;
+}
+
+message GetAgentDefaultsRequest {
+  string agent_id = 1;
+}
+
+message GetAgentDefaultsResponse {
+  AgentDefaults defaults = 1;
+}
+
+message UpdateAgentDefaultsRequest {
+  string agent_id = 1;
+  AgentDefaults defaults = 2;
+}
+
+message UpdateAgentDefaultsResponse {
+  AgentDefaults defaults = 1;
+}
+
+message ListAgentCredentialsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentCredentialsResponse {
+  repeated AgentCredential credentials = 1;
+}
+
+message CreateAgentCredentialRequest {
+  string agent_id = 1;
+  // Username for the new pair; empty generates one from the agent username.
+  string username = 2;
+}
+
+message CreateAgentCredentialResponse {
+  AgentCredential credential = 1;
+  // The generated password, returned exactly once.
+  string password = 2;
+}
+
+message RevokeAgentCredentialRequest {
+  string agent_id = 1;
+  string username = 2;
+}
+
+message RevokeAgentCredentialResponse {}
+
+// AgentToken is the public view of an agent's personal access token. The
+// plaintext secret is shown only at creation.
+message AgentToken {
+  int64 id = 1;
+  string name = 2;
+  // The displayable `pat_…` fragment.
+  string prefix = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_used_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message ListAgentTokensRequest {
+  string agent_id = 1;
+}
+
+message ListAgentTokensResponse {
+  repeated AgentToken tokens = 1;
+}
+
+message CreateAgentTokenRequest {
+  string agent_id = 1;
+  // Human-readable token name; defaults to "token".
+  string name = 2;
+  // Optional expiry; unset means the token does not expire.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CreateAgentTokenResponse {
+  AgentToken token = 1;
+  // The plaintext `pat_…`, returned exactly once.
+  string plaintext = 2;
+}
+
+message RevokeAgentTokenRequest {
+  string agent_id = 1;
+  int64 id = 2;
+}
+
+message RevokeAgentTokenResponse {}
+
+// AgentTaskLimits caps how many tasks one agent runs at once. A task consumes
+// its overall, per-tag, per-project and per-project-per-tag caps; every
+// applicable cap must have room. Unset tag/project-tag caps add no limit.
+message AgentTaskLimits {
+  // Overall cap for the agent. Defaults to 1.
+  int32 max_concurrent = 1;
+  // Cap on tasks per project. Defaults to 1.
+  int32 max_concurrent_per_project = 2;
+  repeated TagLimit tag_limits = 3;
+  repeated ProjectLimit project_limits = 4;
+  repeated ProjectTagLimit project_tag_limits = 5;
+}
+
+message TagLimit {
+  // Tag name. The cap is global: it applies to that name in every project, so
+  // one "unity-editor" cap gates every project's #unity-editor tag.
+  string tag_name = 1;
+  int32 max_concurrent = 2;
+}
+
+message ProjectLimit {
+  string project_id = 1;
+  int32 max_concurrent = 2;
+}
+
+message ProjectTagLimit {
+  string project_id = 1;
+  string tag_id = 2;
+  int32 max_concurrent = 3;
+}
+
+message GetAgentTaskLimitsRequest {
+  string agent_id = 1;
+}
+
+message GetAgentTaskLimitsResponse {
+  AgentTaskLimits limits = 1;
+}
+
+message UpdateAgentTaskLimitsRequest {
+  string agent_id = 1;
+  AgentTaskLimits limits = 2;
+}
+
+message UpdateAgentTaskLimitsResponse {
+  AgentTaskLimits limits = 1;
+}
+
+// AgentLogLevel orders log severity; ListAgentLogs filters at or above it.
+enum AgentLogLevel {
+  AGENT_LOG_LEVEL_UNSPECIFIED = 0;
+  AGENT_LOG_LEVEL_DEBUG = 1;
+  AGENT_LOG_LEVEL_INFO = 2;
+  AGENT_LOG_LEVEL_WARN = 3;
+  AGENT_LOG_LEVEL_ERROR = 4;
+}
+
+// AgentLog is one operational log line an agent produced.
+message AgentLog {
+  int64 id = 1;
+  string agent_id = 2;
+  google.protobuf.Timestamp at = 3;
+  AgentLogLevel level = 4;
+  string message = 5;
+  // The agency task and agent session the line belongs to, when known.
+  string task_id = 6;
+  string session_id = 7;
+  // Remaining structured fields as a JSON object.
+  string attrs_json = 8;
+}
+
+message ListAgentLogsRequest {
+  string agent_id = 1;
+  // Minimum severity to return; UNSPECIFIED returns every level.
+  AgentLogLevel min_level = 2;
+  // Caps the page size; the server applies its own maximum.
+  int32 limit = 3;
+  // Pagination cursor: return lines older than this id (0 starts newest).
+  int64 before_id = 4;
+}
+
+message ListAgentLogsResponse {
+  repeated AgentLog logs = 1;
+}

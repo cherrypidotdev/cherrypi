@@ -1,0 +1,67 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Artifact is a task output, modeled on the A2A (Agent2Agent) protocol. Unlike
+// a message (communication), an artifact is data the agent produced: a report,
+// an image, a chart, structured data. It has a stable `artifact_id` unique
+// within its task and one or more parts. Artifacts stream: `streaming` is true
+// while the agent is still appending parts.
+message Artifact {
+  string artifact_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated ArtifactPart parts = 4;
+  google.protobuf.Struct metadata = 5;
+  repeated string extensions = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  bool streaming = 9;
+}
+
+// ArtifactPart is one piece of an artifact: text, a file, or structured data
+// (A2A's text/raw/url/data oneof). A file part is either backed by the agency's
+// attachment registry (raw bytes) or points at a URL.
+message ArtifactPart {
+  oneof content {
+    string text = 1;
+    ArtifactFile file = 2;
+    // Structured data as a JSON value (A2A's DataPart).
+    string data_json = 3;
+  }
+  // Optional filename, e.g. "report.pdf".
+  string filename = 4;
+  // Media type, e.g. "text/plain" or "image/png".
+  string media_type = 5;
+  google.protobuf.Struct metadata = 6;
+}
+
+// ArtifactFile is a file part: raw bytes stored as an agency attachment, or a
+// bare URL. `url` is the agency-proxied content route for a raw file.
+message ArtifactFile {
+  // The attachment backing the bytes; 0 for a URL-only part.
+  int64 attachment_id = 1;
+  string url = 2;
+  // True when the part carried raw bytes (stored as an attachment) rather than
+  // only referencing a URL.
+  bool raw = 3;
+}

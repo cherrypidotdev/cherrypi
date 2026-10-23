@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+set -e
+
+# Record the staged files so they can be re-added after formatting.
+staged=$(mktemp)
+log=$(mktemp)
+trap 'rm -f "$staged" "$log"' EXIT
+
+git diff --cached --name-only --diff-filter=ACMR -z > "$staged"
+
+# Format the tree, capturing the formatter's output so a failure can be shown
+# instead of swallowed. `if !` (rather than a bare call plus a `$?` check)
+# keeps `set -e` from aborting before the message prints.
+if ! make format > "$log" 2>&1; then
+  echo "Formatting failed. Please run 'make format' manually:" >&2
+  echo >&2
+  cat "$log" >&2
+  exit 1
+fi
+
+# Re-add the staged files, whose formatting may have changed on disk.
+xargs -0 -r git add -- < "$staged"

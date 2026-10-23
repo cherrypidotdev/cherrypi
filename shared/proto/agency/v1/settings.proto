@@ -1,0 +1,56 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/attachments.proto";
+
+// SettingsService stores agency-wide configuration in the key-value `settings`
+// table; the proto exposes typed fields.
+service SettingsService {
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+}
+
+message Settings {
+  // Display name shown in the agency shell next to the cherry icon.
+  string agency_name = 1;
+  // Accent as `#rrggbb`. Empty uses the built-in default; the foreground text
+  // color is derived for contrast.
+  string primary_color = 2;
+  // The agency logo shown in the shell, unset when the bundled default artwork
+  // is used.
+  Attachment logo = 3;
+  // The browser favicon, unset when it falls back to the logo (and then to the
+  // bundled default artwork).
+  Attachment favicon = 4;
+}
+
+message GetSettingsRequest {}
+
+message GetSettingsResponse {
+  Settings settings = 1;
+}
+
+message UpdateSettingsRequest {
+  Settings settings = 1;
+}
+
+message UpdateSettingsResponse {
+  Settings settings = 1;
+}

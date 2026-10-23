@@ -1,0 +1,32 @@
+-- CherryPi: A multi-agent-multi-human self-hosted agency
+-- Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+--
+-- This program is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU Affero General Public License as published
+-- by the Free Software Foundation, either version 3 of the License, or
+-- (at your option) any later version.
+--
+-- This program is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU Affero General Public License for more details.
+--
+-- You should have received a copy of the GNU Affero General Public License
+-- along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+-- +goose Up
+-- A questionnaire used to create one unread `input_requested` notification per
+-- question. Keep only the newest per agent/task so existing inboxes collapse to
+-- a single entry; new signals are folded in `Service.Create`.
+DELETE FROM notifications
+WHERE kind = 'input_requested'
+  AND read_at IS NULL
+  AND id NOT IN (
+    SELECT MAX(id) FROM notifications
+    WHERE kind = 'input_requested' AND read_at IS NULL
+    GROUP BY agent_id, task_id
+  );
+
+-- +goose Down
+-- The discarded duplicates cannot be reconstructed.
+SELECT 1;

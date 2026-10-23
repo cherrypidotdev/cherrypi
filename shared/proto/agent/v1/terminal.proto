@@ -1,0 +1,160 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// TerminalService manages browser PTYs. A terminal is a real shell in the
+// container (NOT the Pi process — RPC mode has no TTY). Control
+// (create/list/resize/close/close-all/stats) goes over gRPC; the PTY data
+// plane is a WebSocket at /api/terminal/<id>/ws. Every call is scoped to the
+// authenticated caller (the terminal's owner); a newer WebSocket attachment
+// takes over from an older one.
+service TerminalService {
+  rpc CreateTerminal(CreateTerminalRequest) returns (CreateTerminalResponse);
+  rpc ListTerminals(ListTerminalsRequest) returns (ListTerminalsResponse);
+  rpc ResizeTerminal(ResizeTerminalRequest) returns (ResizeTerminalResponse);
+  rpc CloseTerminal(CloseTerminalRequest) returns (CloseTerminalResponse);
+  // CloseAllTerminals closes every terminal owned by the caller, optionally
+  // narrowed to one kind.
+  rpc CloseAllTerminals(CloseAllTerminalsRequest) returns (CloseAllTerminalsResponse);
+  // GetTerminalStats counts the caller's live root terminals.
+  rpc GetTerminalStats(GetTerminalStatsRequest) returns (GetTerminalStatsResponse);
+  // ListTerminalLogs returns the persisted terminal lifecycle log (created /
+  // exited / closed / interrupted), newest first, including terminals lost to
+  // an agent restart.
+  rpc ListTerminalLogs(ListTerminalLogsRequest) returns (ListTerminalLogsResponse);
+}
+
+// TerminalKind mirrors the terminal kinds the broker supports. Never renumber.
+enum TerminalKind {
+  TERMINAL_KIND_UNSPECIFIED = 0;
+  // A shell in the container (the root shell).
+  TERMINAL_KIND_ROOT = 1;
+
+  // Removed: terminals are never tied to a task.
+  reserved 2;
+  reserved "TERMINAL_KIND_TASK";
+}
+
+message Terminal {
+  string id = 1;
+  TerminalKind kind = 2;
+  // Removed: terminals are never tied to a task.
+  reserved 3;
+  reserved "task_id";
+  // Server-assigned working directory the shell starts in.
+  string cwd = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Owner is the authenticated username that created the terminal. Only the
+  // owner can list, attach to, resize, or close it.
+  string owner = 8;
+}
+
+message CreateTerminalRequest {
+  TerminalKind kind = 1;
+  // Removed: terminals are never tied to a task.
+  reserved 2;
+  reserved "task_id";
+  // Initial dimensions; 0 falls back to the server default (80x24).
+  uint32 cols = 3;
+  uint32 rows = 4;
+}
+
+message CreateTerminalResponse {
+  Terminal terminal = 1;
+  // Path of the terminal's WebSocket, e.g. /api/terminal/<id>/ws.
+  string ws_path = 2;
+}
+
+message ListTerminalsRequest {}
+
+message ListTerminalsResponse {
+  repeated Terminal terminals = 1;
+}
+
+message ResizeTerminalRequest {
+  string id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message ResizeTerminalResponse {}
+
+message CloseTerminalRequest {
+  string id = 1;
+}
+
+message CloseTerminalResponse {}
+
+message CloseAllTerminalsRequest {
+  // Optional kind filter; UNSPECIFIED closes every terminal.
+  TerminalKind kind = 1;
+
+  // Removed: terminals are never tied to a task.
+  reserved 2;
+  reserved "task_id";
+}
+
+message CloseAllTerminalsResponse {
+  // How many terminals were closed.
+  uint32 closed = 1;
+}
+
+message GetTerminalStatsRequest {}
+
+message TerminalStats {
+  uint32 root = 1;
+  // Removed: terminals are never tied to a task.
+  reserved 2;
+  reserved "task";
+  uint32 total = 3;
+}
+
+message GetTerminalStatsResponse {
+  TerminalStats stats = 1;
+}
+
+message ListTerminalLogsRequest {
+  // Maximum events to return; 0 uses the server default.
+  uint32 limit = 1;
+}
+
+message ListTerminalLogsResponse {
+  repeated TerminalLog logs = 1;
+}
+
+// TerminalLog is one terminal lifecycle event. `reason` is the human-facing
+// why: an exit status, "closed by user", "agent restarted", …  `detail`
+// carries the working directory.
+message TerminalLog {
+  int64 id = 1;
+  string terminal_id = 2;
+  TerminalKind kind = 3;
+  // Removed: terminals are never tied to a task.
+  reserved 4;
+  reserved "task_id";
+  string owner = 5;
+  string event = 6;
+  string reason = 7;
+  string detail = 8;
+  google.protobuf.Timestamp at = 9;
+}

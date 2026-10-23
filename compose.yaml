@@ -1,0 +1,100 @@
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+name: cherrypi-agency
+
+# Single-box DX: the agency plus one agent. The agency seeds an agent
+# credential (CHERRYPI_AGENCY_SEED_AGENT) so the bundled agent can connect with
+# no manual registration; in production, register agents in the UI instead.
+services:
+  agency:
+    build:
+      context: .
+      dockerfile: agency/server/Dockerfile
+      args:
+        VERSION: ${VERSION:-}
+    image: cherrypi-agency
+    restart: unless-stopped
+    depends_on:
+      - minio
+    ports:
+      - "8080:8080"
+    environment:
+      # Comma-separated `user:hex` pairs for dashboard/SDK basic auth.
+      CHERRYPI_AGENCY_CREDENTIALS: ${CHERRYPI_AGENCY_CREDENTIALS:-admin:deadbeef}
+      # Dev bootstrap: ensure this agent and its tunnel credential exist at
+      # startup. Use `user:password` (not hex).
+      CHERRYPI_AGENCY_SEED_AGENT: ${CHERRYPI_AGENCY_SEED_AGENT:-builder:devagent}
+      # Object storage (attachments, artifacts, pictures). MinIO by default;
+      # point CHERRYPI_S3_ENDPOINT at any S3-compatible endpoint to override.
+      CHERRYPI_S3_ENDPOINT: ${CHERRYPI_S3_ENDPOINT:-http://minio:9000}
+      CHERRYPI_S3_BUCKET: ${CHERRYPI_S3_BUCKET:-cherrypi}
+      CHERRYPI_S3_ACCESS_KEY_ID: ${CHERRYPI_S3_ACCESS_KEY_ID:-cherrypi}
+      CHERRYPI_S3_SECRET_ACCESS_KEY: ${CHERRYPI_S3_SECRET_ACCESS_KEY:-cherrypi-dev}
+      CHERRYPI_S3_FORCE_PATH_STYLE: "true"
+    volumes:
+      - ./agency_home:/root
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cherrypi}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cherrypi-dev}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio_data:/data
+
+  # Creates the attachments bucket on first boot so the agency can write
+  # without a manual `mc mb`.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cherrypi}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cherrypi-dev}
+      CHERRYPI_S3_BUCKET: ${CHERRYPI_S3_BUCKET:-cherrypi}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do sleep 1; done;
+        mc mb --ignore-existing "local/$$CHERRYPI_S3_BUCKET"
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    image: cherrypi-agent
+    restart: unless-stopped
+    depends_on:
+      - agency
+    environment:
+      # The agent dials out to the agency; no inbound port is needed.
+      CHERRYPI_AGENCY_URL: http://agency:8080
+      CHERRYPI_AGENT_AUTH: ${CHERRYPI_AGENT_AUTH:-builder:devagent}
+      # Optional: an explicit personal access token (wins over the cached file
+      # and the legacy credential).
+      CHERRYPI_AGENT_TOKEN: ${CHERRYPI_AGENT_TOKEN:-}
+    volumes:
+      - ./cherrypi_home:/root
+    # Desktop (optional): `docker compose -f compose.yaml -f compose.desktop.yaml
+    # up -d --build` mounts the host's X session so the RDP button can reuse it.
+    # See docs/desktop.md.

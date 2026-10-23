@@ -1,0 +1,226 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/attachments.proto";
+import "google/protobuf/timestamp.proto";
+
+// ProjectService manages projects: agency-wide groupings of tasks that carry
+// a prompt. A project's slug is immutable and is its route handle. A task
+// may be created within a project and never moves between projects.
+service ProjectService {
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  // UpdateProject changes the name, description and task prefix; the slug is
+  // immutable. A changed prefix renames the project's existing tasks.
+  rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse);
+  // ArchiveProject archives the project and best-effort archives all of its
+  // tasks over the tunnel. Agents that are offline are reported back so the
+  // operator can retry once they reconnect.
+  rpc ArchiveProject(ArchiveProjectRequest) returns (ArchiveProjectResponse);
+  // UnarchiveProject clears the project's own flag only. It deliberately does
+  // not unarchive the project's tasks.
+  rpc UnarchiveProject(UnarchiveProjectRequest) returns (UnarchiveProjectResponse);
+  // DeleteProject fails with FailedPrecondition while any task (archived or
+  // not) still belongs to the project; every task must be deleted first.
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+  // Membership. A project's agents are its members, and only a member agent
+  // can create a task in the project.
+  rpc ListProjectAgents(ListProjectAgentsRequest) returns (ListProjectAgentsResponse);
+  rpc ListAgentProjects(ListAgentProjectsRequest) returns (ListAgentProjectsResponse);
+  // ListAgentMemberships returns one entry per project the agent has joined,
+  // with the agent's task permissions in that project (the agent settings
+  // Projects tab).
+  rpc ListAgentMemberships(ListAgentMembershipsRequest) returns (ListAgentMembershipsResponse);
+  rpc AddProjectAgent(AddProjectAgentRequest) returns (AddProjectAgentResponse);
+  // UpdateProjectAgent replaces a member's task permissions in one project.
+  rpc UpdateProjectAgent(UpdateProjectAgentRequest) returns (UpdateProjectAgentResponse);
+  // RemoveProjectAgent deletes the agent's tasks in the project (deletion,
+  // never archive) and then removes the membership. It fails with
+  // FailedPrecondition while the agent is offline, since its tasks must be
+  // deleted first.
+  rpc RemoveProjectAgent(RemoveProjectAgentRequest) returns (RemoveProjectAgentResponse);
+}
+
+// Project is an agency-wide grouping of tasks.
+message Project {
+  string id = 1;
+  string name = 2;
+  // Immutable, lower-kebab, unique; the project's route handle.
+  string slug = 3;
+  string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  // When set, the project is archived. An archived project and its tasks are
+  // hidden from the all-projects task list.
+  google.protobuf.Timestamp archived_at = 7;
+  // Task id prefix, uppercase (e.g. `MYPROJECT`). New tasks are numbered per
+  // project and named `<prefix>-<number>`; changing the prefix renames the
+  // project's existing tasks. Defaults to the uppercased slug.
+  string prefix = 8;
+  // The project's picture, unset when it uses the jdenticon fallback.
+  Attachment picture = 9;
+  // The parent project id, empty for a root project. Children inherit viewer
+  // access from every ancestor, and tasks may reference tasks in descendant
+  // or sibling projects.
+  string parent_project_id = 10;
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+  // A project id or slug.
+  string id = 1;
+}
+
+message GetProjectResponse {
+  Project project = 1;
+}
+
+message CreateProjectRequest {
+  string name = 1;
+  // Optional lower-kebab slug; derived from the name when empty and
+  // de-duplicated when taken.
+  string slug = 2;
+  string description = 3;
+  // Optional task id prefix; derived from the slug when empty.
+  string prefix = 4;
+}
+
+message CreateProjectResponse {
+  Project project = 1;
+}
+
+message UpdateProjectRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  // New task id prefix. Empty leaves the current prefix unchanged; a changed
+  // prefix renames the project's existing tasks.
+  string prefix = 4;
+}
+
+message UpdateProjectResponse {
+  Project project = 1;
+}
+
+message ArchiveProjectRequest {
+  string id = 1;
+}
+
+message ArchiveProjectResponse {
+  Project project = 1;
+  // Always empty: archiving a project only sets its flag and never calls an
+  // agent. Retained for wire compatibility.
+  repeated string offline_agents = 2;
+}
+
+message UnarchiveProjectRequest {
+  string id = 1;
+}
+
+message UnarchiveProjectResponse {
+  Project project = 1;
+}
+
+message DeleteProjectRequest {
+  string id = 1;
+}
+
+message DeleteProjectResponse {}
+
+// ProjectAgent is one member of a project.
+message ProjectAgent {
+  string agent_id = 1;
+  // Tasks the agent currently has in the project. Drives the removal
+  // confirmation and must reach zero before the membership can be removed.
+  int32 task_count = 2;
+  // Task permissions the agent holds in the project. An agent may always list
+  // and update tasks assigned to itself, regardless of these flags.
+  bool can_list_tasks = 3;
+  bool can_create_tasks = 4;
+  bool can_update_tasks = 5;
+}
+
+// AgentProjectMembership is one project an agent has joined, with the agent's
+// task permissions in it.
+message AgentProjectMembership {
+  Project project = 1;
+  bool can_list_tasks = 2;
+  bool can_create_tasks = 3;
+  bool can_update_tasks = 4;
+}
+
+message ListProjectAgentsRequest {
+  string project_id = 1;
+}
+
+message ListProjectAgentsResponse {
+  repeated ProjectAgent agents = 1;
+}
+
+message ListAgentProjectsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message ListAgentMembershipsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentMembershipsResponse {
+  repeated AgentProjectMembership memberships = 1;
+}
+
+message AddProjectAgentRequest {
+  string project_id = 1;
+  string agent_id = 2;
+}
+
+message AddProjectAgentResponse {
+  ProjectAgent agent = 1;
+}
+
+message UpdateProjectAgentRequest {
+  string project_id = 1;
+  string agent_id = 2;
+  bool can_list_tasks = 3;
+  bool can_create_tasks = 4;
+  bool can_update_tasks = 5;
+}
+
+message UpdateProjectAgentResponse {
+  ProjectAgent agent = 1;
+}
+
+message RemoveProjectAgentRequest {
+  string project_id = 1;
+  string agent_id = 2;
+}
+
+message RemoveProjectAgentResponse {}

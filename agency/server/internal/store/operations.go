@@ -1,0 +1,95 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package store
+
+import (
+	"database/sql"
+
+	"cherrypi.vladfaust.com/agency/internal/ids"
+)
+
+// RegisterAgentParams is the aggregate used to create an agent: the actor, the
+// agent row, its first owner and its first tunnel credential are written in one
+// transaction. A failure leaves no half-registered agent behind.
+type RegisterAgentParams struct {
+	Username     string
+	DisplayName  string
+	Description  string
+	OwnerActorID ids.ActorID
+
+	CredentialUsername     string
+	CredentialPasswordHash string
+
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+// TaskEvent names one task lifecycle transition. The store maps it to the
+// dialect's own query; the service owns the policy (which transition is
+// allowed for which state).
+type TaskEvent string
+
+const (
+	TaskPromote           TaskEvent = "promote"
+	TaskDemote            TaskEvent = "demote"
+	TaskQueue             TaskEvent = "queue"
+	TaskDequeue           TaskEvent = "dequeue"
+	TaskArchive           TaskEvent = "archive"
+	TaskUnarchive         TaskEvent = "unarchive"
+	TaskSettle            TaskEvent = "settle"
+	TaskInput             TaskEvent = "input"
+	TaskClearInput        TaskEvent = "clear_input"
+	TaskResume            TaskEvent = "resume"
+	TaskComplete          TaskEvent = "complete"
+	TaskCancel            TaskEvent = "cancel"
+	TaskReopen            TaskEvent = "reopen"
+	TaskClaim             TaskEvent = "claim"
+	TaskFail              TaskEvent = "fail"
+	TaskFailBySession     TaskEvent = "fail_by_session"
+	TaskRequeue           TaskEvent = "requeue"
+	TaskRequeueWithPrompt TaskEvent = "requeue_with_prompt"
+)
+
+// TransitionTaskParams carries every field a transition may write. Each event
+// reads the subset it needs; the rest stay zero.
+type TransitionTaskParams struct {
+	Event TaskEvent
+	ID    string
+
+	UpdatedAt  int64
+	SettledAt  sql.NullInt64
+	QueuedAt   sql.NullInt64
+	StartedAt  sql.NullInt64
+	ArchivedAt sql.NullInt64
+
+	Error string
+	State string
+
+	AssigneeActorID sql.NullInt64
+	AssigneePinned  int64
+
+	OrgPromptID          sql.NullInt64
+	AgentPromptID        sql.NullInt64
+	ProjectPromptID      sql.NullInt64
+	AgentProjectPromptID sql.NullInt64
+
+	PendingPrompt        string
+	PendingPromptActorID sql.NullInt64
+
+	AgentID   ids.AgentID
+	SessionID string
+}

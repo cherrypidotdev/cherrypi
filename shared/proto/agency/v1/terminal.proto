@@ -1,0 +1,87 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agent/v1/terminal.proto";
+
+// TerminalService is the agency-facing, agent-scoped view of the worker's PTY
+// API. Control calls forward over the tunnel; the PTY data plane is a
+// WebSocket the agency relays at /api/agents/<agent_id>/terminal/<id>/ws.
+service TerminalService {
+  rpc CreateTerminal(CreateTerminalRequest) returns (CreateTerminalResponse);
+  rpc ListTerminals(ListTerminalsRequest) returns (ListTerminalsResponse);
+  rpc ResizeTerminal(ResizeTerminalRequest) returns (ResizeTerminalResponse);
+  rpc CloseTerminal(CloseTerminalRequest) returns (CloseTerminalResponse);
+  rpc CloseAllTerminals(CloseAllTerminalsRequest) returns (CloseAllTerminalsResponse);
+  rpc GetTerminalStats(GetTerminalStatsRequest) returns (GetTerminalStatsResponse);
+  rpc ListTerminalLogs(ListTerminalLogsRequest) returns (ListTerminalLogsResponse);
+}
+
+message CreateTerminalRequest {
+  string agent_id = 1;
+  agent.v1.CreateTerminalRequest request = 2;
+}
+message CreateTerminalResponse {
+  agent.v1.Terminal terminal = 1;
+  // Agency-side WebSocket path, e.g.
+  // /api/agents/<agent_id>/terminal/<id>/ws.
+  string ws_path = 2;
+}
+
+message ListTerminalsRequest {
+  string agent_id = 1;
+}
+message ListTerminalsResponse {
+  repeated agent.v1.Terminal terminals = 1;
+}
+
+message ResizeTerminalRequest {
+  string agent_id = 1;
+  agent.v1.ResizeTerminalRequest request = 2;
+}
+message ResizeTerminalResponse {}
+
+message CloseTerminalRequest {
+  string agent_id = 1;
+  agent.v1.CloseTerminalRequest request = 2;
+}
+message CloseTerminalResponse {}
+
+message CloseAllTerminalsRequest {
+  string agent_id = 1;
+  agent.v1.CloseAllTerminalsRequest request = 2;
+}
+message CloseAllTerminalsResponse {
+  uint32 closed = 1;
+}
+
+message GetTerminalStatsRequest {
+  string agent_id = 1;
+}
+message GetTerminalStatsResponse {
+  agent.v1.TerminalStats stats = 1;
+}
+
+message ListTerminalLogsRequest {
+  string agent_id = 1;
+  agent.v1.ListTerminalLogsRequest request = 2;
+}
+message ListTerminalLogsResponse {
+  repeated agent.v1.TerminalLog logs = 1;
+}

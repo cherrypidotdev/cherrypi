@@ -1,0 +1,168 @@
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+name: Release
+
+# Builds a tagged release: images on GHCR, the eight platform binaries, and the
+# GitHub Release. This repository is generated — every commit on `main` is a
+# release snapshot pushed from the private development repository, which is why
+# there is no test job here. See docs/CI.md.
+on:
+  push:
+    tags: ["v*"]
+
+# A release must never be cancelled or run twice concurrently.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  images:
+    name: ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agency
+            dockerfile: agency/server/Dockerfile
+          - name: agent
+            dockerfile: agent/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # git describe --tags versions the embedded SPA.
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/cherrypi-${{ matrix.name }}:${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/cherrypi-${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  binaries:
+    name: Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # make binaries derives VERSION from git describe.
+          fetch-depth: 0
+          lfs: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: |
+            agent/go.sum
+            shared/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            agency/frontend/package-lock.json
+            agency/sdk/js/package-lock.json
+
+      - name: Install codegen tools
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Generate code
+        run: |
+          cd shared && buf generate
+          cd ../agent && sqlc generate
+          cd ../agency/server && sqlc generate && go run ./internal/store/gen
+
+      - name: Install SDK and frontend dependencies
+        run: |
+          npm ci
+          (cd agency/sdk/js && npm ci && npm run build)
+          (cd agency/frontend && npm ci)
+
+      - name: Cross-compile binaries
+        run: make binaries
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: GitHub Release
+    needs: [images, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The tag annotation carries the release notes.
+          fetch-depth: 0
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: release-binaries
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > /tmp/notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file /tmp/notes.md \
+            --verify-tag

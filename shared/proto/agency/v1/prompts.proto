@@ -1,0 +1,142 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/projects.proto";
+import "google/protobuf/timestamp.proto";
+
+// PromptScope identifies a system-prompt section. Six scopes are user-editable
+// and versioned; they are injected into a task's system prompt in this order:
+// organization, project, the owning teams' general prompts, their per-project
+// prompts, agent, then agent-project. The built-in guidance is hard-coded and
+// appended after them.
+enum PromptScope {
+  PROMPT_SCOPE_UNSPECIFIED = 0;
+  // Agency settings; applies to every task.
+  PROMPT_SCOPE_ORG = 1;
+  // Agent settings and agent creation.
+  PROMPT_SCOPE_AGENT = 2;
+  // Project settings.
+  PROMPT_SCOPE_PROJECT = 3;
+  // Per agent × project override, edited in agent settings.
+  PROMPT_SCOPE_AGENT_PROJECT = 4;
+  // Hard-coded presentation guidance CherryPi appends to every task. Not
+  // stored or editable; reported so the system-prompt preview stays accurate.
+  PROMPT_SCOPE_BUILTIN = 5;
+  // A team's general prompt, edited in the team's Prompts tab. It applies to
+  // every task the team owns and is injected before the agent's prompt.
+  PROMPT_SCOPE_TEAM = 6;
+  // A team's per-project prompt, edited in the team's Prompts tab. It applies
+  // when the task is in that project and is injected before the agent's
+  // prompt.
+  PROMPT_SCOPE_TEAM_PROJECT = 7;
+}
+
+// PromptService reads and writes the versioned system prompts. Writes are
+// append-only: SetPrompt adds a version only when the content changed, and
+// reads always return the latest. Tasks pin the versions they used, so an
+// edit never affects an existing task.
+service PromptService {
+  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
+  rpc SetPrompt(SetPromptRequest) returns (SetPromptResponse);
+  // ListAgentProjectPrompts returns one entry per project with the agent's
+  // latest agent-project prompt (empty content when never set), so the agent
+  // settings page can render every project at once.
+  rpc ListAgentProjectPrompts(ListAgentProjectPromptsRequest) returns (ListAgentProjectPromptsResponse);
+  // GetTaskSystemPrompt reports the scoped prompts a task applies, in injection
+  // order. A task that has started reports the exact versions it pinned; an
+  // unstarted one previews the latest versions it would start with.
+  rpc GetTaskSystemPrompt(GetTaskSystemPromptRequest) returns (GetTaskSystemPromptResponse);
+}
+
+// Prompt is the latest version of one scoped prompt. An unset prompt has empty
+// content and version 0.
+message Prompt {
+  string content = 1;
+  // Monotonic per (scope, agent, project); 0 when never set.
+  int64 version = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message GetPromptRequest {
+  PromptScope scope = 1;
+  // Required for AGENT and AGENT_PROJECT.
+  string agent_id = 2;
+  // Required for PROJECT, AGENT_PROJECT, and TEAM_PROJECT.
+  string project_id = 3;
+  // Required for TEAM and TEAM_PROJECT.
+  int64 team_id = 4;
+}
+
+message GetPromptResponse {
+  Prompt prompt = 1;
+}
+
+message SetPromptRequest {
+  PromptScope scope = 1;
+  string agent_id = 2;
+  string project_id = 3;
+  string content = 4;
+  // Required for TEAM and TEAM_PROJECT.
+  int64 team_id = 5;
+}
+
+message SetPromptResponse {
+  Prompt prompt = 1;
+}
+
+message AgentProjectPrompt {
+  Project project = 1;
+  Prompt prompt = 2;
+}
+
+message ListAgentProjectPromptsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentProjectPromptsResponse {
+  repeated AgentProjectPrompt prompts = 1;
+}
+
+// SystemPromptSection is one scoped prompt a task applies. Sections are
+// returned in injection order and only for the scopes that apply (a task
+// without a project has no project or agent-project section). The built-in
+// guidance always renders last.
+message SystemPromptSection {
+  PromptScope scope = 1;
+  // Human-readable owner: the agency name, the agent's display name, the
+  // project's name, both for an agent-project prompt, the team's name (and the
+  // project's name for a team-project prompt), or CherryPi for the built-in
+  // guidance.
+  string owner = 2;
+  // The version applied to the task; 0 when the scope has no prompt.
+  int64 version = 3;
+  string content = 4;
+  // True when the task has started and this version is pinned; false when the
+  // section previews the latest version for an unstarted task.
+  bool pinned = 5;
+}
+
+message GetTaskSystemPromptRequest {
+  string task_id = 1;
+}
+
+message GetTaskSystemPromptResponse {
+  repeated SystemPromptSection sections = 1;
+}

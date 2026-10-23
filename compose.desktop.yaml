@@ -1,0 +1,42 @@
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# Desktop override: let the bundled agent reuse the host's already-running X
+# session, so the agent page's RDP button works.
+#
+#   CHERRYPI_HOST_XAUTHORITY="$HOME/.Xauthority" \
+#     docker compose -f compose.yaml -f compose.desktop.yaml up -d --build
+#
+# The agent image already installs the desktop bridge (x11vnc + X utilities);
+# this override only adds the display env and mounts the host's X socket and
+# authority file. CherryPi never boots a desktop: the display must already
+# exist on the host (a real Xfce/X11 session, or at least an X server). See
+# docs/desktop.md.
+name: cherrypi-agency
+
+services:
+  agent:
+    environment:
+      # The display x11vnc attaches to, and the authority file it reads.
+      DISPLAY: ${DISPLAY:-:0}
+      XAUTHORITY: /root/.Xauthority
+    volumes:
+      - ./cherrypi_home:/root
+      # The host's X server socket and authority file. The host usually lets
+      # the container connect only with the authority file (`xhost +local:`
+      # avoids that, at the cost of allowing any local client).
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${CHERRYPI_HOST_XAUTHORITY:?Set CHERRYPI_HOST_XAUTHORITY to the host Xauthority path}:/root/.Xauthority:ro

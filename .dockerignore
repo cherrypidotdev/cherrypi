@@ -1,0 +1,55 @@
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# Keep the build context small so COPY layers stay stable and fast. The
+# Dockerfiles install dependencies and build everything they need; nothing here
+# is required inside the build.
+
+# VCS / agent metadata
+.git
+.gitea
+.github
+.pi
+
+# Installed dependencies and local build output (rebuilt in the image)
+**/node_modules
+**/dist
+**/bin
+agent/internal/gen
+shared/gen
+agency/server/internal/gen
+agency/sdk/js/src/gen
+
+# NOTE: the gen trees are produced by the Docker `codegen` stage from the
+# protos/sql. Excluding the host copies keeps a stale checkout out of the image.
+
+# Embedded SPA: copied from the frontend build stage, not the host
+agency/server/cmd/agency/frontenddist
+
+# Local runtime state
+cherrypi_home
+agent/.env
+agent/cherrypi.db
+agent/cherrypi.sqlite3
+agent/sessions
+agent/workspace
+*.log
+.DS_Store
+
+# Stray `go build` outputs and release artifacts
+agency/server/agency
+agent/agent
+dist

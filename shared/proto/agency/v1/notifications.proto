@@ -1,0 +1,115 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// NotificationService is the agency's persistent inbox. Attention signals
+// pushed by agents (input requested, failures) become notifications that
+// survive long absences even with no webhooks configured.
+service NotificationService {
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (MarkNotificationReadResponse);
+  // Marks every unread notification scoped to one task read. Visiting a task
+  // is enough to have seen its signals, so the console calls this on mount.
+  rpc MarkTaskNotificationsRead(MarkTaskNotificationsReadRequest) returns (MarkTaskNotificationsReadResponse);
+  rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (MarkAllNotificationsReadResponse);
+  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  // DeleteAllNotifications empties the inbox in one call.
+  rpc DeleteAllNotifications(DeleteAllNotificationsRequest) returns (DeleteAllNotificationsResponse);
+  // Inbox preferences control which notification kinds are stored at all.
+  // A disabled kind is not written to the inbox but is still pushed to
+  // connected browsers, so sound/desktop alerts keep working.
+  rpc GetInboxPreferences(GetInboxPreferencesRequest) returns (GetInboxPreferencesResponse);
+  rpc SetInboxPreferences(SetInboxPreferencesRequest) returns (SetInboxPreferencesResponse);
+}
+
+message Notification {
+  int64 id = 1;
+  string agent_id = 2;
+  string task_id = 3;
+  // e.g. "input_requested" or "failed".
+  string kind = 4;
+  // "info", "warning", or "error".
+  string severity = 5;
+  string title = 6;
+  string body = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp read_at = 9;
+  // The project of the notification's task, when it has one, so the sidebar
+  // can badge projects by their unread inbox entries.
+  string project_id = 10;
+}
+
+message ListNotificationsRequest {
+  // Maximum entries to return (0 = server default).
+  uint32 limit = 1;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message GetUnreadCountRequest {}
+
+message GetUnreadCountResponse {
+  int64 count = 1;
+}
+
+message MarkNotificationReadRequest {
+  int64 id = 1;
+}
+
+message MarkNotificationReadResponse {}
+
+message MarkTaskNotificationsReadRequest {
+  string task_id = 1;
+}
+
+message MarkTaskNotificationsReadResponse {}
+
+message MarkAllNotificationsReadRequest {}
+
+message MarkAllNotificationsReadResponse {}
+
+message DeleteNotificationRequest {
+  int64 id = 1;
+}
+
+message DeleteNotificationResponse {}
+
+message DeleteAllNotificationsRequest {}
+
+message DeleteAllNotificationsResponse {}
+
+message GetInboxPreferencesRequest {}
+
+message GetInboxPreferencesResponse {
+  // Notification kinds that are NOT stored in the inbox.
+  repeated string disabled_kinds = 1;
+}
+
+message SetInboxPreferencesRequest {
+  repeated string disabled_kinds = 1;
+}
+
+message SetInboxPreferencesResponse {
+  repeated string disabled_kinds = 1;
+}
