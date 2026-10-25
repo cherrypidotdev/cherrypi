@@ -1,0 +1,115 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+service NotificationService {
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (MarkNotificationReadResponse);
+  
+  
+  rpc MarkTaskNotificationsRead(MarkTaskNotificationsReadRequest) returns (MarkTaskNotificationsReadResponse);
+  rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (MarkAllNotificationsReadResponse);
+  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  
+  rpc DeleteAllNotifications(DeleteAllNotificationsRequest) returns (DeleteAllNotificationsResponse);
+  
+  
+  
+  rpc GetInboxPreferences(GetInboxPreferencesRequest) returns (GetInboxPreferencesResponse);
+  rpc SetInboxPreferences(SetInboxPreferencesRequest) returns (SetInboxPreferencesResponse);
+}
+
+message Notification {
+  int64 id = 1;
+  string agent_id = 2;
+  string task_id = 3;
+  
+  string kind = 4;
+  
+  string severity = 5;
+  string title = 6;
+  string body = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp read_at = 9;
+  
+  
+  string project_id = 10;
+}
+
+message ListNotificationsRequest {
+  
+  uint32 limit = 1;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message GetUnreadCountRequest {}
+
+message GetUnreadCountResponse {
+  int64 count = 1;
+}
+
+message MarkNotificationReadRequest {
+  int64 id = 1;
+}
+
+message MarkNotificationReadResponse {}
+
+message MarkTaskNotificationsReadRequest {
+  string task_id = 1;
+}
+
+message MarkTaskNotificationsReadResponse {}
+
+message MarkAllNotificationsReadRequest {}
+
+message MarkAllNotificationsReadResponse {}
+
+message DeleteNotificationRequest {
+  int64 id = 1;
+}
+
+message DeleteNotificationResponse {}
+
+message DeleteAllNotificationsRequest {}
+
+message DeleteAllNotificationsResponse {}
+
+message GetInboxPreferencesRequest {}
+
+message GetInboxPreferencesResponse {
+  
+  repeated string disabled_kinds = 1;
+}
+
+message SetInboxPreferencesRequest {
+  repeated string disabled_kinds = 1;
+}
+
+message SetInboxPreferencesResponse {
+  repeated string disabled_kinds = 1;
+}

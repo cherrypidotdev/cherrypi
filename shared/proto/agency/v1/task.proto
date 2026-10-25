@@ -1,0 +1,952 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/artifacts.proto";
+import "agency/v1/attachments.proto";
+import "agent/v1/task.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+service TaskService {
+  
+  
+  
+  
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  
+  
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  
+  
+  
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  
+  
+  
+  
+  
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+  
+  
+  
+  rpc QueueTask(QueueTaskRequest) returns (QueueTaskResponse);
+  
+  
+  rpc PromoteTask(PromoteTaskRequest) returns (PromoteTaskResponse);
+  
+  rpc DemoteTask(DemoteTaskRequest) returns (DemoteTaskResponse);
+  
+  rpc DequeueTask(DequeueTaskRequest) returns (DequeueTaskResponse);
+  
+  rpc ListTaskReferences(ListTaskReferencesRequest) returns (ListTaskReferencesResponse);
+  
+  
+  
+  rpc AddTaskReference(AddTaskReferenceRequest) returns (AddTaskReferenceResponse);
+  
+  
+  rpc RemoveTaskReference(RemoveTaskReferenceRequest) returns (RemoveTaskReferenceResponse);
+  
+  
+  rpc ReopenTask(ReopenTaskRequest) returns (ReopenTaskResponse);
+  
+  rpc CloseOutTask(CloseOutTaskRequest) returns (CloseOutTaskResponse);
+  
+  
+  
+  
+  
+  rpc MergeTasks(MergeTasksRequest) returns (MergeTasksResponse);
+  
+  
+  
+  
+  rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  
+  rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
+  
+  
+  rpc CleanupTaskSession(CleanupTaskSessionRequest) returns (CleanupTaskSessionResponse);
+  
+  
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+  
+  
+  rpc RenameTask(RenameTaskRequest) returns (RenameTaskResponse);
+  
+  
+  rpc SetTaskPriority(SetTaskPriorityRequest) returns (SetTaskPriorityResponse);
+  
+  
+  rpc SetTaskSize(SetTaskSizeRequest) returns (SetTaskSizeResponse);
+  
+  
+  rpc SetTaskLinks(SetTaskLinksRequest) returns (SetTaskLinksResponse);
+  
+  
+  
+  rpc SetTaskTeams(SetTaskTeamsRequest) returns (SetTaskTeamsResponse);
+  
+  
+  
+  
+  rpc SetTaskLeads(SetTaskLeadsRequest) returns (SetTaskLeadsResponse);
+  
+  
+  
+  rpc SetTaskSubscription(SetTaskSubscriptionRequest) returns (SetTaskSubscriptionResponse);
+  
+  
+  
+  
+  rpc BulkUpdateTask(BulkUpdateTaskRequest) returns (BulkUpdateTaskResponse);
+
+  
+  rpc AddToTask(AddToTaskRequest) returns (AddToTaskResponse);
+  rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
+  rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+  rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
+  rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
+  
+  
+  
+  rpc MigrateTaskHistory(MigrateTaskHistoryRequest) returns (MigrateTaskHistoryResponse);
+  rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
+  
+  
+  rpc GetTaskDefaults(GetTaskDefaultsRequest) returns (GetTaskDefaultsResponse);
+  rpc SetTaskModel(SetTaskModelRequest) returns (SetTaskModelResponse);
+  rpc SetTaskThinkingLevel(SetTaskThinkingLevelRequest) returns (SetTaskThinkingLevelResponse);
+  rpc RespondToExtensionUi(RespondToExtensionUiRequest) returns (RespondToExtensionUiResponse);
+  
+  
+  
+  rpc ClearTaskQueue(ClearTaskQueueRequest) returns (ClearTaskQueueResponse);
+}
+
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  
+  TASK_STATE_DRAFT = 1;
+  reserved 9; 
+  
+  
+  TASK_STATE_BACKLOG = 11;
+  
+  
+  
+  TASK_STATE_QUEUED = 2;
+  
+  TASK_STATE_RUNNING = 3;
+  
+  
+  TASK_STATE_SETTLED = 4;
+  
+  
+  TASK_STATE_FAILED = 5;
+  
+  
+  TASK_STATE_INPUT = 6;
+  
+  TASK_STATE_COMPLETED = 7;
+  
+  
+  TASK_STATE_CANCELLED = 8;
+  reserved 10; 
+}
+
+
+
+enum TaskPriority {
+  TASK_PRIORITY_UNSPECIFIED = 0;
+  TASK_PRIORITY_LOW = 1;
+  TASK_PRIORITY_NORMAL = 2;
+  TASK_PRIORITY_HIGH = 3;
+  TASK_PRIORITY_CRITICAL = 4;
+}
+
+
+
+enum TaskSize {
+  
+  TASK_SIZE_UNSPECIFIED = 0;
+  TASK_SIZE_SMALL = 1;
+  TASK_SIZE_MEDIUM = 2;
+  TASK_SIZE_BIG = 3;
+  
+  TASK_SIZE_EPIC = 4;
+}
+
+
+
+message TaskTeam {
+  int32 id = 1;
+  string name = 2;
+}
+
+
+
+
+
+message TaskLead {
+  string actor_id = 1;
+  string username = 2;
+  string name = 3;
+  
+  string kind = 4;
+  
+  
+  string picture_url = 5;
+}
+
+
+message TaskRuntime {
+  
+  bool run_in_progress = 1;
+  
+  bool waiting_for_input = 2;
+  
+  bool process_running = 3;
+}
+
+
+
+message Task {
+  string id = 1;
+  string name = 2;
+  string prompt = 3;
+  
+  
+  string project_id = 4;
+  
+  
+  string assignee_actor_id = 5;
+  
+  bool assignee_pinned = 6;
+  TaskPriority priority = 7;
+  TaskState state = 8;
+  
+  string session_id = 9;
+  repeated Tag tags = 10;
+  string error = 11;
+  
+  TaskRuntime runtime = 12;
+  
+  string model_provider = 13;
+  string model_id = 14;
+  string thinking_level = 15;
+  
+  
+  bool interactive = 16;
+  string workspace = 17;
+  bool auto_title = 18;
+  google.protobuf.Timestamp queued_at = 19;
+  google.protobuf.Timestamp started_at = 20;
+  
+  google.protobuf.Timestamp settled_at = 21;
+  google.protobuf.Timestamp created_at = 22;
+  google.protobuf.Timestamp updated_at = 23;
+  reserved 24, 25; 
+  
+  
+  repeated TaskLink links = 26;
+  
+  TaskSize size = 27;
+  
+  
+  repeated TaskReference references = 28;
+  
+  
+  
+  int64 seq = 29;
+  
+  
+  repeated Attachment attachments = 30;
+  
+  
+  repeated TaskMessage messages = 31;
+  
+  
+  repeated Artifact artifacts = 32;
+  
+  
+  
+  google.protobuf.Timestamp state_updated_at = 33;
+  
+  
+  repeated TaskLog logs = 34;
+  
+  
+  repeated TaskReference referenced_by = 35;
+  
+  
+  
+  
+  
+  google.protobuf.Timestamp session_deleted_at = 36;
+  
+  
+  
+  
+  bool history_migrated = 37;
+  
+  
+  
+  
+  string pending_prompt = 38;
+  
+  
+  
+  
+  bool archived = 39;
+  
+  google.protobuf.Timestamp archived_at = 40;
+  
+  
+  int32 blockers = 41;
+  
+  
+  string creator_actor_id = 42;
+  
+  string creator_name = 43;
+  reserved 44, 45; 
+  
+  string creator_picture_url = 51;
+  
+  string pending_prompt_actor_id = 46;
+  
+  string pending_prompt_actor_name = 47;
+  
+  
+  repeated TaskTeam teams = 48;
+  
+  
+  repeated TaskLead leads = 49;
+  
+  
+  bool subscribed = 50;
+}
+
+
+
+
+
+message TaskLog {
+  
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  
+  string actor = 3;
+  
+  
+  
+  string kind = 4;
+  
+  
+  string field = 5;
+  
+  
+  string old_value = 6;
+  
+  string new_value = 7;
+  
+  string message = 8;
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  string data_json = 9;
+  
+  string actor_id = 10;
+  
+  string actor_name = 11;
+  
+  string actor_username = 12;
+}
+
+
+
+
+message TaskMessage {
+  
+  string id = 1;
+  string text = 2;
+  google.protobuf.Timestamp created_at = 3;
+  
+  repeated Attachment attachments = 4;
+  
+  
+  string actor_id = 5;
+  
+  string actor_name = 6;
+  string actor_username = 7;
+  
+  string actor_kind = 8;
+}
+
+
+
+
+enum TaskReferenceKind {
+  TASK_REFERENCE_KIND_UNSPECIFIED = 0;
+  
+  
+  TASK_REFERENCE_KIND_BLOCKING = 1;
+  
+  TASK_REFERENCE_KIND_INFORMATIONAL = 2;
+  
+  
+  TASK_REFERENCE_KIND_SUPERSEDES = 3;
+}
+
+
+
+message TaskReference {
+  string id = 1;
+  
+  
+  string name = 2;
+  TaskState state = 3;
+  
+  
+  string prompt = 4;
+  
+  TaskReferenceKind kind = 5;
+}
+
+
+message TaskReferenceInput {
+  string referenced_task_id = 1;
+  TaskReferenceKind kind = 2;
+}
+
+
+message TaskLink {
+  string url = 1;
+  
+  string label = 2;
+}
+
+
+
+
+message Tag {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  bool archived = 5;
+  int32 task_count = 6;
+  
+  string project_id = 7;
+  
+  
+  bool is_default = 8;
+}
+
+message ListTasksRequest {
+  string project_id = 1;
+  string agent_id = 2;
+  TaskState state = 3;
+  string tag_id = 4;
+  string search = 5;
+  
+  
+  bool archived = 6;
+  
+  TaskSize size = 7;
+}
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  
+  repeated string offline_agents = 2;
+}
+
+message GetTaskRequest {
+  string id = 1;
+}
+message GetTaskResponse {
+  Task task = 1;
+}
+
+message CreateTaskRequest {
+  string prompt = 1;
+  
+  string name = 2;
+  
+  string project_id = 3;
+  
+  
+  string assignee_actor_id = 4;
+  repeated string tag_ids = 5;
+  TaskPriority priority = 6;
+  string model_provider = 7;
+  string model_id = 8;
+  string thinking_level = 9;
+  reserved 10; 
+               
+  string workspace = 11;
+  bool auto_title = 12;
+  
+  
+  
+  TaskState state = 13;
+  
+  TaskSize size = 14;
+  
+  
+  repeated TaskReferenceInput references = 15;
+  reserved 16, 17; 
+  
+  
+  repeated int32 team_ids = 18;
+  
+  
+  repeated string lead_actor_ids = 19;
+}
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message UpdateTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  string name = 3;
+  
+  string project_id = 4;
+  
+  string assignee_actor_id = 5;
+  repeated string tag_ids = 6;
+  TaskPriority priority = 7;
+  string model_provider = 8;
+  string model_id = 9;
+  string thinking_level = 10;
+  reserved 11; 
+               
+  string workspace = 12;
+  bool auto_title = 13;
+  
+  TaskSize size = 14;
+  
+  
+  
+  
+  
+  optional TaskPriority set_priority = 15;
+  optional TaskSize set_size = 16;
+  optional string set_assignee_actor_id = 17;
+  
+  
+  optional string set_pending_prompt = 18;
+  
+  
+  
+  optional string set_prompt = 19;
+}
+message UpdateTaskResponse {
+  Task task = 1;
+}
+
+message QueueTaskRequest {
+  string id = 1;
+}
+message QueueTaskResponse {
+  Task task = 1;
+}
+
+message PromoteTaskRequest {
+  string id = 1;
+}
+message PromoteTaskResponse {
+  Task task = 1;
+}
+
+message DemoteTaskRequest {
+  string id = 1;
+}
+message DemoteTaskResponse {
+  Task task = 1;
+}
+
+message DequeueTaskRequest {
+  string id = 1;
+}
+message DequeueTaskResponse {
+  Task task = 1;
+}
+
+message ListTaskReferencesRequest {
+  string id = 1;
+}
+message ListTaskReferencesResponse {
+  repeated Task tasks = 1;
+}
+
+message AddTaskReferenceRequest {
+  string id = 1;
+  string referenced_task_id = 2;
+  
+  
+  
+  
+  TaskReferenceKind kind = 3;
+}
+message AddTaskReferenceResponse {
+  Task task = 1;
+}
+
+message RemoveTaskReferenceRequest {
+  string id = 1;
+  string referenced_task_id = 2;
+}
+message RemoveTaskReferenceResponse {
+  Task task = 1;
+}
+
+message ReopenTaskRequest {
+  string id = 1;
+  
+  bool queue = 2;
+}
+message ReopenTaskResponse {
+  Task task = 1;
+}
+
+message CloseOutTaskRequest {
+  string id = 1;
+  
+  TaskState outcome = 2;
+}
+message CloseOutTaskResponse {
+  Task task = 1;
+}
+
+message MergeTasksRequest {
+  
+  
+  repeated string ids = 1;
+}
+message MergeTasksResponse {
+  Task task = 1;
+}
+
+message ArchiveTaskRequest {
+  string id = 1;
+}
+message ArchiveTaskResponse {
+  Task task = 1;
+}
+
+message UnarchiveTaskRequest {
+  string id = 1;
+}
+message UnarchiveTaskResponse {
+  Task task = 1;
+}
+
+message CleanupTaskSessionRequest {
+  string id = 1;
+}
+message CleanupTaskSessionResponse {
+  Task task = 1;
+}
+
+message RenameTaskRequest {
+  string id = 1;
+  string name = 2;
+}
+message RenameTaskResponse {
+  Task task = 1;
+}
+
+message SetTaskPriorityRequest {
+  string id = 1;
+  TaskPriority priority = 2;
+}
+message SetTaskPriorityResponse {
+  Task task = 1;
+}
+
+message SetTaskSizeRequest {
+  string id = 1;
+  TaskSize size = 2;
+}
+message SetTaskSizeResponse {
+  Task task = 1;
+}
+
+message SetTaskLinksRequest {
+  string id = 1;
+  
+  
+  repeated TaskLink links = 2;
+}
+message SetTaskLinksResponse {
+  Task task = 1;
+}
+
+message SetTaskTeamsRequest {
+  string id = 1;
+  
+  
+  repeated int32 team_ids = 2;
+}
+message SetTaskTeamsResponse {
+  Task task = 1;
+}
+
+message SetTaskLeadsRequest {
+  string id = 1;
+  
+  
+  repeated string lead_actor_ids = 2;
+}
+message SetTaskLeadsResponse {
+  Task task = 1;
+}
+
+message SetTaskSubscriptionRequest {
+  string id = 1;
+  
+  bool subscribed = 2;
+}
+message SetTaskSubscriptionResponse {
+  Task task = 1;
+}
+
+message BulkUpdateTaskRequest {
+  repeated string ids = 1;
+  
+  
+  
+  optional TaskPriority set_priority = 2;
+  optional TaskSize set_size = 3;
+  optional string set_assignee_actor_id = 4;
+  
+  
+  
+  repeated string add_tag_ids = 5;
+  
+  
+  repeated string remove_tag_ids = 6;
+}
+message BulkUpdateTaskResponse {
+  repeated BulkUpdateTaskResult results = 1;
+}
+
+
+
+
+message BulkUpdateTaskResult {
+  string id = 1;
+  Task task = 2;
+  string error = 3;
+}
+
+message DeleteTaskRequest {
+  string id = 1;
+}
+message DeleteTaskResponse {}
+
+message AddToTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  
+  
+  repeated int64 attachment_ids = 3;
+  
+  string message_id = 4;
+}
+message AddToTaskResponse {
+  
+  string message_id = 1;
+}
+
+message StopTaskRequest {
+  string id = 1;
+}
+message StopTaskResponse {}
+
+message RetryTaskRequest {
+  string id = 1;
+}
+message RetryTaskResponse {
+  Task task = 1;
+}
+
+message WatchTaskRequest {
+  string id = 1;
+  
+  bool replay_history = 2;
+}
+message WatchTaskResponse {
+  agent.v1.TaskEvent event = 1;
+}
+
+message GetTaskHistoryRequest {
+  string id = 1;
+  string before = 2;
+  uint32 limit = 3;
+}
+message GetTaskHistoryResponse {
+  repeated agent.v1.TaskEvent events = 1;
+  string next_before = 2;
+}
+
+message MigrateTaskHistoryRequest {
+  string id = 1;
+}
+
+message MigrateTaskHistoryResponse {
+  
+  
+  Task task = 1;
+  
+  
+  uint32 entries = 2;
+}
+
+message GetTaskConfigRequest {
+  string id = 1;
+}
+message GetTaskConfigResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+message GetTaskDefaultsRequest {
+  string agent_id = 1;
+}
+message GetTaskDefaultsResponse {
+  agent.v1.TaskConfig defaults = 1;
+}
+
+message SetTaskModelRequest {
+  string id = 1;
+  string provider = 2;
+  string model_id = 3;
+}
+message SetTaskModelResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+message SetTaskThinkingLevelRequest {
+  string id = 1;
+  string level = 2;
+}
+message SetTaskThinkingLevelResponse {
+  agent.v1.TaskConfig config = 1;
+}
+
+
+
+message QuestionnaireAnswer {
+  string question = 1;
+  string answer = 2;
+}
+
+message RespondToExtensionUiRequest {
+  string id = 1;
+  string request_id = 2;
+  oneof response {
+    string value = 3;
+    bool confirmed = 4;
+    bool cancelled = 5;
+  }
+  
+  
+  repeated QuestionnaireAnswer questionnaire = 6;
+}
+message RespondToExtensionUiResponse {}
+
+message ClearTaskQueueRequest {
+  string id = 1;
+}
+message ClearTaskQueueResponse {}
+
+
+service TagService {
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+  rpc CreateTag(CreateTagRequest) returns (CreateTagResponse);
+  rpc UpdateTag(UpdateTagRequest) returns (UpdateTagResponse);
+  rpc ArchiveTag(ArchiveTagRequest) returns (ArchiveTagResponse);
+  rpc RestoreTag(RestoreTagRequest) returns (RestoreTagResponse);
+}
+
+message ListTagsRequest {
+  
+  bool include_archived = 1;
+  
+  string project_id = 2;
+}
+message ListTagsResponse {
+  repeated Tag tags = 1;
+}
+
+message CreateTagRequest {
+  
+  string project_id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  
+  bool is_default = 5;
+}
+message CreateTagResponse {
+  Tag tag = 1;
+}
+
+message UpdateTagRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string color = 4;
+  
+  bool is_default = 5;
+}
+message UpdateTagResponse {
+  Tag tag = 1;
+}
+
+message ArchiveTagRequest {
+  string id = 1;
+}
+message ArchiveTagResponse {
+  Tag tag = 1;
+}
+
+message RestoreTagRequest {
+  string id = 1;
+}
+message RestoreTagResponse {
+  Tag tag = 1;
+}

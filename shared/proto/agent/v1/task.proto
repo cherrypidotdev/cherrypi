@@ -1,0 +1,547 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+service TaskService {
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc AddToTask(AddToTaskRequest) returns (AddToTaskResponse);
+  
+  
+  rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+  
+  
+  rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
+  
+  
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+  
+  rpc RenameTask(RenameTaskRequest) returns (RenameTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
+  
+  
+  
+  rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
+  
+  
+  
+  
+  rpc SyncTaskHistory(SyncTaskHistoryRequest) returns (SyncTaskHistoryResponse);
+  
+  
+  
+  rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
+  
+  
+  
+  
+  
+  rpc GetTaskDefaults(GetTaskDefaultsRequest) returns (GetTaskDefaultsResponse);
+  
+  rpc SetTaskModel(SetTaskModelRequest) returns (SetTaskModelResponse);
+  
+  rpc SetTaskThinkingLevel(SetTaskThinkingLevelRequest) returns (SetTaskThinkingLevelResponse);
+  
+  
+  rpc RespondToExtensionUi(RespondToExtensionUiRequest) returns (RespondToExtensionUiResponse);
+  
+  
+  
+  rpc ClearQueue(ClearQueueRequest) returns (ClearQueueResponse);
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  
+  
+  
+  TASK_STATUS_ACTIVE = 1;
+  
+  
+  TASK_STATUS_DONE = 2;
+  
+  TASK_STATUS_FAILED = 3;
+  
+  
+  TASK_STATUS_CANCELLED = 4 [deprecated = true];
+  
+  TASK_STATUS_IN_PROGRESS = 5;
+  
+  TASK_STATUS_WAITING_INPUT = 6;
+}
+
+message Task {
+  string id = 1;
+  
+  
+  
+  TaskStatus status = 2;
+  
+  string prompt = 3;
+  
+  
+  
+  string workspace = 4;
+  
+  string pi_session_id = 5;
+  string error = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp ended_at = 9;
+  
+  
+  bool interactive = 10;
+  
+  bool waiting_for_input = 11;
+  
+  string pending_dialog_json = 12;
+  
+  
+  
+  bool process_running = 13;
+  
+  
+  string name = 14;
+  
+  
+  
+  
+  
+  bool run_in_progress = 16;
+}
+
+message CreateTaskRequest {
+  string prompt = 1;
+
+  
+  
+  
+  
+  string workspace = 2;
+
+  
+  
+  
+  bool interactive = 3;
+
+  
+  
+  string model_provider = 4;
+  string model_id = 5;
+
+  
+  
+  string thinking_level = 6;
+
+  
+  
+  string title = 7;
+
+  
+  
+  
+  
+  bool auto_title = 8;
+
+  
+  
+  
+  
+  
+  string append_system_prompt = 9;
+
+  
+  
+  
+  repeated AttachmentRef attachments = 10;
+
+  
+  
+  
+  string task_id = 11;
+
+  
+  
+  
+  
+  TaskRef ref = 12;
+
+  
+  
+  
+  
+  PromptSender sender = 13;
+}
+
+
+
+
+message AttachmentRef {
+  int64 id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string url = 5;
+}
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message AddToTaskRequest {
+  string id = 1;
+  string prompt = 2;
+  
+  repeated AttachmentRef attachments = 3;
+  
+  
+  string task_id = 4;
+  
+  
+  
+  TaskRef ref = 5;
+  
+  
+  
+  PromptSender sender = 6;
+}
+
+
+
+message PromptSender {
+  int64 actor_id = 1;
+  string username = 2;
+  string name = 3;
+  
+  string kind = 4;
+}
+
+message AddToTaskResponse {}
+
+message RetryTaskRequest {
+  string id = 1;
+  
+  
+  
+  TaskRef ref = 2;
+}
+
+
+
+
+
+message TaskRef {
+  string project_id = 1;
+  int64 seq = 2;
+}
+
+message RetryTaskResponse {
+  Task task = 1;
+}
+
+message StopTaskRequest {
+  string id = 1;
+}
+
+message StopTaskResponse {}
+
+message DeleteTaskRequest {
+  string id = 1;
+}
+
+message DeleteTaskResponse {}
+
+message RenameTaskRequest {
+  string id = 1;
+  string name = 2;
+}
+
+message RenameTaskResponse {
+  Task task = 1;
+}
+
+message ListTasksRequest {}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+}
+
+message WatchTaskRequest {
+  string id = 1;
+  
+  
+  
+  bool replay_history = 2;
+}
+
+message WatchTaskResponse {
+  TaskEvent event = 1;
+}
+
+message GetTaskHistoryRequest {
+  string id = 1;
+  
+  
+  string before = 2;
+  
+  uint32 limit = 3;
+}
+
+message GetTaskHistoryResponse {
+  
+  repeated TaskEvent events = 1;
+  
+  
+  string next_before = 2;
+}
+
+message SyncTaskHistoryRequest {
+  string id = 1;
+
+  
+  
+  
+  TaskRef ref = 2;
+}
+
+message SyncTaskHistoryResponse {
+  
+  
+  uint32 entries = 1;
+}
+
+message TaskModel {
+  string provider = 1;
+  string id = 2;
+  string name = 3;
+  
+  bool reasoning = 4;
+  
+  
+  repeated string thinking_levels = 5;
+}
+
+
+message TaskConfig {
+  string model_provider = 1;
+  string model_id = 2;
+  string model_name = 3;
+  
+  repeated TaskModel models = 4;
+  
+  string thinking_level = 5;
+  
+  repeated string thinking_levels = 6;
+}
+
+message GetTaskConfigRequest {
+  string id = 1;
+}
+
+message GetTaskConfigResponse {
+  TaskConfig config = 1;
+}
+
+message GetTaskDefaultsRequest {}
+
+
+
+message GetTaskDefaultsResponse {
+  TaskConfig defaults = 1;
+}
+
+message SetTaskModelRequest {
+  string id = 1;
+  string provider = 2;
+  string model_id = 3;
+}
+
+message SetTaskModelResponse {
+  TaskConfig config = 1;
+}
+
+message SetTaskThinkingLevelRequest {
+  string id = 1;
+  string level = 2;
+}
+
+message SetTaskThinkingLevelResponse {
+  TaskConfig config = 1;
+}
+
+
+
+message TaskEvent {
+  string task_id = 1;
+  google.protobuf.Timestamp at = 2;
+
+  oneof event {
+    TaskStatusChanged status_changed = 3;
+    RunStarted run_started = 4;
+    RunSettled run_settled = 5;
+    AgentText text = 6;
+    AgentThinking thinking = 7;
+    ToolExecution tool = 8;
+    LogLine log = 9;
+    ExtensionUiRequest extension_ui = 10;
+    UserMessage user_message = 11;
+    PendingMessages pending_messages = 12;
+  }
+}
+
+message TaskStatusChanged {
+  TaskStatus status = 1;
+  string error = 2;
+}
+
+
+message RunStarted {}
+
+
+
+message RunSettled {}
+
+
+
+message AgentText {
+  string delta = 1;
+}
+
+message AgentThinking {
+  string delta = 1;
+}
+
+enum ToolPhase {
+  TOOL_PHASE_UNSPECIFIED = 0;
+  TOOL_PHASE_STARTED = 1;
+  TOOL_PHASE_UPDATED = 2;
+  TOOL_PHASE_FINISHED = 3;
+}
+
+message ToolExecution {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  ToolPhase phase = 3;
+  
+  string args_json = 4;
+  string result_json = 5;
+  bool is_error = 6;
+  
+  
+  
+  string details_json = 7;
+}
+
+message LogLine {
+  string line = 1;
+}
+
+
+
+
+message UserMessage {
+  
+  
+  string text = 1;
+  
+  
+  PromptSender sender = 2;
+  
+  
+  string body = 3;
+  
+  
+  
+  repeated MessageAttachment attachments = 4;
+}
+
+
+
+
+message MessageAttachment {
+  int64 id = 1;
+  string filename = 2;
+}
+
+
+
+
+
+
+message PendingMessages {
+  repeated string steering = 1;
+  repeated string follow_up = 2;
+}
+
+
+
+
+
+message ExtensionUiRequest {
+  string request_id = 1;
+  string method = 2;
+  string title = 3;
+  string message = 4;
+  string placeholder = 5;
+  string prefill = 6;
+  repeated string options = 7;
+  uint32 timeout = 8;
+  
+  string raw_json = 9;
+}
+
+
+
+
+
+
+message QuestionnaireAnswer {
+  string question = 1;
+  string answer = 2;
+}
+
+message RespondToExtensionUiRequest {
+  
+  string id = 1;
+  
+  string request_id = 2;
+  oneof response {
+    
+    string value = 3;
+    
+    bool confirmed = 4;
+    
+    bool cancelled = 5;
+  }
+  
+  
+  repeated QuestionnaireAnswer questionnaire = 6;
+}
+
+message RespondToExtensionUiResponse {}
+
+message ClearQueueRequest {
+  string id = 1;
+}
+message ClearQueueResponse {}

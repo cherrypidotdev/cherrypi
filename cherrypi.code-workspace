@@ -1,0 +1,29 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": ".",
+    },
+    {
+      "path": "agency/server",
+      "name": "agency/server",
+    },
+    {
+      "path": "agency/frontend",
+      "name": "agency/frontend",
+    },
+    {
+      "path": "agency/sdk/js",
+      "name": "agency/sdk/js",
+    },
+    {
+      "path": "agent",
+      "name": "agent",
+    },
+    {
+      "path": "shared",
+      "name": "shared",
+    },
+  ],
+  "settings": {},
+}

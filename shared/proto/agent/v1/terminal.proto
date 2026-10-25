@@ -1,0 +1,160 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+
+
+service TerminalService {
+  rpc CreateTerminal(CreateTerminalRequest) returns (CreateTerminalResponse);
+  rpc ListTerminals(ListTerminalsRequest) returns (ListTerminalsResponse);
+  rpc ResizeTerminal(ResizeTerminalRequest) returns (ResizeTerminalResponse);
+  rpc CloseTerminal(CloseTerminalRequest) returns (CloseTerminalResponse);
+  
+  
+  rpc CloseAllTerminals(CloseAllTerminalsRequest) returns (CloseAllTerminalsResponse);
+  
+  rpc GetTerminalStats(GetTerminalStatsRequest) returns (GetTerminalStatsResponse);
+  
+  
+  
+  rpc ListTerminalLogs(ListTerminalLogsRequest) returns (ListTerminalLogsResponse);
+}
+
+
+enum TerminalKind {
+  TERMINAL_KIND_UNSPECIFIED = 0;
+  
+  TERMINAL_KIND_ROOT = 1;
+
+  
+  reserved 2;
+  reserved "TERMINAL_KIND_TASK";
+}
+
+message Terminal {
+  string id = 1;
+  TerminalKind kind = 2;
+  
+  reserved 3;
+  reserved "task_id";
+  
+  string cwd = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  google.protobuf.Timestamp created_at = 7;
+  
+  
+  string owner = 8;
+}
+
+message CreateTerminalRequest {
+  TerminalKind kind = 1;
+  
+  reserved 2;
+  reserved "task_id";
+  
+  uint32 cols = 3;
+  uint32 rows = 4;
+}
+
+message CreateTerminalResponse {
+  Terminal terminal = 1;
+  
+  string ws_path = 2;
+}
+
+message ListTerminalsRequest {}
+
+message ListTerminalsResponse {
+  repeated Terminal terminals = 1;
+}
+
+message ResizeTerminalRequest {
+  string id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message ResizeTerminalResponse {}
+
+message CloseTerminalRequest {
+  string id = 1;
+}
+
+message CloseTerminalResponse {}
+
+message CloseAllTerminalsRequest {
+  
+  TerminalKind kind = 1;
+
+  
+  reserved 2;
+  reserved "task_id";
+}
+
+message CloseAllTerminalsResponse {
+  
+  uint32 closed = 1;
+}
+
+message GetTerminalStatsRequest {}
+
+message TerminalStats {
+  uint32 root = 1;
+  
+  reserved 2;
+  reserved "task";
+  uint32 total = 3;
+}
+
+message GetTerminalStatsResponse {
+  TerminalStats stats = 1;
+}
+
+message ListTerminalLogsRequest {
+  
+  uint32 limit = 1;
+}
+
+message ListTerminalLogsResponse {
+  repeated TerminalLog logs = 1;
+}
+
+
+
+
+message TerminalLog {
+  int64 id = 1;
+  string terminal_id = 2;
+  TerminalKind kind = 3;
+  
+  reserved 4;
+  reserved "task_id";
+  string owner = 5;
+  string event = 6;
+  string reason = 7;
+  string detail = 8;
+  google.protobuf.Timestamp at = 9;
+}

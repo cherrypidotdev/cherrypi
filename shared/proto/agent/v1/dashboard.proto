@@ -1,0 +1,107 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+service DashboardService {
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  rpc GetDiskUsage(GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  
+  
+  rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
+}
+
+message GetUsageRequest {
+  
+  
+  
+  
+  string task_id = 1;
+}
+
+
+message TaskUsage {
+  string task_id = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+  
+  
+  bool live = 5;
+  
+  
+  double tokens_per_second = 6;
+  double cost_per_hour = 7;
+  
+  
+  
+  int64 active_ms = 8;
+  
+  
+  
+  
+  int64 context_tokens = 9;
+  int64 context_window = 10;
+}
+
+
+message TaskDiskUsage {
+  string task_id = 1;
+  int64 bytes = 2;
+}
+
+message GetDiskUsageRequest {}
+
+message GetDiskUsageResponse {
+  
+  int64 total_bytes = 1;
+  
+  repeated TaskDiskUsage tasks = 2;
+}
+
+message GetTaskDiskUsageRequest {
+  string task_id = 1;
+}
+
+message GetTaskDiskUsageResponse {
+  
+  int64 bytes = 1;
+}
+
+message GetUsageResponse {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  double cost = 3;
+  repeated TaskUsage tasks = 4;
+  
+  repeated UsageDay days = 5;
+}
+
+
+message UsageDay {
+  
+  google.protobuf.Timestamp day = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+}

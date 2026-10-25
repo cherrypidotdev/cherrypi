@@ -1,0 +1,102 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+import "agent/v1/dashboard.proto";
+
+
+
+service DashboardService {
+  
+  
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
+  
+  rpc GetTaskUsage(GetTaskUsageRequest) returns (GetTaskUsageResponse);
+  
+  rpc GetDiskUsage(GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  
+  rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
+}
+
+message GetUsageRequest {
+  
+  string agent_id = 1;
+  
+  
+  string project_id = 2;
+}
+
+
+
+message GetUsageResponse {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  double cost = 3;
+  
+  repeated AgentTaskUsage tasks = 4;
+  
+  repeated UsageDay days = 5;
+}
+
+
+
+message AgentTaskUsage {
+  string agent_id = 1;
+  string task_id = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  double cost = 5;
+  int64 active_ms = 6;
+}
+
+
+message UsageDay {
+  
+  google.protobuf.Timestamp day = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+}
+
+message GetTaskUsageRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message GetTaskUsageResponse {
+  agent.v1.TaskUsage usage = 1;
+}
+
+message GetDiskUsageRequest {
+  string agent_id = 1;
+}
+
+message GetDiskUsageResponse {
+  agent.v1.GetDiskUsageResponse usage = 1;
+}
+
+message GetTaskDiskUsageRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message GetTaskDiskUsageResponse {
+  agent.v1.GetTaskDiskUsageResponse usage = 1;
+}

@@ -1,0 +1,142 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/projects.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+
+enum PromptScope {
+  PROMPT_SCOPE_UNSPECIFIED = 0;
+  
+  PROMPT_SCOPE_ORG = 1;
+  
+  PROMPT_SCOPE_AGENT = 2;
+  
+  PROMPT_SCOPE_PROJECT = 3;
+  
+  PROMPT_SCOPE_AGENT_PROJECT = 4;
+  
+  
+  PROMPT_SCOPE_BUILTIN = 5;
+  
+  
+  PROMPT_SCOPE_TEAM = 6;
+  
+  
+  
+  PROMPT_SCOPE_TEAM_PROJECT = 7;
+}
+
+
+
+
+
+service PromptService {
+  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
+  rpc SetPrompt(SetPromptRequest) returns (SetPromptResponse);
+  
+  
+  
+  rpc ListAgentProjectPrompts(ListAgentProjectPromptsRequest) returns (ListAgentProjectPromptsResponse);
+  
+  
+  
+  rpc GetTaskSystemPrompt(GetTaskSystemPromptRequest) returns (GetTaskSystemPromptResponse);
+}
+
+
+
+message Prompt {
+  string content = 1;
+  
+  int64 version = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+message GetPromptRequest {
+  PromptScope scope = 1;
+  
+  string agent_id = 2;
+  
+  string project_id = 3;
+  
+  int64 team_id = 4;
+}
+
+message GetPromptResponse {
+  Prompt prompt = 1;
+}
+
+message SetPromptRequest {
+  PromptScope scope = 1;
+  string agent_id = 2;
+  string project_id = 3;
+  string content = 4;
+  
+  int64 team_id = 5;
+}
+
+message SetPromptResponse {
+  Prompt prompt = 1;
+}
+
+message AgentProjectPrompt {
+  Project project = 1;
+  Prompt prompt = 2;
+}
+
+message ListAgentProjectPromptsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentProjectPromptsResponse {
+  repeated AgentProjectPrompt prompts = 1;
+}
+
+
+
+
+
+message SystemPromptSection {
+  PromptScope scope = 1;
+  
+  
+  
+  
+  string owner = 2;
+  
+  int64 version = 3;
+  string content = 4;
+  
+  
+  bool pinned = 5;
+}
+
+message GetTaskSystemPromptRequest {
+  string task_id = 1;
+}
+
+message GetTaskSystemPromptResponse {
+  repeated SystemPromptSection sections = 1;
+}

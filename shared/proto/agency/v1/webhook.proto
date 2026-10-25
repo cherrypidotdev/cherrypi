@@ -1,0 +1,100 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+service WebhookService {
+  rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse);
+  rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse);
+  rpc UpdateWebhook(UpdateWebhookRequest) returns (UpdateWebhookResponse);
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (DeleteWebhookResponse);
+  
+  
+  rpc TestWebhook(TestWebhookRequest) returns (TestWebhookResponse);
+}
+
+
+enum WebhookEvent {
+  WEBHOOK_EVENT_UNSPECIFIED = 0;
+  WEBHOOK_EVENT_USER_INPUT_REQUESTED = 1;
+  WEBHOOK_EVENT_AGENT_STATE_CHANGED = 2;
+}
+
+message Webhook {
+  int64 id = 1;
+  
+  string agent_id = 2;
+  string url = 3;
+  repeated WebhookEvent events = 4;
+  bool has_secret = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListWebhooksRequest {}
+
+message ListWebhooksResponse {
+  repeated Webhook webhooks = 1;
+}
+
+message CreateWebhookRequest {
+  string agent_id = 1;
+  string url = 2;
+  repeated WebhookEvent events = 3;
+  string secret = 4;
+}
+
+message CreateWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message UpdateWebhookRequest {
+  int64 id = 1;
+  string agent_id = 2;
+  string url = 3;
+  repeated WebhookEvent events = 4;
+  
+  optional string secret = 5;
+}
+
+message UpdateWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message DeleteWebhookRequest {
+  int64 id = 1;
+}
+
+message DeleteWebhookResponse {}
+
+message TestWebhookRequest {
+  int64 id = 1;
+  WebhookEvent event = 2;
+}
+
+message TestWebhookResponse {
+  int32 status_code = 1;
+  bool ok = 2;
+  string error = 3;
+}

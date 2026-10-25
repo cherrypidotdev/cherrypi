@@ -1,0 +1,363 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/attachments.proto";
+import "agency/v1/task.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+
+service AgentService {
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  
+  
+  rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
+
+  
+  
+  
+  
+  rpc GetAgentDefaults(GetAgentDefaultsRequest) returns (GetAgentDefaultsResponse);
+  rpc UpdateAgentDefaults(UpdateAgentDefaultsRequest) returns (UpdateAgentDefaultsResponse);
+
+  
+  rpc GetAgentTaskLimits(GetAgentTaskLimitsRequest) returns (GetAgentTaskLimitsResponse);
+  rpc UpdateAgentTaskLimits(UpdateAgentTaskLimitsRequest) returns (UpdateAgentTaskLimitsResponse);
+
+  
+  
+  rpc ListAgentLogs(ListAgentLogsRequest) returns (ListAgentLogsResponse);
+
+  rpc ListAgentCredentials(ListAgentCredentialsRequest) returns (ListAgentCredentialsResponse);
+  
+  
+  rpc CreateAgentCredential(CreateAgentCredentialRequest) returns (CreateAgentCredentialResponse);
+  rpc RevokeAgentCredential(RevokeAgentCredentialRequest) returns (RevokeAgentCredentialResponse);
+
+  
+  
+  
+  
+  rpc ListAgentTokens(ListAgentTokensRequest) returns (ListAgentTokensResponse);
+  
+  rpc CreateAgentToken(CreateAgentTokenRequest) returns (CreateAgentTokenResponse);
+  rpc RevokeAgentToken(RevokeAgentTokenRequest) returns (RevokeAgentTokenResponse);
+}
+
+
+
+enum AgentStatus {
+  AGENT_STATUS_UNSPECIFIED = 0;
+  
+  AGENT_STATUS_OFFLINE = 1;
+  
+  AGENT_STATUS_ONLINE = 2;
+}
+
+
+
+
+
+
+// While the protocol is pre-1.0 (beta) the compatibility line is the minor, so
+
+// the line is the major.
+enum AgentVersionStatus {
+  AGENT_VERSION_STATUS_UNSPECIFIED = 0;
+  // Same compatibility line as the agency, equal or newer: nothing to do.
+  AGENT_VERSION_STATUS_CURRENT = 1;
+  // Same compatibility line but older: usable, but the binary should be
+  
+  AGENT_VERSION_STATUS_OUTDATED = 2;
+  
+  
+  AGENT_VERSION_STATUS_INCOMPATIBLE = 3;
+}
+
+
+message Agent {
+  string id = 1;
+  
+  string username = 2;
+  string display_name = 3;
+  string description = 4;
+  
+  AgentStatus status = 5;
+  
+  
+  string version = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+  
+  string remote_addr = 10;
+  
+  Attachment picture = 11;
+  
+  string actor_id = 12;
+  
+  
+  string protocol_version = 13;
+  
+  AgentVersionStatus version_status = 14;
+}
+
+
+
+message AgentCredential {
+  string username = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp last_used_at = 3;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+}
+
+message GetAgentRequest {
+  string id = 1;
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message CreateAgentRequest {
+  
+  string username = 1;
+  string display_name = 2;
+  string description = 3;
+  
+  
+  string prompt = 4;
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+  
+  string credential_username = 2;
+  
+  string credential_password = 3;
+  
+  
+  
+  string token = 4;
+}
+
+message UpdateAgentRequest {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+}
+
+message UpdateAgentResponse {
+  Agent agent = 1;
+}
+
+message DeleteAgentRequest {
+  string id = 1;
+}
+
+message DeleteAgentResponse {}
+
+
+
+message AgentDefaults {
+  string model_provider = 1;
+  string model_id = 2;
+  string model_name = 3;
+  string thinking_level = 4;
+}
+
+message GetAgentDefaultsRequest {
+  string agent_id = 1;
+}
+
+message GetAgentDefaultsResponse {
+  AgentDefaults defaults = 1;
+}
+
+message UpdateAgentDefaultsRequest {
+  string agent_id = 1;
+  AgentDefaults defaults = 2;
+}
+
+message UpdateAgentDefaultsResponse {
+  AgentDefaults defaults = 1;
+}
+
+message ListAgentCredentialsRequest {
+  string agent_id = 1;
+}
+
+message ListAgentCredentialsResponse {
+  repeated AgentCredential credentials = 1;
+}
+
+message CreateAgentCredentialRequest {
+  string agent_id = 1;
+  
+  string username = 2;
+}
+
+message CreateAgentCredentialResponse {
+  AgentCredential credential = 1;
+  
+  string password = 2;
+}
+
+message RevokeAgentCredentialRequest {
+  string agent_id = 1;
+  string username = 2;
+}
+
+message RevokeAgentCredentialResponse {}
+
+
+
+message AgentToken {
+  int64 id = 1;
+  string name = 2;
+  
+  string prefix = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_used_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message ListAgentTokensRequest {
+  string agent_id = 1;
+}
+
+message ListAgentTokensResponse {
+  repeated AgentToken tokens = 1;
+}
+
+message CreateAgentTokenRequest {
+  string agent_id = 1;
+  
+  string name = 2;
+  
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CreateAgentTokenResponse {
+  AgentToken token = 1;
+  
+  string plaintext = 2;
+}
+
+message RevokeAgentTokenRequest {
+  string agent_id = 1;
+  int64 id = 2;
+}
+
+message RevokeAgentTokenResponse {}
+
+
+
+
+message AgentTaskLimits {
+  
+  int32 max_concurrent = 1;
+  
+  int32 max_concurrent_per_project = 2;
+  repeated TagLimit tag_limits = 3;
+  repeated ProjectLimit project_limits = 4;
+  repeated ProjectTagLimit project_tag_limits = 5;
+}
+
+message TagLimit {
+  
+  
+  string tag_name = 1;
+  int32 max_concurrent = 2;
+}
+
+message ProjectLimit {
+  string project_id = 1;
+  int32 max_concurrent = 2;
+}
+
+message ProjectTagLimit {
+  string project_id = 1;
+  string tag_id = 2;
+  int32 max_concurrent = 3;
+}
+
+message GetAgentTaskLimitsRequest {
+  string agent_id = 1;
+}
+
+message GetAgentTaskLimitsResponse {
+  AgentTaskLimits limits = 1;
+}
+
+message UpdateAgentTaskLimitsRequest {
+  string agent_id = 1;
+  AgentTaskLimits limits = 2;
+}
+
+message UpdateAgentTaskLimitsResponse {
+  AgentTaskLimits limits = 1;
+}
+
+
+enum AgentLogLevel {
+  AGENT_LOG_LEVEL_UNSPECIFIED = 0;
+  AGENT_LOG_LEVEL_DEBUG = 1;
+  AGENT_LOG_LEVEL_INFO = 2;
+  AGENT_LOG_LEVEL_WARN = 3;
+  AGENT_LOG_LEVEL_ERROR = 4;
+}
+
+// AgentLog is one operational log line an agent produced.
+message AgentLog {
+  int64 id = 1;
+  string agent_id = 2;
+  google.protobuf.Timestamp at = 3;
+  AgentLogLevel level = 4;
+  string message = 5;
+  // The agency task and agent session the line belongs to, when known.
+  string task_id = 6;
+  string session_id = 7;
+  
+  string attrs_json = 8;
+}
+
+message ListAgentLogsRequest {
+  string agent_id = 1;
+  
+  AgentLogLevel min_level = 2;
+  
+  int32 limit = 3;
+  
+  int64 before_id = 4;
+}
+
+message ListAgentLogsResponse {
+  repeated AgentLog logs = 1;
+}
