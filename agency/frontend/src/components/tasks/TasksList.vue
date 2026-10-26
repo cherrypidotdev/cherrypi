@@ -650,12 +650,20 @@ const tabActions = computed<BulkAction[]>(() => {
   if (state === TaskState.DRAFT) {
     return [
       {
+        key: "enqueue",
+        label: "Queue",
+        done: "Queued",
+        icon: PlayIcon,
+        run: (task) => agent.queueTask(task.id),
+      },
+      {
         key: "promote",
         label: "Move to Backlog",
         done: "Moved to backlog",
         icon: InboxIcon,
         run: (task) => agent.promoteTask(task.id),
       },
+      COMPLETE_ACTION,
       CANCEL_ACTION,
     ];
   }
@@ -675,6 +683,7 @@ const tabActions = computed<BulkAction[]>(() => {
         icon: Undo2Icon,
         run: (task) => agent.demoteTask(task.id),
       },
+      COMPLETE_ACTION,
       CANCEL_ACTION,
     ];
   }

@@ -98,6 +98,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  --syntax-heading: oklch(0.42 0.11 258);
+  --syntax-link: oklch(0.5 0.16 255);
+  --syntax-code: oklch(0.42 0.12 305);
+  --syntax-mark: oklch(0.6 0.02 260);
+  --syntax-quote: oklch(0.48 0.03 255);
 }
 
 .dark {
@@ -132,6 +138,55 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  --syntax-heading: oklch(0.85 0.08 250);
+  --syntax-link: oklch(0.76 0.12 240);
+  --syntax-code: oklch(0.8 0.09 320);
+  --syntax-mark: oklch(0.62 0.015 260);
+  --syntax-quote: oklch(0.72 0.02 260);
+}
+
+.cm-md-heading {
+  color: var(--syntax-heading);
+  font-weight: 700;
+}
+.cm-md-heading-1 {
+  font-size: 1.25em;
+}
+.cm-md-heading-2 {
+  font-size: 1.15em;
+}
+.cm-md-heading-3 {
+  font-size: 1.08em;
+}
+.cm-md-strong {
+  color: var(--foreground);
+  font-weight: 700;
+}
+.cm-md-emphasis {
+  font-style: italic;
+}
+.cm-md-strikethrough {
+  text-decoration: line-through;
+}
+.cm-md-link {
+  color: var(--syntax-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cm-md-code {
+  color: var(--syntax-code);
+}
+.cm-md-quote {
+  color: var(--syntax-quote);
+  font-style: italic;
+}
+.cm-md-mark {
+  color: var(--syntax-mark);
+}
+.cm-md-comment {
+  color: var(--syntax-mark);
+  font-style: italic;
 }
 
 @layer base {

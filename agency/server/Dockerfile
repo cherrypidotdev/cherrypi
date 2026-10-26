@@ -69,6 +69,9 @@ RUN npm run build
 
 
 FROM golang:1.26 AS backend
+
+
+ARG VERSION=dev
 WORKDIR /src/agency/server
 COPY agency/server/go.mod agency/server/go.sum ./
 
@@ -97,7 +100,9 @@ COPY --from=frontend /src/agency/frontend/dist ./cmd/agency/frontenddist/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
   --mount=type=cache,target=/root/.cache/go-build \
-  CGO_ENABLED=0 go build -o /out/cherrypi-agency ./cmd/agency
+  CGO_ENABLED=0 go build \
+  -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=${VERSION}'" \
+  -o /out/cherrypi-agency ./cmd/agency
 
 
 FROM ubuntu:24.04 AS runtime

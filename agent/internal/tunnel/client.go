@@ -28,12 +28,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cherrypi.vladfaust.com/agent/internal/logging"
 	tunnelv1 "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1"
 	tunnelv1connect "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1/tunnelv1connect"
 	sharedtunnel "cherrypi.vladfaust.com/shared/tunnel"
 	"connectrpc.com/connect"
 	"github.com/hashicorp/yamux"
+	"log/slog"
 )
 
 type transport int
@@ -92,7 +92,7 @@ func (c *Client) Run(ctx context.Context) {
 			return
 		}
 		if err != nil {
-			logging.Local().Warn(
+			slog.Warn(
 				"tunnel disconnected",
 				"agency", c.cfg.AgencyURL,
 				"agent", c.cfg.Username,
@@ -129,7 +129,7 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 
 	c.transport = transportWebSocket
-	logging.Local().Info(
+	slog.Info(
 		"tunnel transport fallback",
 		"from", "http2",
 		"to", "websocket",
@@ -237,7 +237,7 @@ func (c *Client) connectWS(ctx context.Context) error {
 }
 
 func (c *Client) logConnected(transport string) {
-	logging.Local().Info(
+	slog.Info(
 		"tunnel connected",
 		"agency", c.cfg.AgencyURL,
 		"agent", c.cfg.Username,

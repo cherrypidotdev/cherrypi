@@ -20,6 +20,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/actorid"
@@ -32,8 +33,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+type Hub interface {
+	Connection(agentID ids.AgentID) (*tunnel.Connection, error)
+
+	Agents() []ids.AgentID
+}
+
 type DashboardServer struct {
-	Hub   *tunnel.Hub
+	Hub   Hub
 	Store store.Store
 }
 
@@ -45,6 +52,29 @@ func (s *DashboardServer) client(
 		return nil, connect.NewError(connect.CodeUnavailable, err)
 	}
 	return conn.Dashboard, nil
+}
+
+func (s *DashboardServer) sessionClient(
+	ctx context.Context,
+	sessionID string,
+) (agentv1connect.DashboardServiceClient, error) {
+	if sessionID == "" {
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("task_id is required"),
+		)
+	}
+	agentID, err := s.Store.SessionAgentID(ctx, sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, connect.NewError(
+			connect.CodeNotFound,
+			errors.New("no task owns this session"),
+		)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return s.client(agentID)
 }
 
 const liveUsageTimeout = 3 * time.Second
@@ -226,7 +256,7 @@ func (s *DashboardServer) GetTaskUsage(
 	ctx context.Context,
 	req *agencyv1.GetTaskUsageRequest,
 ) (*agencyv1.GetTaskUsageResponse, error) {
-	c, err := s.client(actorid.ParseAgent(req.AgentId))
+	c, err := s.sessionClient(ctx, req.TaskId)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +293,7 @@ func (s *DashboardServer) GetTaskDiskUsage(
 	ctx context.Context,
 	req *agencyv1.GetTaskDiskUsageRequest,
 ) (*agencyv1.GetTaskDiskUsageResponse, error) {
-	c, err := s.client(actorid.ParseAgent(req.AgentId))
+	c, err := s.sessionClient(ctx, req.TaskId)
 	if err != nil {
 		return nil, err
 	}

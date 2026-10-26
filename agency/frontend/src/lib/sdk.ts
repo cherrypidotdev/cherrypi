@@ -184,16 +184,10 @@ export const agent = {
 
   getUsage: (projectId = "", o?: CallOptions): Promise<AgencyUsageResponse> =>
     agency.getUsage(currentAgentId.value, projectId, o),
-  getTaskUsage: (
-    agentId: string,
-    taskId: string,
-    o?: CallOptions,
-  ): Promise<TaskUsage> => agency.getTaskUsage(agentId, taskId, o),
-  getTaskDiskUsage: (
-    agentId: string,
-    taskId: string,
-    o?: CallOptions,
-  ): Promise<bigint> => agency.getTaskDiskUsage(agentId, taskId, o),
+  getTaskUsage: (sessionId: string, o?: CallOptions): Promise<TaskUsage> =>
+    agency.getTaskUsage(sessionId, o),
+  getTaskDiskUsage: (sessionId: string, o?: CallOptions): Promise<bigint> =>
+    agency.getTaskDiskUsage(sessionId, o),
 
   listTags: (filter?: ListTagsFilter, o?: CallOptions): Promise<Tag[]> =>
     agency.listTags(filter, o),

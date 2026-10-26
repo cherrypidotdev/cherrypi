@@ -88,9 +88,10 @@ git config core.hooksPath .githooks
 ## Build images and binaries
 
 ```sh
-make build    # SPA + agent + agency binaries into their modules
-make binaries # cross-compiled release binaries + SHA256SUMS in dist/
-make docker   # agency and agent images (linux/amd64)
+make build        # SPA + agent + agency binaries into their modules
+make binaries     # cross-compiled release binaries in dist/
+make binaries_zip # one cherrypi-<binary>-<os>-<arch>-<sha>.zip per binary
+make docker       # agency and agent images (linux/amd64)
 ```
 
 ## Deploy

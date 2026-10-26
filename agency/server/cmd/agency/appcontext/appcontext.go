@@ -33,6 +33,7 @@ import (
 	agencyevents "cherrypi.vladfaust.com/agency/internal/events"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
+	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/realtime"
@@ -71,6 +72,8 @@ type AppContext struct {
 	Audit         *audit.Service
 
 	Realtime *realtime.Bus
+
+	ProcessLogs *processlog.Log
 }
 
 func taskTransitionNotifier(
@@ -132,8 +135,7 @@ func taskTransitionBody(task tasks.Task) string {
 	return task.ID
 }
 
-func NewAppContext() *AppContext {
-	config := ParseConfig()
+func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	if !store.IsPostgresDSN(config.DatabaseDSN) {
 		if err := os.MkdirAll(config.Dir, 0o755); err != nil {
@@ -148,7 +150,11 @@ func NewAppContext() *AppContext {
 		log.Fatalf("Failed to configure object storage: %v", err)
 	}
 	if objectStore.Enabled() {
-		log.Printf("Object storage enabled (bucket %s)", config.S3.Bucket)
+		log.Printf(
+			"Object storage enabled (bucket %s, endpoint %s)",
+			config.S3.Bucket,
+			config.S3.Endpoint,
+		)
 	} else {
 		log.Print("Object storage disabled: CHERRYPI_S3_ENDPOINT/BUCKET unset")
 	}
@@ -288,6 +294,7 @@ func NewAppContext() *AppContext {
 		Teams:         teamsSvc,
 		Audit:         auditSvc,
 		Realtime:      realtimeBus,
+		ProcessLogs:   processLog,
 	}
 }
 

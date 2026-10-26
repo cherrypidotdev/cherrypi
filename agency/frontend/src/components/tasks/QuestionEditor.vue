@@ -20,44 +20,51 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-3
   MarkdownText.text-sm.font-medium(:text="question.question")
   .flex.flex-col.gap-2
-    button.w-full.rounded-md.border.p-2.text-left.transition-colors(
+    .overflow-hidden.rounded-md.border.transition-colors(
       v-for="(option, optionIndex) in question.options"
       :key="optionIndex"
-      type="button"
-      :class="rowClass(isSelected(optionIndex), option.recommended === true)"
-      @click="onToggle(optionIndex)"
-      @keydown.space="onSpace($event, () => onToggle(optionIndex))"
-      :disabled="disabled"
-      data-test="option-row"
+      :class="cardClass(isSelected(optionIndex), option.recommended === true)"
+      data-test="option-card"
     )
-      .flex.items-start.gap-2
-        span.flex.size-4.shrink-0.items-center.justify-center.border(
-          class="mt-0.5"
-          :class="indicatorClass(isSelected(optionIndex))"
+      button.w-full.p-2.text-left.transition-colors(
+        type="button"
+        :class="rowClass()"
+        @click="onToggle(optionIndex)"
+        @keydown.space="onSpace($event, () => onToggle(optionIndex))"
+        :disabled="disabled"
+        data-test="option-row"
+      )
+        .flex.items-start.gap-2
+          span.flex.size-4.shrink-0.items-center.justify-center.border(
+            class="mt-0.5"
+            :class="indicatorClass(isSelected(optionIndex))"
+          )
+            CheckIcon(v-if="isSelected(optionIndex)" class="size-2.5")
+          .flex.min-w-0.flex-col(class="gap-0.5")
+            .flex.items-center(class="gap-1.5")
+              MarkdownText.text-sm.font-medium(
+                inline
+                :text="option.label"
+                data-test="option-label"
+              )
+              span.text-primary.rounded-full.font-medium(
+                v-if="option.recommended"
+                class="bg-primary/10 px-1.5 py-0.5 text-[10px]"
+                data-test="recommended"
+              ) Recommended
+            p.text-muted-foreground.text-xs(v-if="option.description")
+              MarkdownText(inline :text="option.description")
+      .border-t.px-2.py-2(v-if="option.preview" data-test="option-preview")
+        MarkdownText.prose.prose-sm.max-w-none(
+          class="prose-p:my-1 prose-pre:my-2"
+          :style="INHERIT_PROSE"
+          :text="option.preview"
         )
-          CheckIcon(v-if="isSelected(optionIndex)" class="size-2.5")
-        .flex.min-w-0.flex-col(class="gap-0.5")
-          .flex.items-center(class="gap-1.5")
-            MarkdownText.text-sm.font-medium(
-              inline
-              :text="option.label"
-              data-test="option-label"
-            )
-            span.text-primary.rounded-full.font-medium(
-              v-if="option.recommended"
-              class="bg-primary/10 px-1.5 py-0.5 text-[10px]"
-              data-test="recommended"
-            ) Recommended
-          p.text-muted-foreground.text-xs(v-if="option.description")
-            MarkdownText(inline :text="option.description")
-      pre.text-muted-foreground.bg-muted.mt-2.overflow-auto.rounded.p-2.text-xs(
-        v-if="option.preview"
-      ) {{ option.preview }}
 
     button.w-full.rounded-md.border.p-2.text-left.transition-colors(
       v-if="!readonly || answer.customSelected"
       type="button"
-      :class="rowClass(answer.customSelected)"
+      :class="[cardClass(answer.customSelected), rowClass()]"
       @click="onToggleCustom()"
       @keydown.space="onSpace($event, onToggleCustom)"
       :disabled="disabled"
@@ -93,6 +100,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import MarkdownText from "@/components/MarkdownText.vue";
 import { Textarea } from "@/components/ui/textarea";
+import { INHERIT_PROSE } from "@/lib/markdown";
 import type {
   QuestionnaireAnswer,
   QuestionnaireQuestion,
@@ -151,19 +159,22 @@ function indicatorClass(selected: boolean): string {
   return `${shape} ${state}`;
 }
 
-function rowClass(selected: boolean, recommended = false): string {
-  const base = props.readonly
-    ? "cursor-default"
-    : props.disabled
-      ? "opacity-60"
-      : "hover:bg-muted/50";
+function cardClass(selected: boolean, recommended = false): string {
+  const state = props.disabled ? "opacity-60" : "";
   if (selected) {
-    return `${base} border-primary`;
+    return `${state} border-primary`;
   }
   if (recommended) {
-    return `${base} border-primary/50 bg-primary/5`;
+    return `${state} border-primary/50 bg-primary/5`;
   }
-  return `${base} border-border`;
+  return `${state} border-border`;
+}
+
+function rowClass(): string {
+  if (props.readonly) {
+    return "cursor-default";
+  }
+  return props.disabled ? "" : "hover:bg-muted/50";
 }
 
 function onToggle(optionIndex: number) {

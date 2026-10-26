@@ -147,6 +147,8 @@ func resolveAgentRequest(
 		if err != nil {
 			return 0, accounts.Identity{}, false
 		}
+
+		identity.Role = agent.Role
 		return agent.ID, identity, true
 	}
 

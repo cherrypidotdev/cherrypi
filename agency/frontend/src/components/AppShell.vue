@@ -223,7 +223,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.text-muted-foreground.truncate.font-mono(
         title="App version"
         :class="collapsed ? 'sr-only' : 'flex-1 text-[10px]'"
-      ) v{{ appVersion }}
+      ) {{ appVersion }}
       Button(
         v-if="isAdmin"
         as-child

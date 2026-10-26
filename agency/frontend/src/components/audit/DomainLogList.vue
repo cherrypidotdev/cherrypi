@@ -131,6 +131,7 @@ const KIND_LABELS: Record<string, string> = {
   owner_remove: "Owner removed",
   defaults: "Model defaults changed",
   limits: "Limits changed",
+  role: "Role changed",
   hierarchy: "Project hierarchy",
 };
 

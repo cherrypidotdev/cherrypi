@@ -16,27 +16,50 @@
 
 import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
-// `VITE_APP_VERSION` (the Docker build context has no `.git`); a local build
+import { formatVersion } from "./src/lib/version";
+
+// in as `VITE_APP_VERSION` (the Docker context has no `.git`); a local dev
+
+function git(args: string[]): string {
+  return execFileSync("git", args, { stdio: ["ignore", "pipe", "ignore"] })
+    .toString()
+    .trim();
+}
 
 function appVersion(): string {
   if (process.env.VITE_APP_VERSION) {
     return process.env.VITE_APP_VERSION;
   }
   try {
-    return execSync("git describe --tags --always --dirty", {
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
+    const sha = git(["rev-parse", "--short", "HEAD"]);
+    let tag = "";
+    try {
+      tag = git(["describe", "--tags", "--exact-match"]);
+    } catch {}
+    let branch = "";
+    try {
+      branch = git(["symbolic-ref", "--short", "HEAD"]);
+    } catch {
+      // A detached HEAD (tag checkout) is a main-line build.
+    }
+    let dirty = false;
+    try {
+      git(["diff", "--quiet", "--ignore-submodules"]);
+    } catch {
+      dirty = true;
+    }
+    const flavor =
+      process.env.CHERRYPI_FLAVOR || (branch === "main" ? "main" : "dev");
+    return formatVersion({ tag, flavor, sha, dirty });
   } catch {
     const pkg = JSON.parse(
       readFileSync(new URL("./package.json", import.meta.url), "utf8"),
     );
-    return `v${pkg.version}`;
+    return formatVersion({ flavor: "dev", sha: `v${pkg.version}` });
   }
 }
 

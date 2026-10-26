@@ -421,9 +421,6 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		}
 	case StateQueued:
 
-		if _, err := s.Promote(internal, row.ID); err != nil {
-			return Task{}, err
-		}
 		if _, err := s.Queue(internal, row.ID); err != nil {
 			return Task{}, err
 		}
@@ -812,7 +809,7 @@ func (s *Service) Update(ctx context.Context, id string, p UpdateParams) (Task, 
 }
 
 func (s *Service) Queue(ctx context.Context, id string) (Task, error) {
-	cur, err := s.requireState(ctx, id, StateBacklog)
+	cur, err := s.requireStates(ctx, id, StateDraft, StateBacklog)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1945,14 +1942,24 @@ func (s *Service) IsMember(
 }
 
 func (s *Service) requireState(ctx context.Context, id string, want State) (Task, error) {
+	return s.requireStates(ctx, id, want)
+}
+
+func (s *Service) requireStates(
+	ctx context.Context,
+	id string,
+	want ...State,
+) (Task, error) {
 	cur, err := s.Get(ctx, id)
 	if err != nil {
 		return Task{}, err
 	}
-	if cur.State != want {
-		return Task{}, ErrWrongState
+	for _, state := range want {
+		if cur.State == state {
+			return cur, nil
+		}
 	}
-	return cur, nil
+	return Task{}, ErrWrongState
 }
 
 func (s *Service) validateScope(

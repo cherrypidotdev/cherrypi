@@ -79,6 +79,19 @@ func ParseLevel(name string) int {
 	}
 }
 
+func LevelName(level int) string {
+	switch level {
+	case LevelDebug:
+		return "debug"
+	case LevelWarn:
+		return "warn"
+	case LevelError:
+		return "error"
+	default:
+		return "info"
+	}
+}
+
 // Insert appends one line and prunes the agent's history to Retention.
 func (s *Service) Insert(ctx context.Context, log Log) error {
 	attrs := ""

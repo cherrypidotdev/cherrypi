@@ -343,6 +343,15 @@ export class AgencyClient {
     return res.agent!;
   }
 
+  async updateAgentRole(
+    id: string,
+    role: "member" | "admin",
+    options?: CallOptions,
+  ): Promise<Agent> {
+    const res = await this.agents.updateAgentRole({ id, role }, options);
+    return res.agent!;
+  }
+
   async deleteAgent(id: string, options?: CallOptions): Promise<void> {
     await this.agents.deleteAgent({ id }, options);
   }
@@ -1240,11 +1249,10 @@ export class AgencyClient {
   }
 
   async getTaskUsage(
-    agentId: string,
     taskId: string,
     options?: CallOptions,
   ): Promise<TaskUsage> {
-    const res = await this.dashboard.getTaskUsage({ agentId, taskId }, options);
+    const res = await this.dashboard.getTaskUsage({ taskId }, options);
     return res.usage!;
   }
 
@@ -1260,14 +1268,10 @@ export class AgencyClient {
   }
 
   async getTaskDiskUsage(
-    agentId: string,
     taskId: string,
     options?: CallOptions,
   ): Promise<bigint> {
-    const res = await this.dashboard.getTaskDiskUsage(
-      { agentId, taskId },
-      options,
-    );
+    const res = await this.dashboard.getTaskDiskUsage({ taskId }, options);
     return res.usage?.bytes ?? 0n;
   }
 

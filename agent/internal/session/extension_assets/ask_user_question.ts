@@ -57,7 +57,7 @@ export const OptionSchema = Type.Object({
   preview: Type.Optional(
     Type.String({
       description:
-        "Optional preview content rendered under this option. Use for mockups, code snippets, or visual comparisons that help the user compare choices.",
+        "Optional preview content rendered under this option, below the label, as Markdown (raw HTML is allowed and rendered, like in the question): use tables, lists, `<details>`, small `<pre>`/code blocks, mermaid diagrams or tiny HTML mockups that help the user compare choices.",
     }),
   ),
 });

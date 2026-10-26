@@ -37,11 +37,14 @@ import (
 
 var ErrOffline = errors.New("agent is offline")
 
+var ErrAlreadyConnected = errors.New("agent already has a live tunnel")
+
 type Hub struct {
 	agents *agents.Registry
 
-	mu    sync.RWMutex
-	conns map[ids.AgentID]*Connection
+	mu     sync.RWMutex
+	conns  map[ids.AgentID]*Connection
+	claims map[ids.AgentID]bool
 
 	OnConnect func(ctx context.Context, conn *Connection)
 
@@ -67,7 +70,11 @@ type Connection struct {
 func (c *Connection) HTTPClient() *http.Client { return c.httpClient }
 
 func NewHub(reg *agents.Registry) *Hub {
-	return &Hub{agents: reg, conns: map[ids.AgentID]*Connection{}}
+	return &Hub{
+		agents: reg,
+		conns:  map[ids.AgentID]*Connection{},
+		claims: map[ids.AgentID]bool{},
+	}
 }
 
 func (h *Hub) Serve(
@@ -89,8 +96,18 @@ func (h *Hub) ServeConn(
 	agentID ids.AgentID, hello *tunnelv1.Hello, remoteAddr string,
 	pipe io.ReadWriteCloser,
 ) error {
+
+	h.mu.Lock()
+	if h.conns[agentID] != nil || h.claims[agentID] {
+		h.mu.Unlock()
+		return ErrAlreadyConnected
+	}
+	h.claims[agentID] = true
+	h.mu.Unlock()
+
 	session, err := yamux.Client(pipe, yamux.DefaultConfig())
 	if err != nil {
+		h.releaseClaim(agentID)
 		return err
 	}
 
@@ -99,7 +116,7 @@ func (h *Hub) ServeConn(
 	conn.cancel = cancel
 
 	h.mu.Lock()
-	previous := h.conns[agentID]
+	delete(h.claims, agentID)
 	h.conns[agentID] = conn
 	h.agents.SetOnline(
 		agentID,
@@ -108,11 +125,6 @@ func (h *Hub) ServeConn(
 		remoteAddr,
 	)
 	h.mu.Unlock()
-
-	if previous != nil && previous != conn {
-		previous.cancel()
-		_ = previous.session.Close()
-	}
 
 	if h.OnConnect != nil {
 		h.OnConnect(connCtx, conn)
@@ -135,8 +147,17 @@ func (h *Hub) ServeConn(
 		}
 	}()
 
-	<-connCtx.Done()
+	select {
+	case <-connCtx.Done():
+	case <-session.CloseChan():
+	}
 	return nil
+}
+
+func (h *Hub) releaseClaim(agentID ids.AgentID) {
+	h.mu.Lock()
+	delete(h.claims, agentID)
+	h.mu.Unlock()
 }
 
 func (h *Hub) Connection(agentID ids.AgentID) (*Connection, error) {

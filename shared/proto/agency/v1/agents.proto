@@ -32,6 +32,10 @@ service AgentService {
   
   rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
   rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  
+  
+  
+  rpc UpdateAgentRole(UpdateAgentRoleRequest) returns (UpdateAgentRoleResponse);
   rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
 
   
@@ -121,6 +125,10 @@ message Agent {
   string protocol_version = 13;
   
   AgentVersionStatus version_status = 14;
+  
+  
+  
+  string role = 15;
 }
 
 
@@ -174,6 +182,16 @@ message UpdateAgentRequest {
 }
 
 message UpdateAgentResponse {
+  Agent agent = 1;
+}
+
+message UpdateAgentRoleRequest {
+  string id = 1;
+  
+  string role = 2;
+}
+
+message UpdateAgentRoleResponse {
   Agent agent = 1;
 }
 

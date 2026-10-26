@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/storage"
 )
 
@@ -63,6 +64,8 @@ type Config struct {
 	AttachmentMaxBytes int64
 
 	AttachmentMaxPerMessage int
+
+	LogFiles int
 }
 
 func parseEnvUint16(envVar string) uint16 {
@@ -192,6 +195,8 @@ func ParseConfig() Config {
 		parseEnvInt64("CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE", 10),
 	)
 
+	cfg.LogFiles = processlog.ParseKeep(os.Getenv("CHERRYPI_AGENCY_LOG_FILES"))
+
 	return cfg
 }
 
@@ -207,7 +212,7 @@ func parseS3Config(cfg *Config) {
 	}
 
 	cfg.S3 = storage.Config{
-		Endpoint:        strings.TrimRight(os.Getenv("CHERRYPI_S3_ENDPOINT"), "/"),
+		Endpoint:        storage.NormalizeEndpoint(os.Getenv("CHERRYPI_S3_ENDPOINT")),
 		Bucket:          strings.TrimSpace(os.Getenv("CHERRYPI_S3_BUCKET")),
 		Region:          region,
 		AccessKeyID:     os.Getenv("CHERRYPI_S3_ACCESS_KEY_ID"),

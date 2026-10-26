@@ -252,14 +252,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   )
                     SendIcon(data-icon="inline-start")
                     span {{ steer ? "Steer" : "Send" }}
-              Textarea.field-sizing-content.min-h-9.w-full.resize-none(
+              MarkdownEditor(
                 v-if="tab === 'write'"
                 ref="promptInput"
                 v-model="prompt"
                 placeholder="Send a follow-up prompt…"
-                :class="textareaHeight === null ? 'max-h-40' : ''"
+                submit-on-enter
+                test-id="composer-editor"
+                aria-label="Follow-up prompt"
+                title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line"
+                :fill="textareaHeight !== null"
+                :max-height="textareaHeight === null ? '10rem' : 'none'"
                 :style="textareaStyle"
-                @keydown.enter.exact="onEnter"
+                @submit="onEnter"
                 :disabled="!canFollowUp"
               )
               .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
@@ -739,7 +744,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Trash2Icon(data-icon="inline-start")
               span Delete
           template(v-else)
-            Button(v-if="isDraft" @click="promote" :disabled="actionBusy")
+            Button(v-if="isDraft" @click="queue" :disabled="actionBusy")
+              PlayIcon(data-icon="inline-start")
+              span Queue task
+            Button(
+              v-if="isDraft"
+              variant="outline"
+              @click="promote"
+              :disabled="actionBusy"
+            )
               InboxIcon(data-icon="inline-start")
               span Move to Backlog
             Button(v-if="isBacklog" @click="queue" :disabled="actionBusy")
@@ -820,6 +833,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             p.text-muted-foreground.text-xs(v-if="isBacklog")
               | You can edit the prompt in Backlog. Move the task back to Draft
               | to change its project.
+            p.text-muted-foreground.text-xs(v-if="isDraft")
+              | Queue starts the task; Move to Backlog parks it without queuing.
             p.text-muted-foreground.text-xs(v-if="!isDraft && !isBacklog")
               | Re-queue the task, then move it back to draft to edit its prompt
               | or project.
@@ -875,6 +890,7 @@ import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import AttachmentLightbox from "@/components/attachments/AttachmentLightbox.vue";
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
 import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
+import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
 import ArchiveTaskDialog from "@/components/tasks/ArchiveTaskDialog.vue";
@@ -910,7 +926,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
+
 import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
 import { useAttachmentUpload } from "@/composables/useAttachmentUpload";
@@ -941,7 +957,7 @@ import {
   type LeadCandidate,
   type ProjectTeamLink,
 } from "@/lib/projectAccess";
-import { agency, agent, currentAgentId, currentAgentUsername } from "@/lib/sdk";
+import { agency, agent } from "@/lib/sdk";
 import {
   bustAttachmentCache,
   isSketchScene,
@@ -1080,7 +1096,7 @@ const prompt = useDraft(() => chatDraftKey(props.id));
 const tab = ref<"write" | "preview">("write");
 
 const composer = ref<HTMLElement | null>(null);
-const promptInput = ref<InstanceType<typeof Textarea> | null>(null);
+const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const textareaHeight = ref<number | null>(null);
 const textareaStyle = computed(() =>
   textareaHeight.value === null
@@ -1476,11 +1492,14 @@ async function onProjectChange(value: unknown) {
   }
 }
 
-async function loadAgentProjects(agentId: string) {
+async function loadAgentProjects(assigneeActorId: string) {
   agentProjects.value = [];
-  if (!agentId) return;
+  if (!assigneeActorId) return;
+  await loadAgents();
+  const owner = agents.value.find((item) => item.actorId === assigneeActorId);
+  if (!owner) return;
   try {
-    agentProjects.value = await agency.listAgentProjects(agentId);
+    agentProjects.value = await agency.listAgentProjects(owner.id);
   } catch {
     agentProjects.value = [];
   }
@@ -1499,7 +1518,7 @@ async function loadProjectMembers(projectId: string) {
 
 watch(
   () => task.value?.assigneeActorId ?? "",
-  (id) => void loadAgentProjects(id),
+  (actorId) => void loadAgentProjects(actorId),
   { immediate: true },
 );
 
@@ -1601,13 +1620,13 @@ function agentAvatar(id: string): string {
   return toSvg(id, 20);
 }
 
-async function loadUsage(agentId: string, sessionId: string) {
+async function loadUsage(sessionId: string) {
   if (!sessionId) {
     taskUsage.value = undefined;
     return;
   }
   try {
-    taskUsage.value = await agent.getTaskUsage(agentId, sessionId);
+    taskUsage.value = await agent.getTaskUsage(sessionId);
   } catch {
     taskUsage.value = undefined;
   }
@@ -1617,20 +1636,19 @@ const DISK_REFRESH_MS = 10_000;
 let diskKey = "";
 let diskAt = 0;
 
-async function loadDiskUsage(agentId: string, sessionId: string) {
+async function loadDiskUsage(sessionId: string) {
   if (!sessionId) {
     taskDiskBytes.value = undefined;
     taskDiskLoading.value = false;
     return;
   }
-  const key = `${agentId}\u0000${sessionId}`;
   const now = Date.now();
-  if (key === diskKey && now - diskAt < DISK_REFRESH_MS) return;
-  diskKey = key;
+  if (sessionId === diskKey && now - diskAt < DISK_REFRESH_MS) return;
+  diskKey = sessionId;
   diskAt = now;
   taskDiskLoading.value = true;
   try {
-    taskDiskBytes.value = await agent.getTaskDiskUsage(agentId, sessionId);
+    taskDiskBytes.value = await agent.getTaskDiskUsage(sessionId);
   } catch {
     taskDiskBytes.value = undefined;
   } finally {
@@ -1714,14 +1732,10 @@ async function load() {
         thinkingLevel: next.thinkingLevel,
       };
     }
-    const owner = next.assigneeActorId;
-    if (owner) {
-      currentAgentId.value = owner;
-      currentAgentUsername.value = usernameFor(owner);
-
+    if (next.assigneeActorId) {
       if (!next.sessionDeletedAt) {
-        void loadUsage(owner, next.sessionId);
-        void loadDiskUsage(owner, next.sessionId);
+        void loadUsage(next.sessionId);
+        void loadDiskUsage(next.sessionId);
         if (acceptsPrompt(next.state) && !saving.model) {
           void loadConfig();
         }
@@ -2145,9 +2159,7 @@ async function clearQueue() {
   }
 }
 
-function onEnter(event: KeyboardEvent) {
-  if (event.isComposing) return;
-  event.preventDefault();
+function onEnter() {
   void send();
 }
 

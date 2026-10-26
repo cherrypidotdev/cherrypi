@@ -44,7 +44,6 @@ RUN sqlc generate
 
 FROM golang:1.26 AS backend
 
-
 ARG VERSION=dev
 WORKDIR /src/agent
 COPY agent/go.mod agent/go.sum ./
@@ -70,7 +69,7 @@ COPY --from=codegen /src/agent/internal/gen ./internal/gen
 RUN --mount=type=cache,target=/go/pkg/mod \
   --mount=type=cache,target=/root/.cache/go-build \
   CGO_ENABLED=0 go build \
-  -ldflags "-X cherrypi.vladfaust.com/agent/internal/buildinfo.Version=${VERSION}" \
+  -ldflags "-X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=${VERSION}'" \
   -o /out/cherrypi-agent ./cmd/agent
 
 

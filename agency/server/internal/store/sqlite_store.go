@@ -495,7 +495,7 @@ func (s *SqliteStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, e
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -504,7 +504,7 @@ func (s *SqliteStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) 
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -513,7 +513,7 @@ func (s *SqliteStore) GetAgentByUsername(ctx context.Context, username string) (
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -524,7 +524,7 @@ func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	}
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
-		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt)
 	}
 	return out, nil
@@ -545,6 +545,13 @@ func (s *SqliteStore) UpdateAgent(
 		return AgentRow{}, err
 	}
 	return s.GetAgent(ctx, id)
+}
+
+func (s *SqliteStore) SetAgentRole(ctx context.Context, id ids.AgentID, role string) error {
+	return s.q.UpdateAgentRole(ctx, sqlitedb.UpdateAgentRoleParams{
+		Role: role,
+		ID:   int64(id),
+	})
 }
 
 func (s *SqliteStore) DeleteAgent(ctx context.Context, id ids.AgentID) error {
@@ -939,7 +946,7 @@ func (s *SqliteStore) RegisterAgent(
 				return err
 			}
 		}
-		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description,
+		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
 			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{})
 		return nil
 	})

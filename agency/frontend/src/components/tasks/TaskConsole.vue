@@ -57,7 +57,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               MarkdownText.prose.prose-sm.max-w-none(
                 class="prose-p:my-1 prose-pre:my-2"
-                :style="inheritProse"
+                :style="INHERIT_PROSE"
                 :text="group.item.text"
               )
             AttachmentChips(
@@ -231,6 +231,7 @@ import {
   type NewItem,
 } from "@/lib/console";
 import { formatDuration } from "@/lib/format";
+import { INHERIT_PROSE } from "@/lib/markdown";
 import {
   multiSelectValue,
   parseQuestionnaireDialog,
@@ -312,25 +313,6 @@ const emit = defineEmits<{
 
   openAttachment: [attachment: Attachment];
 }>();
-
-const inheritProse = {
-  "--tw-prose-body": "currentColor",
-  "--tw-prose-headings": "currentColor",
-  "--tw-prose-lead": "currentColor",
-  "--tw-prose-links": "currentColor",
-  "--tw-prose-bold": "currentColor",
-  "--tw-prose-counters": "currentColor",
-  "--tw-prose-bullets": "currentColor",
-  "--tw-prose-hr": "currentColor",
-  "--tw-prose-quotes": "currentColor",
-  "--tw-prose-quote-borders": "currentColor",
-  "--tw-prose-captions": "currentColor",
-  "--tw-prose-code": "currentColor",
-  "--tw-prose-pre-code": "currentColor",
-  "--tw-prose-pre-bg": "transparent",
-  "--tw-prose-th-borders": "currentColor",
-  "--tw-prose-td-borders": "currentColor",
-};
 
 const items = ref<Item[]>([]);
 

@@ -17,7 +17,36 @@
 build: build_frontend copy_frontend build_backend build_agency
 
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo v0.0.0-dev)
+
+
+
+
+
+# The flavor is the distribution line, not the branch name:
+
+
+
+
+
+
+CHERRYPI_FLAVOR ?=
+ifneq ($(strip $(CHERRYPI_FLAVOR)),)
+  VERSION_FLAVOR := $(strip $(CHERRYPI_FLAVOR))
+else ifneq ($(filter $(GITHUB_REF),refs/heads/main refs/tags/v%),)
+  VERSION_FLAVOR := main
+else ifeq ($(GITHUB_REF),refs/heads/dev)
+  VERSION_FLAVOR := dev
+else
+  VERSION_FLAVOR := $(if $(filter main,$(shell git symbolic-ref --short HEAD 2>/dev/null)),main,dev)
+endif
+VERSION_TAG := $(shell git describe --tags --exact-match 2>/dev/null)
+VERSION_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+VERSION_DIRTY := $(shell git diff --quiet --ignore-submodules 2>/dev/null || echo +dirty)
+VERSION ?= $(if $(VERSION_TAG),$(VERSION_TAG)-$(VERSION_FLAVOR),$(VERSION_FLAVOR)) ($(VERSION_SHA)$(VERSION_DIRTY))
+
+
+version:
+	@echo '$(VERSION)'
 
 build_frontend:
 	cd agency/frontend && make
@@ -151,8 +180,8 @@ lint_go:
 	cd shared && golangci-lint run --config $(CURDIR)/.golangci.yaml ./...
 
 docker:
-	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=$(VERSION) -f agency/server/Dockerfile . -t gitea.vladfaust.com/cherrypi/agency
-	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=$(VERSION) -f agent/Dockerfile . -t gitea.vladfaust.com/cherrypi/agent
+	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION='$(VERSION)' -f agency/server/Dockerfile . -t gitea.vladfaust.com/cherrypi/agency
+	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION='$(VERSION)' -f agent/Dockerfile . -t gitea.vladfaust.com/cherrypi/agent
 
 docker_push: docker
 	docker push gitea.vladfaust.com/cherrypi/agency
@@ -175,7 +204,22 @@ binaries_build:
 	@for target in $(TARGETS); do \
 	  os=$${target%/*}; arch=$${target#*/}; \
 	  echo "Building $$os/$$arch"; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -o $(abspath $(DIST))/cherrypi-agency-$$os-$$arch ./cmd/agency || exit 1; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agent -ldflags "-X cherrypi.vladfaust.com/agent/internal/buildinfo.Version=$(VERSION)" -o $(abspath $(DIST))/cherrypi-agent-$$os-$$arch ./cmd/agent || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agency-$$os-$$arch ./cmd/agency || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agent -ldflags "-X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agent-$$os-$$arch ./cmd/agent || exit 1; \
 	done
-	cd $(DIST) && (command -v sha256sum > /dev/null && sha256sum * > SHA256SUMS || shasum -a 256 * > SHA256SUMS)
+
+
+
+
+binaries_zip:
+	@sha=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown); \
+	for file in $(DIST)/cherrypi-agency-* $(DIST)/cherrypi-agent-*; do \
+	  [ -f "$$file" ] || continue; \
+	  zip="$$file-$$sha.zip"; \
+	  echo "Packaging $$zip"; \
+	  if command -v zip > /dev/null; then \
+	    zip -q -j -X "$$zip" "$$file" || exit 1; \
+	  else \
+	    python3 -m zipfile -c "$$zip" "$$file" || exit 1; \
+	  fi; \
+	done

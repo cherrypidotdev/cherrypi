@@ -17,6 +17,22 @@
 import { projectAccessApi } from "@/lib/projectAccess";
 import { TaskState, type Task } from "@cherrypi/sdk";
 
+export function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function normalizeTaskPrefix(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export type ProjectStatus = "input" | "running" | "settled";
 
 export function projectStatus(

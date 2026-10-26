@@ -35,11 +35,16 @@ async function refresh() {
 }
 
 let loaded = false;
+let pending: Promise<void> | null = null;
 
 async function loadAgents(force = false) {
+  if (pending) return pending;
   if (loaded && !force) return;
   loaded = true;
-  await refresh();
+  pending = refresh().finally(() => {
+    pending = null;
+  });
+  return pending;
 }
 
 function usernameFor(id: string): string {

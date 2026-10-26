@@ -444,7 +444,7 @@ func (s *PgStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, error
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -453,7 +453,7 @@ func (s *PgStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (Age
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -462,7 +462,7 @@ func (s *PgStore) GetAgentByUsername(ctx context.Context, username string) (Agen
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
 }
 
@@ -473,7 +473,7 @@ func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	}
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
-		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description,
+		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
 			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt)
 	}
 	return out, nil
@@ -494,6 +494,13 @@ func (s *PgStore) UpdateAgent(
 		return AgentRow{}, err
 	}
 	return s.GetAgent(ctx, id)
+}
+
+func (s *PgStore) SetAgentRole(ctx context.Context, id ids.AgentID, role string) error {
+	return s.q.UpdateAgentRole(ctx, pgdb.UpdateAgentRoleParams{
+		Role: role,
+		ID:   int64(id),
+	})
 }
 
 func (s *PgStore) DeleteAgent(ctx context.Context, id ids.AgentID) error {
@@ -884,7 +891,7 @@ func (s *PgStore) RegisterAgent(
 				return err
 			}
 		}
-		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description,
+		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
 			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{})
 		return nil
 	})

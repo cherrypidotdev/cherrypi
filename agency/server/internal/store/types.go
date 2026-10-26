@@ -334,6 +334,7 @@ type UpdateActorProfileParams = storetypes.UpdateActorProfileParams
 type UpdateActorTOTPParams = storetypes.UpdateActorTOTPParams
 type UpdateAgentCredentialPasswordParams = storetypes.UpdateAgentCredentialPasswordParams
 type UpdateAgentParams = storetypes.UpdateAgentParams
+type UpdateAgentRoleParams = storetypes.UpdateAgentRoleParams
 type UpdateDraftTaskParams = storetypes.UpdateDraftTaskParams
 type UpdateIdentityProviderParams = storetypes.UpdateIdentityProviderParams
 type UpdateInvitationTokenHashParams = storetypes.UpdateInvitationTokenHashParams

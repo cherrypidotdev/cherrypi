@@ -27,16 +27,19 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
+	"cherrypi.vladfaust.com/agency/cmd/agency/buildinfo"
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/agenttools"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
+	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/teams"
@@ -48,7 +51,23 @@ import (
 func main() {
 	_ = godotenv.Load()
 
-	appCtx := appcontext.NewAppContext()
+	config := appcontext.ParseConfig()
+
+	processLog, err := processlog.Setup(processlog.Config{
+		Dir:     filepath.Join(config.Dir, "logs"),
+		Keep:    config.LogFiles,
+		Version: buildinfo.Version,
+	})
+	if err != nil {
+		log.Printf("Process log unavailable: %v", err)
+	}
+	if processLog != nil {
+		defer func() { _ = processLog.Close() }()
+	}
+
+	log.Printf("CherryPi Agency %s starting", buildinfo.Version)
+
+	appCtx := appcontext.NewAppContext(config, processLog)
 
 	if count, err := appCtx.Accounts.CountUsers(context.Background()); err == nil && count == 0 {
 		log.Print("No user accounts configured: the agency is un-authenticate-able")
@@ -68,6 +87,7 @@ func main() {
 	serveTaskHistory(mux, appCtx)
 	serveTerminals(mux, appCtx)
 	serveRealtime(mux, appCtx)
+	serveProcessLogs(mux, appCtx)
 
 	if devBuild && appCtx.Config.FrontendProxyUrl != nil {
 		serveFrontendProxy(mux, appCtx.Config.FrontendProxyUrl)
@@ -235,10 +255,12 @@ func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		appCtx.Accounts,
 		appCtx.Agents,
 		&agenttools.Handler{
-			Tasks:    appCtx.Tasks,
-			Projects: appCtx.Projects,
-			Agents:   appCtx.Agents,
-			Accounts: appCtx.Accounts,
+			Tasks:       appCtx.Tasks,
+			Projects:    appCtx.Projects,
+			Agents:      appCtx.Agents,
+			Accounts:    appCtx.Accounts,
+			Logs:        appCtx.AgentLogs,
+			ProcessLogs: appCtx.ProcessLogs,
 		},
 	)
 	mux.Handle(agenttools.Prefix, handler)
@@ -257,6 +279,12 @@ func serveTaskHistory(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 
 func serveRealtime(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/rest/notifications/ws", appCtx.Notifications.WSHandler())
+}
+
+func serveProcessLogs(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	handler := &processlog.Handler{Log: appCtx.ProcessLogs}
+	mux.Handle(processlog.Prefix, handler)
+	mux.Handle(processlog.Prefix+"/", handler)
 }
 
 func serveFrontendProxy(mux *http.ServeMux, target *url.URL) {

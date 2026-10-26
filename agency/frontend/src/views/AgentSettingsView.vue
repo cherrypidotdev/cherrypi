@@ -61,6 +61,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   )
                     | {{ agentStatusLabel(item?.status) }}
                   span.text-muted-foreground.font-mono.text-xs {{ item?.remoteAddr || "—" }}
+              Field
+                FieldLabel Role
+                template(v-if="isAdmin")
+                  Select(
+                    :model-value="item?.role || 'member'"
+                    @update:model-value="onRoleChange"
+                  )
+                    SelectTrigger.w-48
+                      SelectValue
+                    SelectContent
+                      SelectItem(value="member") Member
+                      SelectItem(value="admin") Admin
+                  FieldDescription
+                    | Admin agents may read the agency's process log and every
+                    | agent's logs and metadata, read-only. Only a human
+                    | administrator can change the role.
+                template(v-else)
+                  Badge(variant="outline") {{ item?.role === "admin" ? "Admin" : "Member" }}
             p.text-destructive.text-sm(v-if="error") {{ error }}
             .flex.justify-end
               Button(type="submit" :disabled="saving || !name.trim()")
@@ -333,6 +351,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { withProgress } from "@/composables/useProgress";
+import { currentAccount } from "@/lib/account";
 import { agentStatusClass, agentStatusLabel } from "@/lib/agent";
 import { formatTimestamp } from "@/lib/format";
 import { agency, currentAgentId } from "@/lib/sdk";
@@ -361,6 +380,8 @@ import LogsView from "./LogsView.vue";
 const id = computed(() => currentAgentId.value);
 const { canManageAgent } = useAgentAccess();
 const canManage = computed(() => canManageAgent(id.value));
+
+const isAdmin = computed(() => currentAccount.value?.is_admin ?? false);
 
 const PI_DEFAULT = "__pi_default__";
 const PI_DEFAULT_LEVEL = "__model_default__";
@@ -579,6 +600,21 @@ async function saveGeneral() {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     saving.value = false;
+  }
+}
+
+async function onRoleChange(value: unknown) {
+  const role = value === "admin" ? "admin" : "member";
+  if (!item.value || item.value.role === role) return;
+  try {
+    item.value = await withProgress(() =>
+      agency.updateAgentRole(id.value, role),
+    );
+    toast.success(
+      role === "admin" ? "Agent promoted to admin" : "Agent demoted to member",
+    );
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
   }
 }
 

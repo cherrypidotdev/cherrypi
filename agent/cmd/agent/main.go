@@ -30,6 +30,8 @@ import (
 	"cherrypi.vladfaust.com/agent/cmd/agent/appcontext"
 	agentauth "cherrypi.vladfaust.com/agent/internal/auth"
 	"cherrypi.vladfaust.com/agent/internal/buildinfo"
+	"cherrypi.vladfaust.com/agent/internal/events"
+	"cherrypi.vladfaust.com/agent/internal/logging"
 	"cherrypi.vladfaust.com/agent/internal/tunnel"
 	sharedprotocol "cherrypi.vladfaust.com/shared/protocol"
 	"github.com/joho/godotenv"
@@ -83,12 +85,21 @@ func main() {
 		log.Fatal("No agency configured: pass --agency-url (or set CHERRYPI_AGENCY_URL)")
 	}
 
+	eventHub := events.New()
+	logging.Setup(logging.Config{
+		Format: config.LogFormat,
+		Level:  config.LogLevel,
+		Sink:   eventHub.Publish,
+	})
+
+	log.Printf("CherryPi agent %s starting", buildinfo.Version)
+
 	envToken := config.AgentToken
 	if err := appcontext.ResolveAgentToken(context.Background(), &config); err != nil {
 		log.Printf("Agent token unavailable, using tunnel credential: %v", err)
 	}
 
-	appCtx := appcontext.NewAppContext(config)
+	appCtx := appcontext.NewAppContext(config, eventHub)
 
 	mux := http.NewServeMux()
 

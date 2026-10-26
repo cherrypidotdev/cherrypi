@@ -34,6 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         TabsTrigger(value="auth") Auth
         TabsTrigger(value="integrations") Integrations
         TabsTrigger(value="admin") Admin
+        TabsTrigger(value="logs") Logs
 
       TabsContent(value="general")
         .flex.flex-col.gap-6
@@ -139,6 +140,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       TabsContent(value="admin")
         AdminPanel
+
+      TabsContent(value="logs")
+        ProcessLogsPanel
 </template>
 
 <script setup lang="ts">
@@ -146,6 +150,7 @@ import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AdminPanel from "@/components/settings/AdminPanel.vue";
 import AuthProvidersPanel from "@/components/settings/AuthProvidersPanel.vue";
+import ProcessLogsPanel from "@/components/settings/ProcessLogsPanel.vue";
 import SMTPSettingsPanel from "@/components/settings/SMTPSettingsPanel.vue";
 import TaskColumnsPanel from "@/components/settings/TaskColumnsPanel.vue";
 import WebhooksPanel from "@/components/settings/WebhooksPanel.vue";

@@ -65,6 +65,7 @@ const (
 	KindOwnerRemove      = "owner_remove"
 	KindDefaults         = "defaults"
 	KindLimits           = "limits"
+	KindRole             = "role"
 	KindHierarchy        = "hierarchy"
 	KindPrompt           = "prompt"
 	KindCleanup          = "cleanup"

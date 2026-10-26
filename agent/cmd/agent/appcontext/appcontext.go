@@ -34,7 +34,6 @@ import (
 	"cherrypi.vladfaust.com/agent/internal/auth"
 	"cherrypi.vladfaust.com/agent/internal/desktop"
 	"cherrypi.vladfaust.com/agent/internal/events"
-	"cherrypi.vladfaust.com/agent/internal/logging"
 	"cherrypi.vladfaust.com/agent/internal/session"
 	"cherrypi.vladfaust.com/agent/internal/store"
 	"cherrypi.vladfaust.com/agent/internal/terminal"
@@ -278,18 +277,11 @@ func newTaskHistoryPusher(
 	}
 }
 
-func NewAppContext(config Config) *AppContext {
+func NewAppContext(config Config, eventHub *events.Hub) *AppContext {
 
 	if err := os.MkdirAll(config.Dir, 0o755); err != nil {
 		log.Fatalf("Failed to create CHERRYPI_DIR %s: %v", config.Dir, err)
 	}
-
-	eventHub := events.New()
-	logging.Setup(logging.Config{
-		Format: config.LogFormat,
-		Level:  config.LogLevel,
-		Sink:   eventHub.Publish,
-	})
 
 	st := store.NewStore(config.DatabaseDSN, nil)
 

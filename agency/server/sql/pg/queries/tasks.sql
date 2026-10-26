@@ -174,7 +174,7 @@ WHERE id = $2 AND state = 'backlog';
 
 
 UPDATE tasks SET state = 'queued', queued_at = COALESCE(queued_at, $1), updated_at = $2, error = ''
-WHERE id = $3 AND state = 'backlog';
+WHERE id = $3 AND state IN ('draft', 'backlog');
 
 -- name: DequeueTask :execrows
 
@@ -399,6 +399,19 @@ JOIN agents g ON g.actor_id = t.assignee_actor_id
 WHERE g.id = sqlc.arg(agent_id)
   AND t.session_id = sqlc.arg(session_id)
   AND t.session_id <> ''
+LIMIT 1;
+
+-- name: SessionAgentID :one
+
+
+
+
+SELECT COALESCE(t.session_agent_id, g.id) AS agent_id
+FROM tasks t
+LEFT JOIN agents g ON g.actor_id = t.assignee_actor_id
+WHERE t.session_id = sqlc.arg(session_id)
+  AND t.session_id <> ''
+  AND COALESCE(t.session_agent_id, g.id) IS NOT NULL
 LIMIT 1;
 
 -- name: SetTaskNamePrompt :exec

@@ -1196,6 +1196,14 @@ func (s *PgStore) TaskIDBySession(
 	return s.q.TaskIDBySession(ctx, pgdb.TaskIDBySessionParams(p))
 }
 
+func (s *PgStore) SessionAgentID(
+	ctx context.Context,
+	sessionID string,
+) (ids.AgentID, error) {
+	id, err := s.q.SessionAgentID(ctx, sessionID)
+	return ids.AgentID(id), err
+}
+
 func (s *PgStore) SetTaskError(ctx context.Context, p SetTaskErrorParams) (int64, error) {
 	return s.q.SetTaskError(ctx, pgdb.SetTaskErrorParams(p))
 }

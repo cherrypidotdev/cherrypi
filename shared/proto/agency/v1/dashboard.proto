@@ -28,9 +28,11 @@ service DashboardService {
   
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse);
   
+  
   rpc GetTaskUsage(GetTaskUsageRequest) returns (GetTaskUsageResponse);
   
   rpc GetDiskUsage(GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  
   
   rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
 }
@@ -75,8 +77,13 @@ message UsageDay {
   double cost = 4;
 }
 
+
+
+
 message GetTaskUsageRequest {
-  string agent_id = 1;
+  
+  reserved 1;
+  reserved "agent_id";
   string task_id = 2;
 }
 
@@ -92,8 +99,12 @@ message GetDiskUsageResponse {
   agent.v1.GetDiskUsageResponse usage = 1;
 }
 
+
+
 message GetTaskDiskUsageRequest {
-  string agent_id = 1;
+  
+  reserved 1;
+  reserved "agent_id";
   string task_id = 2;
 }
 

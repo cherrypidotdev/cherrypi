@@ -270,6 +270,25 @@ func (s *AgentServer) UpdateAgent(
 	return &agencyv1.UpdateAgentResponse{Agent: out}, nil
 }
 
+func (s *AgentServer) UpdateAgentRole(
+	ctx context.Context,
+	req *agencyv1.UpdateAgentRoleRequest,
+) (*agencyv1.UpdateAgentRoleResponse, error) {
+	if !auth.IsAdmin(ctx) {
+		return nil, connect.NewError(
+			connect.CodePermissionDenied,
+			errors.New("only a human administrator may change an agent's role"),
+		)
+	}
+	a, err := s.Agents.SetRole(ctx, actorid.ParseAgent(req.Id), req.Role)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := toProto(a)
+	s.enrichPicture(ctx, a.ID, out)
+	return &agencyv1.UpdateAgentRoleResponse{Agent: out}, nil
+}
+
 func (s *AgentServer) GetAgentDefaults(
 	ctx context.Context,
 	req *agencyv1.GetAgentDefaultsRequest,
@@ -519,6 +538,7 @@ func toProto(a agents.Agent) *agencyv1.Agent {
 		Username:        a.Username,
 		DisplayName:     a.DisplayName,
 		Description:     a.Description,
+		Role:            a.Role,
 		Status:          agencyv1.AgentStatus(a.Status),
 		Version:         a.Version,
 		ProtocolVersion: a.ProtocolVersion,
@@ -598,7 +618,8 @@ func mapError(err error) *connect.Error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, agents.ErrAgentExists), errors.Is(err, agents.ErrCredentialExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
-	case errors.Is(err, agents.ErrInvalidUsername), errors.Is(err, agents.ErrInvalidDefaults):
+	case errors.Is(err, agents.ErrInvalidUsername), errors.Is(err, agents.ErrInvalidDefaults),
+		errors.Is(err, agents.ErrInvalidRole):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

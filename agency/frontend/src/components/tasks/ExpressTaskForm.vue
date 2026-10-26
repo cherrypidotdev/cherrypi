@@ -54,12 +54,16 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             .flex.flex-col.items-center.gap-1.text-sm.font-medium
               PaperclipIcon.size-5
               span Drop files to attach
-          Textarea.field-sizing-fixed.max-h-96.min-h-16.w-full.resize-y(
+          MarkdownEditor(
             v-if="tab === 'write'"
             ref="promptInput"
             v-model="prompt"
             placeholder="Describe a task…"
-            @keydown.enter="onKeydown"
+            resizable
+            test-id="express-editor"
+            aria-label="Task prompt"
+            title="Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line"
+            @submit="submit"
             @paste="onPaste"
           )
           .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
@@ -68,7 +72,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           )
             MarkdownText.prose.prose-sm.max-w-none(
               class="prose-p:my-1 prose-pre:my-2"
-              :style="inheritProse"
+              :style="INHERIT_PROSE"
               :text="prompt"
             )
         .flex.flex-wrap.items-center.gap-2
@@ -95,7 +99,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           span.text-muted-foreground.ml-auto.text-xs(
             data-testid="composer-submit-hint"
           )
-            | Ctrl+Enter to create
+            | Ctrl+Enter to create · Tab indents
           input.hidden(
             ref="fileInput"
             type="file"
@@ -331,6 +335,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
 
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
+import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import StagedAttachmentList from "@/components/attachments/StagedAttachmentList.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
@@ -355,7 +360,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { useAgents } from "@/composables/useAgents";
 import { useDraft } from "@/composables/useDraft";
 import { useProjects } from "@/composables/useProjects";
@@ -364,6 +368,7 @@ import { useStagedAttachments } from "@/composables/useStagedAttachments";
 import { useTags } from "@/composables/useTags";
 import { currentAccount } from "@/lib/account";
 import { composerDraftKey } from "@/lib/draft";
+import { INHERIT_PROSE } from "@/lib/markdown";
 import { sortProjectsByName } from "@/lib/project";
 import {
   projectAccessApi,
@@ -453,25 +458,6 @@ const prompt = useDraft(() =>
 );
 
 const tab = ref<"write" | "preview">("write");
-
-const inheritProse = {
-  "--tw-prose-body": "currentColor",
-  "--tw-prose-headings": "currentColor",
-  "--tw-prose-lead": "currentColor",
-  "--tw-prose-links": "currentColor",
-  "--tw-prose-bold": "currentColor",
-  "--tw-prose-counters": "currentColor",
-  "--tw-prose-bullets": "currentColor",
-  "--tw-prose-hr": "currentColor",
-  "--tw-prose-quotes": "currentColor",
-  "--tw-prose-quote-borders": "currentColor",
-  "--tw-prose-captions": "currentColor",
-  "--tw-prose-code": "currentColor",
-  "--tw-prose-pre-code": "currentColor",
-  "--tw-prose-pre-bg": "transparent",
-  "--tw-prose-th-borders": "currentColor",
-  "--tw-prose-td-borders": "currentColor",
-};
 const priority = ref(TaskPriority.NORMAL);
 const size = ref(TaskSize.MEDIUM);
 const assigneeChoice = ref(props.agentId || AUTO);
@@ -554,7 +540,7 @@ const agentProjects = ref<Project[]>([]);
 
 const projectMembers = ref<string[]>([]);
 const saving = ref(false);
-const promptInput = ref<InstanceType<typeof Textarea> | null>(null);
+const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 
 const {
   items: stagedItems,
@@ -834,13 +820,6 @@ function toggleTag(id: string) {
   selectedTags.value = next;
 }
 
-function onKeydown(event: KeyboardEvent) {
-  if (event.key !== "Enter" || event.isComposing) return;
-  if (!event.ctrlKey && !event.metaKey) return;
-  event.preventDefault();
-  void submit();
-}
-
 async function submit() {
   if (!prompt.value.trim() || saving.value || !projectReady.value) return;
   saving.value = true;
@@ -896,7 +875,7 @@ async function submit() {
 
     tab.value = "write";
     await nextTick();
-    promptInput.value?.$el?.focus();
+    promptInput.value?.focus();
     emit("created");
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));

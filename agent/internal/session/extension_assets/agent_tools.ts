@@ -280,6 +280,93 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "listAgents",
+    label: "List Agents",
+    description:
+      "Admin agents only. List every agent with its metadata: role, presence, build version, protocol version, the address its tunnel connected from, and last seen time. Read-only.",
+    parameters: Type.Object({}),
+    execute: async () => request("GET", "/agents"),
+  });
+
+  pi.registerTool({
+    name: "readAgentLogs",
+    label: "Read Agent Logs",
+    description:
+      "Admin agents only. Read one agent's persisted operational logs (process lines, task/session lifecycle, connectivity), newest first. Get ids from listAgents. Read-only.",
+    parameters: Type.Object({
+      agentId: Type.String({
+        description: "The numeric agent id from listAgents.",
+      }),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Maximum lines; defaults to 200 and caps at 1000.",
+        }),
+      ),
+      minLevel: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("debug"),
+            Type.Literal("info"),
+            Type.Literal("warn"),
+            Type.Literal("error"),
+          ],
+          { description: "Only lines at or above this severity." },
+        ),
+      ),
+      beforeId: Type.Optional(
+        Type.Number({
+          description:
+            "Page older than this log id (the last row's id from a previous call).",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const query = new URLSearchParams();
+      if (params.limit !== undefined) query.set("limit", String(params.limit));
+      if (params.minLevel) query.set("min_level", String(params.minLevel));
+      if (params.beforeId !== undefined) {
+        query.set("before_id", String(params.beforeId));
+      }
+      const suffix = query.toString();
+      return request(
+        "GET",
+        `/agents/${encodeURIComponent(String(params.agentId ?? ""))}/logs` +
+          (suffix ? `?${suffix}` : ""),
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "getAgencyMetadata",
+    label: "Get Agency Metadata",
+    description:
+      "Admin agents only. Read the agency's own metadata: build version, process id, start time and uptime, plus this agent's role. Read-only.",
+    parameters: Type.Object({}),
+    execute: async () => request("GET", "/agency"),
+  });
+
+  pi.registerTool({
+    name: "readAgencyLogs",
+    label: "Read Agency Logs",
+    description:
+      "Admin agents only. Read the tail of the agency's current process log (everything the process wrote to stdout/stderr, timestamp-prefixed). Read-only.",
+    parameters: Type.Object({
+      lines: Type.Optional(
+        Type.Number({
+          description:
+            "How many newest lines; defaults to 200 and caps at 2000.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const query = new URLSearchParams();
+      if (params.lines !== undefined) query.set("lines", String(params.lines));
+      const suffix = query.toString();
+      return request("GET", `/agency/logs${suffix ? `?${suffix}` : ""}`);
+    },
+  });
+
+  pi.registerTool({
     name: "listProjects",
     label: "List Projects",
     description:

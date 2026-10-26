@@ -592,6 +592,7 @@ type Store interface {
 		p RevokeProjectTeamInvitationParams,
 	) (int64, error)
 	RevokeTeamInvitation(ctx context.Context, p RevokeTeamInvitationParams) (int64, error)
+	SessionAgentID(ctx context.Context, sessionID string) (ids.AgentID, error)
 	SetAgentPicture(ctx context.Context, p SetAgentPictureParams) error
 	SetAttachmentSize(ctx context.Context, id int64, size int64) error
 	SetAttachmentStorageKey(ctx context.Context, id int64, storageKey string) error
@@ -638,6 +639,7 @@ type Store interface {
 		description string,
 		updatedAt int64,
 	) (AgentRow, error)
+	SetAgentRole(ctx context.Context, id ids.AgentID, role string) error
 	UpdateAgentCredentialPassword(
 		ctx context.Context,
 		p UpdateAgentCredentialPasswordParams,

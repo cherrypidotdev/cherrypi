@@ -114,10 +114,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             FieldLabel(for="project-slug") Slug
             Input#project-slug(
               v-model="slug"
-              placeholder="website (derived from the name when blank)"
+              :placeholder="slugPlaceholder"
               autocomplete="off"
             )
             FieldDescription Lowercase kebab-case, unique, and immutable.
+          Field
+            FieldLabel(for="project-prefix") Task prefix
+            Input#project-prefix(
+              v-model="prefix"
+              :placeholder="prefixPlaceholder"
+              autocapitalize="characters"
+              autocomplete="off"
+            )
+            FieldDescription
+              | Uppercase letters, digits, and dashes prefixed to task ids;
+              | unique. Derived from the slug when blank.
           Field
             FieldLabel(for="project-description") Description
             Textarea#project-description(v-model="description")
@@ -160,6 +171,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import { formatTimestamp } from "@/lib/format";
+import { normalizeTaskPrefix, slugify } from "@/lib/project";
 import { agency } from "@/lib/sdk";
 import { type Project } from "@cherrypi/sdk";
 import {
@@ -169,7 +181,7 @@ import {
   PlusIcon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
 
@@ -186,10 +198,18 @@ const {
 
 const name = ref("");
 const slug = ref("");
+const prefix = ref("");
 const description = ref("");
 const creating = ref(false);
 const createError = ref("");
 const showArchived = ref(false);
+
+const slugPlaceholder = computed(() => slugify(name.value) || "project");
+const prefixPlaceholder = computed(
+  () =>
+    normalizeTaskPrefix(slug.value.trim() ? slug.value : name.value) ||
+    "PROJECT",
+);
 
 const taskCounts = ref(new Map<string, number>());
 
@@ -223,11 +243,13 @@ async function create() {
       createProject({
         name: name.value.trim(),
         slug: slug.value.trim(),
+        prefix: prefix.value.trim(),
         description: description.value.trim(),
       }),
     );
     name.value = "";
     slug.value = "";
+    prefix.value = "";
     description.value = "";
     toast.success("Project created");
     await loadCounts();

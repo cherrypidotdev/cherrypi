@@ -20,6 +20,7 @@ name: Release
 
 
 
+
 on:
   push:
     tags: ["v*"]
@@ -35,6 +36,9 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+
+
+  CHERRYPI_FLAVOR: public
 
 jobs:
   images:
@@ -56,6 +60,10 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      - name: Compute the version label
+        id: version
+        run: echo "version=$(make --silent version)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -74,7 +82,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.version }}
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/cherrypi-${{ matrix.name }}:${{ github.ref_name }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/cherrypi-${{ matrix.name }}:latest
@@ -128,14 +136,14 @@ jobs:
           (cd agency/sdk/js && npm ci && npm run build)
           (cd agency/frontend && npm ci)
 
-      - name: Cross-compile binaries
-        run: make binaries
+      - name: Cross-compile and package binaries
+        run: make binaries binaries_zip
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: release-binaries
-          path: dist/
+          path: dist/*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -167,7 +175,7 @@ jobs:
           git fetch --force --no-tags origin \
             "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           git tag -l "$GITHUB_REF_NAME" --format='%(contents)' > /tmp/notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/notes.md \
             --verify-tag

@@ -71,14 +71,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.flex-col.items-center.gap-1.text-sm.font-medium
                 PaperclipIcon.size-5
                 span Drop files to attach
-            Textarea.min-h-40(
+            MarkdownEditor.min-h-40(
               v-if="tab === 'write'"
               ref="editor"
               v-model="draft"
               placeholder="What should the agent do? Markdown supported."
-              @keydown.enter="onKeydown"
+              test-id="prompt-textarea"
+              aria-label="Task prompt"
+              title="Tab indents · Ctrl+Enter saves · Ctrl+K deletes to the end of the line"
+              @submit="save"
               @paste="onPaste"
-              data-testid="prompt-textarea"
             )
             .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
               v-else
@@ -121,7 +123,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               @open="emit('openAttachment', $event)"
             )
           .flex.items-center.gap-2
-            span.text-muted-foreground.mr-auto.text-xs Ctrl+Enter to save
+            span.text-muted-foreground.mr-auto.text-xs
+              | Ctrl+Enter to save · Tab indents
             Button(
               type="button"
               variant="ghost"
@@ -155,11 +158,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
 import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
+import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import WritePreviewTabs from "@/components/tasks/WritePreviewTabs.vue";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { useAttachmentUpload } from "@/composables/useAttachmentUpload";
 import { useSketchEditor } from "@/composables/useSketchEditor";
 import { agency } from "@/lib/sdk";
@@ -246,7 +249,7 @@ const editing = ref(false);
 const saving = ref(false);
 const draft = ref("");
 const error = ref("");
-const editor = ref<{ $el?: HTMLTextAreaElement } | undefined>();
+const editor = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const tab = ref<"write" | "preview">("write");
 
 const { uploading, upload } = useAttachmentUpload(() => ({
@@ -293,24 +296,12 @@ function startEdit() {
   error.value = "";
   tab.value = "write";
   editing.value = true;
-  void nextTick(() => {
-    const el = editor.value?.$el;
-    el?.focus();
-    el?.setSelectionRange(el.value.length, el.value.length);
-  });
+  void nextTick(() => editor.value?.focusEnd());
 }
 
 function cancel() {
   editing.value = false;
   error.value = "";
-}
-
-// prompt can be multi-line without a modifier.
-function onKeydown(event: KeyboardEvent) {
-  if (event.key !== "Enter" || event.isComposing) return;
-  if (!event.ctrlKey && !event.metaKey) return;
-  event.preventDefault();
-  void save();
 }
 
 async function onPaste(event: ClipboardEvent) {

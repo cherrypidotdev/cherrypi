@@ -28,6 +28,7 @@ import (
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	tunnelv1 "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1"
 	sharedprotocol "cherrypi.vladfaust.com/shared/protocol"
@@ -70,7 +71,26 @@ func (t *tunnelServer) Connect(
 		return err
 	}
 
-	return t.appCtx.Hub.Serve(ctx, agentID, hello, remoteAddr, stream)
+	err = t.appCtx.Hub.Serve(ctx, agentID, hello, remoteAddr, stream)
+	if errors.Is(err, tunnel.ErrAlreadyConnected) {
+		return connect.NewError(
+			connect.CodeFailedPrecondition,
+			fmt.Errorf(
+				"agent %s already has a live tunnel; refusing a second connection from %s",
+				t.agentUsername(ctx, agentID),
+				remoteAddr,
+			),
+		)
+	}
+	return err
+}
+
+func (t *tunnelServer) agentUsername(ctx context.Context, agentID ids.AgentID) string {
+	agent, err := t.appCtx.Agents.Get(ctx, agentID)
+	if err != nil {
+		return fmt.Sprint(agentID)
+	}
+	return agent.Username
 }
 
 func (t *tunnelServer) WS(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +111,16 @@ func (t *tunnelServer) WS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := t.appCtx.Hub.Connection(agentID); err == nil {
+		log.Printf(
+			"[tunnel] refusing a second connection for agent %s from %s",
+			t.agentUsername(r.Context(), agentID),
+			remoteAddr,
+		)
+		http.Error(w, tunnel.ErrAlreadyConnected.Error(), http.StatusConflict)
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 
 		OriginPatterns: []string{"*"},
@@ -103,7 +133,9 @@ func (t *tunnelServer) WS(w http.ResponseWriter, r *http.Request) {
 	pipe := sharedtunnel.NewWSConn(conn)
 	defer func() { _ = pipe.Close() }()
 
-	_ = t.appCtx.Hub.ServeConn(r.Context(), agentID, hello, remoteAddr, pipe)
+	if err := t.appCtx.Hub.ServeConn(r.Context(), agentID, hello, remoteAddr, pipe); err != nil {
+		log.Printf("[tunnel] agent %s: %v", t.agentUsername(r.Context(), agentID), err)
+	}
 }
 
 func (t *tunnelServer) authenticate(

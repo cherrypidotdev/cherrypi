@@ -46,6 +46,13 @@ var (
 	ErrCredentialExists = errors.New("credential already exists")
 
 	ErrCredentialMissing = errors.New("credential not found")
+
+	ErrInvalidRole = errors.New("agent role must be 'member' or 'admin'")
+)
+
+const (
+	RoleMember = "member"
+	RoleAdmin  = "admin"
 )
 
 type Status int64
@@ -71,11 +78,13 @@ const (
 )
 
 type Agent struct {
-	ID              ids.AgentID
-	ActorID         ids.ActorID
-	Username        string
-	DisplayName     string
-	Description     string
+	ID          ids.AgentID
+	ActorID     ids.ActorID
+	Username    string
+	DisplayName string
+	Description string
+
+	Role            string
 	Status          Status
 	Version         string
 	ProtocolVersion string
@@ -200,6 +209,31 @@ func (r *Registry) CreateOwned(
 	r.logAgent(ctx, row.ActorID, audit.KindCreated, "username", "", username,
 		"Created agent "+username, nil)
 	return r.toAgent(row), password, nil
+}
+
+func (r *Registry) SetRole(
+	ctx context.Context,
+	id ids.AgentID,
+	role string,
+) (Agent, error) {
+	if role != RoleMember && role != RoleAdmin {
+		return Agent{}, ErrInvalidRole
+	}
+	row, err := r.store.GetAgent(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrAgentMissing
+	}
+	if err != nil {
+		return Agent{}, err
+	}
+	if err := r.store.SetAgentRole(ctx, id, role); err != nil {
+		return Agent{}, err
+	}
+	if row.Role != role {
+		r.logAgent(ctx, row.ActorID, audit.KindRole, "role", row.Role, role,
+			"Changed "+row.Username+" role to "+role, nil)
+	}
+	return r.Get(ctx, id)
 }
 
 func (r *Registry) Update(
@@ -492,6 +526,7 @@ func (r *Registry) toAgent(row store.AgentRow) Agent {
 		Username:    row.Username,
 		DisplayName: row.Name,
 		Description: row.Description,
+		Role:        row.Role,
 		Status:      StatusOffline,
 		CreatedAt:   time.UnixMilli(row.CreatedAt),
 		UpdatedAt:   time.UnixMilli(row.UpdatedAt),

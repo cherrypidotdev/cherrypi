@@ -27,9 +27,13 @@ type Message struct {
 	Payload map[string]any `json:"payload"`
 }
 
+const backlogLimit = 256
+
 type Hub struct {
 	mu   sync.Mutex
 	subs map[chan Message]struct{}
+
+	backlog []Message
 }
 
 func New() *Hub {
@@ -45,6 +49,13 @@ func (h *Hub) Publish(kind string, payload map[string]any) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if len(h.subs) == 0 {
+		h.backlog = append(h.backlog, msg)
+		if len(h.backlog) > backlogLimit {
+			h.backlog = h.backlog[len(h.backlog)-backlogLimit:]
+		}
+		return
+	}
 	for ch := range h.subs {
 		select {
 		case ch <- msg:
@@ -55,9 +66,18 @@ func (h *Hub) Publish(kind string, payload map[string]any) {
 }
 
 func (h *Hub) Subscribe() (<-chan Message, func()) {
-	ch := make(chan Message, 64)
+	ch := make(chan Message, backlogLimit+64)
 
 	h.mu.Lock()
+	if len(h.subs) == 0 {
+		for _, msg := range h.backlog {
+			select {
+			case ch <- msg:
+			default:
+			}
+		}
+		h.backlog = nil
+	}
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
 

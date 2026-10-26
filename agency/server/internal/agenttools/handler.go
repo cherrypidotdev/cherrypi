@@ -30,8 +30,10 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
@@ -52,6 +54,10 @@ type Handler struct {
 	Agents   *agents.Registry
 
 	Accounts *accounts.Service
+
+	Logs *agentlogs.Service
+
+	ProcessLogs *processlog.Log
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +80,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.taskByID(w, r)
 	case path == Prefix+"/projects":
 		h.listProjects(w, r)
+	case path == Prefix+"/agency":
+		h.agencyMeta(w, r)
+	case path == Prefix+"/agency/logs":
+		h.agencyLogs(w, r)
+	case path == Prefix+"/agents":
+		h.listFleet(w, r)
+	case strings.HasPrefix(path, Prefix+"/agents/"):
+		h.agentLogs(w, r)
 	default:
 		http.NotFound(w, r)
 	}

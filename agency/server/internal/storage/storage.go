@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -42,6 +43,17 @@ type Config struct {
 	KeyPrefix       string
 }
 
+func NormalizeEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+	return strings.TrimRight(endpoint, "/")
+}
+
 func (c Config) Enabled() bool {
 	return c.Endpoint != "" && c.Bucket != ""
 }
@@ -62,6 +74,7 @@ type s3Store struct {
 }
 
 func New(ctx context.Context, cfg Config) (Store, error) {
+	cfg.Endpoint = NormalizeEndpoint(cfg.Endpoint)
 	if !cfg.Enabled() {
 		return Disabled{}, nil
 	}

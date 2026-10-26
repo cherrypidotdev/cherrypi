@@ -1209,6 +1209,14 @@ func (s *SqliteStore) TaskIDBySession(
 	return s.q.TaskIDBySession(ctx, sqlitedb.TaskIDBySessionParams(p))
 }
 
+func (s *SqliteStore) SessionAgentID(
+	ctx context.Context,
+	sessionID string,
+) (ids.AgentID, error) {
+	id, err := s.q.SessionAgentID(ctx, sessionID)
+	return ids.AgentID(id), err
+}
+
 func (s *SqliteStore) SetTaskError(ctx context.Context, p SetTaskErrorParams) (int64, error) {
 	return s.q.SetTaskError(ctx, sqlitedb.SetTaskErrorParams(p))
 }

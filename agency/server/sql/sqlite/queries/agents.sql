@@ -34,11 +34,11 @@ RETURNING id;
 
 -- name: CreateAgentRow :one
 INSERT INTO agents (actor_id) VALUES (sqlc.arg(actor_id))
-RETURNING id, actor_id, last_seen_at;
+RETURNING id, actor_id, last_seen_at, role;
 
 -- name: GetAgent :one
 SELECT
-  g.id, g.actor_id, g.last_seen_at,
+  g.id, g.actor_id, g.last_seen_at, g.role,
   a.username, a.name, a.description, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
@@ -47,7 +47,7 @@ WHERE g.id = sqlc.arg(id);
 
 -- name: GetAgentByActor :one
 SELECT
-  g.id, g.actor_id, g.last_seen_at,
+  g.id, g.actor_id, g.last_seen_at, g.role,
   a.username, a.name, a.description, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
@@ -56,7 +56,7 @@ WHERE g.actor_id = sqlc.arg(actor_id);
 
 -- name: GetAgentByUsername :one
 SELECT
-  g.id, g.actor_id, g.last_seen_at,
+  g.id, g.actor_id, g.last_seen_at, g.role,
   a.username, a.name, a.description, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
@@ -65,7 +65,7 @@ WHERE a.kind = 'agent' AND a.username = sqlc.arg(username);
 
 -- name: ListAgents :many
 SELECT
-  g.id, g.actor_id, g.last_seen_at,
+  g.id, g.actor_id, g.last_seen_at, g.role,
   a.username, a.name, a.description, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
@@ -79,6 +79,9 @@ SET name = sqlc.arg(name),
     updated_at = sqlc.arg(updated_at)
 WHERE actors.id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(id))
   AND kind = 'agent';
+
+-- name: UpdateAgentRole :exec
+UPDATE agents SET role = sqlc.arg(role) WHERE id = sqlc.arg(id);
 
 -- name: DeleteAgent :exec
 DELETE FROM agents WHERE id = sqlc.arg(id);

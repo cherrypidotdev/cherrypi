@@ -437,7 +437,10 @@ function rowActions(task: Task): RowAction[] {
   }
   switch (task.state) {
     case TaskState.DRAFT:
-      return [{ key: "promote", title: "Move to Backlog", icon: InboxIcon }];
+      return [
+        { key: "enqueue", title: "Queue", icon: PlayIcon },
+        { key: "promote", title: "Move to Backlog", icon: InboxIcon },
+      ];
 
     case TaskState.BACKLOG:
       return [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
