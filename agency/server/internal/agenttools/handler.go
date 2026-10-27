@@ -17,7 +17,6 @@
 package agenttools
 
 import (
-	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/actorid"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
@@ -46,14 +45,10 @@ const TokenPath = Prefix + "/token"
 
 const ResolvePath = Prefix + "/tasks/resolve"
 
-const bootstrapTokenName = "agent-bootstrap"
-
 type Handler struct {
 	Tasks    *tasks.Service
 	Projects *projects.Service
 	Agents   *agents.Registry
-
-	Accounts *accounts.Service
 
 	Logs *agentlogs.Service
 
@@ -64,7 +59,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	switch {
 	case path == TokenPath:
-		h.token(w, r)
+		h.validateToken(w, r)
 	case path == ResolvePath:
 		h.resolveTask(w, r)
 	case path == Prefix+"/tasks":
@@ -93,40 +88,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+func (h *Handler) validateToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
 		return
 	}
-	agentID, ok := auth.AgentID(r.Context())
-	if !ok {
+	if _, ok := auth.AgentID(r.Context()); !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if h.Accounts == nil {
-		writeError(w, http.StatusServiceUnavailable, "token service is unavailable")
-		return
-	}
-	agent, err := h.Agents.Get(r.Context(), agentID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
-		return
-	}
-
-	if pats, err := h.Accounts.ListPATs(r.Context(), agent.ActorID); err == nil {
-		for _, pat := range pats {
-			if pat.Name == bootstrapTokenName {
-				_ = h.Accounts.RevokePAT(r.Context(), agent.ActorID, pat.ID)
-			}
-		}
-	}
-
-	token, _, err := h.Accounts.CreatePAT(r.Context(), agent.ActorID, bootstrapTokenName, nil)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"token": token})
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
 }
 
 func (h *Handler) resolveTask(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +238,12 @@ func (h *Handler) getTask(w http.ResponseWriter, r *http.Request, id string) {
 	writeJSON(w, http.StatusOK, map[string]any{"task": toTaskJSON(task)})
 }
 
+const (
+	defaultHistoryLimit    = 20
+	maxHistoryMessageBytes = 8 * 1024
+	maxHistoryPageBytes    = 64 * 1024
+)
+
 func (h *Handler) getTaskHistory(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
@@ -301,12 +278,15 @@ func (h *Handler) getTaskHistory(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 	}
-	limit := 0
+	limit := defaultHistoryLimit
 	if raw := strings.TrimSpace(query.Get("limit")); raw != "" {
 		limit, err = strconv.Atoi(raw)
 		if err != nil || limit < 0 {
 			writeError(w, http.StatusBadRequest, "invalid limit")
 			return
+		}
+		if limit == 0 {
+			limit = defaultHistoryLimit
 		}
 	}
 
@@ -315,7 +295,10 @@ func (h *Handler) getTaskHistory(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	events, next := taskhistory.Page(task.ID, entries, before, limit)
+	events, next := taskhistory.PageBounded(
+		task.ID, entries, before, limit,
+		maxHistoryMessageBytes, maxHistoryPageBytes,
+	)
 	out := make([]historyEventJSON, len(events))
 	for i, event := range events {
 		out[i] = toHistoryEventJSON(event)

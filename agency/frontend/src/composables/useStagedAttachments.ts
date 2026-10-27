@@ -81,6 +81,22 @@ export function useStagedAttachments() {
     });
   }
 
+  function updateSketch(
+    id: string,
+    png: Blob,
+    snapshot: { document: unknown },
+  ) {
+    const item = items.value.find(
+      (entry): entry is StagedSketch =>
+        entry.kind === "sketch" && entry.id === id,
+    );
+    if (!item) return;
+    revoke(item.url);
+    item.png = png;
+    item.snapshot = snapshot;
+    item.url = objectUrl(png);
+  }
+
   function remove(id: string) {
     for (const item of items.value) if (item.id === id) revoke(item.url);
     items.value = items.value.filter((item) => item.id !== id);
@@ -93,5 +109,5 @@ export function useStagedAttachments() {
 
   const count = computed(() => items.value.length);
 
-  return { items, count, addFiles, addSketch, remove, clear };
+  return { items, count, addFiles, addSketch, updateSketch, remove, clear };
 }

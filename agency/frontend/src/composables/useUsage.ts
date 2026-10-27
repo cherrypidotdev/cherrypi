@@ -16,6 +16,7 @@
 
 import { useRealtime } from "@/composables/useRealtime";
 import { agency } from "@/lib/sdk";
+import { usageRangeBounds, type UsageRange } from "@/lib/usage";
 import type { AgencyUsageResponse } from "@cherrypi/sdk";
 import {
   computed,
@@ -27,18 +28,22 @@ import {
 } from "vue";
 
 export interface UsageBucket {
+  agentId: string;
   taskId: string;
   inputTokens: number;
   outputTokens: number;
   cost: number;
 
   activeMs: number;
+
+  runs: number;
   live: boolean;
 }
 
 export function useUsage(
   agentId: MaybeRefOrGetter<string> = "",
   projectId: MaybeRefOrGetter<string> = "",
+  range: MaybeRefOrGetter<UsageRange> = "all",
 ) {
   const usage = ref<AgencyUsageResponse | undefined>();
   const error = ref("");
@@ -47,13 +52,16 @@ export function useUsage(
 
   const agentIdValue = computed(() => toValue(agentId));
   const projectIdValue = computed(() => toValue(projectId));
+  const rangeValue = computed(() => toValue(range));
 
   async function refresh() {
     const gen = ++generation;
+    const bounds = usageRangeBounds(rangeValue.value);
     try {
       const next = await agency.getUsage(
         agentIdValue.value,
         projectIdValue.value,
+        { sinceMs: bounds.sinceMs, untilMs: bounds.untilMs },
       );
       if (gen !== generation) return;
       usage.value = next;
@@ -70,18 +78,20 @@ export function useUsage(
     const map = new Map<string, UsageBucket>();
     for (const bucket of usage.value?.tasks ?? []) {
       map.set(bucket.taskId, {
+        agentId: bucket.agentId,
         taskId: bucket.taskId,
         inputTokens: Number(bucket.inputTokens),
         outputTokens: Number(bucket.outputTokens),
         cost: bucket.cost,
         activeMs: Number(bucket.activeMs),
+        runs: Number(bucket.runs ?? 0),
         live: false,
       });
     }
     return map;
   });
 
-  watch([agentIdValue, projectIdValue], () => {
+  watch([agentIdValue, projectIdValue, rangeValue], () => {
     generation++;
     usage.value = undefined;
     loading.value = true;

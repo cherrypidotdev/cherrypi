@@ -33,6 +33,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       | sketch
     span.text-muted-foreground.shrink-0 {{ size(item) }}
     Button.shrink-0(
+      v-if="item.kind === 'sketch'"
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      title="Edit sketch"
+      :aria-label="`Edit ${item.filename}`"
+      @click="emit('edit', item)"
+    )
+      PencilIcon.size-3
+    Button.shrink-0(
       v-if="item.url"
       as-child
       variant="ghost"
@@ -59,10 +69,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import { Button } from "@/components/ui/button";
 import type { StagedAttachment } from "@/composables/useStagedAttachments";
 import { formatFileSize } from "@/lib/attachments";
-import { ExternalLinkIcon, FileIcon, Trash2Icon } from "@lucide/vue";
+import {
+  ExternalLinkIcon,
+  FileIcon,
+  PencilIcon,
+  Trash2Icon,
+} from "@lucide/vue";
 
 defineProps<{ items: StagedAttachment[] }>();
-const emit = defineEmits<{ remove: [id: string] }>();
+const emit = defineEmits<{
+  remove: [id: string];
+  edit: [item: StagedAttachment];
+}>();
 
 function size(item: StagedAttachment): string {
   return formatFileSize(item.kind === "sketch" ? item.png.size : item.size);

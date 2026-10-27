@@ -126,17 +126,8 @@ func (s *TaskServer) GetTask(
 		}
 	}
 	s.enrichAttachments(ctx, out.Id, out)
-	s.enrichHistory(ctx, out.Id, out)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.GetTaskResponse{Task: out}, nil
-}
-
-func (s *TaskServer) enrichHistory(ctx context.Context, taskID string, out *agencyv1.Task) {
-	migrated, err := s.Tasks.HistoryMigrated(ctx, taskID)
-	if err != nil {
-		return
-	}
-	out.HistoryMigrated = migrated
 }
 
 func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *agencyv1.Task) {
@@ -648,9 +639,6 @@ func (s *TaskServer) cleanupTaskSession(ctx context.Context, t tasks.Task) error
 	if err != nil {
 		return err
 	}
-	if err := s.ensureHistoryStored(ctx, conn, t); err != nil {
-		return err
-	}
 	if _, err := conn.Tasks.DeleteTask(
 		ctx,
 		&agentv1.DeleteTaskRequest{Id: t.SessionID},
@@ -659,38 +647,6 @@ func (s *TaskServer) cleanupTaskSession(ctx context.Context, t tasks.Task) error
 	}
 	if _, err := s.Tasks.MarkSessionDeleted(ctx, t.ID); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (s *TaskServer) ensureHistoryStored(
-	ctx context.Context,
-	conn *tunnel.Connection,
-	t tasks.Task,
-) error {
-	migrated, err := s.Tasks.HistoryMigrated(ctx, t.ID)
-	if err != nil {
-		return err
-	}
-	if migrated {
-		return nil
-	}
-	res, err := conn.Tasks.SyncTaskHistory(ctx, &agentv1.SyncTaskHistoryRequest{
-		Id:  t.SessionID,
-		Ref: &agentv1.TaskRef{ProjectId: t.ProjectID, Seq: t.Seq},
-	})
-	if connect.CodeOf(err) == connect.CodeNotFound {
-
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("store session history before delete: %w", err)
-	}
-	if migrated, err = s.Tasks.HistoryMigrated(ctx, t.ID); err != nil {
-		return err
-	}
-	if !migrated && res.Entries > 0 {
-		return errors.New("session history could not be stored; refusing to delete it")
 	}
 	return nil
 }
@@ -1111,32 +1067,6 @@ func (s *TaskServer) GetTaskHistory(
 		Events:     res.Events,
 		NextBefore: res.NextBefore,
 	}, nil
-}
-
-func (s *TaskServer) MigrateTaskHistory(
-	ctx context.Context,
-	req *agencyv1.MigrateTaskHistoryRequest,
-) (*agencyv1.MigrateTaskHistoryResponse, error) {
-	t, conn, err := s.sessionTask(ctx, req.Id)
-	if err != nil {
-		return nil, err
-	}
-	res, err := conn.Tasks.SyncTaskHistory(ctx, &agentv1.SyncTaskHistoryRequest{
-		Id: t.SessionID,
-
-		Ref: &agentv1.TaskRef{ProjectId: t.ProjectID, Seq: t.Seq},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	refreshed, err := s.Tasks.Get(ctx, t.ID)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	out := toProtoTask(refreshed)
-	s.enrichHistory(ctx, refreshed.ID, out)
-	return &agencyv1.MigrateTaskHistoryResponse{Task: out, Entries: res.Entries}, nil
 }
 
 func (s *TaskServer) GetTaskConfig(

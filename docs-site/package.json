@@ -1,0 +1,21 @@
+{
+  "name": "@cherrypi/docs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Public CherryPi documentation, served by the agency at /docs.",
+  "scripts": {
+    "dev": "vitepress dev --port 5174 --strictPort",
+    "build": "vitepress build && node scripts/check-links.mjs",
+    "preview": "vitepress preview --port 4174",
+    "check": "node scripts/check-links.mjs",
+    "screenshots": "node scripts/capture-screenshots.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "vitepress": "1.6.4"
+  },
+  "engines": {
+    "node": "22"
+  }
+}

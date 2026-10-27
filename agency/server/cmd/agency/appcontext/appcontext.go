@@ -19,7 +19,9 @@ package appcontext
 import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -124,6 +126,62 @@ func taskTransitionNotifier(
 
 // taskTransitionBody renders a task's name, falling back to the first line of
 
+const objectStorageCheckTimeout = 10 * time.Second
+
+func checkObjectStorage(cfg storage.Config, objects storage.Store) error {
+	ctx, cancel := context.WithTimeout(context.Background(), objectStorageCheckTimeout)
+	defer cancel()
+
+	result, err := objects.Check(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: %w", describeObjectStorage(cfg), err)
+	}
+	if result.Region == "" {
+		log.Printf(
+			"Object storage bucket region unknown (%v); keeping CHERRYPI_S3_REGION=%s",
+			result.RegionWarning,
+			cfg.Region,
+		)
+		return nil
+	}
+	if !strings.EqualFold(result.Region, cfg.Region) {
+		return fmt.Errorf(
+			"%s, but the bucket is in region %q (from %s); set CHERRYPI_S3_REGION=%s",
+			describeObjectStorage(cfg),
+			result.Region,
+			result.RegionSource,
+			result.Region,
+		)
+	}
+	return nil
+}
+
+func describeObjectStorage(cfg storage.Config) string {
+	style := "virtual-host"
+	if cfg.ForcePathStyle {
+		style = "path-style"
+	}
+	description := fmt.Sprintf(
+		"bucket %q at %s using %s addressing",
+		cfg.Bucket,
+		cfg.Endpoint,
+		style,
+	)
+	if !cfg.ForcePathStyle && !isAWSEndpoint(cfg.Endpoint) {
+		description += "; if the endpoint does not serve <bucket>.<host>, set CHERRYPI_S3_FORCE_PATH_STYLE=true"
+	}
+	return description
+}
+
+func isAWSEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "amazonaws.com" || strings.HasSuffix(host, ".amazonaws.com")
+}
+
 func taskTransitionBody(task tasks.Task) string {
 	if name := strings.TrimSpace(task.Name); name != "" {
 		return name
@@ -150,22 +208,21 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		log.Fatalf("Failed to configure object storage: %v", err)
 	}
 	if objectStore.Enabled() {
+		if err := checkObjectStorage(config.S3, objectStore); err != nil {
+			log.Fatalf("Object storage check failed: %v", err)
+		}
 		log.Printf(
-			"Object storage enabled (bucket %s, endpoint %s)",
+			"Object storage enabled (bucket %s, endpoint %s, path-style=%t)",
 			config.S3.Bucket,
 			config.S3.Endpoint,
+			config.S3.ForcePathStyle,
 		)
 	} else {
 		log.Print("Object storage disabled: CHERRYPI_S3_ENDPOINT/BUCKET unset")
 	}
 
-	startup := make([]accounts.StartupCredential, len(config.Credentials))
-	for i, c := range config.Credentials {
-		startup[i] = accounts.StartupCredential{Username: c.Username, Password: c.Password}
-	}
-
 	accountsSvc := accounts.New(st)
-	if err := bootstrapAccounts(context.Background(), accountsSvc, config, startup); err != nil {
+	if err := bootstrapAccounts(context.Background(), accountsSvc, config); err != nil {
 		log.Fatalf("Failed to bootstrap accounts: %v", err)
 	}
 
@@ -191,17 +248,6 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 			_, _ = auditSvc.Prune(ctx, time.Now())
 		}
 	}()
-
-	if config.SeedAgentUsername != "" {
-		if err := agentRegistry.EnsureCredential(
-			context.Background(),
-			config.SeedAgentUsername,
-			config.SeedAgentPassword,
-		); err != nil {
-			log.Fatalf("Failed to seed agent %q: %v", config.SeedAgentUsername, err)
-		}
-		log.Printf("Seeded agent %s", config.SeedAgentUsername)
-	}
 
 	attachmentsSvc := attachments.New(st, objectStore, attachments.Config{
 		KeyPrefix:     config.S3.KeyPrefix,

@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -142,36 +141,28 @@ func (t *tunnelServer) authenticate(
 	ctx context.Context,
 	header string,
 ) (ids.AgentID, error) {
-
-	if token, ok := bearerAuth(header); ok {
-		identity, _, err := t.appCtx.Accounts.ResolvePAT(ctx, token)
-		if err == nil && identity.Kind == accounts.KindAgent {
-			agent, err := t.appCtx.Agents.GetByActor(ctx, identity.ActorID)
-			if err == nil {
-				return agent.ID, nil
-			}
-		}
+	token, ok := bearerAuth(header)
+	if !ok {
+		return 0, connect.NewError(
+			connect.CodeUnauthenticated,
+			errors.New("missing tunnel token"),
+		)
+	}
+	identity, _, err := t.appCtx.Accounts.ResolvePAT(ctx, token)
+	if err != nil || identity.Kind != accounts.KindAgent {
 		return 0, connect.NewError(
 			connect.CodeUnauthenticated,
 			errors.New("invalid tunnel token"),
 		)
 	}
-
-	user, pass, ok := basicAuth(header)
-	if !ok {
+	agent, err := t.appCtx.Agents.GetByActor(ctx, identity.ActorID)
+	if err != nil {
 		return 0, connect.NewError(
 			connect.CodeUnauthenticated,
-			errors.New("missing tunnel credentials"),
+			errors.New("invalid tunnel token"),
 		)
 	}
-	agentID, ok := t.appCtx.Agents.Authenticate(ctx, user, pass)
-	if !ok {
-		return 0, connect.NewError(
-			connect.CodeUnauthenticated,
-			errors.New("invalid tunnel credentials"),
-		)
-	}
-	return agentID, nil
+	return agent.ID, nil
 }
 
 // version, or one on a different compatibility line (the minor while pre-1.0,
@@ -214,20 +205,4 @@ func bearerAuth(header string) (string, bool) {
 		return "", false
 	}
 	return token, true
-}
-
-func basicAuth(header string) (string, string, bool) {
-	const prefix = "Basic "
-	if !strings.HasPrefix(header, prefix) {
-		return "", "", false
-	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(header, prefix))
-	if err != nil {
-		return "", "", false
-	}
-	user, pass, ok := strings.Cut(string(decoded), ":")
-	if !ok {
-		return "", "", false
-	}
-	return user, pass, true
 }

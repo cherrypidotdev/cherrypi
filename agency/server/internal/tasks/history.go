@@ -74,26 +74,6 @@ func (s *Service) SessionHistory(
 	return out, nil
 }
 
-func (s *Service) HistoryMigrated(ctx context.Context, taskID string) (bool, error) {
-	count, err := s.store.CountTaskSessionEntries(ctx, taskID)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-func (s *Service) MigratedTaskIDs(ctx context.Context) (map[string]bool, error) {
-	ids, err := s.store.ListTaskHistoryTaskIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	set := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		set[id] = true
-	}
-	return set, nil
-}
-
 func (s *Service) SessionHistoryTip(ctx context.Context, taskID string) (string, int64, error) {
 	row, err := s.store.TaskSessionEntryTip(ctx, taskID)
 	if err != nil {

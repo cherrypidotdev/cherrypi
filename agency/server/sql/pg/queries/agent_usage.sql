@@ -31,6 +31,7 @@ SELECT
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS BIGINT) AS output_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS DOUBLE PRECISION) AS cost,
   CAST(COALESCE(SUM(ag.active_ms), 0) AS BIGINT) AS active_ms,
+  CAST(COUNT(*) AS BIGINT) AS runs,
   CAST(COALESCE(MAX(ag.at), 0) AS BIGINT) AS last_at
 FROM agent_usage AS ag
 LEFT JOIN tasks AS t
@@ -38,6 +39,8 @@ LEFT JOIN tasks AS t
  AND t.assignee_actor_id = (SELECT g.actor_id FROM agents g WHERE g.id = ag.agent_id)
 WHERE (CAST(sqlc.narg(agent_id) AS BIGINT) IS NULL OR ag.agent_id = sqlc.narg(agent_id))
   AND (CAST(sqlc.narg(project_id) AS TEXT) IS NULL OR t.project_id = sqlc.narg(project_id))
+  AND (CAST(sqlc.narg(since_ms) AS BIGINT) IS NULL OR ag.at >= sqlc.narg(since_ms))
+  AND (CAST(sqlc.narg(until_ms) AS BIGINT) IS NULL OR ag.at <= sqlc.narg(until_ms))
 GROUP BY ag.agent_id, ag.session_id
 ORDER BY last_at DESC;
 
@@ -55,12 +58,15 @@ SELECT
   CAST(ag.at / 86400000 AS BIGINT) AS day,
   CAST(COALESCE(SUM(ag.input_tokens), 0) AS BIGINT) AS input_tokens,
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS BIGINT) AS output_tokens,
-  CAST(COALESCE(SUM(ag.cost), 0.0) AS DOUBLE PRECISION) AS cost
+  CAST(COALESCE(SUM(ag.cost), 0.0) AS DOUBLE PRECISION) AS cost,
+  CAST(COUNT(*) AS BIGINT) AS runs
 FROM agent_usage AS ag
 LEFT JOIN tasks AS t
   ON t.session_id = ag.session_id
  AND t.assignee_actor_id = (SELECT g.actor_id FROM agents g WHERE g.id = ag.agent_id)
 WHERE (CAST(sqlc.narg(agent_id) AS BIGINT) IS NULL OR ag.agent_id = sqlc.narg(agent_id))
   AND (CAST(sqlc.narg(project_id) AS TEXT) IS NULL OR t.project_id = sqlc.narg(project_id))
+  AND (CAST(sqlc.narg(since_ms) AS BIGINT) IS NULL OR ag.at >= sqlc.narg(since_ms))
+  AND (CAST(sqlc.narg(until_ms) AS BIGINT) IS NULL OR ag.at <= sqlc.narg(until_ms))
 GROUP BY day
 ORDER BY day;

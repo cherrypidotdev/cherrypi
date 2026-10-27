@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 div(:class="rootClass" :style="rootStyle" :data-testid="testId")
-  div(ref="host" :class="fill || resizable ? 'h-full' : ''")
+  .h-full(ref="host")
 </template>
 
 <script setup lang="ts">
@@ -70,9 +70,7 @@ const props = withDefaults(
     placeholder?: string;
     disabled?: boolean;
 
-    minHeight?: string;
-
-    maxHeight?: string;
+    height?: string;
 
     fill?: boolean;
 
@@ -85,8 +83,7 @@ const props = withDefaults(
   {
     placeholder: "",
     disabled: false,
-    minHeight: "0",
-    maxHeight: "none",
+    height: "10rem",
     fill: false,
     resizable: false,
     submitOnEnter: false,
@@ -121,13 +118,13 @@ const rootClass = computed(() =>
   ),
 );
 
-const rootStyle = computed(() => ({
-  "--cm-min-height": props.minHeight,
-  "--cm-max-height": props.maxHeight,
-  ...(props.resizable && !props.fill
-    ? { height: "4rem", minHeight: "4rem", maxHeight: "24rem" }
-    : {}),
-}));
+const rootStyle = computed(() => {
+  if (props.fill) return {};
+  if (props.resizable) {
+    return { height: "4rem", minHeight: "4rem", maxHeight: "24rem" };
+  }
+  return { height: props.height };
+});
 
 const markdownHighlighting = HighlightStyle.define([
   { tag: tags.heading1, class: "cm-md-heading cm-md-heading-1" },
@@ -228,11 +225,6 @@ const baseTheme = EditorView.theme({
   },
 });
 
-const autoLayout = EditorView.theme({
-  ".cm-scroller": { maxHeight: "var(--cm-max-height)" },
-  ".cm-content": { minHeight: "var(--cm-min-height)" },
-});
-
 const fillLayout = EditorView.theme({
   "&": { height: "100%" },
   ".cm-scroller": { height: "100%", maxHeight: "none" },
@@ -255,7 +247,7 @@ function readOnlyExtensions() {
 }
 
 function layoutExtension() {
-  return props.fill || props.resizable ? [fillLayout] : [autoLayout];
+  return [fillLayout];
 }
 
 function submitCommand(editor: EditorView): boolean {
@@ -357,7 +349,7 @@ watch(
 );
 
 watch(
-  () => [props.fill, props.resizable] as const,
+  () => [props.fill, props.resizable, props.height] as const,
   () => {
     view.value?.dispatch({
       effects: layout.reconfigure(layoutExtension()),

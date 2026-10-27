@@ -30,9 +30,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      CHERRYPI_AGENCY_CREDENTIALS: ${CHERRYPI_AGENCY_CREDENTIALS:-admin:deadbeef}
-
-      CHERRYPI_AGENCY_SEED_AGENT: ${CHERRYPI_AGENCY_SEED_AGENT:-builder:devagent}
+      CHERRYPI_ADMIN_USERNAME: ${CHERRYPI_ADMIN_USERNAME:-admin}
+      CHERRYPI_ADMIN_PASSWORD: ${CHERRYPI_ADMIN_PASSWORD:-deadbeef}
 
       CHERRYPI_S3_ENDPOINT: ${CHERRYPI_S3_ENDPOINT:-http://minio:9000}
       CHERRYPI_S3_BUCKET: ${CHERRYPI_S3_BUCKET:-cherrypi}
@@ -80,7 +79,6 @@ services:
       - agency
     environment:
       CHERRYPI_AGENCY_URL: http://agency:8080
-      CHERRYPI_AGENT_AUTH: ${CHERRYPI_AGENT_AUTH:-builder:devagent}
 
       CHERRYPI_AGENT_TOKEN: ${CHERRYPI_AGENT_TOKEN:-}
     volumes:

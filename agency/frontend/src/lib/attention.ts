@@ -112,6 +112,8 @@ export function applyFavicon(count: number, iconUrl?: string) {
       if (faviconImageSrc !== src) return;
       faviconImage = image;
       faviconImageReady = true;
+
+      if (currentCount <= 0) return;
       showBadge();
     };
     image.src = src;

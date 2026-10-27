@@ -155,6 +155,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :disabled="busy || !ldapProvider || !ldapUsername || !ldapPassword"
                 )
                   span Sign in with LDAP
+    p.mt-4.text-center.text-xs
+      a.text-muted-foreground.inline-flex.items-center.gap-1.transition-colors(
+        href="/docs/"
+        rel="noopener"
+        class="hover:text-foreground"
+        target="_blank"
+      )
+        BookOpenIcon.size-3
+        span Documentation
 </template>
 
 <script setup lang="ts">
@@ -184,7 +193,7 @@ import {
   type AuthConfig,
   type LoginProvider,
 } from "@/lib/account";
-import { MailIcon } from "@lucide/vue";
+import { BookOpenIcon, MailIcon } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 

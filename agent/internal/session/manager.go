@@ -689,22 +689,6 @@ func (m *Manager) Watch(ctx context.Context, id string, replay bool) (<-chan Eve
 	return ch, unsub, nil
 }
 
-func (m *Manager) SyncHistory(
-	ctx context.Context,
-	id, projectID string,
-	seq int64,
-) (int, error) {
-	row, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		return 0, err
-	}
-	s := m.sessionFor(row)
-	s.setAgencyRef(ctx, projectID, seq)
-	s.resetHistorySync()
-	s.syncHistory(ctx)
-	return len(s.readSessionEntries()), nil
-}
-
 func (m *Manager) History(
 	ctx context.Context,
 	id, before string,

@@ -48,9 +48,6 @@ type Config struct {
 
 	TunnelTransport string
 
-	AgentUsername string
-	AgentPassword string
-
 	AgentToken string
 
 	AgentTokenFixed bool
@@ -109,16 +106,13 @@ func ParseConfig() Config {
 	cfg.TunnelTransport = strings.ToLower(
 		strings.TrimSpace(os.Getenv("CHERRYPI_AGENT_TUNNEL_TRANSPORT")),
 	)
-	if auth := os.Getenv("CHERRYPI_AGENT_AUTH"); auth != "" {
-		user, pass, ok := strings.Cut(auth, ":")
-		if !ok || user == "" || pass == "" {
-			log.Fatalf("Invalid CHERRYPI_AGENT_AUTH: want user:pass")
-		}
-		cfg.AgentUsername = user
-		cfg.AgentPassword = pass
-	}
 
-	cfg.AgentToken = strings.TrimSpace(os.Getenv("CHERRYPI_AGENT_TOKEN"))
+	rawToken := strings.TrimSpace(os.Getenv("CHERRYPI_AGENT_TOKEN"))
+	if strings.HasPrefix(rawToken, "pat_") {
+		cfg.AgentToken = rawToken
+	} else if rawToken != "" {
+		log.Printf("Ignoring CHERRYPI_AGENT_TOKEN: expected a personal access token (pat_…)")
+	}
 	cfg.AgentTokenFixed = cfg.AgentToken != ""
 	cfg.AgentTokenFile = os.Getenv("CHERRYPI_AGENT_TOKEN_FILE")
 	if cfg.AgentTokenFile == "" {

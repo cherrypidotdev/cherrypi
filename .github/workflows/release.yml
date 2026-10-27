@@ -21,6 +21,7 @@ name: Release
 
 
 
+
 on:
   push:
     tags: ["v*"]
@@ -52,6 +53,10 @@ jobs:
             dockerfile: agency/server/Dockerfile
           - name: agent
             dockerfile: agent/Dockerfile
+
+
+          - name: docs
+            dockerfile: docs-site/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -117,6 +122,7 @@ jobs:
             package-lock.json
             agency/frontend/package-lock.json
             agency/sdk/js/package-lock.json
+            docs-site/package-lock.json
 
       - name: Install codegen tools
         run: |

@@ -196,7 +196,7 @@ const router = createRouter({
           redirect: (to) => ({
             name: "agent",
             params: { username: to.params.username },
-            query: { tab: "settings" },
+            query: { tab: "logs" },
           }),
         },
         {

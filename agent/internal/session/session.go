@@ -93,6 +93,8 @@ type Config struct {
 		entries []SessionEntry,
 	) error
 
+	RefreshTaskHistoryAuth func(ctx context.Context) error
+
 	HistorySyncInterval time.Duration
 
 	IdleTTL time.Duration
@@ -168,6 +170,10 @@ type Session struct {
 	syncedTip         string
 	historyReconciled bool
 	historyDisabled   bool
+
+	historyFailures     int
+	historyRetryAt      time.Time
+	historyAuthAttempts int
 
 	historyCancel context.CancelFunc
 }
@@ -446,7 +452,7 @@ func (s *Session) ensureRunningLocked(ctx context.Context) error {
 
 	if !s.probe && s.historyEnabled() {
 		s.resetHistorySync()
-		s.syncHistory(ctx)
+		s.syncHistory(ctx, true)
 	}
 
 	args := []string{"--mode", "rpc"}
@@ -594,15 +600,15 @@ type availableModelsData struct {
 	} `json:"models"`
 }
 
-var baseThinkingLevels = []string{"minimal", "low", "medium", "high"}
+var baseThinkingLevels = []string{"off", "minimal", "low", "medium", "high"}
 
 var extendedThinkingLevels = []string{"xhigh", "max"}
 
 func modelThinkingLevels(reasoning bool, levelMap map[string]*string) []string {
-	levels := []string{"off"}
 	if !reasoning {
-		return levels
+		return []string{"off"}
 	}
+	levels := make([]string, 0, len(baseThinkingLevels)+len(extendedThinkingLevels))
 	for _, level := range baseThinkingLevels {
 		if value, ok := levelMap[level]; ok && value == nil {
 			continue

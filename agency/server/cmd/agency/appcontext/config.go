@@ -17,7 +17,6 @@
 package appcontext
 
 import (
-	"fmt"
 	"log"
 	"net/url"
 	"os"
@@ -29,11 +28,6 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/storage"
 )
 
-type Credential struct {
-	Username string
-	Password string
-}
-
 type Config struct {
 	Port uint16
 
@@ -41,11 +35,13 @@ type Config struct {
 
 	FrontendProxyUrl *url.URL
 
+	// URL of the VitePress dev server to proxy /docs to. Only honored in
+
+	DocsProxyUrl *url.URL
+
 	Dir string
 
 	DatabaseDSN string
-
-	Credentials []Credential
 
 	AdminUsername string
 	AdminPassword string
@@ -55,9 +51,6 @@ type Config struct {
 	PublicURL string
 
 	ExposeMagicLinks bool
-
-	SeedAgentUsername string
-	SeedAgentPassword string
 
 	S3 storage.Config
 
@@ -78,26 +71,6 @@ func parseEnvUint16(envVar string) uint16 {
 		log.Fatalf("Invalid %s: %v", envVar, err)
 	}
 	return uint16(v)
-}
-
-func parseCredentials(s string) ([]Credential, error) {
-	if s == "" {
-		return nil, nil
-	}
-
-	var out []Credential
-	for _, pair := range strings.Split(s, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		user, pass, ok := strings.Cut(pair, ":")
-		if !ok || user == "" || pass == "" {
-			return nil, fmt.Errorf("invalid credential pair %q (want user:hex)", pair)
-		}
-		out = append(out, Credential{Username: user, Password: pass})
-	}
-	return out, nil
 }
 
 func parseEnvBool(envVar string) bool {
@@ -158,11 +131,13 @@ func ParseConfig() Config {
 		cfg.FrontendProxyUrl = u
 	}
 
-	creds, err := parseCredentials(os.Getenv("CHERRYPI_AGENCY_CREDENTIALS"))
-	if err != nil {
-		log.Fatalf("Invalid CHERRYPI_AGENCY_CREDENTIALS: %v", err)
+	if value := os.Getenv("CHERRYPI_DOCS_PROXY_URL"); value != "" {
+		u, err := url.Parse(value)
+		if err != nil {
+			log.Fatalf("Invalid CHERRYPI_DOCS_PROXY_URL: %v", err)
+		}
+		cfg.DocsProxyUrl = u
 	}
-	cfg.Credentials = creds
 
 	cfg.AdminUsername = strings.TrimSpace(os.Getenv("CHERRYPI_ADMIN_USERNAME"))
 	if cfg.AdminUsername == "" {
@@ -177,15 +152,6 @@ func ParseConfig() Config {
 	cfg.PublicURL = strings.TrimRight(os.Getenv("CHERRYPI_PUBLIC_URL"), "/")
 	if cfg.PublicURL == "" {
 		cfg.PublicURL = "http://localhost:" + strconv.Itoa(int(cfg.Port))
-	}
-
-	if seed := os.Getenv("CHERRYPI_AGENCY_SEED_AGENT"); seed != "" {
-		user, pass, ok := strings.Cut(seed, ":")
-		if !ok || user == "" || pass == "" {
-			log.Fatalf("Invalid CHERRYPI_AGENCY_SEED_AGENT: want user:password")
-		}
-		cfg.SeedAgentUsername = user
-		cfg.SeedAgentPassword = pass
 	}
 
 	parseS3Config(&cfg)

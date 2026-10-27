@@ -17,134 +17,138 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.h-full.flex-col.overflow-hidden
-  AgentHeader(v-if="!embedded")
-  .flex-1.overflow-auto
-    .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-4.p-6
-      p.text-muted-foreground.text-sm
-        | Operational records this agent pushed to the agency — task/session
-        | lifecycle and connectivity — plus the terminal lifecycle events the
-        | agency observed.
+.flex.flex-col.gap-4
+  p.text-muted-foreground.text-sm
+    | Operational records this agent pushed to the agency — task/session
+    | lifecycle, connectivity and the terminal lifecycle events the agency
+    | observed — in one feed.
 
-      Tabs(v-model="tab")
-        .flex.flex-wrap.items-center.justify-between.gap-2
-          TabsList
-            TabsTrigger(value="agent") Agent
-            TabsTrigger(value="terminals") Terminals
-          .flex.items-center.gap-2(v-if="tab === 'agent'")
-            Select(v-model="levelFilter")
-              SelectTrigger.w-40
-                SelectValue
-              SelectContent
-                SelectItem(
-                  v-for="opt in levelOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                ) {{ opt.label }}
-            Button(
-              variant="outline"
-              size="sm"
-              @click="refreshAgentLogs"
-              :disabled="logsLoading"
-            )
-              RefreshCwIcon(data-icon="inline-start")
-              span Refresh
+  .flex.flex-wrap.items-center.gap-2
+    .relative.min-w-48.flex-1
+      SearchIcon.text-muted-foreground.absolute.size-4(
+        class="top-1/2 left-2.5 -translate-y-1/2"
+      )
+      Input.pl-8(
+        v-model="search"
+        placeholder="Filter log lines…"
+        aria-label="Filter log lines"
+      )
+    Select(v-model="levelFilter")
+      SelectTrigger.w-40
+        SelectValue
+      SelectContent
+        SelectItem(
+          v-for="opt in levelOptions"
+          :key="opt.value"
+          :value="opt.value"
+        ) {{ opt.label }}
+    Button(
+      variant="outline"
+      size="sm"
+      :class="filtersOpen ? 'bg-muted text-foreground' : ''"
+      @click="filtersOpen = !filtersOpen"
+    )
+      SlidersHorizontalIcon(data-icon="inline-start")
+      span Filters
+    Button(
+      variant="outline"
+      size="sm"
+      @click="refreshAgentLogs"
+      :disabled="logsLoading"
+    )
+      RefreshCwIcon(data-icon="inline-start")
+      span Refresh
 
-        TabsContent(value="agent")
-          Card
-            CardContent.p-0
-              p.text-destructive.px-4.py-2.text-sm(v-if="logsError")
-                | {{ logsError }}
-              p.text-muted-foreground.px-4.py-6.text-sm(
-                v-if="!logs.length && !logsLoading"
+  .rounded-lg.border.p-3(v-if="filtersOpen" class="bg-muted/30")
+    .flex.flex-wrap.items-center.gap-3
+      label.flex.cursor-pointer.items-center.gap-2.text-sm
+        Switch(v-model="hideLifecycle" aria-label="Hide routine lifecycle")
+        span Hide routine lifecycle
+      .min-w-64.flex-1
+        Input(
+          v-model="hiddenText"
+          placeholder="pi started, pi exited, pi stopped"
+          aria-label="Hidden message patterns"
+        )
+    p.text-muted-foreground.mt-2.text-xs
+      | Comma-separated message substrings to hide while the toggle is on.
+      | {{ hiddenCount ? `${hiddenCount} hidden now.` : "" }}
+
+  Card
+    CardContent.p-0
+      p.text-destructive.px-4.py-2.text-sm(v-if="logsError")
+        | {{ logsError }}
+      p.text-muted-foreground.px-4.py-2.text-sm(v-if="terminalsError")
+        | Terminal events unavailable: {{ terminalsError }}
+      TableRowsSkeleton(
+        v-if="(logsLoading || terminalsLoading) && !rows.length"
+        :widths="['h-5 w-32', 'w-16', 'w-64']"
+      )
+      p.text-muted-foreground.px-4.py-6.text-sm(
+        v-if="!rows.length && !logsLoading && !terminalsLoading"
+      )
+        | {{ hasFilters ? "No log lines match the filters." : "No log lines yet." }}
+      .divide-border.divide-y
+        template(v-for="row in rows" :key="rowKey(row)")
+          .flex.items-start.gap-3.px-4.py-2(v-if="row.kind === 'agent'")
+            span.text-muted-foreground.shrink-0.font-mono.text-xs.whitespace-nowrap(
+              class="pt-0.5"
+            ) {{ formatTimestamp(row.log.at) }}
+            span.inline-flex.shrink-0.items-center.rounded-full.border.px-2.text-xs.font-medium(
+              class="py-0.5"
+              :class="levelClass(row.log.level)"
+            ) {{ levelLabel(row.log.level) }}
+            .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
+              span.text-sm.break-words {{ row.log.message }}
+              .flex.flex-wrap.items-center.gap-x-3(
+                v-if="row.log.taskId || row.log.sessionId || attrs(row.log).length"
+                class="gap-y-0.5"
               )
-                | No agent log lines yet.
-              .divide-border.divide-y
-                .flex.items-start.gap-3.px-4.py-2(
-                  v-for="log in logs"
-                  :key="String(log.id)"
-                )
-                  span.text-muted-foreground.shrink-0.font-mono.text-xs.whitespace-nowrap(
-                    class="pt-0.5"
-                  ) {{ formatTimestamp(log.at) }}
-                  span.inline-flex.shrink-0.items-center.rounded-full.border.px-2.text-xs.font-medium(
-                    class="py-0.5"
-                    :class="levelClass(log.level)"
-                  ) {{ levelLabel(log.level) }}
-                  .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
-                    span.text-sm.break-words {{ log.message }}
-                    .flex.flex-wrap.items-center.gap-x-3(
-                      v-if="log.taskId || log.sessionId || attrs(log).length"
-                      class="gap-y-0.5"
-                    )
-                      RouterLink.text-xs(
-                        v-if="log.taskId"
-                        class="hover:underline"
-                        :to="{ name: 'task', params: { id: log.taskId } }"
-                      ) {{ log.taskId }}
-                      span.text-muted-foreground.truncate.font-mono.text-xs(
-                        v-if="log.sessionId"
-                        :title="log.sessionId"
-                      ) session {{ log.sessionId.slice(0, 8) }}
-                      span.text-muted-foreground.font-mono.text-xs(
-                        v-for="attr in attrs(log)"
-                        :key="attr.key"
-                        :title="attr.value"
-                      ) {{ attr.key }}={{ attr.value }}
-
-        TabsContent(value="terminals")
-          Card
-            CardContent.p-0
-              p.text-destructive.px-4.py-2.text-sm(v-if="terminalsError")
-                | {{ terminalsError }}
-              Table
-                TableHeader
-                  TableRow
-                    TableHead.w-44 Time
-                    TableHead.w-28 Event
-                    TableHead Reason / working directory
-                    TableHead.w-24
-                TableBody
-                  TableRowsSkeleton(
-                    v-if="terminalsLoading && !terminalLogs.length"
-                    :widths="['h-5 w-32', 'w-20', 'w-56', 'w-12']"
-                  )
-                  TableRow(v-for="log in terminalLogs" :key="String(log.id)")
-                    TableCell.text-muted-foreground.text-xs
-                      | {{ formatTimestamp(log.at) }}
-                    TableCell
-                      span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
-                        class="py-0.5"
-                        :class="eventClass(log.event)"
-                      ) {{ log.event }}
-                    TableCell
-                      .flex.min-w-0.flex-col(class="gap-0.5")
-                        span.text-xs {{ log.reason || "—" }}
-                        span.text-muted-foreground.truncate.font-mono.text-xs(
-                          v-if="log.detail"
-                          :title="log.detail"
-                        ) {{ log.detail }}
-                    TableCell
-                      .flex.justify-end
-                        Button(
-                          v-if="log.event === 'interrupted'"
-                          variant="outline"
-                          size="sm"
-                          @click="restore(log)"
-                          :disabled="restoring === log.id"
-                        )
-                          RotateCcwIcon(data-icon="inline-start")
-                          span Restore
-                  TableRow(v-if="!terminalLogs.length && !terminalsLoading")
-                    TableCell.text-muted-foreground(:colspan="4")
-                      | No terminal events yet.
+                RouterLink.text-xs(
+                  v-if="row.log.taskId"
+                  class="hover:underline"
+                  :to="{ name: 'task', params: { id: row.log.taskId } }"
+                ) {{ row.log.taskId }}
+                span.text-muted-foreground.truncate.font-mono.text-xs(
+                  v-if="row.log.sessionId"
+                  :title="row.log.sessionId"
+                ) session {{ row.log.sessionId.slice(0, 8) }}
+                span.text-muted-foreground.font-mono.text-xs(
+                  v-for="attr in attrs(row.log)"
+                  :key="attr.key"
+                  :title="attr.value"
+                ) {{ attr.key }}={{ attr.value }}
+          .flex.items-start.gap-3.px-4.py-2(v-else)
+            span.text-muted-foreground.shrink-0.font-mono.text-xs.whitespace-nowrap(
+              class="pt-0.5"
+            ) {{ formatTimestamp(row.log.at) }}
+            span.inline-flex.shrink-0.items-center.rounded-full.border.px-2.text-xs.font-medium(
+              class="py-0.5"
+              :class="eventClass(row.log.event)"
+            ) {{ row.log.event }}
+            .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
+              span.text-sm.break-words {{ row.log.reason || "—" }}
+              span.text-muted-foreground.truncate.font-mono.text-xs(
+                v-if="row.log.detail"
+                :title="row.log.detail"
+              ) {{ row.log.detail }}
+            .flex.shrink-0.items-center
+              Button(
+                v-if="row.log.event === 'interrupted'"
+                variant="outline"
+                size="sm"
+                @click="restore(row.log)"
+                :disabled="restoring === row.log.id"
+              )
+                RotateCcwIcon(data-icon="inline-start")
+                span Restore
 </template>
 
 <script setup lang="ts">
-import AgentHeader from "@/components/AgentHeader.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -152,29 +156,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { setPageTitle } from "@/composables/usePageTitle";
+import { Switch } from "@/components/ui/switch";
 import { useRealtime } from "@/composables/useRealtime";
+import {
+  DEFAULT_HIDDEN_LOG_PATTERNS,
+  isHiddenAgentLog,
+  mergeLogRows,
+  type MergedLogRow,
+} from "@/lib/agentLogs";
 import { formatTimestamp } from "@/lib/format";
 import { agent } from "@/lib/sdk";
 import { AgentLogLevel, type AgentLog, type TerminalLog } from "@cherrypi/sdk";
-import { RefreshCwIcon, RotateCcwIcon } from "@lucide/vue";
-import { onMounted, ref, watch, watchEffect } from "vue";
+import {
+  RefreshCwIcon,
+  RotateCcwIcon,
+  SearchIcon,
+  SlidersHorizontalIcon,
+} from "@lucide/vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { toast } from "vue3-toastify";
 
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), {
-  embedded: false,
-});
+const HIDDEN_PATTERNS_KEY = "cherrypi.agent-logs.hidden-patterns";
+const HIDE_LIFECYCLE_KEY = "cherrypi.agent-logs.hide-lifecycle";
 
-const tab = ref<"agent" | "terminals">("agent");
+function storedString(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
 
 const logs = ref<AgentLog[]>([]);
 const logsLoading = ref(true);
@@ -186,9 +203,12 @@ const terminalsLoading = ref(true);
 const terminalsError = ref("");
 const restoring = ref<bigint | null>(null);
 
-watchEffect(() => {
-  if (!props.embedded) setPageTitle("Logs");
-});
+const search = ref("");
+const filtersOpen = ref(false);
+const hiddenText = ref(
+  storedString(HIDDEN_PATTERNS_KEY) ?? DEFAULT_HIDDEN_LOG_PATTERNS.join(", "),
+);
+const hideLifecycle = ref(storedString(HIDE_LIFECYCLE_KEY) !== "0");
 
 const levelOptions = [
   { value: "all", label: "All levels" },
@@ -209,6 +229,36 @@ function minLevel(): AgentLogLevel {
       return AgentLogLevel.UNSPECIFIED;
   }
 }
+
+const hiddenPatterns = computed(() =>
+  hiddenText.value
+    .split(",")
+    .map((pattern) => pattern.trim())
+    .filter(Boolean),
+);
+
+const rows = computed(() =>
+  mergeLogRows(logs.value, terminalLogs.value, {
+    search: search.value,
+    hiddenPatterns: hideLifecycle.value ? hiddenPatterns.value : [],
+  }),
+);
+
+const hiddenCount = computed(() =>
+  hideLifecycle.value
+    ? logs.value.filter((log) => isHiddenAgentLog(log, hiddenPatterns.value))
+        .length
+    : 0,
+);
+
+const hasFilters = computed(
+  () =>
+    search.value.trim() !== "" ||
+    (hideLifecycle.value && hiddenPatterns.value.length > 0),
+);
+
+watch(hiddenText, (value) => store(HIDDEN_PATTERNS_KEY, value));
+watch(hideLifecycle, (value) => store(HIDE_LIFECYCLE_KEY, value ? "1" : "0"));
 
 const LEVEL_LABELS: Record<number, string> = {
   [AgentLogLevel.DEBUG]: "debug",
@@ -281,6 +331,10 @@ function eventClass(event: string): string {
     default:
       return "border-border bg-muted text-muted-foreground";
   }
+}
+
+function rowKey(row: MergedLogRow): string {
+  return `${row.kind}-${row.log.id}`;
 }
 
 async function restore(log: TerminalLog) {

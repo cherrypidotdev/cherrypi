@@ -27,61 +27,34 @@ func bootstrapAccounts(
 	ctx context.Context,
 	svc *accounts.Service,
 	cfg Config,
-	startup []accounts.StartupCredential,
 ) error {
 	count, err := svc.CountUsers(ctx)
 	if err != nil {
 		return err
 	}
 
-	if count == 0 {
-		switch {
-		case len(startup) > 0:
-			first := startup[0]
-			actor, err := svc.CreateUser(
-				ctx,
-				first.Username,
-				first.Password,
-				accounts.RoleAdmin,
-				accounts.StatusActive,
-			)
-			if err != nil {
-				return err
-			}
-			log.Printf(
-				"Created first administrator %q from CHERRYPI_AGENCY_CREDENTIALS",
-				actor.Username,
-			)
-			startup = startup[1:]
-		default:
-			actor, generated, created, err := svc.EnsureFirstAdmin(
-				ctx,
-				cfg.AdminUsername,
-				cfg.AdminPassword,
-			)
-			if err != nil {
-				return err
-			}
-			if created {
-				if generated != "" {
-					log.Printf(
-						"Created administrator %q with generated password: %s",
-						actor.Username,
-						generated,
-					)
-				} else {
-					log.Printf("Created administrator %q", actor.Username)
-				}
-			}
-		}
+	if count > 0 {
+		return nil
 	}
 
-	for _, c := range startup {
-		actor, err := svc.EnsureStartupUser(ctx, c.Username, c.Password, accounts.RoleAdmin)
-		if err != nil {
-			return err
+	actor, generated, created, err := svc.EnsureFirstAdmin(
+		ctx,
+		cfg.AdminUsername,
+		cfg.AdminPassword,
+	)
+	if err != nil {
+		return err
+	}
+	if created {
+		if generated != "" {
+			log.Printf(
+				"Created administrator %q with generated password: %s",
+				actor.Username,
+				generated,
+			)
+		} else {
+			log.Printf("Created administrator %q", actor.Username)
 		}
-		log.Printf("Seeded administrator %s from CHERRYPI_AGENCY_CREDENTIALS", actor.Username)
 	}
 	return nil
 }

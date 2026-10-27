@@ -927,53 +927,6 @@ func (s *SqliteStore) TouchAgentSeen(ctx context.Context, id ids.AgentID, at int
 	}))
 }
 
-func (s *SqliteStore) CreateAgentCredential(
-	ctx context.Context,
-	p CreateAgentCredentialParams,
-) (AgentCredential, error) {
-	row, err := s.q.CreateAgentCredential(ctx, sqlitedb.CreateAgentCredentialParams(p))
-	if err != nil {
-		return AgentCredential{}, err
-	}
-	return fromSqliteAgentCredential(row), nil
-}
-
-func (s *SqliteStore) ListAgentCredentials(
-	ctx context.Context,
-	agentID ids.AgentID,
-) ([]AgentCredential, error) {
-	rows, err := s.q.ListAgentCredentials(ctx, int64(agentID))
-	if err != nil {
-		return nil, err
-	}
-	return fromSqliteAgentCredentialSlice(rows), nil
-}
-
-func (s *SqliteStore) GetAgentCredential(
-	ctx context.Context,
-	username string,
-) (AgentCredential, error) {
-	row, err := s.q.GetAgentCredential(ctx, username)
-	if err != nil {
-		return AgentCredential{}, err
-	}
-	return fromSqliteAgentCredential(row), nil
-}
-
-func (s *SqliteStore) RevokeAgentCredential(
-	ctx context.Context,
-	p RevokeAgentCredentialParams,
-) (int64, error) {
-	return s.q.RevokeAgentCredential(ctx, sqlitedb.RevokeAgentCredentialParams(p))
-}
-
-func (s *SqliteStore) TouchAgentCredentialUsed(
-	ctx context.Context,
-	p TouchAgentCredentialUsedParams,
-) error {
-	return s.q.TouchAgentCredentialUsed(ctx, sqlitedb.TouchAgentCredentialUsedParams(p))
-}
-
 func (s *SqliteStore) ListSettings(ctx context.Context) ([]Setting, error) {
 	rows, err := s.q.ListSettings(ctx)
 	if err != nil {
@@ -1248,10 +1201,6 @@ func (s *SqliteStore) ListTaskSessionEntries(
 
 func (s *SqliteStore) CountTaskSessionEntries(ctx context.Context, taskID string) (int64, error) {
 	return s.q.CountTaskSessionEntries(ctx, taskID)
-}
-
-func (s *SqliteStore) ListTaskHistoryTaskIDs(ctx context.Context) ([]string, error) {
-	return s.q.ListTaskHistoryTaskIDs(ctx)
 }
 
 func (s *SqliteStore) TaskSessionEntryTip(
@@ -1817,10 +1766,14 @@ func (s *SqliteStore) ListAgentUsage(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
 ) ([]ListAgentUsageRow, error) {
 	rows, err := s.q.ListAgentUsage(ctx, sqlitedb.ListAgentUsageParams(ListAgentUsageParams{
 		AgentID:   agentID,
 		ProjectID: projectID,
+		SinceMs:   sinceMs,
+		UntilMs:   untilMs,
 	}))
 	if err != nil {
 		return nil, err
@@ -1840,25 +1793,22 @@ func (s *SqliteStore) ListAgentUsageByDay(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
 ) ([]ListAgentUsageByDayRow, error) {
 	rows, err := s.q.ListAgentUsageByDay(
 		ctx,
 		sqlitedb.ListAgentUsageByDayParams(ListAgentUsageByDayParams{
 			AgentID:   agentID,
 			ProjectID: projectID,
+			SinceMs:   sinceMs,
+			UntilMs:   untilMs,
 		}),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return fromSqliteListAgentUsageByDayRowSlice(rows), nil
-}
-
-func (s *SqliteStore) UpdateAgentCredentialPassword(
-	ctx context.Context,
-	p UpdateAgentCredentialPasswordParams,
-) error {
-	return s.q.UpdateAgentCredentialPassword(ctx, sqlitedb.UpdateAgentCredentialPasswordParams(p))
 }
 
 func (s *SqliteStore) CreateAttachment(

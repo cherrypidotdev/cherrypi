@@ -189,14 +189,41 @@ func (h *Handler) agentLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	logs := make([]agentLogJSON, len(rows))
-	for i, row := range rows {
-		logs[i] = toAgentLogJSON(row)
+
+	exclude := excludePatterns(r.URL.Query()["exclude"])
+	logs := make([]agentLogJSON, 0, len(rows))
+	for _, row := range rows {
+		if matchesExcluded(row.Message, exclude) {
+			continue
+		}
+		logs = append(logs, toAgentLogJSON(row))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent": toAgentMetaJSON(agent),
 		"logs":  logs,
 	})
+}
+
+func excludePatterns(values []string) []string {
+	var patterns []string
+	for _, value := range values {
+		for _, pattern := range strings.Split(value, ",") {
+			if pattern = strings.TrimSpace(pattern); pattern != "" {
+				patterns = append(patterns, pattern)
+			}
+		}
+	}
+	return patterns
+}
+
+func matchesExcluded(message string, patterns []string) bool {
+	lower := strings.ToLower(message)
+	for _, pattern := range patterns {
+		if strings.Contains(lower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }
 
 type agentLogJSON struct {

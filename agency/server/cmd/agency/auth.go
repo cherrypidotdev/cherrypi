@@ -43,11 +43,9 @@ const (
 type accountAuthenticator interface {
 	ResolveSession(ctx context.Context, token string) (accounts.Identity, accounts.Session, error)
 	ResolvePAT(ctx context.Context, token string) (accounts.Identity, accounts.PAT, error)
-	AuthenticateBasic(ctx context.Context, username, password string) (accounts.Identity, bool)
 }
 
 type agentAuthenticator interface {
-	Authenticate(ctx context.Context, username, password string) (ids.AgentID, bool)
 	GetByActor(ctx context.Context, actorID ids.ActorID) (agents.Agent, error)
 }
 
@@ -106,11 +104,6 @@ func resolveIdentity(a accountAuthenticator, r *http.Request) (accounts.Identity
 			return identity, false, true
 		}
 	}
-	if username, password, ok := r.BasicAuth(); ok {
-		if identity, ok := a.AuthenticateBasic(r.Context(), username, password); ok {
-			return identity, false, true
-		}
-	}
 	return accounts.Identity{}, false, false
 }
 
@@ -138,29 +131,21 @@ func resolveAgentRequest(
 	agents agentAuthenticator,
 	r *http.Request,
 ) (ids.AgentID, accounts.Identity, bool) {
-	if token, ok := bearerToken(r); ok {
-		identity, _, err := users.ResolvePAT(ctx, token)
-		if err != nil || identity.Kind != accounts.KindAgent {
-			return 0, accounts.Identity{}, false
-		}
-		agent, err := agents.GetByActor(ctx, identity.ActorID)
-		if err != nil {
-			return 0, accounts.Identity{}, false
-		}
-
-		identity.Role = agent.Role
-		return agent.ID, identity, true
-	}
-
-	username, password, ok := r.BasicAuth()
+	token, ok := bearerToken(r)
 	if !ok {
 		return 0, accounts.Identity{}, false
 	}
-	agentID, ok := agents.Authenticate(ctx, username, password)
-	if !ok {
+	identity, _, err := users.ResolvePAT(ctx, token)
+	if err != nil || identity.Kind != accounts.KindAgent {
 		return 0, accounts.Identity{}, false
 	}
-	return agentID, accounts.Identity{}, true
+	agent, err := agents.GetByActor(ctx, identity.ActorID)
+	if err != nil {
+		return 0, accounts.Identity{}, false
+	}
+
+	identity.Role = agent.Role
+	return agent.ID, identity, true
 }
 
 func withAgentContext(

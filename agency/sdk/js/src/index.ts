@@ -15,8 +15,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 export {
-  basicAuthHeader,
-  basicAuthInterceptor,
   bearerAuthInterceptor,
   csrfInterceptor,
   readCookie,
@@ -40,7 +38,6 @@ export {
   type GetDesktopResult,
   type ListTagsFilter,
   type ListTasksFilter,
-  type MigrateTaskHistoryResult,
   type ProjectLimitInput,
   type ProjectTagLimitInput,
   type QuestionnaireAnswerInput,
@@ -71,10 +68,10 @@ export {
   type AgencySettings,
   type AgencySettingsInput,
   type AgencyUsageResponse,
+  type GetUsageOptions,
   type AgencyWebhook,
   type AgentTaskUsage,
   type Agent,
-  type AgentCredential,
   type AgentLog,
   AgentLogLevel,
   type CreateAgentInput,
@@ -106,6 +103,7 @@ export {
 export type {
   AgentDefaults,
   AgentTaskLimits,
+  AgentToken,
   ProjectLimit,
   ProjectTagLimit,
   TagLimit,

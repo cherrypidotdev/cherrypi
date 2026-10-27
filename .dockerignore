@@ -28,6 +28,10 @@ agency/server/internal/gen
 agency/sdk/js/src/gen
 
 agency/server/cmd/agency/frontenddist
+agency/server/cmd/agency/docsdist
+docs-site/node_modules
+docs-site/.vitepress/dist
+docs-site/.vitepress/cache
 
 cherrypi_home
 agent/.env

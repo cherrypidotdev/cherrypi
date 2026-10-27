@@ -367,14 +367,20 @@ export function mergeTool(existing: ToolItem, incoming: ToolInput) {
   }
 }
 
-export function itemElapsed(item: ActivityItem): number | undefined {
-  if (item.startedAt === undefined || item.endedAt === undefined) {
-    return undefined;
-  }
-  return item.endedAt - item.startedAt;
+export function itemElapsed(
+  item: ActivityItem,
+  now?: number,
+): number | undefined {
+  if (item.startedAt === undefined) return undefined;
+  const end = item.endedAt ?? now;
+  if (end === undefined) return undefined;
+  return end - item.startedAt;
 }
 
-export function groupElapsed(items: ActivityItem[]): number | undefined {
+export function groupElapsed(
+  items: ActivityItem[],
+  now?: number,
+): number | undefined {
   let start: number | undefined;
   let end: number | undefined;
   for (const item of items) {
@@ -384,11 +390,13 @@ export function groupElapsed(items: ActivityItem[]): number | undefined {
     ) {
       start = item.startedAt;
     }
-    if (
-      item.endedAt !== undefined &&
-      (end === undefined || item.endedAt > end)
-    ) {
-      end = item.endedAt;
+    const itemEnd =
+      item.endedAt ??
+      (item.kind === "tool" && item.phase !== ToolPhase.FINISHED
+        ? now
+        : undefined);
+    if (itemEnd !== undefined && (end === undefined || itemEnd > end)) {
+      end = itemEnd;
     }
   }
   if (start === undefined || end === undefined) return undefined;

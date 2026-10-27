@@ -84,12 +84,6 @@ export interface GetTaskHistoryResult {
   nextBefore: string;
 }
 
-export interface MigrateTaskHistoryResult {
-  task: Task;
-
-  entries: number;
-}
-
 export interface GetDesktopResult {
   available: boolean;
 
@@ -321,26 +315,6 @@ export interface AttentionNotification {
 export type AttentionEvent =
   | { type: "hello"; unread: number }
   | { type: "notification"; notification: AttentionNotification };
-
-export function basicAuthHeader(username: string, password: string): string {
-  const bytes = new TextEncoder().encode(`${username}:${password}`);
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return `Basic ${btoa(binary)}`;
-}
-
-export function basicAuthInterceptor(
-  username: string,
-  password: string,
-): Interceptor {
-  const header = basicAuthHeader(username, password);
-  return (next) => async (req) => {
-    req.header.set("Authorization", header);
-    return await next(req);
-  };
-}
 
 export function bearerAuthInterceptor(token: string): Interceptor {
   const header = `Bearer ${token}`;

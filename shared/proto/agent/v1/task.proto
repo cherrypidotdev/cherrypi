@@ -46,11 +46,6 @@ service TaskService {
   
   
   
-  
-  rpc SyncTaskHistory(SyncTaskHistoryRequest) returns (SyncTaskHistoryResponse);
-  
-  
-  
   rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
   
   
@@ -314,21 +309,6 @@ message GetTaskHistoryResponse {
   
   
   string next_before = 2;
-}
-
-message SyncTaskHistoryRequest {
-  string id = 1;
-
-  
-  
-  
-  TaskRef ref = 2;
-}
-
-message SyncTaskHistoryResponse {
-  
-  
-  uint32 entries = 1;
 }
 
 message TaskModel {

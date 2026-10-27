@@ -52,7 +52,7 @@ type Entry struct {
 func (s *Service) WSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			// Behind basic auth; accept any origin so the Vite dev server (a
+			// Behind the auth middleware; accept any origin so the Vite dev server (a
 
 			OriginPatterns: []string{"*"},
 		})

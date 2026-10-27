@@ -20,5 +20,9 @@ cherrypi_home
 dist/
 agency_home/
 
+# Embedded docs: copied from the VitePress build, never committed.
+/agency/server/cmd/agency/docsdist/*
+!/agency/server/cmd/agency/docsdist/.gitkeep
+
 /agency/server/agency
 /agent/agent

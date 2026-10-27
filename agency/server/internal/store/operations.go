@@ -28,9 +28,6 @@ type RegisterAgentParams struct {
 	Description  string
 	OwnerActorID ids.ActorID
 
-	CredentialUsername     string
-	CredentialPasswordHash string
-
 	CreatedAt int64
 	UpdatedAt int64
 }

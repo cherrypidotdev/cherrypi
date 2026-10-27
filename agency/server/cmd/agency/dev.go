@@ -29,3 +29,9 @@ const devBuild = true
 func frontendFS() (fs.FS, error) {
 	return nil, fs.ErrNotExist
 }
+
+// docsFS returns nothing in dev — the docs are served by VitePress through
+
+func docsFS() (fs.FS, error) {
+	return nil, fs.ErrNotExist
+}

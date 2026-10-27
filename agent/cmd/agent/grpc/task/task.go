@@ -215,17 +215,6 @@ func (s *TaskServer) GetTaskHistory(
 	return &agentv1.GetTaskHistoryResponse{Events: out, NextBefore: nextBefore}, nil
 }
 
-func (s *TaskServer) SyncTaskHistory(
-	ctx context.Context,
-	req *agentv1.SyncTaskHistoryRequest,
-) (*agentv1.SyncTaskHistoryResponse, error) {
-	entries, err := s.Tasks.SyncHistory(ctx, req.Id, req.Ref.GetProjectId(), req.Ref.GetSeq())
-	if err != nil {
-		return nil, connectError(err)
-	}
-	return &agentv1.SyncTaskHistoryResponse{Entries: uint32(entries)}, nil
-}
-
 func (s *TaskServer) GetTaskConfig(
 	ctx context.Context,
 	req *agentv1.GetTaskConfigRequest,

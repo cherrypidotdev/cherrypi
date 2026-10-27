@@ -24,6 +24,8 @@ import { toast } from "vue3-toastify";
 export interface SketchTarget {
   image?: Attachment;
   scene?: Attachment;
+
+  stagedId?: string;
 }
 
 export interface SketchSavePayload {
@@ -45,7 +47,7 @@ export function useSketchEditor(options: {
   const target = ref<SketchTarget>({});
 
   const title = computed(() => {
-    if (target.value.scene) return "Edit sketch";
+    if (target.value.stagedId || target.value.scene) return "Edit sketch";
     if (target.value.image) return "Annotate image";
     return "New sketch";
   });
@@ -53,6 +55,14 @@ export function useSketchEditor(options: {
   function openNew() {
     target.value = {};
     snapshot.value = undefined;
+    background.value = undefined;
+    mounted.value = true;
+    open.value = true;
+  }
+
+  function openStaged(staged: { id: string; snapshot: { document: unknown } }) {
+    target.value = { stagedId: staged.id };
+    snapshot.value = staged.snapshot;
     background.value = undefined;
     mounted.value = true;
     open.value = true;
@@ -105,6 +115,7 @@ export function useSketchEditor(options: {
     target,
     title,
     openNew,
+    openStaged,
     openImage,
     onSave,
   };

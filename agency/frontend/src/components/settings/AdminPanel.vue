@@ -254,7 +254,9 @@ Tabs(v-model="tab")
       Card
         CardHeader
           CardTitle Register an agent
-          CardDescription A tunnel credential is generated and shown once.
+          CardDescription
+            | A personal access token and a legacy tunnel credential are shown
+            | once.
         CardContent
           form.flex.flex-wrap.items-end.gap-2(@submit.prevent="createAgent")
             Field.w-56
@@ -274,10 +276,12 @@ Tabs(v-model="tab")
               Spinner(v-if="creatingAgent" data-icon="inline-start")
               PlusIcon(v-else data-icon="inline-start")
               span Register
-          Alert.mt-4(v-if="agentCredential")
-            AlertTitle Credential generated
-            AlertDescription Copy the password now — it is shown only once.
-            code.bg-muted.mt-2.block.rounded-md.px-2.py-1.font-mono.text-sm.break-all {{ agentCredential }}
+          Alert.mt-4(v-if="agentToken")
+            AlertTitle Personal access token generated
+            AlertDescription
+              | Copy the token now — it is shown only once. Set it as
+              | CHERRYPI_AGENT_TOKEN on the agent.
+            code.bg-muted.mt-2.block.rounded-md.px-2.py-1.font-mono.text-sm.break-all {{ agentToken }}
       Card
         CardHeader
           CardTitle Agents
@@ -421,7 +425,7 @@ const {
 const agentUsername = ref("");
 const agentDisplayName = ref("");
 const creatingAgent = ref(false);
-const agentCredential = ref("");
+const agentToken = ref("");
 
 async function loadUsers() {
   usersLoading.value = true;
@@ -566,7 +570,7 @@ async function createAgent() {
         displayName: agentDisplayName.value.trim(),
       }),
     );
-    agentCredential.value = `${result.credentialUsername}:${result.credentialPassword}`;
+    agentToken.value = result.token;
     agentUsername.value = "";
     agentDisplayName.value = "";
     await refreshAgents();

@@ -914,53 +914,6 @@ func (s *PgStore) TouchAgentSeen(ctx context.Context, id ids.AgentID, at int64) 
 	}))
 }
 
-func (s *PgStore) CreateAgentCredential(
-	ctx context.Context,
-	p CreateAgentCredentialParams,
-) (AgentCredential, error) {
-	row, err := s.q.CreateAgentCredential(ctx, pgdb.CreateAgentCredentialParams(p))
-	if err != nil {
-		return AgentCredential{}, err
-	}
-	return fromPgAgentCredential(row), nil
-}
-
-func (s *PgStore) ListAgentCredentials(
-	ctx context.Context,
-	agentID ids.AgentID,
-) ([]AgentCredential, error) {
-	rows, err := s.q.ListAgentCredentials(ctx, int64(agentID))
-	if err != nil {
-		return nil, err
-	}
-	return fromPgAgentCredentialSlice(rows), nil
-}
-
-func (s *PgStore) GetAgentCredential(
-	ctx context.Context,
-	username string,
-) (AgentCredential, error) {
-	row, err := s.q.GetAgentCredential(ctx, username)
-	if err != nil {
-		return AgentCredential{}, err
-	}
-	return fromPgAgentCredential(row), nil
-}
-
-func (s *PgStore) RevokeAgentCredential(
-	ctx context.Context,
-	p RevokeAgentCredentialParams,
-) (int64, error) {
-	return s.q.RevokeAgentCredential(ctx, pgdb.RevokeAgentCredentialParams(p))
-}
-
-func (s *PgStore) TouchAgentCredentialUsed(
-	ctx context.Context,
-	p TouchAgentCredentialUsedParams,
-) error {
-	return s.q.TouchAgentCredentialUsed(ctx, pgdb.TouchAgentCredentialUsedParams(p))
-}
-
 func (s *PgStore) ListSettings(ctx context.Context) ([]Setting, error) {
 	rows, err := s.q.ListSettings(ctx)
 	if err != nil {
@@ -1235,10 +1188,6 @@ func (s *PgStore) ListTaskSessionEntries(
 
 func (s *PgStore) CountTaskSessionEntries(ctx context.Context, taskID string) (int64, error) {
 	return s.q.CountTaskSessionEntries(ctx, taskID)
-}
-
-func (s *PgStore) ListTaskHistoryTaskIDs(ctx context.Context) ([]string, error) {
-	return s.q.ListTaskHistoryTaskIDs(ctx)
 }
 
 func (s *PgStore) TaskSessionEntryTip(
@@ -1798,10 +1747,14 @@ func (s *PgStore) ListAgentUsage(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
 ) ([]ListAgentUsageRow, error) {
 	rows, err := s.q.ListAgentUsage(ctx, pgdb.ListAgentUsageParams(ListAgentUsageParams{
 		AgentID:   agentID,
 		ProjectID: projectID,
+		SinceMs:   sinceMs,
+		UntilMs:   untilMs,
 	}))
 	if err != nil {
 		return nil, err
@@ -1821,25 +1774,22 @@ func (s *PgStore) ListAgentUsageByDay(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
 ) ([]ListAgentUsageByDayRow, error) {
 	rows, err := s.q.ListAgentUsageByDay(
 		ctx,
 		pgdb.ListAgentUsageByDayParams(ListAgentUsageByDayParams{
 			AgentID:   agentID,
 			ProjectID: projectID,
+			SinceMs:   sinceMs,
+			UntilMs:   untilMs,
 		}),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return fromPgListAgentUsageByDayRowSlice(rows), nil
-}
-
-func (s *PgStore) UpdateAgentCredentialPassword(
-	ctx context.Context,
-	p UpdateAgentCredentialPasswordParams,
-) error {
-	return s.q.UpdateAgentCredentialPassword(ctx, pgdb.UpdateAgentCredentialPasswordParams(p))
 }
 
 func (s *PgStore) CreateAttachment(

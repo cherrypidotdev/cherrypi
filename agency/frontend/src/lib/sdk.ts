@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { UsageQuery } from "@/lib/usage";
 import {
   AgencyClient,
   AgentLogLevel,
@@ -37,7 +38,6 @@ import {
   type GetTaskHistoryResult,
   type ListTagsFilter,
   type ListTasksFilter,
-  type MigrateTaskHistoryResult,
   type QuestionnaireAnswerInput,
   type ReopenTaskOptions,
   type SetTaskLeadsInput,
@@ -62,7 +62,6 @@ import { ref } from "vue";
 
 export const agency = new AgencyClient({
   baseUrl: window.location.origin,
-  basicAuth: false,
 });
 
 export const currentAgentId = ref("");
@@ -155,10 +154,6 @@ export const agent = {
     id: string,
     o?: GetTaskHistoryOptions,
   ): Promise<GetTaskHistoryResult> => agency.getTaskHistory(id, o),
-  migrateTaskHistory: (
-    id: string,
-    o?: CallOptions,
-  ): Promise<MigrateTaskHistoryResult> => agency.migrateTaskHistory(id, o),
   getTaskConfig: (id: string, o?: CallOptions): Promise<TaskConfig> =>
     agency.getTaskConfig(id, o),
   getTaskDefaults: (agentId: string, o?: CallOptions): Promise<TaskConfig> =>
@@ -182,8 +177,19 @@ export const agent = {
   ): Promise<void> =>
     agency.respondToExtensionUi(id, requestId, response, questionnaire, o),
 
-  getUsage: (projectId = "", o?: CallOptions): Promise<AgencyUsageResponse> =>
-    agency.getUsage(currentAgentId.value, projectId, o),
+  getUsage: (
+    query: UsageQuery = {},
+    o?: CallOptions,
+  ): Promise<AgencyUsageResponse> =>
+    agency.getUsage(
+      query.agentId ?? currentAgentId.value,
+      query.projectId ?? "",
+      {
+        ...o,
+        sinceMs: query.sinceMs,
+        untilMs: query.untilMs,
+      },
+    ),
   getTaskUsage: (sessionId: string, o?: CallOptions): Promise<TaskUsage> =>
     agency.getTaskUsage(sessionId, o),
   getTaskDiskUsage: (sessionId: string, o?: CallOptions): Promise<bigint> =>

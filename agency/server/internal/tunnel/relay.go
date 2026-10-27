@@ -92,7 +92,7 @@ func (h *Hub) relayWS(
 	defer func() { _ = upstream.CloseNow() }()
 
 	client, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The handler is behind basic auth; accept any origin so the Vite
+		// The handler is behind the auth middleware; accept any origin so the Vite
 
 		OriginPatterns: []string{"*"},
 

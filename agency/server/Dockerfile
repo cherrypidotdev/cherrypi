@@ -68,6 +68,17 @@ COPY agency/frontend/scripts ./scripts
 RUN npm run build
 
 
+# The public VitePress site (English + Russian) is embedded at /docs. Building it
+FROM node:22 AS docs
+
+WORKDIR /src/docs-site
+COPY docs-site/package.json docs-site/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci
+COPY docs-site ./
+RUN npm run build
+
+
 FROM golang:1.26 AS backend
 
 
@@ -97,6 +108,7 @@ COPY agency/server/cmd ./cmd
 
 
 COPY --from=frontend /src/agency/frontend/dist ./cmd/agency/frontenddist/
+COPY --from=docs /src/docs-site/.vitepress/dist ./cmd/agency/docsdist/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
   --mount=type=cache,target=/root/.cache/go-build \

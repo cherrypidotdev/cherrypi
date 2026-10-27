@@ -43,11 +43,6 @@ ORDER BY seq;
 -- name: CountTaskSessionEntries :one
 SELECT COUNT(*) FROM task_session_entries WHERE task_id = ?;
 
--- name: ListTaskHistoryTaskIDs :many
-
-
-SELECT DISTINCT task_id FROM task_session_entries;
-
 -- name: TaskSessionEntryTip :one
 
 SELECT

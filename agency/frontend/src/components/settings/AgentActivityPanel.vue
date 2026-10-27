@@ -22,7 +22,7 @@ Card
     CardTitle Activity
     CardDescription
       | This agent's mutations: its creation, renames, credentials, tokens and
-      | ownership. Operational agent records live on the Logs page.
+      | ownership. Operational agent records live on the agent's Logs tab.
   CardContent
     p.text-destructive.text-sm(v-if="error") {{ error }}
     DomainLogList(:logs="logs")

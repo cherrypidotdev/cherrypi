@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-build: build_frontend copy_frontend build_backend build_agency
+build: build_frontend build_docs copy_frontend copy_docs build_backend build_agency
 
 
 
@@ -51,6 +51,19 @@ version:
 build_frontend:
 	cd agency/frontend && make
 
+build_docs:
+	cd docs-site && npm ci
+	cd docs-site && npm run build
+
+install_docs:
+	cd docs-site && npm install
+
+docs: install_docs
+	cd docs-site && npm run build
+
+docs_dev:
+	cd docs-site && npm run dev
+
 build_backend:
 	cd agent && make
 
@@ -69,12 +82,18 @@ codegen:
 	  (cd agency/server && go run ./internal/store/gen)
 
 
+
 copy_frontend:
 	rm -rf agency/server/cmd/agency/frontenddist/*
 	touch agency/server/cmd/agency/frontenddist/.gitkeep
 	cp -r agency/frontend/dist/* agency/server/cmd/agency/frontenddist/
 
-test: test_backend test_agency test_frontend test_sdk
+copy_docs:
+	rm -rf agency/server/cmd/agency/docsdist/*
+	touch agency/server/cmd/agency/docsdist/.gitkeep
+	cp -r docs-site/.vitepress/dist/* agency/server/cmd/agency/docsdist/
+
+test: test_backend test_agency test_frontend test_sdk test_docs
 
 test_backend:
 	cd agent && make test
@@ -87,6 +106,10 @@ test_frontend:
 
 test_sdk:
 	cd agency/sdk/js && make test
+
+test_docs:
+	cd docs-site && npm ci
+	cd docs-site && npm run build
 
 format_root:
 	npx prettier --write "*"
@@ -103,6 +126,9 @@ format_agency:
 format_sdk:
 	cd agency/sdk/js && npx prettier --write .
 
+format_docs:
+	npx prettier --write docs-site
+
 format_shared:
 	cd shared && go fmt ./...
 
@@ -117,11 +143,11 @@ format_golines:
 	  echo "golangci-lint not found; skipping golines (see TESTING.md#linting)"; \
 	fi
 
-format: format_root format_frontend format_backend format_agency format_sdk format_shared format_golines
+format: format_root format_frontend format_docs format_backend format_agency format_sdk format_shared format_golines
 
 
 
-format_check: format_check_root format_check_frontend format_check_backend format_check_agency format_check_sdk format_check_shared
+format_check: format_check_root format_check_frontend format_check_docs format_check_backend format_check_agency format_check_sdk format_check_shared
 
 format_check_root:
 	npx prettier --check "*"
@@ -145,6 +171,9 @@ format_check_agency:
 
 format_check_sdk:
 	cd agency/sdk/js && npx prettier --check .
+
+format_check_docs:
+	npx prettier --check docs-site
 
 format_check_shared:
 	@unformatted="$$(cd shared && gofmt -l .)"; \
@@ -195,10 +224,11 @@ compose:
 DIST ?= dist
 TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-binaries: build_frontend copy_frontend binaries_build
+binaries: build_frontend build_docs copy_frontend copy_docs binaries_build
 
 
 
+# docs-site/.vitepress/dist between jobs).
 binaries_build:
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	@for target in $(TARGETS); do \

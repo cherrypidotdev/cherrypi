@@ -106,7 +106,11 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             multiple
             @change="onFileChange"
           )
-        StagedAttachmentList(:items="stagedItems" @remove="removeStaged")
+        StagedAttachmentList(
+          :items="stagedItems"
+          @remove="removeStaged"
+          @edit="editStagedSketch"
+        )
 
       .rounded-lg.border.p-2(class="bg-muted/30")
         .flex.flex-wrap.items-center.gap-2
@@ -364,7 +368,10 @@ import { useAgents } from "@/composables/useAgents";
 import { useDraft } from "@/composables/useDraft";
 import { useProjects } from "@/composables/useProjects";
 import { useSketchEditor } from "@/composables/useSketchEditor";
-import { useStagedAttachments } from "@/composables/useStagedAttachments";
+import {
+  useStagedAttachments,
+  type StagedAttachment,
+} from "@/composables/useStagedAttachments";
 import { useTags } from "@/composables/useTags";
 import { currentAccount } from "@/lib/account";
 import { composerDraftKey } from "@/lib/draft";
@@ -547,6 +554,7 @@ const {
   count: stagedCount,
   addFiles: addStagedFiles,
   addSketch: addStagedSketch,
+  updateSketch: updateStagedSketch,
   remove: removeStaged,
   clear: clearStaged,
 } = useStagedAttachments();
@@ -563,11 +571,22 @@ const {
   background: sketchBackground,
   title: sketchTitle,
   openNew: openNewSketch,
+  openStaged: openStagedSketch,
   onSave: onSketchSave,
 } = useSketchEditor({
   siblings: () => [],
-  persist: async ({ png, snapshot }) => addStagedSketch(png, snapshot),
+  persist: async ({ png, snapshot, target }) => {
+    if (target.stagedId) {
+      updateStagedSketch(target.stagedId, png, snapshot);
+    } else {
+      addStagedSketch(png, snapshot);
+    }
+  },
 });
+
+function editStagedSketch(item: StagedAttachment) {
+  if (item.kind === "sketch") openStagedSketch(item);
+}
 
 const dragging = ref(false);
 let dragDepth = 0;

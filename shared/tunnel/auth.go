@@ -18,35 +18,26 @@ package tunnel
 
 import (
 	"context"
-	"encoding/base64"
 
 	"connectrpc.com/connect"
 )
 
-type BasicAuthInterceptor struct {
+type AuthInterceptor struct {
 	Header string
 }
 
-func BasicAuthOption(username, password string) connect.ClientOption {
-	return connect.WithInterceptors(BasicAuthInterceptor{
-		Header: "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password)),
-	})
-}
-
 func BearerAuthOption(token string) connect.ClientOption {
-	return connect.WithInterceptors(BasicAuthInterceptor{
-		Header: "Bearer " + token,
-	})
+	return connect.WithInterceptors(AuthInterceptor{Header: "Bearer " + token})
 }
 
-func (i BasicAuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+func (i AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		req.Header().Set("Authorization", i.Header)
 		return next(ctx, req)
 	}
 }
 
-func (i BasicAuthInterceptor) WrapStreamingClient(
+func (i AuthInterceptor) WrapStreamingClient(
 	next connect.StreamingClientFunc,
 ) connect.StreamingClientFunc {
 	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
@@ -56,7 +47,7 @@ func (i BasicAuthInterceptor) WrapStreamingClient(
 	}
 }
 
-func (i BasicAuthInterceptor) WrapStreamingHandler(
+func (i AuthInterceptor) WrapStreamingHandler(
 	next connect.StreamingHandlerFunc,
 ) connect.StreamingHandlerFunc {
 	return next

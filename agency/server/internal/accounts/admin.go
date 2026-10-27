@@ -28,11 +28,6 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 )
 
-type StartupCredential struct {
-	Username string
-	Password string
-}
-
 func (s *Service) EnsureFirstAdmin(
 	ctx context.Context,
 	username, password string,
@@ -164,50 +159,6 @@ func randomPassword() string {
 
 func (s *Service) CountUsers(ctx context.Context) (int64, error) {
 	return s.store.CountUsers(ctx)
-}
-
-func (s *Service) EnsureStartupUser(
-	ctx context.Context,
-	username, password, role string,
-) (Actor, error) {
-	actor, created, err := s.EnsureUser(ctx, username, password, role)
-	if err != nil {
-		return Actor{}, err
-	}
-	if created {
-		return actor, nil
-	}
-	if err := s.SetPassword(ctx, actor.ID, password); err != nil {
-		return Actor{}, err
-	}
-	if role == RoleAdmin && actor.Role != RoleAdmin {
-		if err := s.SetRole(ctx, actor.ID, RoleAdmin); err != nil {
-			return Actor{}, err
-		}
-	}
-	return s.GetActor(ctx, actor.ID)
-}
-
-func (s *Service) AuthenticateBasic(
-	ctx context.Context,
-	username, password string,
-) (Identity, bool) {
-	user, err := s.GetUserByUsername(ctx, username)
-	if err != nil || user.Status == StatusDisabled {
-		return Identity{}, false
-	}
-	row, err := s.store.GetActorByID(ctx, user.ID)
-	if err != nil || !VerifyPassword(row.PasswordHash, password) {
-		return Identity{}, false
-	}
-	return Identity{
-		ActorID:  user.ID,
-		Kind:     user.Kind,
-		Username: user.Username,
-		Name:     user.Name,
-		Role:     user.Role,
-		Status:   user.Status,
-	}, true
 }
 
 func (s *Service) TouchLastLogin(ctx context.Context, actorID ids.ActorID) {

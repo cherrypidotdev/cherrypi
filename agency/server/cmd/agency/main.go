@@ -95,6 +95,12 @@ func main() {
 		serveEmbeddedFrontend(mux)
 	}
 
+	if devBuild && appCtx.Config.DocsProxyUrl != nil {
+		serveDocsProxy(mux, appCtx.Config.DocsProxyUrl)
+	} else {
+		serveEmbeddedDocs(mux)
+	}
+
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: connectcors.AllowedMethods(),
@@ -258,7 +264,6 @@ func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			Tasks:       appCtx.Tasks,
 			Projects:    appCtx.Projects,
 			Agents:      appCtx.Agents,
-			Accounts:    appCtx.Accounts,
 			Logs:        appCtx.AgentLogs,
 			ProcessLogs: appCtx.ProcessLogs,
 		},

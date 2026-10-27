@@ -18,11 +18,8 @@ package agents
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +28,6 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	sharedprotocol "cherrypi.vladfaust.com/shared/protocol"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -42,10 +38,6 @@ var (
 	ErrAgentExists = errors.New("agent username already exists")
 
 	ErrAgentMissing = errors.New("agent not found")
-
-	ErrCredentialExists = errors.New("credential already exists")
-
-	ErrCredentialMissing = errors.New("credential not found")
 
 	ErrInvalidRole = errors.New("agent role must be 'member' or 'admin'")
 )
@@ -93,12 +85,6 @@ type Agent struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastSeenAt      time.Time
-}
-
-type Credential struct {
-	Username   string
-	CreatedAt  time.Time
-	LastUsedAt time.Time
 }
 
 type presenceInfo struct {
@@ -158,7 +144,7 @@ func (r *Registry) GetByActor(ctx context.Context, actorID ids.ActorID) (Agent, 
 func (r *Registry) Create(
 	ctx context.Context,
 	username, displayName, description string,
-) (Agent, string, error) {
+) (Agent, error) {
 	return r.CreateOwned(ctx, username, displayName, description, 0)
 }
 
@@ -166,10 +152,10 @@ func (r *Registry) CreateOwned(
 	ctx context.Context,
 	username, displayName, description string,
 	ownerActorID ids.ActorID,
-) (Agent, string, error) {
+) (Agent, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || strings.ContainsAny(username, ":, \t\r\n") {
-		return Agent{}, "", ErrInvalidUsername
+		return Agent{}, ErrInvalidUsername
 	}
 	displayName = strings.TrimSpace(displayName)
 	if displayName == "" {
@@ -177,38 +163,27 @@ func (r *Registry) CreateOwned(
 	}
 
 	if _, err := r.store.GetAgentByUsername(ctx, username); err == nil {
-		return Agent{}, "", ErrAgentExists
+		return Agent{}, ErrAgentExists
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return Agent{}, "", err
-	}
-
-	password, err := generatePassword()
-	if err != nil {
-		return Agent{}, "", err
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return Agent{}, "", err
+		return Agent{}, err
 	}
 
 	now := time.Now()
 	row, err := r.store.RegisterAgent(ctx, store.RegisterAgentParams{
-		Username:               username,
-		DisplayName:            displayName,
-		Description:            strings.TrimSpace(description),
-		OwnerActorID:           ownerActorID,
-		CredentialUsername:     username,
-		CredentialPasswordHash: string(hash),
-		CreatedAt:              now.UnixMilli(),
-		UpdatedAt:              now.UnixMilli(),
+		Username:     username,
+		DisplayName:  displayName,
+		Description:  strings.TrimSpace(description),
+		OwnerActorID: ownerActorID,
+		CreatedAt:    now.UnixMilli(),
+		UpdatedAt:    now.UnixMilli(),
 	})
 	if err != nil {
-		return Agent{}, "", err
+		return Agent{}, err
 	}
 
 	r.logAgent(ctx, row.ActorID, audit.KindCreated, "username", "", username,
 		"Created agent "+username, nil)
-	return r.toAgent(row), password, nil
+	return r.toAgent(row), nil
 }
 
 func (r *Registry) SetRole(
@@ -283,189 +258,6 @@ func (r *Registry) Delete(ctx context.Context, id ids.AgentID) error {
 	}
 	r.SetOffline(id)
 	return nil
-}
-
-func (r *Registry) ListCredentials(ctx context.Context, agentID ids.AgentID) ([]Credential, error) {
-	rows, err := r.store.ListAgentCredentials(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Credential, len(rows))
-	for i, row := range rows {
-		out[i] = toCredential(row)
-	}
-	return out, nil
-}
-
-func (r *Registry) CreateCredential(
-	ctx context.Context,
-	agentID ids.AgentID, username string,
-) (Credential, string, error) {
-	agent, err := r.store.GetAgent(ctx, agentID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Credential{}, "", ErrAgentMissing
-	}
-	if err != nil {
-		return Credential{}, "", err
-	}
-
-	username = strings.TrimSpace(username)
-	if username == "" {
-
-		username, err = r.freeCredentialUsername(ctx, agent.Username)
-		if err != nil {
-			return Credential{}, "", err
-		}
-	}
-	if strings.ContainsAny(username, ":, \t\r\n") {
-		return Credential{}, "", ErrInvalidUsername
-	}
-	if _, err := r.store.GetAgentCredential(ctx, username); err == nil {
-		return Credential{}, "", ErrCredentialExists
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return Credential{}, "", err
-	}
-
-	password, err := generatePassword()
-	if err != nil {
-		return Credential{}, "", err
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return Credential{}, "", err
-	}
-
-	row, err := r.store.CreateAgentCredential(ctx, store.CreateAgentCredentialParams{
-		AgentID:      int64(agentID),
-		Username:     username,
-		PasswordHash: string(hash),
-		CreatedAt:    time.Now().UnixMilli(),
-	})
-	if err != nil {
-		return Credential{}, "", err
-	}
-	r.logAgent(ctx, agent.ActorID, audit.KindCredentialCreate, "username", "",
-		username, "Added tunnel credential "+username, nil)
-	return toCredential(row), password, nil
-}
-
-func (r *Registry) freeCredentialUsername(ctx context.Context, base string) (string, error) {
-	for i := 1; i <= 100; i++ {
-		candidate := base
-		if i > 1 {
-			candidate = fmt.Sprintf("%s-%d", base, i)
-		}
-		if _, err := r.store.GetAgentCredential(ctx, candidate); errors.Is(err, sql.ErrNoRows) {
-			return candidate, nil
-		} else if err != nil {
-			return "", err
-		}
-	}
-	return "", ErrCredentialExists
-}
-
-func (r *Registry) RevokeCredential(
-	ctx context.Context,
-	agentID ids.AgentID,
-	username string,
-) error {
-	n, err := r.store.RevokeAgentCredential(ctx, store.RevokeAgentCredentialParams{
-		AgentID:  int64(agentID),
-		Username: username,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrCredentialMissing
-	}
-	if agent, err := r.store.GetAgent(ctx, agentID); err == nil {
-		r.logAgent(ctx, agent.ActorID, audit.KindCredentialRevoke, "username",
-			username, "", "Revoked tunnel credential "+username, nil)
-	}
-	return nil
-}
-
-func (r *Registry) Authenticate(
-	ctx context.Context,
-	username, password string,
-) (ids.AgentID, bool) {
-	row, err := r.store.GetAgentCredential(ctx, username)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false
-	}
-	if err != nil {
-		return 0, false
-	}
-	if bcrypt.CompareHashAndPassword([]byte(row.PasswordHash), []byte(password)) != nil {
-		return 0, false
-	}
-
-	now := time.Now().UnixMilli()
-	_ = r.store.TouchAgentCredentialUsed(ctx, store.TouchAgentCredentialUsedParams{
-		LastUsedAt: sql.NullInt64{Int64: now, Valid: true},
-		Username:   username,
-	})
-	agentID := ids.AgentID(row.AgentID)
-	_ = r.store.TouchAgentSeen(ctx, agentID, now)
-
-	return agentID, true
-}
-
-func (r *Registry) EnsureCredential(ctx context.Context, username, password string) error {
-	username = strings.TrimSpace(username)
-	if username == "" || strings.ContainsAny(username, ":, \t\r\n") {
-		return ErrInvalidUsername
-	}
-	if password == "" {
-		return ErrInvalidUsername
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now().UnixMilli()
-
-	agent, err := r.store.GetAgentByUsername(ctx, username)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-
-		_, err = r.store.RegisterAgent(ctx, store.RegisterAgentParams{
-			Username:               username,
-			DisplayName:            username,
-			CredentialUsername:     username,
-			CredentialPasswordHash: string(hash),
-			CreatedAt:              now,
-			UpdatedAt:              now,
-		})
-		return err
-	case err != nil:
-		return err
-	}
-
-	cred, err := r.store.GetAgentCredential(ctx, username)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		_, err = r.store.CreateAgentCredential(ctx, store.CreateAgentCredentialParams{
-			AgentID:      int64(agent.ID),
-			Username:     username,
-			PasswordHash: string(hash),
-			CreatedAt:    now,
-		})
-		return err
-	case err != nil:
-		return err
-	}
-
-	if bcrypt.CompareHashAndPassword([]byte(cred.PasswordHash), []byte(password)) == nil {
-		return nil
-	}
-	return r.store.UpdateAgentCredentialPassword(ctx, store.UpdateAgentCredentialPasswordParams{
-		PasswordHash: string(hash),
-		Username:     username,
-	})
 }
 
 func (r *Registry) SetOnline(
@@ -544,23 +336,4 @@ func (r *Registry) toAgent(row store.AgentRow) Agent {
 		a.RemoteAddr = p.remoteAddr
 	}
 	return a
-}
-
-func toCredential(row store.AgentCredential) Credential {
-	c := Credential{
-		Username:  row.Username,
-		CreatedAt: time.UnixMilli(row.CreatedAt),
-	}
-	if row.LastUsedAt.Valid {
-		c.LastUsedAt = time.UnixMilli(row.LastUsedAt.Int64)
-	}
-	return c
-}
-
-func generatePassword() (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
 }

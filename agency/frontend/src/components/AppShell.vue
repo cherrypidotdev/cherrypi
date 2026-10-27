@@ -235,6 +235,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         RouterLink.flex.items-center.justify-center(:to="{ name: 'settings' }")
           SlidersHorizontalIcon
       Button(
+        as-child
+        variant="ghost"
+        size="icon-sm"
+        title="Documentation"
+        aria-label="Documentation"
+      )
+        a.flex.items-center.justify-center(
+          href="/docs/"
+          rel="noopener"
+          target="_blank"
+        )
+          BookOpenIcon
+      Button(
         variant="ghost"
         size="icon-sm"
         :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
@@ -275,6 +288,7 @@ import type { Team } from "@/lib/team";
 import { currentUser } from "@/lib/user";
 import { AgentStatus, type Agent } from "@cherrypi/sdk";
 import {
+  BookOpenIcon,
   BotIcon,
   FolderIcon,
   InboxIcon,

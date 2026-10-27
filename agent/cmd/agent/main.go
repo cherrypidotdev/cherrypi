@@ -45,10 +45,10 @@ func main() {
 		"",
 		"CherryPi Agency URL to tunnel to (overrides CHERRYPI_AGENCY_URL)",
 	)
-	agentAuth := flag.String(
-		"auth",
+	agentToken := flag.String(
+		"token",
 		"",
-		"agent tunnel credentials, user:password (overrides CHERRYPI_AGENT_AUTH)",
+		"Agent personal access token, pat_… (overrides CHERRYPI_AGENT_TOKEN)",
 	)
 	display := flag.String(
 		"display",
@@ -66,13 +66,9 @@ func main() {
 	if *agencyURL != "" {
 		config.AgencyURL = *agencyURL
 	}
-	if *agentAuth != "" {
-		user, pass, ok := strings.Cut(*agentAuth, ":")
-		if !ok || user == "" || pass == "" {
-			log.Fatalf("Invalid --auth: want user:password")
-		}
-		config.AgentUsername = user
-		config.AgentPassword = pass
+	if *agentToken != "" {
+		config.AgentToken = strings.TrimSpace(*agentToken)
+		config.AgentTokenFixed = true
 	}
 	if *display != "" {
 		config.Display = *display
@@ -96,7 +92,7 @@ func main() {
 
 	envToken := config.AgentToken
 	if err := appcontext.ResolveAgentToken(context.Background(), &config); err != nil {
-		log.Printf("Agent token unavailable, using tunnel credential: %v", err)
+		log.Fatalf("No agent token: %v", err)
 	}
 
 	appCtx := appcontext.NewAppContext(config, eventHub)
@@ -125,15 +121,13 @@ func main() {
 
 			return agentauth.LoadToken(envToken, appCtx.Config.AgentTokenFile)
 		},
-		Username: appCtx.Config.AgentUsername,
-		Password: appCtx.Config.AgentPassword,
-		Handler:  tunnelHandler,
+		Handler: tunnelHandler,
 
 		BuildVersion:    buildinfo.Version,
 		ProtocolVersion: sharedprotocol.Version,
 	})
 	go client.Run(tunnelCtx)
-	log.Printf("Tunneling to agency %s as %s", appCtx.Config.AgencyURL, appCtx.Config.AgentUsername)
+	log.Printf("Tunneling to agency %s", appCtx.Config.AgencyURL)
 
 	if err := appCtx.Sessions.Recover(context.Background()); err != nil {
 		log.Printf("Session recovery failed: %v", err)

@@ -91,29 +91,3 @@ DELETE FROM actors WHERE id = sqlc.arg(actor_id) AND kind = 'agent';
 
 -- name: TouchAgentSeen :exec
 UPDATE agents SET last_seen_at = sqlc.arg(last_seen_at) WHERE id = sqlc.arg(id);
-
--- name: CreateAgentCredential :one
-INSERT INTO agent_credentials (agent_id, username, password_hash, created_at)
-VALUES (
-  sqlc.arg(agent_id), sqlc.arg(username), sqlc.arg(password_hash), sqlc.arg(created_at)
-)
-RETURNING *;
-
--- name: ListAgentCredentials :many
-SELECT * FROM agent_credentials WHERE agent_id = sqlc.arg(agent_id)
-ORDER BY username;
-
--- name: GetAgentCredential :one
-SELECT * FROM agent_credentials WHERE username = sqlc.arg(username);
-
--- name: RevokeAgentCredential :execrows
-DELETE FROM agent_credentials
-WHERE agent_id = sqlc.arg(agent_id) AND username = sqlc.arg(username);
-
--- name: TouchAgentCredentialUsed :exec
-UPDATE agent_credentials SET last_used_at = sqlc.arg(last_used_at)
-WHERE username = sqlc.arg(username);
-
--- name: UpdateAgentCredentialPassword :exec
-UPDATE agent_credentials SET password_hash = sqlc.arg(password_hash)
-WHERE username = sqlc.arg(username);

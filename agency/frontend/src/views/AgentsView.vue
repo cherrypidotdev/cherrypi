@@ -19,16 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   Alert(v-if="revealed")
-    AlertTitle Credential generated
+    AlertTitle Personal access token generated
     AlertDescription
-      | Copy the password now — it is shown only once.
+      | Copy the token now — it is shown only once. Set it on the agent as
+      | CHERRYPI_AGENT_TOKEN.
     .mt-3.flex.flex-col.gap-1.font-mono.text-sm
-      span Username: {{ revealed.username }}
-      span Password: {{ revealed.password }}
+      span {{ revealed }}
     .mt-3.flex.gap-2
-      Button(size="sm" variant="outline" @click="copyCredential")
+      Button(size="sm" variant="outline" @click="copyToken")
         CopyIcon(data-icon="inline-start")
-        span Copy
+        span Copy token
       Button(size="sm" variant="ghost" @click="revealed = undefined") Dismiss
 
   Card
@@ -105,8 +105,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     CardHeader
       CardTitle Register agent
       CardDescription
-        | Create an agent before it connects. A tunnel credential is generated
-        | and shown once.
+        | Create an agent before it connects. A personal access token is
+        | generated and shown once.
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="create")
         FieldGroup
@@ -182,7 +182,7 @@ import { agency } from "@/lib/sdk";
 import { type Agent } from "@cherrypi/sdk";
 import { CopyIcon, PencilIcon, PlusIcon, Trash2Icon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
@@ -195,11 +195,7 @@ const prompt = ref("");
 const creating = ref(false);
 const createError = ref("");
 const busy = ref("");
-const revealed = ref<{ username: string; password: string } | undefined>();
-
-const revealText = computed(() =>
-  revealed.value ? `${revealed.value.username}:${revealed.value.password}` : "",
-);
+const revealed = ref<string | undefined>();
 
 onMounted(() => void loadAgents());
 
@@ -222,10 +218,10 @@ async function create() {
         prompt: prompt.value.trim(),
       }),
     );
-    revealed.value = {
-      username: result.credentialUsername,
-      password: result.credentialPassword,
-    };
+    revealed.value = result.token;
+    if (!result.token) {
+      toast.error("Agent created, but no token was returned.");
+    }
     username.value = "";
     displayName.value = "";
     prompt.value = "";
@@ -261,9 +257,10 @@ async function remove(item: Agent) {
   }
 }
 
-async function copyCredential() {
+async function copyToken() {
+  if (!revealed.value) return;
   try {
-    await navigator.clipboard.writeText(revealText.value);
+    await navigator.clipboard.writeText(revealed.value);
     toast.success("Copied");
   } catch {
     toast.error("Copy failed");

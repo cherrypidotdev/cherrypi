@@ -19,6 +19,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -58,8 +59,18 @@ func (c Config) Enabled() bool {
 	return c.Endpoint != "" && c.Bucket != ""
 }
 
+type CheckResult struct {
+	Region string
+
+	RegionSource string
+
+	RegionWarning error
+}
+
 type Store interface {
 	Enabled() bool
+
+	Check(ctx context.Context) (CheckResult, error)
 
 	Put(ctx context.Context, key string, body io.Reader, contentType string, size int64) error
 
@@ -104,6 +115,46 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 }
 
 func (s *s3Store) Enabled() bool { return true }
+
+func (s *s3Store) Check(ctx context.Context) (CheckResult, error) {
+	out, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err != nil {
+		return CheckResult{}, err
+	}
+	if region := strings.TrimSpace(aws.ToString(out.BucketRegion)); region != "" {
+		return CheckResult{Region: region, RegionSource: "HeadBucket"}, nil
+	}
+
+	location, err := s.client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err != nil {
+		return CheckResult{RegionWarning: fmt.Errorf(
+			"HeadBucket reported no bucket region and GetBucketLocation failed: %w",
+			err,
+		)}, nil
+	}
+	region := normalizeBucketLocation(location.LocationConstraint)
+	if region == "" {
+		return CheckResult{RegionWarning: errors.New(
+			"HeadBucket and GetBucketLocation reported no bucket region",
+		)}, nil
+	}
+	return CheckResult{Region: region, RegionSource: "GetBucketLocation"}, nil
+}
+
+func normalizeBucketLocation(location types.BucketLocationConstraint) string {
+	switch location {
+	case "":
+		return "us-east-1"
+	case types.BucketLocationConstraintEu:
+		return "eu-west-1"
+	default:
+		return string(location)
+	}
+}
 
 func (s *s3Store) Put(
 	ctx context.Context,
@@ -155,6 +206,10 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 type Disabled struct{}
 
 func (Disabled) Enabled() bool { return false }
+
+func (Disabled) Check(context.Context) (CheckResult, error) {
+	return CheckResult{}, ErrDisabled
+}
 
 func (Disabled) Put(context.Context, string, io.Reader, string, int64) error {
 	return ErrDisabled

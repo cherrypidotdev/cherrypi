@@ -35,6 +35,9 @@ var setTaskArtifactsExtension []byte
 //go:embed extension_assets/agent_tools.ts
 var agentToolsExtension []byte
 
+//go:embed extension_assets/image_budget.ts
+var imageBudgetExtension []byte
+
 //go:embed extension_assets/ask_user_question.ts
 var askUserQuestionExtension []byte
 
@@ -43,13 +46,14 @@ func InstallExtensions(dir string) ([]string, error) {
 		return nil, err
 	}
 
-	paths := make([]string, 0, 5)
+	paths := make([]string, 0, 6)
 	for name, content := range map[string][]byte{
 		"set_task_urls.ts":      setTaskURLsExtension,
 		"upload_attachment.ts":  uploadAttachmentExtension,
 		"set_task_artifacts.ts": setTaskArtifactsExtension,
 		"agent_tools.ts":        agentToolsExtension,
 		"ask_user_question.ts":  askUserQuestionExtension,
+		"image_budget.ts":       imageBudgetExtension,
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, content, 0o644); err != nil {

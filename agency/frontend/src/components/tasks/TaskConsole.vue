@@ -359,13 +359,42 @@ function elapsedLabel(ms: number | undefined): string {
   return ms !== undefined && ms >= 1000 ? formatDuration(ms) : "";
 }
 
+const clock = ref(Date.now());
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
 function groupDuration(group: RenderActivity): string {
-  return elapsedLabel(groupElapsed(group.items));
+  return elapsedLabel(groupElapsed(group.items, clock.value));
 }
 
 function childDuration(item: ActivityItem): string {
-  return elapsedLabel(itemElapsed(item));
+  return elapsedLabel(itemElapsed(item, clock.value));
 }
+
+const hasRunningTool = computed(() =>
+  groups.value.some(
+    (group) =>
+      group.kind === "activity" &&
+      group.items.some(
+        (item) => item.kind === "tool" && item.phase !== ToolPhase.FINISHED,
+      ),
+  ),
+);
+
+watch(
+  hasRunningTool,
+  (running) => {
+    if (running && clockTimer === undefined) {
+      clock.value = Date.now();
+      clockTimer = setInterval(() => {
+        clock.value = Date.now();
+      }, 1000);
+    } else if (!running && clockTimer !== undefined) {
+      clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  },
+  { immediate: true },
+);
 
 const openActivities = reactive(new Set<number>());
 
@@ -879,7 +908,7 @@ async function drainWizard() {
         break;
       }
       if (isBatchDialog(request)) {
-        await respondWizardBatch(request, active.questions);
+        if (!(await respondWizardBatch(request, active.questions))) break;
         wizardQueue.shift();
         wizardDone.value = true;
         break;
@@ -891,7 +920,7 @@ async function drainWizard() {
       if (!question) {
         break;
       }
-      await respondWizard(request, question);
+      if (!(await respondWizard(request, question))) break;
       wizardQueue.shift();
     }
     const active = questionnaire.value;
@@ -906,6 +935,10 @@ async function drainWizard() {
   } finally {
     wizardWorking = false;
   }
+
+  if (!wizardDone.value && wizardAnswers.value !== null && wizardErrors.value) {
+    wizardAnswers.value = null;
+  }
 }
 
 function isBatchDialog(request: ExtensionUiRequest): boolean {
@@ -915,10 +948,10 @@ function isBatchDialog(request: ExtensionUiRequest): boolean {
 async function respondWizardBatch(
   request: ExtensionUiRequest,
   questions: QuestionnaireQuestion[],
-) {
+): Promise<boolean> {
   const answers = wizardAnswers.value;
   if (!answers) {
-    return;
+    return false;
   }
   try {
     await agent.respondToExtensionUi(
@@ -927,18 +960,20 @@ async function respondWizardBatch(
       { value: questionnaireResponseValue(questions, answers) },
       submittedQuestionnaire(),
     );
+    return true;
   } catch (err) {
     wizardErrors.value = err instanceof Error ? err.message : String(err);
+    return false;
   }
 }
 
 async function respondWizard(
   request: ExtensionUiRequest,
   question: QuestionnaireQuestion,
-) {
+): Promise<boolean> {
   const answer = wizardAnswers.value?.[wizardStep.value];
   if (!answer) {
-    return;
+    return false;
   }
 
   const resumeAnswers =
@@ -953,7 +988,7 @@ async function respondWizard(
       );
       wizardAwaitingCustom.value = false;
       wizardStep.value += 1;
-      return;
+      return true;
     }
     if (question.multiSelect) {
       await agent.respondToExtensionUi(
@@ -963,7 +998,7 @@ async function respondWizard(
         resumeAnswers,
       );
       wizardStep.value += 1;
-      return;
+      return true;
     }
     const options = request.options;
     if (answer.customSelected) {
@@ -984,7 +1019,7 @@ async function respondWizard(
         );
         wizardStep.value += 1;
       }
-      return;
+      return true;
     }
     await agent.respondToExtensionUi(
       props.id,
@@ -993,8 +1028,10 @@ async function respondWizard(
       resumeAnswers,
     );
     wizardStep.value += 1;
+    return true;
   } catch (err) {
     wizardErrors.value = err instanceof Error ? err.message : String(err);
+    return false;
   }
 }
 
@@ -1030,8 +1067,12 @@ function answerLabel(
 function submitWizard(answers: QuestionnaireAnswer[]) {
   wizardErrors.value = "";
   wizardAnswers.value = answers;
-  wizardStep.value = 0;
-  wizardAwaitingCustom.value = false;
+
+  const retrying = wizardQueue.length > 0;
+  if (!retrying) {
+    wizardStep.value = 0;
+    wizardAwaitingCustom.value = false;
+  }
   wizardEngaged.value = true;
   void drainWizard();
 }
@@ -1078,5 +1119,6 @@ onBeforeUnmount(() => {
   streamController?.abort();
   resizeObserver?.disconnect();
   clearTimeout(copiedTimer);
+  if (clockTimer !== undefined) clearInterval(clockTimer);
 });
 </script>

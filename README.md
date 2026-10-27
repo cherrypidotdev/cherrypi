@@ -33,9 +33,10 @@ accounting.
 
 ```
 agency/
-  server/     Go module (agency API + tunnel hub + embedded SPA)
+  server/     Go module (agency API + tunnel hub + embedded SPA and docs)
   frontend/   Vue 3 SPA
   sdk/js/     @cherrypi/sdk
+docs-site/    VitePress docs (English + Russian), embedded at /docs
 agent/        Go module (worker)
 shared/       Go module (protos, generated code, tunnel plumbing)
 go.work       ties the three modules
@@ -52,10 +53,17 @@ Prebuilt images are published per release:
 ```sh
 docker pull ghcr.io/cherrypidotdev/cherrypi-agency:latest
 docker pull ghcr.io/cherrypidotdev/cherrypi-agent:latest
+docker pull ghcr.io/cherrypidotdev/cherrypi-docs:latest
 ```
 
 The agency image is `linux/amd64`; the agent image is the heavy runtime (Pi,
 Node, a desktop bridge).
+
+Every agency also serves the user and agent documentation at `/docs`. Its
+source lives in [`docs-site/`](docs-site) (VitePress, English + Russian) and is
+embedded into the agency binary like the dashboard. The same site is published
+as the standalone `cherrypi-docs` image at the container root on port 8080, for
+serving at [docs.cherrypi.dev](https://docs.cherrypi.dev).
 
 ## Develop
 
@@ -66,6 +74,7 @@ Requires Go 1.26.4, Node 22, `buf` and `sqlc`.
 npm install
 (cd agency/sdk/js && npm install && npm run build)
 (cd agency/frontend && npm install)
+(cd docs-site && npm install)
 (cd shared && buf generate)
 (cd agent && sqlc generate)
 (cd agency/server && make sqlc)
@@ -74,8 +83,8 @@ npm install
 (cd agency/frontend && make dev)
 (cd agency/server && CHERRYPI_FRONTEND_PROXY_URL=http://localhost:5173 go run -tags dev ./cmd/agency)
 
-# an agent connected to it (register it first, or seed CHERRYPI_AGENCY_SEED_AGENT)
-(cd agent && go run ./cmd/agent --agency-url http://localhost:8080 --auth <user>:<pass>)
+# an agent connected to it (register it in the UI, then use its PAT)
+(cd agent && CHERRYPI_AGENT_TOKEN=pat_... go run ./cmd/agent --agency-url http://localhost:8080)
 ```
 
 Enable the repo hooks once per clone so commits land formatted (they also wire
@@ -92,6 +101,7 @@ make build        # SPA + agent + agency binaries into their modules
 make binaries     # cross-compiled release binaries in dist/
 make binaries_zip # one cherrypi-<binary>-<os>-<arch>-<sha>.zip per binary
 make docker       # agency and agent images (linux/amd64)
+make docs         # standalone VitePress build into docs-site/.vitepress/dist
 ```
 
 ## Deploy
@@ -99,7 +109,7 @@ make docker       # agency and agent images (linux/amd64)
 Releases publish `ghcr.io/cherrypidotdev/cherrypi-agency:<version>` (plus
 `latest`) and the same tag for the agent. Only the agency needs to be reachable
 from the browser; agents dial out and need no inbound port. Configuration is
-environment-driven (`CHERRYPI_AGENCY_DIR`, `CHERRYPI_AGENCY_CREDENTIALS`,
+environment-driven (`CHERRYPI_AGENCY_DIR`, `CHERRYPI_ADMIN_USERNAME`/`CHERRYPI_ADMIN_PASSWORD`,
 `CHERRYPI_AGENCY_DATABASE_DSN`, S3 settings, …); see `compose.yaml`.
 
 ## Pi setup

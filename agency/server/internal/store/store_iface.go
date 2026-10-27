@@ -73,10 +73,6 @@ type Store interface {
 	CountUnreadNotifications(ctx context.Context, recipient int64) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, actorID ids.ActorID) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
-	CreateAgentCredential(
-		ctx context.Context,
-		p CreateAgentCredentialParams,
-	) (AgentCredential, error)
 	CreateAttachment(
 		ctx context.Context,
 		p CreateAttachmentParams,
@@ -209,7 +205,6 @@ type Store interface {
 	GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, error)
 	GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error)
 	GetAgentByUsername(ctx context.Context, username string) (AgentRow, error)
-	GetAgentCredential(ctx context.Context, username string) (AgentCredential, error)
 	GetAgentPicture(ctx context.Context, agentID ids.AgentID) (Attachment, error)
 	GetAgentTaskLimits(ctx context.Context, agentID ids.AgentID) (AgentTaskLimit, error)
 	GetAttachment(ctx context.Context, id int64) (Attachment, error)
@@ -336,10 +331,6 @@ type Store interface {
 		ctx context.Context,
 		actorID ids.ActorID,
 	) ([]ListActorSettingsRow, error)
-	ListAgentCredentials(
-		ctx context.Context,
-		agentID ids.AgentID,
-	) ([]AgentCredential, error)
 	ListAgentDomainLogs(
 		ctx context.Context,
 		p ListAgentDomainLogsParams,
@@ -368,11 +359,15 @@ type Store interface {
 		ctx context.Context,
 		agentID sql.NullInt64,
 		projectID sql.NullString,
+		sinceMs sql.NullInt64,
+		untilMs sql.NullInt64,
 	) ([]ListAgentUsageRow, error)
 	ListAgentUsageByDay(
 		ctx context.Context,
 		agentID sql.NullInt64,
 		projectID sql.NullString,
+		sinceMs sql.NullInt64,
+		untilMs sql.NullInt64,
 	) ([]ListAgentUsageByDayRow, error)
 	ListAgents(ctx context.Context) ([]AgentRow, error)
 	ListAgentsOwnedBy(ctx context.Context, ownerActorID ids.ActorID) ([]int64, error)
@@ -482,7 +477,6 @@ type Store interface {
 		ctx context.Context,
 		taskID string,
 	) ([]ListTaskAttachmentsRow, error)
-	ListTaskHistoryTaskIDs(ctx context.Context) ([]string, error)
 	ListTaskLeads(ctx context.Context) ([]ListTaskLeadsRow, error)
 	ListTaskLeadsByTask(ctx context.Context, taskID string) ([]int64, error)
 	ListTaskLinks(ctx context.Context) ([]ListTaskLinksRow, error)
@@ -574,10 +568,6 @@ type Store interface {
 		ctx context.Context,
 		p RespondTeamInvitationParams,
 	) (int64, error)
-	RevokeAgentCredential(
-		ctx context.Context,
-		p RevokeAgentCredentialParams,
-	) (int64, error)
 	RevokeInvitation(ctx context.Context, p RevokeInvitationParams) (int64, error)
 	RevokePendingProjectParentInvitationsForChild(
 		ctx context.Context,
@@ -623,7 +613,6 @@ type Store interface {
 	SumAgentUsage(ctx context.Context) (SumAgentUsageRow, error)
 	TaskIDBySession(ctx context.Context, p TaskIDBySessionParams) (string, error)
 	TaskSessionEntryTip(ctx context.Context, taskID string) (TaskSessionEntryTipRow, error)
-	TouchAgentCredentialUsed(ctx context.Context, p TouchAgentCredentialUsedParams) error
 	TouchAgentSeen(ctx context.Context, id ids.AgentID, at int64) error
 	TouchPersonalAccessToken(ctx context.Context, p TouchPersonalAccessTokenParams) error
 	TouchSession(ctx context.Context, p TouchSessionParams) error
@@ -640,10 +629,6 @@ type Store interface {
 		updatedAt int64,
 	) (AgentRow, error)
 	SetAgentRole(ctx context.Context, id ids.AgentID, role string) error
-	UpdateAgentCredentialPassword(
-		ctx context.Context,
-		p UpdateAgentCredentialPasswordParams,
-	) error
 	UpdateDraftTask(ctx context.Context, p UpdateDraftTaskParams) (Task, error)
 	UpdateIdentityProvider(ctx context.Context, p UpdateIdentityProviderParams) error
 	UpdateInvitationTokenHash(ctx context.Context, p UpdateInvitationTokenHashParams) error

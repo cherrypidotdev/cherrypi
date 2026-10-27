@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,30 @@ import (
 )
 
 var ErrTaskHistoryNotFound = errors.New("task history: task not found")
+
+var ErrTaskHistoryUnauthorized = errors.New("task history: unauthorized")
+
+const (
+	historyRetryBase        = time.Second
+	historyRetryMax         = 2 * time.Minute
+	historyAuthRefreshLimit = 3
+	historyRetryJitter      = 4
+)
+
+func historyBackoff(failures int) time.Duration {
+	if failures < 1 {
+		return 0
+	}
+	delay := historyRetryBase
+	for i := 1; i < failures && delay < historyRetryMax; i++ {
+		delay *= 2
+	}
+	if delay > historyRetryMax {
+		delay = historyRetryMax
+	}
+	jitter := time.Duration(rand.Int63n(int64(delay/historyRetryJitter) + 1))
+	return delay + jitter
+}
 
 type SessionEntry struct {
 	ID       string `json:"id"`
@@ -46,6 +71,7 @@ func (s *Session) resetHistorySync() {
 	s.syncedTip = ""
 	s.historyReconciled = false
 	s.historyDisabled = false
+	s.noteHistorySuccessLocked()
 	s.histMu.Unlock()
 }
 
@@ -77,7 +103,8 @@ func (s *Session) stopHistoryWatch() {
 
 	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
 	defer done()
-	s.syncHistory(ctx)
+
+	s.syncHistory(ctx, true)
 }
 
 func (s *Session) watchHistory(ctx context.Context) {
@@ -92,12 +119,12 @@ func (s *Session) watchHistory(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.syncHistory(ctx)
+			s.syncHistory(ctx, false)
 		}
 	}
 }
 
-func (s *Session) syncHistory(ctx context.Context) {
+func (s *Session) syncHistory(ctx context.Context, force bool) {
 	if !s.historyEnabled() {
 		return
 	}
@@ -112,14 +139,18 @@ func (s *Session) syncHistory(ctx context.Context) {
 	if s.historyDisabled {
 		return
 	}
+	if !force && time.Now().Before(s.historyRetryAt) {
+		return
+	}
 	local := s.readSessionEntries()
 
 	if !s.historyReconciled {
 		remote, err := s.cfg.FetchTaskHistory(ctx, projectID, seq)
 		if err != nil {
-			s.noteHistoryError(err)
+			s.noteHistoryError(ctx, err)
 			return
 		}
+		s.noteHistorySuccessLocked()
 		switch {
 		case len(remote) == 0:
 
@@ -165,18 +196,44 @@ func (s *Session) syncHistory(ctx context.Context) {
 		return
 	}
 	if err := s.cfg.PushTaskHistory(ctx, projectID, seq, tail); err != nil {
-		s.noteHistoryError(err)
+		s.noteHistoryError(ctx, err)
 		return
 	}
 	s.syncedTip = tail[len(tail)-1].ID
+	s.noteHistorySuccessLocked()
 }
 
-func (s *Session) noteHistoryError(err error) {
+func (s *Session) noteHistoryError(ctx context.Context, err error) {
 	if errors.Is(err, ErrTaskHistoryNotFound) {
 		s.historyDisabled = true
 		return
 	}
-	log.Printf("[session %s] sync task history: %v", s.ID, err)
+	if errors.Is(err, ErrTaskHistoryUnauthorized) &&
+		s.cfg.RefreshTaskHistoryAuth != nil &&
+		s.historyAuthAttempts < historyAuthRefreshLimit {
+		s.historyAuthAttempts++
+		if refreshErr := s.cfg.RefreshTaskHistoryAuth(ctx); refreshErr != nil {
+			log.Printf("[session %s] refresh task history auth: %v", s.ID, refreshErr)
+		} else {
+			log.Printf("[session %s] refreshed task history auth", s.ID)
+		}
+	}
+	s.historyFailures++
+	delay := historyBackoff(s.historyFailures)
+	s.historyRetryAt = time.Now().Add(delay)
+	log.Printf(
+		"[session %s] sync task history (attempt %d, retry in %s): %v",
+		s.ID,
+		s.historyFailures,
+		delay.Round(time.Millisecond),
+		err,
+	)
+}
+
+func (s *Session) noteHistorySuccessLocked() {
+	s.historyFailures = 0
+	s.historyRetryAt = time.Time{}
+	s.historyAuthAttempts = 0
 }
 
 func (s *Session) readSessionEntries() []SessionEntry {

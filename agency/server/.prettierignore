@@ -17,3 +17,5 @@
 cmd/agency/frontenddist
 bin
 internal/gen
+
+cmd/agency/docsdist

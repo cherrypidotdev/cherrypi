@@ -361,3 +361,30 @@ html.sketch-editor-active body {
     animation-duration: 0.01ms;
   }
 }
+
+@layer utilities {
+  .text-8 {
+    font-size: 8px;
+  }
+  .text-10 {
+    font-size: 10px;
+  }
+  .text-11 {
+    font-size: 11px;
+  }
+  .text-115 {
+    font-size: 11.5px;
+  }
+  .text-2xs {
+    font-size: 10.5px;
+  }
+  .text-3xs {
+    font-size: 9.5px;
+  }
+  .text-4xs {
+    font-size: 9px;
+  }
+  .text-23 {
+    font-size: 23px;
+  }
+}

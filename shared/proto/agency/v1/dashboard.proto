@@ -43,6 +43,12 @@ message GetUsageRequest {
   
   
   string project_id = 2;
+  
+  
+  
+  int64 since_ms = 3;
+  
+  int64 until_ms = 4;
 }
 
 
@@ -66,6 +72,10 @@ message AgentTaskUsage {
   int64 output_tokens = 4;
   double cost = 5;
   int64 active_ms = 6;
+  
+  
+  
+  int64 runs = 7;
 }
 
 
@@ -75,6 +85,8 @@ message UsageDay {
   int64 input_tokens = 2;
   int64 output_tokens = 3;
   double cost = 4;
+  
+  int64 runs = 5;
 }
 
 

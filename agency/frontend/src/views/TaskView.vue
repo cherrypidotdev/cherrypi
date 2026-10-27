@@ -262,8 +262,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 aria-label="Follow-up prompt"
                 title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line"
                 :fill="textareaHeight !== null"
-                :max-height="textareaHeight === null ? '10rem' : 'none'"
                 :style="textareaStyle"
+                height="3.5rem"
                 @submit="onEnter"
                 :disabled="!canFollowUp"
               )
@@ -658,31 +658,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               ) {{ formatBytes(taskDiskBytes) }}
               span.font-medium.tabular-nums(v-else) —
 
-        .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-          span.text-muted-foreground.text-xs Session history
-          span.inline-flex.items-center.gap-1.text-sm(v-if="sessionDeleted")
-            CheckIcon.size-3.shrink-0.text-emerald-600
-            | Stored in the agency (agent session cleaned up)
-          span.text-muted-foreground.text-sm(v-else-if="!isStarted") —
-          span.inline-flex.items-center.gap-1.text-sm(
-            v-else-if="task.historyMigrated"
-          )
-            CheckIcon.size-3.shrink-0.text-emerald-600
-            | Stored in the agency
-          .flex.flex-col.gap-1(v-else)
-            span.text-muted-foreground.text-xs
-              | Only on this agent. Migrate it so the conversation survives
-              | cleanup or an agent replacement.
-            Button.self-start(
-              variant="outline"
-              size="sm"
-              @click="migrate"
-              :disabled="migrating"
-            )
-              Spinner(v-if="migrating" data-icon="inline-start")
-              DatabaseIcon(v-else data-icon="inline-start")
-              span Migrate storage to Agency
-
         .flex.flex-col.gap-1(v-if="detailsTab === 'artifacts'")
           span.text-muted-foreground.text-xs Artifacts
           TaskArtifacts(:artifacts="task.artifacts")
@@ -861,12 +836,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @save="onLinksSave"
   )
 
-  MigrateDeleteDialog(
-    v-model:open="deleteDialogOpen"
-    :task="task ?? null"
-    @deleted="onDeleted"
-  )
-
   SketchDialog(
     v-if="sketchMounted"
     v-model:open="sketchOpen"
@@ -896,7 +865,6 @@ import MessageSender from "@/components/MessageSender.vue";
 import ArchiveTaskDialog from "@/components/tasks/ArchiveTaskDialog.vue";
 import CloseOutTaskDialog from "@/components/tasks/CloseOutTaskDialog.vue";
 import ContextMeter from "@/components/tasks/ContextMeter.vue";
-import MigrateDeleteDialog from "@/components/tasks/MigrateDeleteDialog.vue";
 import TaskArtifacts from "@/components/tasks/TaskArtifacts.vue";
 import TaskConsole from "@/components/tasks/TaskConsole.vue";
 import TaskLinksDialog from "@/components/tasks/TaskLinksDialog.vue";
@@ -1008,7 +976,6 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CircleSlashIcon,
-  DatabaseIcon,
   EraserIcon,
   ExternalLinkIcon,
   InboxIcon,
@@ -1150,9 +1117,7 @@ const saving = reactive({
 const agentProjects = ref<Project[]>([]);
 const projectMembers = ref<string[]>([]);
 const closeOutDialogOpen = ref(false);
-const deleteDialogOpen = ref(false);
 const linksDialogOpen = ref(false);
-const migrating = ref(false);
 const titleEditing = ref(false);
 const titleDraft = ref("");
 const titleInput = ref<{ $el?: HTMLInputElement } | undefined>();
@@ -1300,14 +1265,6 @@ const isClosedOut = computed(() => {
 const canChangeOutcome = isClosedOut;
 const canArchive = isClosedOut;
 const isStarted = computed(() => Boolean(task.value?.sessionId));
-
-const canMigrate = computed(
-  () =>
-    !sessionDeleted.value &&
-    isStarted.value &&
-    !!task.value &&
-    !task.value.historyMigrated,
-);
 
 const showPrompt = computed(() => !isStarted.value);
 const promptHint = computed(() => {
@@ -1680,6 +1637,8 @@ async function onModelSelectionChange(next: TaskModelSelection) {
     next.modelId !== previous.modelId;
   const levelChanged = next.thinkingLevel !== previous.thinkingLevel;
   if (!modelChanged && !levelChanged) return;
+
+  modelSelection.value = next;
   saving.model = true;
   try {
     let changed = config.value;
@@ -1712,6 +1671,7 @@ async function onModelSelectionChange(next: TaskModelSelection) {
       };
     }
   } catch (err) {
+    modelSelection.value = previous;
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
     saving.model = false;
@@ -2166,35 +2126,10 @@ function onEnter() {
 async function remove() {
   const current = task.value;
   if (!current) return;
-
-  if (canMigrate.value) {
-    deleteDialogOpen.value = true;
-    return;
-  }
   if (!window.confirm(deleteConfirmation(current))) {
     return;
   }
   await deleteTask();
-}
-
-async function migrate() {
-  if (!task.value) return;
-  migrating.value = true;
-  try {
-    const result = await agent.migrateTaskHistory(props.id);
-    task.value = result.task;
-    if (result.task.historyMigrated) {
-      toast.success(
-        `Stored ${result.entries} entr${result.entries === 1 ? "y" : "ies"} in the agency`,
-      );
-    } else {
-      toast.error("The agent had no history to migrate");
-    }
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    migrating.value = false;
-  }
 }
 
 async function deleteTask() {
@@ -2207,10 +2142,6 @@ async function deleteTask() {
   } finally {
     actionBusy.value = false;
   }
-  void router.push({ name: "agency-tasks" });
-}
-
-function onDeleted() {
   void router.push({ name: "agency-tasks" });
 }
 

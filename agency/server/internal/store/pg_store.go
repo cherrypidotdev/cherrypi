@@ -878,19 +878,6 @@ func (s *PgStore) RegisterAgent(
 				return err
 			}
 		}
-		if p.CredentialUsername != "" {
-			if _, err := q.CreateAgentCredential(
-				ctx,
-				pgdb.CreateAgentCredentialParams(CreateAgentCredentialParams{
-					AgentID:      row.ID,
-					Username:     p.CredentialUsername,
-					PasswordHash: p.CredentialPasswordHash,
-					CreatedAt:    p.CreatedAt,
-				}),
-			); err != nil {
-				return err
-			}
-		}
 		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
 			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{})
 		return nil

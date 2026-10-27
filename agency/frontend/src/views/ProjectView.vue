@@ -55,7 +55,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   Tabs(v-model="tab")
     TabsContent(value="overview")
       .flex.flex-col.gap-6
-        UsageGraph(:project-id="project?.id")
+        UsageOverview(
+          v-if="project"
+          context="project"
+          :project-id="project.id"
+        )
 
         ExpressTaskForm(v-if="project && canPrompt" :project-id="project.id")
         p.text-muted-foreground.text-sm(v-else-if="project")
@@ -74,19 +78,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
 
     TabsContent(value="usage")
-      .flex.flex-col.gap-6
-        UsageGraph(:project-id="project?.id")
-        Card
-          CardHeader
-            CardTitle Advanced usage
-            CardDescription
-              | Per-agent and per-task cost, token and run breakdowns are being
-              | built as a follow-up (CHPI-175). The summary above stays live
-              | until then.
-          CardContent
-            p.text-muted-foreground.text-sm
-              | This tab will host filterable charts for cost, tokens and active
-              | time with per-task drill-down.
+      UsageDashboard(v-if="project" context="project" :project-id="project.id")
 
     TabsContent(value="settings")
       ProjectSettingsView(
@@ -108,7 +100,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import UsageGraph from "@/components/usage/UsageGraph.vue";
+import UsageDashboard from "@/components/usage/UsageDashboard.vue";
+import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgents } from "@/composables/useAgents";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { useProjects } from "@/composables/useProjects";

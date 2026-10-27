@@ -73,13 +73,13 @@ export default function (pi: ExtensionAPI) {
     name: "getTaskHistory",
     label: "Get Task History",
     description:
-      "Read one page of a CherryPi task's persisted conversation, newest page first: user prompts, assistant text and thinking, and tool calls. Events within a page stay chronological; pass the returned next_cursor as cursor to page back to older entries. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
+      "Read one page of a CherryPi task's persisted conversation, newest page first: user prompts, assistant text and thinking, and tool calls. Events within a page stay chronological; pass the returned next_cursor as cursor to page back to older entries. The page defaults to the latest 20 entries and caps at 1000, but may hold fewer when large messages consume its byte budget. An oversized message keeps its start and end around a `start of message <truncated text> end of message` marker. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
     parameters: Type.Object({
       taskId: Type.String({ description: "The task id to read." }),
       limit: Type.Optional(
         Type.Number({
           description:
-            "Maximum entries per page; defaults to 200 and caps at 1000.",
+            "Maximum entries per page; defaults to 20 and caps at 1000.",
         }),
       ),
       cursor: Type.Optional(
@@ -89,17 +89,32 @@ export default function (pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: Type.Object({
+      task_id: Type.String(),
+      events: Type.Array(
+        Type.Object({
+          type: Type.String(),
+          at: Type.Optional(Type.String()),
+          text: Type.Optional(Type.String()),
+          tool_call_id: Type.Optional(Type.String()),
+          tool_name: Type.Optional(Type.String()),
+          phase: Type.Optional(Type.String()),
+          args: Type.Optional(Type.String()),
+          result: Type.Optional(Type.String()),
+          is_error: Type.Optional(Type.Boolean()),
+        }),
+      ),
+      next_cursor: Type.String(),
+    }),
     execute: async (_toolCallId, params) => {
       const query = new URLSearchParams();
-      if (params.limit !== undefined) {
-        query.set("limit", String(params.limit));
-      }
+      query.set("limit", String(params.limit ?? DEFAULT_HISTORY_LIMIT));
       if (params.cursor) query.set("cursor", String(params.cursor));
-      const suffix = query.toString();
       return request(
         "GET",
-        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/history` +
-          (suffix ? `?${suffix}` : ""),
+        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/history?${query.toString()}`,
+        undefined,
+        true,
       );
     },
   });
@@ -292,7 +307,7 @@ export default function (pi: ExtensionAPI) {
     name: "readAgentLogs",
     label: "Read Agent Logs",
     description:
-      "Admin agents only. Read one agent's persisted operational logs (process lines, task/session lifecycle, connectivity), newest first. Get ids from listAgents. Read-only.",
+      "Admin agents only. Read one agent's persisted operational logs (process lines, task/session lifecycle, connectivity), newest first. Unfiltered by default; pass excludeMessages to omit routine lines. Get ids from listAgents. Read-only.",
     parameters: Type.Object({
       agentId: Type.String({
         description: "The numeric agent id from listAgents.",
@@ -319,6 +334,18 @@ export default function (pi: ExtensionAPI) {
             "Page older than this log id (the last row's id from a previous call).",
         }),
       ),
+      excludeMessages: Type.Optional(
+        Type.Array(
+          Type.String({
+            description:
+              'A message substring to omit, e.g. "pi started". Case-insensitive.',
+          }),
+          {
+            description:
+              'Message substrings to omit. Unfiltered by default; the dashboard uses ["pi started", "pi exited", "pi stopped"].',
+          },
+        ),
+      ),
     }),
     execute: async (_toolCallId, params) => {
       const query = new URLSearchParams();
@@ -326,6 +353,9 @@ export default function (pi: ExtensionAPI) {
       if (params.minLevel) query.set("min_level", String(params.minLevel));
       if (params.beforeId !== undefined) {
         query.set("before_id", String(params.beforeId));
+      }
+      for (const pattern of params.excludeMessages ?? []) {
+        query.append("exclude", String(pattern));
       }
       const suffix = query.toString();
       return request(
@@ -406,10 +436,13 @@ function priorityValue(value: unknown): number | undefined {
   }
 }
 
+const DEFAULT_HISTORY_LIMIT = 20;
+
 async function request(
   method: string,
   path: string,
   body?: Record<string, unknown>,
+  structured = false,
 ) {
   const base = agencyUrl();
   const bearer = await token();
@@ -438,6 +471,16 @@ async function request(
       message = (JSON.parse(raw) as { error?: string }).error ?? raw;
     } catch {}
     return text(`CherryPi request failed (${res.status}): ${message}`);
+  }
+  if (structured) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        content: [{ type: "text" as const, text: raw || "OK" }],
+        details: parsed,
+        structuredContent: parsed,
+      };
+    } catch {}
   }
   return text(raw || "OK");
 }

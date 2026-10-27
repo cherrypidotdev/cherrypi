@@ -128,10 +128,6 @@ service TaskService {
   rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
   rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
   rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
-  
-  
-  
-  rpc MigrateTaskHistory(MigrateTaskHistoryRequest) returns (MigrateTaskHistoryResponse);
   rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
   
   
@@ -309,8 +305,7 @@ message Task {
   
   
   
-  
-  bool history_migrated = 37;
+  reserved 37; 
   
   
   
@@ -822,19 +817,6 @@ message GetTaskHistoryRequest {
 message GetTaskHistoryResponse {
   repeated agent.v1.TaskEvent events = 1;
   string next_before = 2;
-}
-
-message MigrateTaskHistoryRequest {
-  string id = 1;
-}
-
-message MigrateTaskHistoryResponse {
-  
-  
-  Task task = 1;
-  
-  
-  uint32 entries = 2;
 }
 
 message GetTaskConfigRequest {

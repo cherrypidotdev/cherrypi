@@ -25,7 +25,6 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import {
   AgentService,
   type Agent,
-  type AgentCredential,
   type AgentDefaults,
   type AgentLog,
   AgentLogLevel,
@@ -95,8 +94,6 @@ import type {
   TaskUsage,
 } from "./gen/buf/agent/v1/dashboard_pb.js";
 import {
-  basicAuthHeader,
-  basicAuthInterceptor,
   bearerAuthInterceptor,
   csrfInterceptor,
   readCookie,
@@ -118,7 +115,6 @@ import {
   type GetDesktopResult,
   type ListTagsFilter,
   type ListTasksFilter,
-  type MigrateTaskHistoryResult,
   type QuestionnaireAnswerInput,
   type RealtimeEvent,
   type RealtimeKind,
@@ -134,7 +130,7 @@ import {
   type WatchTaskOptions,
 } from "./common.js";
 
-export type { Agent, AgentCredential, AgentDefaults, AgentLog };
+export type { Agent, AgentDefaults, AgentLog, AgentToken };
 export {
   AgentLogLevel,
   AgentStatus,
@@ -153,14 +149,14 @@ export type {
   UsageDay as AgencyUsageDay,
 } from "./gen/buf/agency/v1/dashboard_pb.js";
 
+export interface GetUsageOptions extends CallOptions {
+  sinceMs?: number;
+
+  untilMs?: number;
+}
+
 export interface AgencyClientOptions {
   baseUrl: string;
-
-  basicAuth?: boolean;
-
-  username?: string;
-
-  password?: string;
 
   token?: string;
 
@@ -230,22 +226,11 @@ export class AgencyClient {
   constructor(options: AgencyClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
 
-    const useBasicAuth = options.basicAuth !== false;
     const interceptors: Interceptor[] = [csrfInterceptor()];
 
     if (options.token) {
       this.authHeader = `Bearer ${options.token}`;
       interceptors.unshift(bearerAuthInterceptor(options.token));
-    } else if (useBasicAuth) {
-      if (options.username === undefined || options.password === undefined) {
-        throw new Error(
-          "AgencyClient: username and password are required unless basicAuth is false",
-        );
-      }
-      this.authHeader = basicAuthHeader(options.username!, options.password!);
-      interceptors.unshift(
-        basicAuthInterceptor(options.username!, options.password!),
-      );
     }
 
     const transport =
@@ -311,12 +296,7 @@ export class AgencyClient {
   async createAgent(
     input: CreateAgentInput,
     options?: CallOptions,
-  ): Promise<{
-    agent: Agent;
-    credentialUsername: string;
-    credentialPassword: string;
-    token: string;
-  }> {
+  ): Promise<{ agent: Agent; token: string }> {
     const res = await this.agents.createAgent(
       {
         username: input.username,
@@ -326,12 +306,7 @@ export class AgencyClient {
       },
       options,
     );
-    return {
-      agent: res.agent!,
-      credentialUsername: res.credentialUsername,
-      credentialPassword: res.credentialPassword,
-      token: res.token,
-    };
+    return { agent: res.agent!, token: res.token };
   }
 
   async updateAgent(
@@ -354,34 +329,6 @@ export class AgencyClient {
 
   async deleteAgent(id: string, options?: CallOptions): Promise<void> {
     await this.agents.deleteAgent({ id }, options);
-  }
-
-  async listAgentCredentials(
-    agentId: string,
-    options?: CallOptions,
-  ): Promise<AgentCredential[]> {
-    const res = await this.agents.listAgentCredentials({ agentId }, options);
-    return res.credentials;
-  }
-
-  async createAgentCredential(
-    agentId: string,
-    username: string,
-    options?: CallOptions,
-  ): Promise<{ credential: AgentCredential; password: string }> {
-    const res = await this.agents.createAgentCredential(
-      { agentId, username },
-      options,
-    );
-    return { credential: res.credential!, password: res.password };
-  }
-
-  async revokeAgentCredential(
-    agentId: string,
-    username: string,
-    options?: CallOptions,
-  ): Promise<void> {
-    await this.agents.revokeAgentCredential({ agentId, username }, options);
   }
 
   async listAgentTokens(
@@ -1057,14 +1004,6 @@ export class AgencyClient {
     return { events: res.events, nextBefore: res.nextBefore };
   }
 
-  async migrateTaskHistory(
-    id: string,
-    options?: CallOptions,
-  ): Promise<MigrateTaskHistoryResult> {
-    const res = await this.tasks.migrateTaskHistory({ id }, options);
-    return { task: res.task!, entries: res.entries };
-  }
-
   async getTaskConfig(id: string, options?: CallOptions): Promise<TaskConfig> {
     const res = await this.tasks.getTaskConfig({ id }, options);
     return res.config!;
@@ -1409,9 +1348,18 @@ export class AgencyClient {
   async getUsage(
     agentId = "",
     projectId = "",
-    options?: CallOptions,
+    options?: GetUsageOptions,
   ): Promise<GetUsageResponse> {
-    return await this.dashboard.getUsage({ agentId, projectId }, options);
+    const { sinceMs, untilMs, ...callOptions } = options ?? {};
+    return await this.dashboard.getUsage(
+      {
+        agentId,
+        projectId,
+        sinceMs: BigInt(sinceMs ?? 0),
+        untilMs: BigInt(untilMs ?? 0),
+      },
+      callOptions,
+    );
   }
 
   async listNotifications(

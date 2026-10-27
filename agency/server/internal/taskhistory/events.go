@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
@@ -146,6 +147,158 @@ func Page(
 		}
 	}
 	return events, nextBefore
+}
+
+const truncatedMessageMarker = "\n\nstart of message <truncated text> end of message\n\n"
+
+func PageBounded(
+	taskID string,
+	entries []tasks.SessionHistoryEntry,
+	before int64,
+	limit int,
+	maxMessageBytes int,
+	maxPageBytes int,
+) ([]*agentv1.TaskEvent, int64) {
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	if limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	older := entries
+	if before > 0 {
+		older = nil
+		for _, e := range entries {
+			if e.Seq < before {
+				older = append(older, e)
+			}
+		}
+	}
+
+	window := older
+	if len(window) > limit {
+		window = window[len(window)-limit:]
+	}
+
+	type pageEntry struct {
+		seq    int64
+		events []*agentv1.TaskEvent
+	}
+	page := make([]pageEntry, 0, len(window))
+	totalBytes := 0
+	stopped := false
+	for i := len(window) - 1; i >= 0; i-- {
+		e := window[i]
+		events := parseLine(e.Raw)
+		truncateMessage(events, maxMessageBytes)
+		size := messageBytes(events)
+		if maxPageBytes > 0 && len(page) > 0 && totalBytes+size > maxPageBytes {
+			stopped = true
+			break
+		}
+		page = append(page, pageEntry{seq: e.Seq, events: events})
+		totalBytes += size
+	}
+
+	var nextBefore int64
+	switch {
+	case stopped:
+
+		nextBefore = page[len(page)-1].seq
+	case len(older) > len(window):
+		nextBefore = window[0].Seq
+	}
+
+	var out []*agentv1.TaskEvent
+	for i := len(page) - 1; i >= 0; i-- {
+		for _, event := range page[i].events {
+			event.TaskId = taskID
+			out = append(out, event)
+		}
+	}
+	return out, nextBefore
+}
+
+func truncateMessage(events []*agentv1.TaskEvent, maxBytes int) {
+	if maxBytes <= 0 {
+		return
+	}
+	for messageBytes(events) > maxBytes {
+		var largest *string
+		for _, event := range events {
+			for _, field := range messageFields(event) {
+				if len(*field) > 0 && (largest == nil || len(*field) > len(*largest)) {
+					largest = field
+				}
+			}
+		}
+		if largest == nil || len(*largest) <= len(truncatedMessageMarker) {
+			return
+		}
+
+		excess := messageBytes(events) - maxBytes
+		target := len(*largest) - excess
+		if target < len(truncatedMessageMarker) {
+			target = len(truncatedMessageMarker)
+		}
+		if target >= len(*largest) {
+			target = len(*largest) - 1
+		}
+		*largest = truncateMiddle(*largest, target)
+	}
+}
+
+func messageBytes(events []*agentv1.TaskEvent) int {
+	total := 0
+	for _, event := range events {
+		for _, field := range messageFields(event) {
+			total += len(*field)
+		}
+	}
+	return total
+}
+
+func messageFields(event *agentv1.TaskEvent) []*string {
+	switch payload := event.GetEvent().(type) {
+	case *agentv1.TaskEvent_Text:
+		if payload.Text != nil {
+			return []*string{&payload.Text.Delta}
+		}
+	case *agentv1.TaskEvent_Thinking:
+		if payload.Thinking != nil {
+			return []*string{&payload.Thinking.Delta}
+		}
+	case *agentv1.TaskEvent_UserMessage:
+		if payload.UserMessage != nil {
+			return []*string{&payload.UserMessage.Text}
+		}
+	case *agentv1.TaskEvent_Tool:
+		if payload.Tool != nil {
+			return []*string{&payload.Tool.ArgsJson, &payload.Tool.ResultJson}
+		}
+	}
+	return nil
+}
+
+func truncateMiddle(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	if maxBytes <= len(truncatedMessageMarker) {
+		return truncatedMessageMarker
+	}
+
+	budget := maxBytes - len(truncatedMessageMarker)
+	headEnd := budget / 2
+	for headEnd > 0 && !utf8.RuneStart(s[headEnd]) {
+		headEnd--
+	}
+	tailStart := len(s) - (budget - budget/2)
+	for tailStart < len(s) && !utf8.RuneStart(s[tailStart]) {
+		tailStart++
+	}
+	return s[:headEnd] + truncatedMessageMarker + s[tailStart:]
 }
 
 // parseLine decodes one JSONL line into zero or more console events. It is the

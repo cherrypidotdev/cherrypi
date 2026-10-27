@@ -68,12 +68,7 @@ import { useAgents } from "@/composables/useAgents";
 import { useTerminals } from "@/composables/useTerminals";
 import { currentAgentId, currentAgentUsername } from "@/lib/sdk";
 import { AgentStatus } from "@cherrypi/sdk";
-import {
-  MonitorIcon,
-  ScrollTextIcon,
-  SettingsIcon,
-  TerminalIcon,
-} from "@lucide/vue";
+import { MonitorIcon, SettingsIcon, TerminalIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
@@ -109,7 +104,6 @@ const nav = computed(() => [
       : "Only agent owners can open terminals",
   },
   { name: "desktop", label: "RDP", icon: MonitorIcon },
-  { name: "logs", label: "Logs", icon: ScrollTextIcon },
   { name: "agent-settings", label: "Settings", icon: SettingsIcon },
 ]);
 </script>

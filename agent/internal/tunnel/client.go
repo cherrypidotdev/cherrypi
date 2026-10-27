@@ -18,7 +18,6 @@ package tunnel
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -52,9 +51,6 @@ type Config struct {
 	Transport string
 
 	Token func() string
-
-	Username string
-	Password string
 
 	Handler http.Handler
 
@@ -95,7 +91,6 @@ func (c *Client) Run(ctx context.Context) {
 			slog.Warn(
 				"tunnel disconnected",
 				"agency", c.cfg.AgencyURL,
-				"agent", c.cfg.Username,
 				"transport", c.transportName(),
 				"error", err,
 				"reconnect_in", backoff,
@@ -171,7 +166,7 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 	client := tunnelv1connect.NewTunnelServiceClient(
 		httpClient,
 		strings.TrimRight(c.cfg.AgencyURL, "/")+"/api/grpc",
-		connect.WithInterceptors(sharedtunnel.BasicAuthInterceptor{Header: c.authHeader()}),
+		connect.WithInterceptors(sharedtunnel.AuthInterceptor{Header: c.authHeader()}),
 	)
 
 	stream, err := client.Connect(ctx)
@@ -183,7 +178,8 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 		BuildVersion:    c.cfg.BuildVersion,
 		ProtocolVersion: c.cfg.ProtocolVersion,
 	}}); err != nil {
-		return err
+
+		return &transportUnsupportedError{err: err}
 	}
 
 	conn := sharedtunnel.ClientConn(stream)
@@ -240,7 +236,6 @@ func (c *Client) logConnected(transport string) {
 	slog.Info(
 		"tunnel connected",
 		"agency", c.cfg.AgencyURL,
-		"agent", c.cfg.Username,
 		"version", c.cfg.BuildVersion,
 		"protocol", c.cfg.ProtocolVersion,
 		"transport", transport,
@@ -260,14 +255,13 @@ func (c *Client) transportName() string {
 }
 
 func (c *Client) authHeader() string {
-	if c.cfg.Token != nil {
-		if token := c.cfg.Token(); token != "" {
-			return "Bearer " + token
-		}
+	if c.cfg.Token == nil {
+		return ""
 	}
-	return "Basic " + base64.StdEncoding.EncodeToString(
-		[]byte(c.cfg.Username+":"+c.cfg.Password),
-	)
+	if token := c.cfg.Token(); token != "" {
+		return "Bearer " + token
+	}
+	return ""
 }
 
 const probeHTTP2Timeout = 2 * time.Second

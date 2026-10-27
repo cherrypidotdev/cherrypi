@@ -71,7 +71,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.flex-col.items-center.gap-1.text-sm.font-medium
                 PaperclipIcon.size-5
                 span Drop files to attach
-            MarkdownEditor.min-h-40(
+            MarkdownEditor(
               v-if="tab === 'write'"
               ref="editor"
               v-model="draft"
@@ -118,8 +118,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             AttachmentList(
               removable
+              sketchable
               :attachments="task.attachments"
               @remove="emit('remove', $event)"
+              @sketch="openSketch"
               @open="emit('openAttachment', $event)"
             )
           .flex.items-center.gap-2
@@ -167,6 +169,7 @@ import { useAttachmentUpload } from "@/composables/useAttachmentUpload";
 import { useSketchEditor } from "@/composables/useSketchEditor";
 import { agency } from "@/lib/sdk";
 import {
+  bustAttachmentCache,
   newSketchFilename,
   sketchSceneFilename,
   toStoredSnapshot,
@@ -267,26 +270,47 @@ const {
   background: sketchBackground,
   title: sketchTitle,
   openNew: openNewSketch,
+  openImage: openSketch,
   onSave: onSketchSave,
 } = useSketchEditor({
   siblings: () => props.task.attachments,
-  persist: async ({ png, snapshot }) => {
-    const image = await agency.uploadAttachment({
-      file: png,
-      filename: newSketchFilename(),
-      taskId: props.task.id,
-    });
-    const scene = new Blob([toStoredSnapshot(snapshot)], {
+  persist: async ({ png, snapshot, target }) => {
+    const sceneBlob = new Blob([toStoredSnapshot(snapshot)], {
       type: "application/json",
     });
-    await agency.uploadAttachment({
-      file: scene,
-      filename: sketchSceneFilename(image.id),
-      taskId: props.task.id,
-    });
+    const { image, scene } = target;
+    if (image && scene) {
+      const updatedImage = await agency.replaceAttachment(image.id, {
+        file: png,
+        filename: image.filename,
+      });
+      const updatedScene = await agency.replaceAttachment(scene.id, {
+        file: sceneBlob,
+        filename: scene.filename,
+      });
+      replaceTaskAttachment(bustAttachmentCache(updatedImage));
+      replaceTaskAttachment(bustAttachmentCache(updatedScene));
+    } else {
+      const uploadedImage = await agency.uploadAttachment({
+        file: png,
+        filename: newSketchFilename(),
+        taskId: props.task.id,
+      });
+      await agency.uploadAttachment({
+        file: sceneBlob,
+        filename: sketchSceneFilename(uploadedImage.id),
+        taskId: props.task.id,
+      });
+    }
     emit("changed");
   },
 });
+
+function replaceTaskAttachment(updated: Attachment) {
+  props.task.attachments = props.task.attachments.map((item) =>
+    item.id === updated.id ? updated : item,
+  );
+}
 const dragging = ref(false);
 let dragDepth = 0;
 

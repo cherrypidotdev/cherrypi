@@ -226,7 +226,7 @@ func (s *AgentServer) CreateAgent(
 	if err != nil {
 		return nil, err
 	}
-	a, password, err := s.Agents.CreateOwned(
+	a, err := s.Agents.CreateOwned(
 		ctx, req.Username, req.DisplayName, req.Description, creatorActorID,
 	)
 	if err != nil {
@@ -247,10 +247,8 @@ func (s *AgentServer) CreateAgent(
 		token = plaintext
 	}
 	return &agencyv1.CreateAgentResponse{
-		Agent:              toProto(a),
-		CredentialUsername: a.Username,
-		CredentialPassword: password,
-		Token:              token,
+		Agent: toProto(a),
+		Token: token,
 	}, nil
 }
 
@@ -378,61 +376,6 @@ func (s *AgentServer) UpdateAgentTaskLimits(
 			"Updated task concurrency limits", nil)
 	}
 	return &agencyv1.UpdateAgentTaskLimitsResponse{Limits: toProtoLimits(lim)}, nil
-}
-
-func (s *AgentServer) ListAgentCredentials(
-	ctx context.Context,
-	req *agencyv1.ListAgentCredentialsRequest,
-) (*agencyv1.ListAgentCredentialsResponse, error) {
-	creds, err := s.Agents.ListCredentials(ctx, actorid.ParseAgent(req.AgentId))
-	if err != nil {
-		return nil, mapError(err)
-	}
-	out := make([]*agencyv1.AgentCredential, len(creds))
-	for i, c := range creds {
-		out[i] = &agencyv1.AgentCredential{
-			Username:   c.Username,
-			CreatedAt:  timestamppb.New(c.CreatedAt),
-			LastUsedAt: timestampOrNil(c.LastUsedAt),
-		}
-	}
-	return &agencyv1.ListAgentCredentialsResponse{Credentials: out}, nil
-}
-
-func (s *AgentServer) CreateAgentCredential(
-	ctx context.Context,
-	req *agencyv1.CreateAgentCredentialRequest,
-) (*agencyv1.CreateAgentCredentialResponse, error) {
-	c, password, err := s.Agents.CreateCredential(
-		ctx,
-		actorid.ParseAgent(req.AgentId),
-		req.Username,
-	)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.CreateAgentCredentialResponse{
-		Credential: &agencyv1.AgentCredential{
-			Username:   c.Username,
-			CreatedAt:  timestamppb.New(c.CreatedAt),
-			LastUsedAt: timestampOrNil(c.LastUsedAt),
-		},
-		Password: password,
-	}, nil
-}
-
-func (s *AgentServer) RevokeAgentCredential(
-	ctx context.Context,
-	req *agencyv1.RevokeAgentCredentialRequest,
-) (*agencyv1.RevokeAgentCredentialResponse, error) {
-	if err := s.Agents.RevokeCredential(
-		ctx,
-		actorid.ParseAgent(req.AgentId),
-		req.Username,
-	); err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.RevokeAgentCredentialResponse{}, nil
 }
 
 func (s *AgentServer) ListAgentTokens(
@@ -614,9 +557,9 @@ func fromProtoLimits(in *agencyv1.AgentTaskLimits) limits.Limits {
 
 func mapError(err error) *connect.Error {
 	switch {
-	case errors.Is(err, agents.ErrAgentMissing), errors.Is(err, agents.ErrCredentialMissing):
+	case errors.Is(err, agents.ErrAgentMissing):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.Is(err, agents.ErrAgentExists), errors.Is(err, agents.ErrCredentialExists):
+	case errors.Is(err, agents.ErrAgentExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, agents.ErrInvalidUsername), errors.Is(err, agents.ErrInvalidDefaults),
 		errors.Is(err, agents.ErrInvalidRole):

@@ -41,6 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TabsTrigger(value="usage") Usage
           TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") Terminals
           TabsTrigger(value="rdp") RDP
+          TabsTrigger(value="logs") Logs
           TabsTrigger(value="settings") Settings
   Tabs.flex.min-h-0.flex-1.flex-col.overflow-hidden(v-model="tab")
     TabsContent.flex-1.overflow-auto(value="overview")
@@ -100,7 +101,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               span.text-muted-foreground.text-xs(v-if="!projects.length")
                 | No projects
 
-        UsageGraph(:agent-id="currentAgentId")
+        UsageOverview(
+          v-if="currentAgentId"
+          context="agent"
+          :agent-id="currentAgentId"
+        )
 
         ExpressTaskForm(:agent-id="currentAgentId")
 
@@ -112,25 +117,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
 
     TabsContent.flex-1.overflow-auto(value="usage")
-      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
-        UsageGraph(:agent-id="currentAgentId")
-        Card
-          CardHeader
-            CardTitle Advanced usage
-            CardDescription
-              | Per-project and per-task cost, token and run breakdowns are being
-              | built as a follow-up (CHPI-175), reusing the project page's charts.
-              | The summary above stays live until then.
-          CardContent
-            p.text-muted-foreground.text-sm
-              | This tab will host filterable charts for cost, tokens and active
-              | time with per-task drill-down.
+      .p-6
+        UsageDashboard(
+          v-if="currentAgentId"
+          context="agent"
+          :agent-id="currentAgentId"
+        )
 
     TabsContent.flex-1.overflow-hidden(value="terminals")
       RootTerminalsView(embedded)
 
     TabsContent.flex-1.overflow-hidden(value="rdp")
       DesktopView(embedded)
+
+    TabsContent.flex-1.overflow-auto(value="logs")
+      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-4.p-6
+        LogsView
 
     TabsContent.flex-1.overflow-auto(value="settings")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
@@ -141,15 +143,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import UsageGraph from "@/components/usage/UsageGraph.vue";
+import UsageDashboard from "@/components/usage/UsageDashboard.vue";
+import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useAgents } from "@/composables/useAgents";
 import { setPageTitle } from "@/composables/usePageTitle";
@@ -169,13 +165,14 @@ import { computed, onMounted, ref, watchEffect } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AgentSettingsView from "./AgentSettingsView.vue";
 import DesktopView from "./DesktopView.vue";
+import LogsView from "./LogsView.vue";
 import RootTerminalsView from "./RootTerminalsView.vue";
 
 const route = useRoute();
 const { agents, loadAgents } = useAgents();
 const { canManageAgent } = useAgentAccess();
 
-const TABS = ["overview", "usage", "terminals", "rdp", "settings"];
+const TABS = ["overview", "usage", "terminals", "rdp", "logs", "settings"];
 const tab = ref(
   typeof route.query.tab === "string" && TABS.includes(route.query.tab)
     ? route.query.tab

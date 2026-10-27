@@ -83,9 +83,13 @@ func (s *DashboardServer) GetUsage(
 	ctx context.Context,
 	req *agencyv1.GetUsageRequest,
 ) (*agencyv1.GetUsageResponse, error) {
+	sinceMs := sql.NullInt64{Int64: req.SinceMs, Valid: req.SinceMs != 0}
+	untilMs := sql.NullInt64{Int64: req.UntilMs, Valid: req.UntilMs != 0}
 	rows, err := s.Store.ListAgentUsage(ctx,
 		sql.NullInt64{Int64: int64(actorid.ParseAgent(req.AgentId)), Valid: req.AgentId != ""},
 		sql.NullString{String: req.ProjectId, Valid: req.ProjectId != ""},
+		sinceMs,
+		untilMs,
 	)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -102,6 +106,7 @@ func (s *DashboardServer) GetUsage(
 			OutputTokens: row.OutputTokens,
 			Cost:         row.Cost,
 			ActiveMs:     row.ActiveMs,
+			Runs:         row.Runs,
 		})
 		resp.InputTokens += row.InputTokens
 		resp.OutputTokens += row.OutputTokens
@@ -111,6 +116,8 @@ func (s *DashboardServer) GetUsage(
 	days, err := s.Store.ListAgentUsageByDay(ctx,
 		sql.NullInt64{Int64: int64(actorid.ParseAgent(req.AgentId)), Valid: req.AgentId != ""},
 		sql.NullString{String: req.ProjectId, Valid: req.ProjectId != ""},
+		sinceMs,
+		untilMs,
 	)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -121,6 +128,7 @@ func (s *DashboardServer) GetUsage(
 			InputTokens:  day.InputTokens,
 			OutputTokens: day.OutputTokens,
 			Cost:         day.Cost,
+			Runs:         day.Runs,
 		})
 	}
 
@@ -201,9 +209,12 @@ func mergeLiveUsage(
 		OutputTokens: bucket.OutputTokens,
 		Cost:         bucket.Cost,
 		ActiveMs:     bucket.ActiveMs,
+		Runs:         1,
 	}
 	key := usageKey(agentID, bucket.TaskId)
 	if i, ok := index[key]; ok {
+
+		live.Runs = resp.Tasks[i].Runs + 1
 		resp.Tasks[i] = live
 		return
 	}

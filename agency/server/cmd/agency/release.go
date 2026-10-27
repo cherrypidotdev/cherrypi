@@ -34,3 +34,15 @@ var frontendDistFs embed.FS
 func frontendFS() (fs.FS, error) {
 	return fs.Sub(frontendDistFs, "frontenddist")
 }
+
+// Docker docs stage) fills it from docs-site/.vitepress/dist.
+
+//go:embed docsdist/index.html
+var _ string
+
+//go:embed docsdist/*
+var docsDistFs embed.FS
+
+func docsFS() (fs.FS, error) {
+	return fs.Sub(docsDistFs, "docsdist")
+}

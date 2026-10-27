@@ -219,71 +219,82 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         AgentOwnersPanel(:agent-id="id")
         AgentTeamsPanel(:agent-id="id")
 
-        Card
+        Card(v-if="canManage")
           CardHeader
-            CardTitle Credentials
+            CardTitle Personal access tokens
             CardDescription
-              | Each credential authenticates this agent's tunnel. Passwords are
-              | shown once, at creation.
-          CardContent
-            .flex.flex-col.gap-3
-              Alert(v-if="revealed")
-                AlertTitle Credential generated
-                AlertDescription Copy the password now — it is shown only once.
-                .mt-3.flex.flex-col.gap-1.font-mono.text-sm
-                  span Username: {{ revealed.username }}
-                  span Password: {{ revealed.password }}
-                .mt-3.flex.gap-2
-                  Button(size="sm" variant="outline" @click="copyCredential")
-                    CopyIcon(data-icon="inline-start")
-                    span Copy
-                  Button(
-                    size="sm"
-                    variant="ghost"
-                    @click="revealed = undefined"
-                  ) Dismiss
-              Table
-                TableHeader
-                  TableRow
-                    TableHead Username
-                    TableHead Created
-                    TableHead Last used
-                    TableHead
-                TableBody
-                  TableRowsSkeleton(
-                    v-if="loading && !credentials.length"
-                    :widths="['w-28', 'w-28', 'w-28', 'w-16']"
-                  )
-                  TableRow(
-                    v-for="credential in credentials"
-                    :key="credential.username"
-                  )
-                    TableCell.font-mono.text-sm {{ credential.username }}
-                    TableCell.text-muted-foreground {{ formatTimestamp(credential.createdAt) }}
-                    TableCell.text-muted-foreground
-                      | {{ credential.lastUsedAt ? formatTimestamp(credential.lastUsedAt) : "Never" }}
-                    TableCell
-                      .flex.justify-end
-                        Button(
-                          variant="outline"
-                          size="sm"
-                          @click="revoke(credential.username)"
-                          :disabled="busy === credential.username"
-                        )
-                          Trash2Icon(data-icon="inline-start")
-                          span Revoke
-                  TableRow(v-if="!credentials.length && !loading")
-                    TableCell.text-muted-foreground(:colspan="4") No credentials.
-              .flex.justify-end
+              | Long-lived credentials for this agent's tunnel, bundled Pi tools
+              | and artifact uploads. The plaintext is shown only once, at
+              | creation.
+          CardContent.flex.flex-col.gap-4
+            Alert(v-if="revealedToken")
+              AlertTitle Token created
+              AlertDescription
+                | Set CHERRYPI_AGENT_TOKEN to this value. It is shown only once.
+              .mt-3.flex.flex-col.gap-1.font-mono.text-sm
+                span Name: {{ revealedToken.name }}
+                span.break-all Token: {{ revealedToken.plaintext }}
+              .mt-3.flex.gap-2
+                Button(size="sm" variant="outline" @click="copyToken")
+                  CopyIcon(data-icon="inline-start")
+                  span Copy
                 Button(
-                  variant="outline"
                   size="sm"
-                  @click="addCredential"
-                  :disabled="revealing"
+                  variant="ghost"
+                  @click="revealedToken = undefined"
+                ) Dismiss
+            form.flex.items-end.gap-2(@submit.prevent="createToken")
+              Field.flex-1
+                FieldLabel(for="agent-token-name") Name
+                Input#agent-token-name(
+                  v-model="tokenName"
+                  placeholder="agent"
+                  autocomplete="off"
                 )
-                  Spinner(v-if="revealing" data-icon="inline-start")
-                  PlusIcon(v-else data-icon="inline-start")
-                  span Add credential
+                FieldDescription
+                  | A label for this token; it does not grant permissions.
+              Button(
+                type="submit"
+                variant="outline"
+                :disabled="creatingToken || !tokenName.trim()"
+              )
+                Spinner(v-if="creatingToken" data-icon="inline-start")
+                PlusIcon(v-else data-icon="inline-start")
+                span Create token
+            Table
+              TableHeader
+                TableRow
+                  TableHead Name
+                  TableHead Prefix
+                  TableHead Created
+                  TableHead Last used
+                  TableHead Expires
+                  TableHead
+              TableBody
+                TableRowsSkeleton(
+                  v-if="loadingTokens && !tokens.length"
+                  :widths="['w-28', 'w-24', 'w-28', 'w-28', 'w-24', 'w-16']"
+                )
+                TableRow(v-for="token in tokens" :key="token.id.toString()")
+                  TableCell.text-sm {{ token.name }}
+                  TableCell.text-muted-foreground.font-mono.text-xs {{ token.prefix }}
+                  TableCell.text-muted-foreground {{ formatTimestamp(token.createdAt) }}
+                  TableCell.text-muted-foreground
+                    | {{ token.lastUsedAt ? formatTimestamp(token.lastUsedAt) : "Never" }}
+                  TableCell.text-muted-foreground
+                    | {{ token.expiresAt ? formatTimestamp(token.expiresAt) : "Never" }}
+                  TableCell
+                    .flex.justify-end
+                      Button(
+                        variant="outline"
+                        size="sm"
+                        @click="revokeToken(token)"
+                        :disabled="revokingToken === token.id"
+                      )
+                        Trash2Icon(data-icon="inline-start")
+                        span Revoke
+                TableRow(v-if="!tokens.length && !loadingTokens")
+                  TableCell.text-muted-foreground(:colspan="6") No tokens.
 
         AgentActivityPanel(:agent-id="id")
 
@@ -328,7 +339,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -358,8 +374,8 @@ import { agency, currentAgentId } from "@/lib/sdk";
 import {
   PromptScope,
   type Agent,
-  type AgentCredential,
   type AgentProjectPrompt,
+  type AgentToken,
   type Attachment,
 } from "@cherrypi/sdk";
 import {
@@ -372,7 +388,7 @@ import {
   Trash2Icon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
 import LogsView from "./LogsView.vue";
@@ -397,7 +413,12 @@ const savingPrompt = ref(false);
 const error = ref("");
 const loading = ref(true);
 
-const credentials = ref<AgentCredential[]>([]);
+const tokens = ref<AgentToken[]>([]);
+const loadingTokens = ref(false);
+const tokenName = ref("agent");
+const creatingToken = ref(false);
+const revokingToken = ref<bigint | null>(null);
+const revealedToken = ref<{ name: string; plaintext: string } | undefined>();
 const projectPrompts = ref<AgentProjectPrompt[]>([]);
 const defaultProvider = ref("");
 const defaultModelId = ref("");
@@ -415,20 +436,12 @@ const modelCatalog = ref<ModelOption[]>([]);
 const defaultThinkingLevels = ref<string[]>([]);
 const loadingDefaults = ref(false);
 const savingDefaults = ref(false);
-const revealing = ref(false);
-const busy = ref("");
-const revealed = ref<{ username: string; password: string } | undefined>();
-
-const revealText = computed(() =>
-  revealed.value ? `${revealed.value.username}:${revealed.value.password}` : "",
-);
-
 async function load() {
   loading.value = true;
   try {
-    const [agentItem, creds, prompt] = await Promise.all([
+    const [agentItem, tokenList, prompt] = await Promise.all([
       agency.getAgent(id.value),
-      agency.listAgentCredentials(id.value),
+      agency.listAgentTokens(id.value),
       agency.getPrompt(PromptScope.AGENT, { agentId: id.value }),
     ]);
     item.value = agentItem;
@@ -436,7 +449,7 @@ async function load() {
     description.value = agentItem.description;
     agentPrompt.value = prompt.content;
     agentPromptVersion.value = prompt.version;
-    credentials.value = creds;
+    tokens.value = tokenList;
     projectPrompts.value = await agency.listAgentProjectPrompts(id.value);
     error.value = "";
   } catch (err) {
@@ -525,6 +538,17 @@ async function saveDefaults(
   thinkingLevel: string,
 ) {
   if (!canManage.value) return;
+
+  const previous = {
+    provider: defaultProvider.value,
+    id: defaultModelId.value,
+    name: defaultModelName.value,
+    thinking: defaultThinking.value,
+  };
+  defaultProvider.value = provider;
+  defaultModelId.value = modelId;
+  defaultModelName.value = modelName;
+  defaultThinking.value = thinkingLevel;
   savingDefaults.value = true;
   try {
     const saved = await withProgress(() =>
@@ -541,6 +565,10 @@ async function saveDefaults(
     defaultThinking.value = saved.thinkingLevel;
     toast.success("Model defaults updated");
   } catch (err) {
+    defaultProvider.value = previous.provider;
+    defaultModelId.value = previous.id;
+    defaultModelName.value = previous.name;
+    defaultThinking.value = previous.thinking;
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
     savingDefaults.value = false;
@@ -635,41 +663,64 @@ async function savePrompt() {
   }
 }
 
-async function addCredential() {
-  revealing.value = true;
+async function loadTokens() {
+  loadingTokens.value = true;
   try {
-    const result = await withProgress(() =>
-      agency.createAgentCredential(id.value, ""),
-    );
-    revealed.value = {
-      username: result.credential.username,
-      password: result.password,
-    };
-    await load();
+    tokens.value = await agency.listAgentTokens(id.value);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    revealing.value = false;
+    loadingTokens.value = false;
   }
 }
 
-async function revoke(username: string) {
+async function createToken() {
+  if (!canManage.value) return;
+  creatingToken.value = true;
+  try {
+    const result = await withProgress(() =>
+      agency.createAgentToken(id.value, tokenName.value.trim() || "agent"),
+    );
+    revealedToken.value = {
+      name: result.token.name,
+      plaintext: result.plaintext,
+    };
+    tokenName.value = "agent";
+    await loadTokens();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    creatingToken.value = false;
+  }
+}
+
+async function revokeToken(token: AgentToken) {
   if (
     !window.confirm(
-      `Revoke credential "${username}"? Any tunnel using it will disconnect.`,
+      `Revoke token "${token.name}" (${token.prefix})? Any agent using it will disconnect.`,
     )
   ) {
     return;
   }
-  busy.value = username;
+  revokingToken.value = token.id;
   try {
-    await withProgress(() => agency.revokeAgentCredential(id.value, username));
-    toast.success("Credential revoked");
-    await load();
+    await withProgress(() => agency.revokeAgentToken(id.value, token.id));
+    toast.success("Token revoked");
+    await loadTokens();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    busy.value = "";
+    revokingToken.value = null;
+  }
+}
+
+async function copyToken() {
+  if (!revealedToken.value) return;
+  try {
+    await navigator.clipboard.writeText(revealedToken.value.plaintext);
+    toast.success("Copied");
+  } catch {
+    toast.error("Copy failed");
   }
 }
 
@@ -693,14 +744,13 @@ async function leaveProject(entry: AgentProjectPrompt) {
   }
 }
 
-async function copyCredential() {
-  try {
-    await navigator.clipboard.writeText(revealText.value);
-    toast.success("Copied");
-  } catch {
-    toast.error("Copy failed");
-  }
-}
+watch(
+  canManage,
+  (can) => {
+    if (can) void loadTokens();
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   void load();

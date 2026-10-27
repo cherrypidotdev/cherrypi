@@ -53,12 +53,6 @@ service AgentService {
   
   rpc ListAgentLogs(ListAgentLogsRequest) returns (ListAgentLogsResponse);
 
-  rpc ListAgentCredentials(ListAgentCredentialsRequest) returns (ListAgentCredentialsResponse);
-  
-  
-  rpc CreateAgentCredential(CreateAgentCredentialRequest) returns (CreateAgentCredentialResponse);
-  rpc RevokeAgentCredential(RevokeAgentCredentialRequest) returns (RevokeAgentCredentialResponse);
-
   
   
   
@@ -131,14 +125,6 @@ message Agent {
   string role = 15;
 }
 
-
-
-message AgentCredential {
-  string username = 1;
-  google.protobuf.Timestamp created_at = 2;
-  google.protobuf.Timestamp last_used_at = 3;
-}
-
 message ListAgentsRequest {}
 
 message ListAgentsResponse {
@@ -165,11 +151,7 @@ message CreateAgentRequest {
 
 message CreateAgentResponse {
   Agent agent = 1;
-  
-  string credential_username = 2;
-  
-  string credential_password = 3;
-  
+  reserved 2, 3; 
   
   
   string token = 4;
@@ -226,33 +208,6 @@ message UpdateAgentDefaultsRequest {
 message UpdateAgentDefaultsResponse {
   AgentDefaults defaults = 1;
 }
-
-message ListAgentCredentialsRequest {
-  string agent_id = 1;
-}
-
-message ListAgentCredentialsResponse {
-  repeated AgentCredential credentials = 1;
-}
-
-message CreateAgentCredentialRequest {
-  string agent_id = 1;
-  
-  string username = 2;
-}
-
-message CreateAgentCredentialResponse {
-  AgentCredential credential = 1;
-  
-  string password = 2;
-}
-
-message RevokeAgentCredentialRequest {
-  string agent_id = 1;
-  string username = 2;
-}
-
-message RevokeAgentCredentialResponse {}
 
 
 
