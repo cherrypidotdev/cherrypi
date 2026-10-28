@@ -105,7 +105,6 @@ for (const page of pages) {
       continue;
     }
 
-    // Relative links resolve against the page's directory.
     const target = path.resolve(path.dirname(page), withoutAnchor);
     if (!fs.existsSync(target)) {
       problems.push(`${relative}: broken relative link ${raw}`);
@@ -113,8 +112,6 @@ for (const page of pages) {
   }
 }
 
-// Every English page has a Russian counterpart and vice versa (the landing page
-// maps to ru/index.md).
 function counterpart(page) {
   const relative = path.relative(root, page);
   if (relative.startsWith("ru" + path.sep)) {
@@ -134,7 +131,7 @@ for (const page of pages) {
 }
 
 // Check that the configured VitePress base was applied to the built index,
-// when a build exists.
+
 const built = path.join(root, ".vitepress", "dist", "index.html");
 if (fs.existsSync(built)) {
   const html = fs.readFileSync(built, "utf8");

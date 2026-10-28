@@ -246,7 +246,6 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char] ?? char);
 }
 
-/** Render a resolved reference as the chip a Markdown surface displays. */
 export function referenceChipHtml(target: ReferenceTarget): string {
   const label = target.label || target.key;
   const avatar = target.avatarUrl
@@ -265,16 +264,10 @@ export function referenceChipHtml(target: ReferenceTarget): string {
 }
 
 function kindAvatar(kind: ReferenceKind, label: string): string {
-  // A task chip already shows its `#ID`; an extra hash avatar would repeat it.
   if (kind === "task") return "";
   return `<span class="ref-chip-avatar ref-chip-avatar--initials" aria-hidden="true">${escapeHtml(initials(label))}</span>`;
 }
 
-/**
- * Replace `[label](ref:kind/key)` links with chips after the inline parser has
- * run. The transform is deliberately a core rule: the label may contain
- * emphasis, code or other inline tokens, and chips replace the whole link.
- */
 export function referencePlugin(
   md: MarkdownIt,
   resolve: (
@@ -301,8 +294,7 @@ export function referencePlugin(
             close = next;
             break;
           }
-          // Markdown never nests links; a new link means this one is
-          // unbalanced and should be left for the normal renderer.
+
           if (token.type === "link_open") break;
         }
         if (close < 0) continue;
@@ -320,16 +312,13 @@ export function referencePlugin(
   });
 }
 
-// -- Autocomplete data -----------------------------------------------------
-
-/** One entity offered by the `@` or `#` menu. */
 export interface ReferenceSuggestion {
   reference: EntityReference;
-  /** The primary text shown in the menu. */
+
   label: string;
-  /** Secondary text (full name, project slug, task name…). */
+
   detail: string;
-  /** Whether a search hit starts at a word boundary. */
+
   score: number;
 }
 
@@ -363,11 +352,6 @@ function compareSuggestions(
   );
 }
 
-/**
- * Search the `@` directory for actors, projects and teams. The query is the
- * text typed after `@`; an empty query lists the first few of each kind so the
- * menu is useful immediately.
- */
 export function searchReferences(
   query: string,
   directory: ReferenceDirectory = referenceDirectory(),
@@ -440,24 +424,20 @@ export function searchReferences(
   ];
 }
 
-/** Escape text inserted as a Markdown link label. */
 export function markdownLabel(value: string): string {
   return value.replace(/[\\[\]]/g, (char) => `\\${char}`);
 }
 
-/** The Markdown inserted when an `@` suggestion is chosen. */
 export function referenceMarkdown(reference: EntityReference): string {
   const target = resolveReference(reference);
   const label = markdownLabel(target.label);
   return `[@${label}](ref:${reference.kind}/${reference.key})`;
 }
 
-/** The Markdown inserted when a `#` task suggestion is chosen. */
 export function taskReferenceMarkdown(task: Pick<Task, "id">): string {
   return `[#${markdownLabel(task.id)}](ref:task/${task.id})`;
 }
 
-/** The menu label for a task: its id, with the name as secondary detail. */
 export function taskSuggestion(task: Task): ReferenceSuggestion {
   return {
     reference: { kind: "task", key: task.id },

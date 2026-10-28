@@ -34,15 +34,9 @@ import {
 } from "vue";
 import type { Router } from "vue-router";
 
-
-
-
 // as line breaks. Streaming works because the parent re-renders on every delta
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
-
-
-
 
 const fence = md.renderer.rules.fence!;
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -53,13 +47,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return fence(tokens, idx, options, env, self);
 };
 
-
-
-
 md.use(referencePlugin);
 
 const props = defineProps<{ text: string; inline?: boolean }>();
-
 
 const tag = computed(() => (props.inline ? "span" : "div"));
 const root = ref<HTMLElement>();
@@ -69,11 +59,8 @@ const html = computed(() =>
   ),
 );
 
-
-
-
 const hasReferences = computed(() =>
-  /\]\(ref:(?:actor|project|team)\
+  /\]\(ref:(?:actor|project|team)\//.test(props.text),
 );
 watch(
   hasReferences,
@@ -82,9 +69,6 @@ watch(
   },
   { immediate: true },
 );
-
-
-
 
 const router = getCurrentInstance()?.appContext.config.globalProperties
   .$router as Router | undefined;
@@ -109,8 +93,6 @@ function onReferenceClick(event: MouseEvent) {
   event.preventDefault();
   void router.push(href);
 }
-
-
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -137,9 +119,7 @@ async function renderMermaid() {
         : "default",
     });
     await mermaid.run({ nodes: Array.from(nodes), suppressErrors: true });
-  } catch {
-
-  }
+  } catch {}
 }
 
 function scheduleMermaid() {
