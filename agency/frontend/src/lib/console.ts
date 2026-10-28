@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { parseAttachmentTrailer } from "@/lib/attachments";
 import {
   parseQuestionnaire,
   parseQuestionnaireReview,
@@ -135,15 +134,9 @@ export function userMessageParts(value: {
     const envelope = parsePromptEnvelope(value.text);
     if (envelope) return envelope;
   }
-  const raw = value.body || value.text;
-  const structured = value.attachments ?? [];
-  const parsed =
-    structured.length > 0
-      ? { text: raw, attachmentIds: structured.map((a) => String(a.id)) }
-      : parseAttachmentTrailer(raw);
   return {
-    text: parsed.text,
-    attachmentIds: parsed.attachmentIds,
+    text: value.body || value.text,
+    attachmentIds: (value.attachments ?? []).map((a) => String(a.id)),
     sender: normalizeSender(value.sender),
   };
 }

@@ -17,6 +17,11 @@ The list shows every task you can see. Use the filters to narrow by project,
 agent, state, tag or assignee. The status chip on each row is the task's
 lifecycle state.
 
+Click the star to the left of the status to favorite a task. Favorites are
+private to your account, follow you across browsers, and always sort to the top
+of every task list (and the task page header offers the same star). Click it
+again to unfavorite the task.
+
 Create a task with **New task** in the header or **+** next to the agency name.
 The composer asks for:
 
@@ -28,15 +33,17 @@ The composer asks for:
   scheduler.
 
 The task starts in **draft** or **queued** depending on how you create it. A
-draft can still be edited; a queued task waits for a free slot on an eligible
-agent.
+draft can still be edited; a queued task waits for an incomplete blocking
+reference, an eligible agent, or a free slot. The task page shows the exact
+reason (for example `Waiting for tasks to become completed: PRFX-1, PRFX-2`),
+and the task table repeats it in the state tooltip.
 
 ## Task states
 
 | State | Meaning |
 | --- | --- |
 | `draft` | Created but not submitted. The prompt is still editable. |
-| `queued` | Waiting for the scheduler and a free slot. |
+| `queued` | Waiting for blocking references, an eligible agent, or a free slot. |
 | `running` | Pi is working. |
 | `input` | Pi asked a question and waits for an answer. |
 | `settled` | The run finished; the task can be followed up. |
@@ -66,6 +73,23 @@ Use **Write** and **Preview** to check Markdown before sending.
 `Ctrl+Enter` (`Cmd+Enter` on macOS) sends a message. Drag files into the
 console or use the paperclip to attach them. Files are uploaded to the agency
 and materialized into the agent's workspace before Pi sees them.
+
+### References and mentions
+
+The task composer, the prompt editor and the follow-up composer understand two
+shortcuts:
+
+- **`@`** searches users, agents, projects and teams. Pick one to insert a
+  clickable actor, project or team reference.
+- **`#`** opens the task picker inline, with the same reference scope and
+  filters as the References panel. The editor stays focused and the list
+  narrows as you type; pick one to insert a clickable task reference.
+
+References are ordinary Markdown links with a `ref:` destination, so they
+survive edits and are visible to Pi in the prompt. The dashboard renders them as
+chips with the entity's avatar and current name (or its initials when there is
+no picture); task chips show the task id. Mentions are presentation only: they
+do not send a notification or change the task's recipients.
 
 ### Answering questions
 

@@ -22,11 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .mx-auto.flex.w-full.max-w-6xl.items-start.justify-between.gap-4
       .flex.min-w-0.flex-col
         .flex.items-center.gap-2
-          RouterLink.text-muted-foreground(
-            class="hover:text-foreground"
-            :to="{ name: 'teams' }"
-          ) Teams
-          span.text-muted-foreground /
+          BackButton(:fallback="{ to: { name: 'teams' }, label: 'Teams' }")
           h1.truncate.text-lg.font-semibold {{ team?.name || "Team" }}
         p.text-muted-foreground.truncate.text-sm(v-if="team?.description")
           | {{ team.description }}
@@ -377,6 +373,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import BackButton from "@/components/BackButton.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import TasksList from "@/components/tasks/TasksList.vue";

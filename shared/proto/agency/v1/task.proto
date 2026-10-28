@@ -50,10 +50,13 @@ service TaskService {
   
   
   
+  
+  
   rpc QueueTask(QueueTaskRequest) returns (QueueTaskResponse);
   
   
   rpc PromoteTask(PromoteTaskRequest) returns (PromoteTaskResponse);
+  
   
   rpc DemoteTask(DemoteTaskRequest) returns (DemoteTaskResponse);
   
@@ -67,6 +70,8 @@ service TaskService {
   
   
   rpc RemoveTaskReference(RemoveTaskReferenceRequest) returns (RemoveTaskReferenceResponse);
+  
+  
   
   
   rpc ReopenTask(ReopenTaskRequest) returns (ReopenTaskResponse);
@@ -119,6 +124,10 @@ service TaskService {
   
   
   
+  rpc SetTaskFavorite(SetTaskFavoriteRequest) returns (SetTaskFavoriteResponse);
+  
+  
+  
   
   rpc BulkUpdateTask(BulkUpdateTaskRequest) returns (BulkUpdateTaskResponse);
 
@@ -147,6 +156,8 @@ enum TaskState {
   
   TASK_STATE_DRAFT = 1;
   reserved 9; 
+  
+  
   
   
   TASK_STATE_BACKLOG = 11;
@@ -342,6 +353,17 @@ message Task {
   
   
   bool subscribed = 50;
+  
+  
+  bool favorite = 52;
+  
+  
+  
+  
+  
+  
+  
+  string waiting_reason = 53;
 }
 
 
@@ -481,6 +503,16 @@ message ListTasksRequest {
   bool archived = 6;
   
   TaskSize size = 7;
+  
+  
+  string reference_project_id = 8;
+  
+  
+  int32 limit = 9;
+  
+  int32 offset = 10;
+  
+  TaskPriority priority = 11;
 }
 message ListTasksResponse {
   repeated Task tasks = 1;
@@ -737,6 +769,15 @@ message SetTaskSubscriptionRequest {
   bool subscribed = 2;
 }
 message SetTaskSubscriptionResponse {
+  Task task = 1;
+}
+
+message SetTaskFavoriteRequest {
+  string id = 1;
+  
+  bool favorite = 2;
+}
+message SetTaskFavoriteResponse {
   Task task = 1;
 }
 

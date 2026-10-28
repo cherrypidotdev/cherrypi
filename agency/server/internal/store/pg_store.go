@@ -63,6 +63,9 @@ func (s *PgStore) deleteActorChildren(ctx context.Context, q *pgdb.Queries, acto
 	if err := q.DeleteTaskSubscriptionsByActor(ctx, actorID); err != nil {
 		return err
 	}
+	if err := q.DeleteTaskFavoritesByActor(ctx, actorID); err != nil {
+		return err
+	}
 	return q.DeleteAgentOwnerEdgesByActor(ctx, actorID)
 }
 
@@ -708,6 +711,9 @@ func (s *PgStore) DeleteTask(ctx context.Context, id string) error {
 			return err
 		}
 		if err := q.DeleteTaskSubscriptions(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskFavoritesByTask(ctx, id); err != nil {
 			return err
 		}
 		if err := q.DeleteTaskMessages(ctx, id); err != nil {

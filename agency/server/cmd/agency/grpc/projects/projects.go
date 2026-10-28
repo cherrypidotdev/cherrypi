@@ -208,6 +208,24 @@ func (s *ProjectServer) ListAgentProjects(
 	if err != nil {
 		return nil, mapError(err)
 	}
+
+	if identity, ok := auth.IdentityFrom(ctx); ok && !identity.IsAdmin() {
+		visible, err := s.Projects.ProjectsForActor(ctx, identity.ActorID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		allowed := make(map[string]bool, len(visible))
+		for _, project := range visible {
+			allowed[project.ID] = true
+		}
+		kept := list[:0]
+		for _, project := range list {
+			if allowed[project.ID] {
+				kept = append(kept, project)
+			}
+		}
+		list = kept
+	}
 	var pictures map[string]attachments.Attachment
 	if s.Attachments != nil {
 		pictures, _ = s.Attachments.ProjectPictures(ctx)

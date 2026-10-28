@@ -179,7 +179,7 @@ func (s *Service) ReferenceAllowed(
 	if err != nil {
 		return false, err
 	}
-	return from.ParentID == to.ParentID, nil
+	return from.ParentID != "" && from.ParentID == to.ParentID, nil
 }
 
 func (s *Service) ReferenceProjectIDs(
@@ -200,15 +200,19 @@ func (s *Service) ReferenceProjectIDs(
 	}
 	out := []string{p.ID}
 	out = append(out, descendants...)
-	siblings := make([]string, 0, len(all))
-	for _, row := range all {
-		if row.ID == p.ID || row.ParentProjectID.String != p.ParentID {
-			continue
+
+	if p.ParentID != "" {
+		siblings := make([]string, 0, len(all))
+		for _, row := range all {
+			if row.ID == p.ID || row.ParentProjectID.String != p.ParentID {
+				continue
+			}
+			siblings = append(siblings, row.ID)
 		}
-		siblings = append(siblings, row.ID)
+		sort.Strings(siblings)
+		out = append(out, siblings...)
 	}
-	sort.Strings(siblings)
-	return append(out, siblings...), nil
+	return out, nil
 }
 
 func (s *Service) Hierarchy(
@@ -819,7 +823,8 @@ func referenceAllowedInTree(parents map[string]string, from, to string) bool {
 	if descendantInTree(parents, to, from) {
 		return true
 	}
-	return parents[from] == parents[to]
+
+	return parents[from] != "" && parents[from] == parents[to]
 }
 
 func descendantInTree(parents map[string]string, node, ancestor string) bool {

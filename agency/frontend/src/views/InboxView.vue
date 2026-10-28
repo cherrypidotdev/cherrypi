@@ -253,13 +253,7 @@ function isLinked(item: AgencyNotification): boolean {
 }
 
 function linkFor(item: AgencyNotification): RouteLocationRaw {
-  if (item.taskId) {
-    return {
-      name: "task",
-      params: { id: item.taskId },
-      query: { from: "inbox" },
-    };
-  }
+  if (item.taskId) return { name: "task", params: { id: item.taskId } };
   if (item.kind === "team_invitation") return { name: "teams" };
   return { name: "inbox" };
 }

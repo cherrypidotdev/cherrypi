@@ -76,15 +76,30 @@ func (s *TaskServer) ListTasks(
 	ctx context.Context,
 	req *agencyv1.ListTasksRequest,
 ) (*agencyv1.ListTasksResponse, error) {
-	list, err := s.Tasks.List(ctx, tasks.Filter{
-		ProjectID: req.ProjectId,
-		AgentID:   actorid.ParseAgent(req.AgentId),
-		State:     stateFromProto(req.State),
-		TagID:     req.TagId,
-		Search:    req.Search,
-		Size:      sizeFromProto(req.Size),
-		Archived:  req.Archived,
-	})
+	var priority *int64
+	if req.Priority != agencyv1.TaskPriority_TASK_PRIORITY_UNSPECIFIED {
+		p := priorityFromProto(req.Priority)
+		priority = &p
+	}
+	filter := tasks.Filter{
+		ProjectID:          req.ProjectId,
+		AgentID:            actorid.ParseAgent(req.AgentId),
+		State:              stateFromProto(req.State),
+		TagID:              req.TagId,
+		Search:             req.Search,
+		Size:               sizeFromProto(req.Size),
+		Priority:           priority,
+		Archived:           req.Archived,
+		ReferenceProjectID: req.ReferenceProjectId,
+		Limit:              int64(req.Limit),
+		Offset:             int64(req.Offset),
+	}
+
+	if actorID, ok := auth.ActorID(ctx); ok && actorID != 0 {
+		filter.VisibleToActorID = actorID
+		filter.VisibleToAdmin = auth.IsAdmin(ctx)
+	}
+	list, err := s.Tasks.List(ctx, filter)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -94,16 +109,34 @@ func (s *TaskServer) ListTasks(
 		out[i] = toProtoTask(t)
 	}
 	s.enrichRuntime(ctx, list, out)
+	s.enrichWaitingReasons(ctx, list, out)
 	return &agencyv1.ListTasksResponse{Tasks: out}, nil
+}
+
+func (s *TaskServer) visibleTask(ctx context.Context, id string) (tasks.Task, error) {
+	t, err := s.Tasks.Get(ctx, id)
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	if actorID, ok := auth.ActorID(ctx); ok && actorID != 0 && !auth.IsAdmin(ctx) {
+		allowed, err := s.Tasks.CanView(ctx, t.ProjectID, actorID, false)
+		if err != nil {
+			return tasks.Task{}, mapError(err)
+		}
+		if !allowed {
+			return tasks.Task{}, connect.NewError(connect.CodeNotFound, tasks.ErrNotFound)
+		}
+	}
+	return t, nil
 }
 
 func (s *TaskServer) GetTask(
 	ctx context.Context,
 	req *agencyv1.GetTaskRequest,
 ) (*agencyv1.GetTaskResponse, error) {
-	t, err := s.Tasks.Get(ctx, req.Id)
+	t, err := s.visibleTask(ctx, req.Id)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
 	list := []tasks.Task{t}
 	s.enrichNames(ctx, list)
@@ -125,6 +158,7 @@ func (s *TaskServer) GetTask(
 			}
 		}
 	}
+	s.enrichWaitingReasons(ctx, list, []*agencyv1.Task{out})
 	s.enrichAttachments(ctx, out.Id, out)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.GetTaskResponse{Task: out}, nil
@@ -425,6 +459,9 @@ func (s *TaskServer) ListTaskReferences(
 	ctx context.Context,
 	req *agencyv1.ListTaskReferencesRequest,
 ) (*agencyv1.ListTaskReferencesResponse, error) {
+	if _, err := s.visibleTask(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	refs, err := s.Tasks.References(ctx, req.Id)
 	if err != nil {
 		return nil, mapError(err)
@@ -753,6 +790,23 @@ func (s *TaskServer) SetTaskSubscription(
 	return &agencyv1.SetTaskSubscriptionResponse{Task: out}, nil
 }
 
+func (s *TaskServer) SetTaskFavorite(
+	ctx context.Context,
+	req *agencyv1.SetTaskFavoriteRequest,
+) (*agencyv1.SetTaskFavoriteResponse, error) {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, tasks.ErrActorRequired)
+	}
+	t, err := s.Tasks.SetFavorite(ctx, req.Id, actorID, req.Favorite)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := toProtoTask(t)
+	s.enrichAttribution(ctx, out)
+	return &agencyv1.SetTaskFavoriteResponse{Task: out}, nil
+}
+
 func (s *TaskServer) BulkUpdateTask(
 	ctx context.Context,
 	req *agencyv1.BulkUpdateTaskRequest,
@@ -840,6 +894,19 @@ func (s *TaskServer) AddToTask(
 	switch t.State {
 	case tasks.StateCompleted, tasks.StateCancelled,
 		tasks.StateSettled, tasks.StateFailed:
+		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, req.Prompt, actorID); err != nil {
+			return nil, mapError(err)
+		}
+		s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
+		s.wake()
+		return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
+	case tasks.StateBacklog:
+		if t.StartedAt.IsZero() {
+			return nil, connect.NewError(
+				connect.CodeFailedPrecondition,
+				errors.New("a backlog task that has not started has no running session"),
+			)
+		}
 		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, req.Prompt, actorID); err != nil {
 			return nil, mapError(err)
 		}
@@ -970,9 +1037,9 @@ func (s *TaskServer) WatchTask(
 	req *agencyv1.WatchTaskRequest,
 	stream *connect.ServerStream[agencyv1.WatchTaskResponse],
 ) error {
-	t, err := s.Tasks.Get(ctx, req.Id)
+	t, err := s.visibleTask(ctx, req.Id)
 	if err != nil {
-		return mapError(err)
+		return err
 	}
 	if !t.SessionDeletedAt.IsZero() {
 
@@ -1019,9 +1086,9 @@ func (s *TaskServer) GetTaskHistory(
 	ctx context.Context,
 	req *agencyv1.GetTaskHistoryRequest,
 ) (*agencyv1.GetTaskHistoryResponse, error) {
-	t, err := s.Tasks.Get(ctx, req.Id)
+	t, err := s.visibleTask(ctx, req.Id)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
 	entries, err := s.Tasks.SessionHistory(ctx, t.ID)
 	if err != nil {
@@ -1073,6 +1140,9 @@ func (s *TaskServer) GetTaskConfig(
 	ctx context.Context,
 	req *agencyv1.GetTaskConfigRequest,
 ) (*agencyv1.GetTaskConfigResponse, error) {
+	if _, err := s.visibleTask(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, conn, err := s.sessionTask(ctx, req.Id)
 	if err != nil {
 		return nil, err
@@ -1394,6 +1464,23 @@ func (s *TaskServer) enrichRuntime(
 	}
 }
 
+func (s *TaskServer) enrichWaitingReasons(
+	ctx context.Context,
+	list []tasks.Task,
+	out []*agencyv1.Task,
+) {
+	if s.Scheduler == nil {
+		return
+	}
+	for i := range list {
+		if i >= len(out) ||
+			out[i].GetState() != agencyv1.TaskState_TASK_STATE_QUEUED {
+			continue
+		}
+		out[i].WaitingReason = s.Scheduler.WaitingReason(ctx, list[i])
+	}
+}
+
 func (s *TaskServer) runtime(ctx context.Context, t tasks.Task) (*agentv1.Task, bool) {
 	if !runtimeStates(t.State) || t.SessionID == "" || t.AssigneeActorID == 0 {
 		return nil, false
@@ -1517,6 +1604,8 @@ func mapError(err error) *connect.Error {
 	case errors.Is(err, tasks.ErrNotDraft),
 		errors.Is(err, tasks.ErrWrongState),
 		errors.Is(err, tasks.ErrRunning),
+		errors.Is(err, tasks.ErrFollowUpRequired),
+		errors.Is(err, tasks.ErrPostponedNotDraft),
 		errors.Is(err, tasks.ErrNotMember),
 		errors.Is(err, tasks.ErrProjectHasNoAgents),
 		errors.Is(err, tasks.ErrMergeProjectMismatch),
@@ -1700,6 +1789,7 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		Blockers:             int32(t.Blockers),
 		CreatorActorId:       actorid.Format(t.CreatorActorID),
 		Subscribed:           t.Subscribed,
+		Favorite:             t.Favorite,
 		CreatedAt:            timestamppb.New(t.CreatedAt),
 		UpdatedAt:            timestamppb.New(t.UpdatedAt),
 	}

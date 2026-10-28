@@ -185,7 +185,7 @@ SELECT DISTINCT actor_id FROM (
   SELECT ts.actor_id
   FROM task_subscriptions ts
   WHERE ts.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id))
-)
+) AS recipients
 ORDER BY actor_id;
 
 

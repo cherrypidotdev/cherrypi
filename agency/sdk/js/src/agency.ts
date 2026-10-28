@@ -123,6 +123,7 @@ import {
   type SetTaskModelInput,
   type TaskLinkInput,
   type SetTaskLeadsInput,
+  type SetTaskFavoriteInput,
   type SetTaskSubscriptionInput,
   type SetTaskTeamsInput,
   type UpdateTagInput,
@@ -585,7 +586,11 @@ export class AgencyClient {
         tagId: filter?.tagId ?? "",
         search: filter?.search ?? "",
         size: filter?.size ?? TaskSize.UNSPECIFIED,
+        priority: filter?.priority ?? TaskPriority.UNSPECIFIED,
         archived: filter?.archived ?? false,
+        referenceProjectId: filter?.referenceProjectId ?? "",
+        limit: filter?.limit ?? 0,
+        offset: filter?.offset ?? 0,
       },
       options,
     );
@@ -822,6 +827,18 @@ export class AgencyClient {
   ): Promise<Task> {
     const res = await this.tasks.setTaskSubscription(
       { id, subscribed: input.subscribed },
+      options,
+    );
+    return res.task!;
+  }
+
+  async setTaskFavorite(
+    id: string,
+    input: SetTaskFavoriteInput,
+    options?: CallOptions,
+  ): Promise<Task> {
+    const res = await this.tasks.setTaskFavorite(
+      { id, favorite: input.favorite },
       options,
     );
     return res.task!;

@@ -65,6 +65,23 @@ SELECT * FROM tasks WHERE project_id = ? AND seq = ?;
 
 
 -- name: ListTasks :many
+WITH reference_scope AS (
+  SELECT CAST(sqlc.narg(reference_project_id) AS TEXT) AS id
+  WHERE CAST(sqlc.narg(reference_project_id) AS TEXT) IS NOT NULL
+  UNION
+  SELECT pa.project_id
+  FROM project_ancestors pa
+  WHERE pa.ancestor_id = sqlc.narg(reference_project_id)
+  UNION
+  SELECT p.id
+  FROM projects p
+  JOIN projects origin ON origin.id = sqlc.narg(reference_project_id)
+  WHERE p.id <> origin.id
+    AND (
+      (p.parent_project_id IS NOT NULL AND p.parent_project_id = origin.parent_project_id)
+      OR (p.parent_project_id IS NULL AND origin.parent_project_id IS NULL)
+    )
+)
 SELECT t.* FROM tasks t
 WHERE (
     CAST(sqlc.narg(project_id) AS TEXT) IS NULL
@@ -107,13 +124,23 @@ WHERE (
     OR t.size = sqlc.narg(size)
   )
   AND (
+    CAST(sqlc.narg(priority) AS INTEGER) IS NULL
+    OR t.priority = sqlc.narg(priority)
+  )
+  AND (
     CAST(sqlc.narg(project_id) AS TEXT) IS NOT NULL
     OR t.project_id IS NULL
     OR EXISTS (
       SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.archived_at IS NULL
     )
   )
-ORDER BY t.rowid DESC;
+  AND (
+    CAST(sqlc.narg(reference_project_id) AS TEXT) IS NULL
+    OR t.project_id IN (SELECT id FROM reference_scope)
+  )
+ORDER BY t.rowid DESC
+LIMIT CAST(COALESCE(sqlc.narg(page_limit), -1) AS INTEGER)
+OFFSET sqlc.arg(page_offset);
 
 -- name: ListQueuedTasks :many
 
@@ -255,12 +282,13 @@ WHERE id = ? AND archived_at IS NOT NULL;
 
 
 
+
 UPDATE tasks SET
   state = 'queued', error = '', pending_prompt = sqlc.arg(pending_prompt),
   pending_prompt_actor_id = sqlc.narg(pending_prompt_actor_id),
   queued_at = COALESCE(queued_at, sqlc.arg(queued_at)), updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
-  AND state IN ('completed', 'cancelled', 'settled', 'failed');
+  AND state IN ('completed', 'cancelled', 'settled', 'failed', 'backlog');
 
 -- name: ClearTaskPendingPrompt :execrows
 UPDATE tasks SET pending_prompt = '', pending_prompt_actor_id = NULL, updated_at = ?

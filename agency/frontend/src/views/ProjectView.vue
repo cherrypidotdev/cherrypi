@@ -27,6 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
       span.size-12.shrink-0(v-else :innerHTML="logo")
       .flex.min-w-0.flex-col
+        BackButton.-ml-2.self-start(:fallback="backFallback")
         nav.text-muted-foreground.flex.flex-wrap.items-center.gap-1.text-xs(
           v-if="ancestors.length"
         )
@@ -89,6 +90,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import BackButton from "@/components/BackButton.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +105,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UsageDashboard from "@/components/usage/UsageDashboard.vue";
 import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgents } from "@/composables/useAgents";
+import type { BackFallback } from "@/composables/useBackNavigation";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { useProjects } from "@/composables/useProjects";
 import { projectAccessApi } from "@/lib/projectAccess";
@@ -143,6 +146,17 @@ const ancestors = computed(() => {
     parentID = parent.parentProjectId;
   }
   return chain;
+});
+
+const backFallback = computed<BackFallback>(() => {
+  const parent = ancestors.value.at(-1);
+  if (parent) {
+    return {
+      to: { name: "project", params: { slug: parent.slug } },
+      label: parent.name,
+    };
+  }
+  return { to: { name: "projects" }, label: "Projects" };
 });
 
 const logo = computed(() => toSvg(project.value?.id ?? "project", 48));

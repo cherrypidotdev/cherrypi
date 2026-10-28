@@ -2207,6 +2207,38 @@ func (s *PgStore) DeleteTaskLeads(ctx context.Context, taskID string) error {
 	return s.q.DeleteTaskLeads(ctx, taskID)
 }
 
+func (s *PgStore) AddTaskFavorite(ctx context.Context, p AddTaskFavoriteParams) error {
+	return s.q.AddTaskFavorite(ctx, pgdb.AddTaskFavoriteParams(p))
+}
+
+func (s *PgStore) DeleteTaskFavorite(
+	ctx context.Context,
+	p DeleteTaskFavoriteParams,
+) error {
+	return s.q.DeleteTaskFavorite(ctx, pgdb.DeleteTaskFavoriteParams(p))
+}
+
+func (s *PgStore) DeleteTaskFavoritesByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteTaskFavoritesByActor(ctx, int64(actorID))
+}
+
+func (s *PgStore) IsActorFavoriteTask(
+	ctx context.Context,
+	p IsActorFavoriteTaskParams,
+) (bool, error) {
+	return s.q.IsActorFavoriteTask(ctx, pgdb.IsActorFavoriteTaskParams(p))
+}
+
+func (s *PgStore) ListFavoriteTaskIDs(
+	ctx context.Context,
+	actorID ids.ActorID,
+) ([]string, error) {
+	return s.q.ListFavoriteTaskIDs(ctx, int64(actorID))
+}
+
 func (s *PgStore) AddTaskLead(ctx context.Context, p AddTaskLeadParams) error {
 	return s.q.AddTaskLead(ctx, pgdb.AddTaskLeadParams(p))
 }

@@ -21,6 +21,7 @@ import { ensureSession } from "@/lib/account";
 import { currentAgentId, currentAgentUsername } from "@/lib/sdk";
 import AccountView from "@/views/AccountView.vue";
 import AgencyTasksView from "@/views/AgencyTasksView.vue";
+import AgencyUsageView from "@/views/AgencyUsageView.vue";
 import AgentView from "@/views/AgentView.vue";
 import AgentsView from "@/views/AgentsView.vue";
 import InboxView from "@/views/InboxView.vue";
@@ -96,6 +97,12 @@ const router = createRouter({
           component: TaskView,
           props: true,
           meta: { title: "Task" },
+        },
+        {
+          path: "usage",
+          name: "agency-usage",
+          component: AgencyUsageView,
+          meta: { title: "Usage" },
         },
         {
           path: "inbox",

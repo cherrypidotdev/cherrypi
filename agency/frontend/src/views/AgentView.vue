@@ -21,6 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   header.border-b.px-6.py-3
     .mx-auto.flex.w-full.max-w-6xl.flex-wrap.items-center.justify-between.gap-3
       .flex.min-w-0.items-center.gap-3
+        BackButton.shrink-0(
+          :fallback="{ to: { name: 'agents' }, label: 'Agents' }"
+        )
         span.relative.shrink-0
           img.block.size-10.rounded-full.object-cover(
             v-if="item?.picture"
@@ -113,7 +116,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           empty-text="No tasks for this agent yet."
           hide-assignee
           :agent-id="currentAgentId"
-          :from-agent="currentAgentUsername"
         )
 
     TabsContent.flex-1.overflow-auto(value="usage")
@@ -140,6 +142,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import BackButton from "@/components/BackButton.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";

@@ -20,9 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .relative.flex.h-full.flex-col
   header.shrink-0.border-b(:class="detailsOpen ? 'mr-80' : ''")
     .flex.items-center.gap-3.px-4.py-2
-      Button(variant="ghost" size="sm" @click="back")
-        ArrowLeftIcon(data-icon="inline-start")
-        span Tasks
+      BackButton(:fallback="backFallback")
       .flex.min-w-0.flex-1.items-center.gap-2
         Input#task-title-input.h-8.max-w-md(
           v-if="task && titleEditing"
@@ -61,6 +59,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           CircleSlashIcon.size-3.shrink-0
           | Session cleaned up
       .flex.shrink-0.items-center.gap-2(v-if="task")
+        Button(
+          variant="ghost"
+          size="icon-sm"
+          :class="task.favorite ? 'text-amber-500' : 'text-muted-foreground'"
+          :title="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-label="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-pressed="task.favorite"
+          @click="toggleFavorite"
+          :disabled="saving.favorite"
+        )
+          StarIcon.size-4(:fill="task.favorite ? 'currentColor' : 'none'")
         span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
           class="gap-1.5 py-0.5"
           :class="taskStateClassFor(task)"
@@ -90,6 +99,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   .flex.min-h-0.flex-1(:class="detailsOpen ? 'mr-80' : ''")
     .flex.min-w-0.flex-1.flex-col
       .shrink-0.border-b.px-4.py-2(
+        v-if="task && waitingReason"
+        class="bg-amber-500/10"
+        data-testid="task-waiting-reason"
+      )
+        .mx-auto.flex.max-w-3xl.items-start.gap-3
+          InfoIcon.text-muted-foreground.size-4.shrink-0(class="mt-0.5")
+          p.text-sm.font-medium.break-words
+            template(v-if="waitingBlockers.length")
+              span Waiting for tasks to become completed:&#32;
+              template(
+                v-for="(blocker, index) in waitingBlockers"
+                :key="blocker.id"
+              )
+                RouterLink.font-semibold.underline.underline-offset-2(
+                  class="hover:text-foreground/80"
+                  :to="{ name: 'task', params: { id: blocker.id } }"
+                ) {{ blocker.id }}
+                template(v-if="index < waitingBlockers.length - 1")
+                  span ,&#32;
+            span(v-else) {{ waitingReason }}
+
+      .shrink-0.border-b.px-4.py-2(
         v-if="task && task.state === TaskState.FAILED"
         class="bg-destructive/10"
       )
@@ -118,7 +149,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         @open-attachment="openAttachment"
       )
       .flex.flex-1.items-center.justify-center.p-6(
-        v-else-if="task && !isStarted"
+        v-else-if="task && !isStarted && !canFollowUp"
       )
         p.text-muted-foreground.max-w-md.text-center.text-sm
           | This task has no console yet. Its Pi session starts when the scheduler
@@ -146,8 +177,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :waiting-for-input="task?.runtime?.waitingForInput"
           :attachments="task?.attachments ?? []"
           :actor-pictures="actorPictures"
+          :agent-id="task.assigneeActorId && !sessionDeleted ? agentIdForActor(task.assigneeActorId) : ''"
+          :model-config="config"
+          :model-selection="modelSelection"
+          :model-disabled="saving.model || !config"
           @queue="onQueue"
           @open-attachment="openAttachment"
+          @model-change="onModelSelectionChange"
         )
         .shrink-0.px-4.pt-3.pb-3(v-if="showPendingPrompt")
           .mx-auto.w-full.max-w-3xl
@@ -258,9 +294,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 v-model="prompt"
                 placeholder="Send a follow-up prompt…"
                 submit-on-enter
+                references
                 test-id="composer-editor"
                 aria-label="Follow-up prompt"
-                title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line"
+                title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+                :reference-project-id="task?.projectId ?? ''"
+                :reference-task-id="task?.id ?? ''"
                 :fill="textareaHeight !== null"
                 :style="textareaStyle"
                 height="3.5rem"
@@ -304,6 +343,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @sketch="openSketch"
                   @open="openAttachment"
                 )
+              p.text-muted-foreground.text-xs(v-if="isPostponed")
+                | Sending a follow-up queues this task immediately.
               .flex.min-h-7.items-center.gap-2(v-if="contextWindow")
                 ContextMeter.ml-auto(
                   :tokens="taskUsage?.contextTokens ?? 0"
@@ -730,11 +771,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               InboxIcon(data-icon="inline-start")
               span Move to Backlog
-            Button(v-if="isBacklog" @click="queue" :disabled="actionBusy")
+            Button(
+              v-if="isBacklog && !isPostponed"
+              @click="queue"
+              :disabled="actionBusy"
+            )
               PlayIcon(data-icon="inline-start")
               span Queue task
             Button(
-              v-if="isBacklog"
+              v-if="isBacklog && !isPostponed"
               variant="outline"
               @click="demote"
               :disabled="actionBusy"
@@ -805,14 +850,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               Trash2Icon(data-icon="inline-start")
               span Delete
-            p.text-muted-foreground.text-xs(v-if="isBacklog")
+            p.text-muted-foreground.text-xs(v-if="isBacklog && isPostponed")
+              | This task already ran. Send a follow-up to queue it again, or
+              | close it out. It cannot return to Draft.
+            p.text-muted-foreground.text-xs(v-else-if="isBacklog")
               | You can edit the prompt in Backlog. Move the task back to Draft
               | to change its project.
             p.text-muted-foreground.text-xs(v-if="isDraft")
               | Queue starts the task; Move to Backlog parks it without queuing.
             p.text-muted-foreground.text-xs(v-if="!isDraft && !isBacklog")
-              | Re-queue the task, then move it back to draft to edit its prompt
-              | or project.
+              | Send a follow-up to run the task again, or close it out.
 
   CloseOutTaskDialog(
     v-model:open="closeOutDialogOpen"
@@ -859,6 +906,7 @@ import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import AttachmentLightbox from "@/components/attachments/AttachmentLightbox.vue";
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
 import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
+import BackButton from "@/components/BackButton.vue";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
@@ -898,6 +946,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
 import { useAttachmentUpload } from "@/composables/useAttachmentUpload";
+import type { BackFallback } from "@/composables/useBackNavigation";
 import { useDraft } from "@/composables/useDraft";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { withProgress } from "@/composables/useProgress";
@@ -939,6 +988,7 @@ import {
   TASK_SIZES,
   tagColor,
   tagStyle,
+  taskIncompleteBlockers,
   taskName,
   taskNameClass,
   taskPriorityClass,
@@ -949,6 +999,7 @@ import {
   taskStateIcon,
   taskStateLabelFor,
   taskTitlePending,
+  taskWaitingReason,
   type TaskModelSelection,
 } from "@/lib/task";
 import { deleteConfirmation } from "@/lib/taskActions";
@@ -971,7 +1022,6 @@ import { Disclosure, DisclosureButton, DisclosurePanel } from "@headlessui/vue";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  ArrowLeftIcon,
   ArrowLeftRightIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -979,6 +1029,7 @@ import {
   EraserIcon,
   ExternalLinkIcon,
   InboxIcon,
+  InfoIcon,
   MenuIcon,
   PaperclipIcon,
   PencilIcon,
@@ -987,6 +1038,7 @@ import {
   PlusIcon,
   SendIcon,
   SquareIcon,
+  StarIcon,
   Trash2Icon,
   TriangleAlertIcon,
   Undo2Icon,
@@ -1003,7 +1055,7 @@ import {
   ref,
   watch,
 } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{ id: string }>();
@@ -1032,7 +1084,6 @@ const SketchDialog = defineAsyncComponent(
 );
 
 const router = useRouter();
-const route = useRoute();
 const { agents, loadAgents, usernameFor, actorIdFor, agentIdForActor } =
   useAgents();
 const { actorPictures, loadActorPictures, pictureFor } = useActorPictures();
@@ -1111,6 +1162,7 @@ const saving = reactive({
   teams: false,
   leads: false,
   subscription: false,
+  favorite: false,
   model: false,
 });
 
@@ -1148,7 +1200,12 @@ let configGeneration = 0;
 const isDraft = computed(() => task.value?.state === TaskState.DRAFT);
 const isBacklog = computed(() => task.value?.state === TaskState.BACKLOG);
 
-const canEditPrompt = computed(() => isDraft.value || isBacklog.value);
+const hasStarted = computed(() => Boolean(task.value?.startedAt));
+const isPostponed = computed(() => isBacklog.value && hasStarted.value);
+
+const canEditPrompt = computed(
+  () => isDraft.value || (isBacklog.value && !hasStarted.value),
+);
 const isQueued = computed(() => task.value?.state === TaskState.QUEUED);
 
 const isResting = computed(() => {
@@ -1163,8 +1220,12 @@ const isResting = computed(() => {
 const isRunning = computed(() => task.value?.state === TaskState.RUNNING);
 const isInput = computed(() => task.value?.state === TaskState.INPUT);
 
-const isBlockedTask = computed(
-  () => isQueued.value && (task.value?.blockers ?? 0) > 0,
+const waitingReason = computed(() =>
+  task.value ? taskWaitingReason(task.value) : "",
+);
+
+const waitingBlockers = computed(() =>
+  task.value ? taskIncompleteBlockers(task.value) : [],
 );
 
 const assigneeChoice = computed(() => {
@@ -1214,7 +1275,7 @@ const isActive = computed(() => {
 const sessionDeleted = computed(() => Boolean(task.value?.sessionDeletedAt));
 
 const canFollowUp = computed(
-  () => !!task.value && acceptsPrompt(task.value.state),
+  () => !!task.value && (acceptsPrompt(task.value.state) || isPostponed.value),
 );
 
 function acceptsPrompt(state: TaskState): boolean {
@@ -1236,16 +1297,9 @@ const canMoveToBacklog = computed(() => {
   );
 });
 
-const canRework = computed(() => {
-  const state = task.value?.state;
-  if (sessionDeleted.value) return false;
-  return (
-    state === TaskState.SETTLED ||
-    state === TaskState.FAILED ||
-    state === TaskState.COMPLETED ||
-    state === TaskState.CANCELLED
-  );
-});
+const canRework = computed(
+  () => task.value?.state === TaskState.FAILED && !sessionDeleted.value,
+);
 
 const canCloseOut = computed(() => {
   const state = task.value?.state;
@@ -1266,11 +1320,11 @@ const canChangeOutcome = isClosedOut;
 const canArchive = isClosedOut;
 const isStarted = computed(() => Boolean(task.value?.sessionId));
 
-const showPrompt = computed(() => !isStarted.value);
+const showPrompt = computed(() => !isStarted.value && !isPostponed.value);
 const promptHint = computed(() => {
+  if (isPostponed.value) return "Started · follow up below to queue it again";
   if (isBacklog.value) return "Backlog · click to edit";
-  if (isBlockedTask.value) return "Blocked · waiting on blocking references";
-  if (isQueued.value) return "Queued · waiting for a free slot";
+  if (waitingReason.value) return waitingReason.value;
   return "";
 });
 
@@ -1280,8 +1334,7 @@ const showPendingPrompt = computed(
 const pendingPromptHint = computed(() => {
   if (isDraft.value) return "Unsent follow-up · click to edit";
   if (isBacklog.value) return "Backlog · not queued yet";
-  if (isBlockedTask.value) return "Blocked · waiting on blocking references";
-  if (isQueued.value) return "Queued · waiting for a free slot";
+  if (waitingReason.value) return waitingReason.value;
   if (isResting.value)
     return "Undelivered follow-up · the next run delivers it";
   return "";
@@ -1540,6 +1593,21 @@ async function toggleTaskLead(id: string) {
   await setTaskLeads([...next]);
 }
 
+async function toggleFavorite() {
+  const current = task.value;
+  if (!current) return;
+  saving.favorite = true;
+  try {
+    task.value = await agency.setTaskFavorite(current.id, {
+      favorite: !current.favorite,
+    });
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    saving.favorite = false;
+  }
+}
+
 async function toggleSubscription() {
   const current = task.value;
   if (!current) return;
@@ -1565,6 +1633,20 @@ function projectName(id: string): string {
 function projectSlug(id: string): string {
   return allProjects.value.find((project) => project.id === id)?.slug ?? "";
 }
+
+const backFallback = computed<BackFallback>(() => {
+  const projectId = task.value?.projectId;
+  if (projectId) {
+    const slug = projectSlug(projectId);
+    if (slug) {
+      return {
+        to: { name: "project", params: { slug } },
+        label: projectName(projectId),
+      };
+    }
+  }
+  return { to: { name: "agency-tasks" }, label: "Tasks" };
+});
 
 function agentName(id: string): string {
   const item = agents.value.find(
@@ -1739,19 +1821,6 @@ async function onLinksSave(links: TaskLinkInput[]) {
   } finally {
     saving.links = false;
   }
-}
-
-function back() {
-  const from = route.query.from;
-  if (from === "inbox") {
-    void router.push({ name: "inbox" });
-    return;
-  }
-  if (typeof from === "string" && from) {
-    void router.push({ name: "agent", params: { username: from } });
-    return;
-  }
-  void router.push({ name: "agency-tasks" });
 }
 
 async function queue() {

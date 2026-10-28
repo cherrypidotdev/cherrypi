@@ -41,7 +41,8 @@ Card
       TableHeader
         TableRow
           TableHead Task
-          TableHead {{ context === "project" ? "Agent" : "Project" }}
+          TableHead(v-if="context !== 'agent'") Agent
+          TableHead(v-if="context !== 'project'") Project
           TableHead Tags
           TableHead State
           TableHead.cursor-pointer.text-right.select-none(
@@ -74,12 +75,18 @@ Card
                   | archived
               span.text-3xs.text-muted-foreground.font-mono
                 | {{ row.task?.id ?? row.taskId }}
-          TableCell
+          TableCell(v-if="context !== 'agent'")
             .flex.items-center.gap-1
               span.bg-muted.text-8.flex.size-4.items-center.justify-center.rounded.font-bold(
-                :style="{ color: usageAccent(row.agentId || row.projectId) }"
-              ) {{ (context === "project" ? row.agentName : row.projectName).slice(0, 1) }}
-              span {{ context === "project" ? row.agentName : row.projectName }}
+                :style="{ color: usageAccent(row.agentId) }"
+              ) {{ row.agentName.slice(0, 1) }}
+              span {{ row.agentName }}
+          TableCell(v-if="context !== 'project'")
+            .flex.items-center.gap-1
+              span.bg-muted.text-8.flex.size-4.items-center.justify-center.rounded.font-bold(
+                :style="{ color: usageAccent(row.projectId) }"
+              ) {{ row.projectName.slice(0, 1) }}
+              span {{ row.projectName }}
           TableCell
             .flex.flex-wrap.gap-1
               span.text-3xs.rounded.px-1.font-medium(
@@ -110,7 +117,9 @@ Card
                 )
                   path(d="M7 17 17 7M9 7h8v8")
         TableRow(v-if="!visible.length")
-          TableCell.text-muted-foreground.py-8.text-center(colspan="9")
+          TableCell.text-muted-foreground.py-8.text-center(
+            :colspan="columnCount"
+          )
             | No tasks match these filters.
   CardFooter.justify-between.gap-3
     span.text-2xs.text-muted-foreground Showing {{ visible.length }} of {{ filtered.length }} tasks
@@ -160,6 +169,7 @@ const STATE_FILTERS: { value: StateFilter; label: string }[] = [
 ];
 
 const router = useRouter();
+const columnCount = computed(() => 9 + (props.context === "agency" ? 1 : 0));
 const stateFilter = ref<StateFilter>("all");
 const search = ref("");
 const sortKey = ref<"runs" | "tokens" | "active" | "cost">("runs");

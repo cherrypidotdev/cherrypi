@@ -33,15 +33,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :class="range === option.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
             @click="range = option.value"
           ) {{ option.label }}
-      label.flex.flex-col.gap-1
-        span.text-2xs.text-muted-foreground.font-semibold {{ context === "project" ? "Agent" : "Project" }}
-        Select(v-model="scope")
-          SelectTrigger.w-44(title="Filter usage")
-            SelectValue(placeholder="All")
+      label.flex.flex-col.gap-1(v-if="context !== 'agent'")
+        span.text-2xs.text-muted-foreground.font-semibold Agent
+        Select(v-model="agentScope")
+          SelectTrigger.w-44(title="Filter by agent")
+            SelectValue(placeholder="All agents")
           SelectContent
-            SelectItem(:value="ALL") {{ context === "project" ? "All agents" : "All projects" }}
+            SelectItem(:value="ALL") All agents
             SelectItem(
-              v-for="option in scopeOptions"
+              v-for="option in availableAgents"
+              :key="option.id"
+              :value="option.id"
+            ) {{ option.name }}
+      label.flex.flex-col.gap-1(v-if="context !== 'project'")
+        span.text-2xs.text-muted-foreground.font-semibold Project
+        Select(v-model="projectScope")
+          SelectTrigger.w-44(title="Filter by project")
+            SelectValue(placeholder="All projects")
+          SelectContent
+            SelectItem(:value="ALL") All projects
+            SelectItem(
+              v-for="option in availableProjects"
               :key="option.id"
               :value="option.id"
             ) {{ option.name }}
@@ -70,9 +82,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .min-w-0(class="lg:col-span-6")
       UsageBreakdown(
         :rows="breakdown"
-        :title="context === 'project' ? 'By agent' : 'By project'"
-        :subtitle="context === 'project' ? 'Cost and response rounds in this range.' : 'Where this agent spent its usage.'"
-        :unit="context === 'project' ? 'agents' : 'projects'"
+        :title="breakdownTitle"
+        :subtitle="breakdownSubtitle"
+        :unit="breakdownUnit"
       )
     .min-w-0(class="lg:col-span-12")
       UsageTasksTable(:context="context" :rows="rows")
@@ -110,23 +122,24 @@ const props = defineProps<{
 }>();
 
 const ALL = "__all__";
-const scope = ref(ALL);
+const agentScope = ref(ALL);
+const projectScope = ref(ALL);
 const range = ref<UsageRange>("30");
 const includeArchived = ref(true);
 
 const effectiveAgentId = computed(() =>
   props.context === "agent"
     ? (props.agentId ?? "")
-    : scope.value === ALL
+    : agentScope.value === ALL
       ? ""
-      : scope.value,
+      : agentScope.value,
 );
 const effectiveProjectId = computed(() =>
   props.context === "project"
     ? (props.projectId ?? "")
-    : scope.value === ALL
+    : projectScope.value === ALL
       ? ""
-      : scope.value,
+      : projectScope.value,
 );
 
 const {
@@ -146,14 +159,27 @@ const {
   includeArchived,
 });
 
-const scopeOptions = computed(() =>
-  props.context === "project" ? availableAgents.value : availableProjects.value,
-);
-
 const rangeLabel = computed(() => usageRangeLabel(range.value));
-const subtitle = computed(() =>
-  props.context === "project"
-    ? "All agents working in this project. The range applies to every chart and breakdown below."
-    : "Everything this agent worked on. Filter by project or time; the charts reuse the project components.",
+const subtitle = computed(() => {
+  if (props.context === "project") {
+    return "All agents working in this project. The range applies to every chart and breakdown below.";
+  }
+  if (props.context === "agent") {
+    return "Everything this agent worked on. Filter by project or time; the charts reuse the project components.";
+  }
+  return "Every agent and project in the agency. Filter by either scope or time; the charts reuse the project components.";
+});
+
+const breakdownTitle = computed(() =>
+  props.context === "project" ? "By agent" : "By project",
+);
+const breakdownSubtitle = computed(() => {
+  if (props.context === "project")
+    return "Cost and response rounds in this range.";
+  if (props.context === "agent") return "Where this agent spent its usage.";
+  return "Where the agency spent its usage in this range.";
+});
+const breakdownUnit = computed(() =>
+  props.context === "project" ? "agents" : "projects",
 );
 </script>

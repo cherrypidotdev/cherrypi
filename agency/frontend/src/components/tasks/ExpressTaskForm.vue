@@ -60,9 +60,11 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             v-model="prompt"
             placeholder="Describe a task…"
             resizable
+            references
             test-id="express-editor"
             aria-label="Task prompt"
-            title="Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line"
+            title="Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+            :reference-project-id="selectedProjectId"
             @submit="submit"
             @paste="onPaste"
           )
@@ -401,6 +403,7 @@ import {
   TaskState,
   type CreateTaskInput,
   type Project,
+  type ProjectAgent,
   type TaskReferenceInput,
 } from "@cherrypi/sdk";
 import {
@@ -545,7 +548,9 @@ const submitLabel = computed(() => {
 });
 const agentProjects = ref<Project[]>([]);
 
-const projectMembers = ref<string[]>([]);
+const projectMembers = ref<ProjectAgent[]>([]);
+
+const projectMembersLoaded = ref(false);
 const saving = ref(false);
 const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 
@@ -697,11 +702,13 @@ const projectReady = computed(
   () => !!fixedProjectId.value || projectChoice.value !== NO_PROJECT,
 );
 
-const projectOptions = computed(() =>
-  sortProjectsByName(
-    assigneeChoice.value === AUTO ? allProjects.value : agentProjects.value,
-  ),
-);
+const projectOptions = computed(() => {
+  if (fixedAgentId.value) return sortProjectsByName(agentProjects.value);
+  if (projectChoice.value === NO_PROJECT && assigneeChoice.value !== AUTO) {
+    return sortProjectsByName(agentProjects.value);
+  }
+  return sortProjectsByName(allProjects.value);
+});
 
 const noProjects = computed(
   () => !fixedProjectId.value && projectOptions.value.length === 0,
@@ -730,28 +737,60 @@ watch(activeTags, (list) => {
   defaultTagsProject.value = projectID;
 });
 
+const eligibleProjectAgentIds = computed(
+  () =>
+    new Set(
+      projectMembers.value
+        .filter((member) => member.canCreateTasks)
+        .map((member) => member.agentId),
+    ),
+);
+
 const assigneeOptions = computed(() => {
-  if (!fixedProjectId.value) return agents.value;
-  const memberIds = new Set(projectMembers.value);
+  if (!selectedProjectId.value || !projectMembersLoaded.value) {
+    return agents.value;
+  }
+  const memberIds = eligibleProjectAgentIds.value;
   return agents.value.filter((agent) => memberIds.has(agent.id));
 });
 
 watch(
   fixedProjectId,
-  async (id) => {
-    if (!id) {
-      projectMembers.value = [];
-      return;
-    }
-    projectChoice.value = id;
-    try {
-      const members = await agency.listProjectAgents(id);
-      projectMembers.value = members.map((member) => member.agentId);
-    } catch {
-      projectMembers.value = [];
-    }
+  (id) => {
+    if (id) projectChoice.value = id;
   },
   { immediate: true },
+);
+
+function dropIneligibleAssignee() {
+  if (
+    fixedAgentId.value ||
+    !selectedProjectId.value ||
+    !projectMembersLoaded.value ||
+    assigneeChoice.value === AUTO
+  ) {
+    return;
+  }
+  if (eligibleProjectAgentIds.value.has(assigneeChoice.value)) return;
+  const agent = agents.value.find((item) => item.id === assigneeChoice.value);
+  const project = allProjects.value.find(
+    (item) => item.id === selectedProjectId.value,
+  );
+  assigneeChoice.value = AUTO;
+  toast.info(
+    `${agent?.displayName || agent?.username || "That agent"} is not a member of ${project?.name || "the project"}; auto-assign is selected.`,
+  );
+}
+
+watch(
+  [
+    assigneeChoice,
+    selectedProjectId,
+    projectMembersLoaded,
+    eligibleProjectAgentIds,
+    agents,
+  ],
+  dropIneligibleAssignee,
 );
 
 const selectedTagList = computed(() =>
@@ -794,7 +833,18 @@ watch(
     leadActorIds.value = [];
     projectTeams.value = [];
     leadCandidates.value = [];
+    projectMembers.value = [];
+    projectMembersLoaded.value = false;
     if (!id) return;
+    try {
+      const members = await agency.listProjectAgents(id);
+      if (selectedProjectId.value !== id) return;
+      projectMembers.value = members;
+    } catch {
+    } finally {
+      if (selectedProjectId.value === id) projectMembersLoaded.value = true;
+    }
+    dropIneligibleAssignee();
     try {
       const access = await projectAccessApi.access(id);
       if (selectedProjectId.value !== id) return;

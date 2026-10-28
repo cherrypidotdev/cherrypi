@@ -2242,6 +2242,38 @@ func (s *SqliteStore) DeleteTaskLeads(ctx context.Context, taskID string) error 
 	return s.q.DeleteTaskLeads(ctx, taskID)
 }
 
+func (s *SqliteStore) AddTaskFavorite(ctx context.Context, p AddTaskFavoriteParams) error {
+	return s.q.AddTaskFavorite(ctx, sqlitedb.AddTaskFavoriteParams(p))
+}
+
+func (s *SqliteStore) DeleteTaskFavorite(
+	ctx context.Context,
+	p DeleteTaskFavoriteParams,
+) error {
+	return s.q.DeleteTaskFavorite(ctx, sqlitedb.DeleteTaskFavoriteParams(p))
+}
+
+func (s *SqliteStore) DeleteTaskFavoritesByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteTaskFavoritesByActor(ctx, int64(actorID))
+}
+
+func (s *SqliteStore) IsActorFavoriteTask(
+	ctx context.Context,
+	p IsActorFavoriteTaskParams,
+) (bool, error) {
+	return s.q.IsActorFavoriteTask(ctx, sqlitedb.IsActorFavoriteTaskParams(p))
+}
+
+func (s *SqliteStore) ListFavoriteTaskIDs(
+	ctx context.Context,
+	actorID ids.ActorID,
+) ([]string, error) {
+	return s.q.ListFavoriteTaskIDs(ctx, int64(actorID))
+}
+
 func (s *SqliteStore) AddTaskLead(ctx context.Context, p AddTaskLeadParams) error {
 	return s.q.AddTaskLead(ctx, sqlitedb.AddTaskLeadParams(p))
 }

@@ -189,6 +189,118 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   font-style: italic;
 }
 
+.ref-chip {
+  --ref-color: oklch(0.52 0.16 255);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  margin-inline: 0.05em;
+  padding: 0.05em 0.55em 0.05em 0.25em;
+  border: 1px solid color-mix(in oklch, var(--ref-color) 24%, transparent);
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--ref-color) 12%, transparent);
+  color: var(--ref-color);
+  font-size: 0.92em;
+  font-weight: 500;
+  line-height: 1.5;
+  text-decoration: none;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.ref-chip:hover {
+  background: color-mix(in oklch, var(--ref-color) 20%, transparent);
+  color: var(--ref-color);
+  text-decoration: none;
+}
+.ref-chip:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--ref-color) 50%, transparent);
+  outline-offset: 1px;
+}
+.ref-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ref-chip-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+.ref-chip-avatar--initials {
+  background: color-mix(in oklch, var(--ref-color) 20%, transparent);
+  color: var(--ref-color);
+  font-size: 0.58em;
+  font-weight: 600;
+}
+.ref-chip--actor {
+  --ref-color: oklch(0.52 0.17 255);
+}
+.ref-chip--project {
+  --ref-color: oklch(0.5 0.13 155);
+}
+.ref-chip--team {
+  --ref-color: oklch(0.55 0.14 65);
+}
+.ref-chip--task {
+  --ref-color: oklch(0.52 0.19 300);
+
+  padding-inline: 0.55em;
+}
+.dark .ref-chip--actor {
+  --ref-color: oklch(0.76 0.12 255);
+}
+.dark .ref-chip--project {
+  --ref-color: oklch(0.76 0.12 155);
+}
+.dark .ref-chip--team {
+  --ref-color: oklch(0.78 0.12 65);
+}
+.dark .ref-chip--task {
+  --ref-color: oklch(0.78 0.14 300);
+}
+
+.cm-tooltip.cm-reference-tooltip {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 8px 24px color-mix(in oklch, black 14%, transparent);
+  overflow: hidden;
+}
+.cm-reference-tooltip > ul {
+  max-height: min(22em, 50vh) !important;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+}
+.cm-reference-tooltip > ul > li {
+  padding: 0.25rem 0.5rem;
+}
+.cm-reference-tooltip > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.cm-reference-tooltip completion-section {
+  border: 0;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cm-reference-tooltip .cm-completionDetail {
+  color: var(--muted-foreground);
+  font-style: normal;
+  font-size: 0.75rem;
+}
+.cm-reference-tooltip .cm-completionLabel {
+  font-weight: 500;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

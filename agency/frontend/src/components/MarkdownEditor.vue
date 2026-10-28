@@ -19,11 +19,42 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 div(:class="rootClass" :style="rootStyle" :data-testid="testId")
   .h-full(ref="host")
+
+  .absolute.inset-x-0.bottom-0.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
+    v-if="resizable && !fill"
+    title="Drag to resize"
+    @pointerdown="startResize"
+    data-testid="markdown-editor-resize"
+  )
+    .bg-border.h-1.w-10.rounded-full.transition-opacity(
+      :class="dragging ? 'opacity-100' : 'opacity-40 hover:opacity-100'"
+    )
+
+  Teleport(to="body")
+    .fixed.z-50(
+      v-if="taskPickerState.open"
+      ref="taskPickerRoot"
+      :style="taskPickerStyle"
+    )
+      TaskPicker(
+        :search="taskPickerState.search"
+        :reference-project-id="referenceProjectId"
+        :exclude-ids="taskPickerExcludeIds"
+        @pick="onTaskPicked"
+      )
 </template>
 
 <script setup lang="ts">
+import { referenceCompletionSource } from "@/lib/referenceCompletion";
+import { taskReferenceMarkdown } from "@/lib/references";
 import { cn } from "@/lib/utils";
-import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import type { Task } from "@cherrypi/sdk";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  closeCompletion,
+} from "@codemirror/autocomplete";
 import {
   addCursorAbove,
   addCursorBelow,
@@ -53,12 +84,17 @@ import {
   keymap,
   placeholder as placeholderExtension,
   rectangularSelection,
+  tooltips,
+  type ViewUpdate,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import { useEventListener } from "@vueuse/core";
 import {
   computed,
+  defineAsyncComponent,
   onBeforeUnmount,
   onMounted,
+  reactive,
   ref,
   shallowRef,
   watch,
@@ -77,6 +113,12 @@ const props = withDefaults(
     resizable?: boolean;
 
     submitOnEnter?: boolean;
+
+    references?: boolean;
+
+    referenceProjectId?: string;
+
+    referenceTaskId?: string;
     testId?: string;
     ariaLabel?: string;
   }>(),
@@ -87,6 +129,9 @@ const props = withDefaults(
     fill: false,
     resizable: false,
     submitOnEnter: false,
+    references: false,
+    referenceProjectId: "",
+    referenceTaskId: "",
     testId: undefined,
     ariaLabel: "Markdown editor",
   },
@@ -103,25 +148,188 @@ const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const host = ref<HTMLElement>();
 const view = shallowRef<EditorView>();
 
+const MIN_HEIGHT = 64;
+const MAX_HEIGHT = 384;
+const dragHeight = ref(MIN_HEIGHT);
+const dragging = ref(false);
+let dragStartY = 0;
+let dragStartHeight = MIN_HEIGHT;
+
+const TaskPicker = defineAsyncComponent(
+  () => import("@/components/tasks/TaskPicker.vue"),
+);
+const TASK_PICKER_WIDTH = 416;
+const TASK_PICKER_HEIGHT = 300;
+const taskPickerRoot = ref<HTMLElement>();
+const taskPickerState = reactive({ open: false, from: 0, search: "" });
+const taskPickerStyle = ref<Record<string, string>>({});
+const taskPickerExcludeIds = computed(() =>
+  props.referenceTaskId ? [props.referenceTaskId] : [],
+);
+
+useEventListener(
+  window,
+  "pointerdown",
+  (event: PointerEvent) => {
+    if (!taskPickerState.open) return;
+    const target = event.target as Node | null;
+    if (!target) return;
+    if (taskPickerRoot.value?.contains(target)) return;
+    if (host.value?.contains(target)) return;
+    closeTaskPicker();
+  },
+  { capture: true },
+);
+
+useEventListener(
+  window,
+  "keydown",
+  (event: KeyboardEvent) => {
+    if (!taskPickerState.open || event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeTaskPicker();
+    view.value?.focus();
+  },
+  { capture: true },
+);
+
+useEventListener(
+  window,
+  "scroll",
+  () => {
+    if (taskPickerState.open) positionTaskPicker();
+  },
+  { capture: true, passive: true },
+);
+useEventListener(window, "resize", () => {
+  if (taskPickerState.open) positionTaskPicker();
+});
+
+function taskQueryAt(
+  state: EditorState,
+): { from: number; search: string } | null {
+  const selection = state.selection.main;
+  if (!selection.empty) return null;
+  const before = state.sliceDoc(0, selection.head);
+  const hash = before.lastIndexOf("#");
+  if (hash < 0) return null;
+  if (hash > 0 && before[hash - 1] === "#") return null;
+  const search = before.slice(hash + 1);
+
+  if (search.includes("\n") || search.includes("#")) return null;
+
+  if (search.startsWith(" ") || search.startsWith("\t")) return null;
+  return { from: hash, search };
+}
+
+function hashWasTyped(update: ViewUpdate): boolean {
+  const head = update.state.selection.main.head;
+  if (!update.state.selection.main.empty) return false;
+  for (const transaction of update.transactions) {
+    let insertedHash = false;
+    transaction.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
+      if (
+        fromB === head - 1 &&
+        inserted.length === 1 &&
+        inserted.toString() === "#"
+      ) {
+        insertedHash = true;
+      }
+    });
+    if (insertedHash) return true;
+  }
+  return false;
+}
+
+function positionTaskPicker() {
+  const editor = view.value;
+  if (!editor) return;
+  const coords = editor.coordsAtPos(editor.state.selection.main.head);
+  if (!coords) return;
+  const width = Math.min(TASK_PICKER_WIDTH, window.innerWidth - 16);
+  const left = Math.max(
+    8,
+    Math.min(coords.left, window.innerWidth - width - 8),
+  );
+  const style: Record<string, string> = {
+    left: `${left}px`,
+    width: `${width}px`,
+  };
+  if (
+    coords.bottom + TASK_PICKER_HEIGHT > window.innerHeight &&
+    coords.top > TASK_PICKER_HEIGHT
+  ) {
+    style.bottom = `${window.innerHeight - coords.top + 4}px`;
+  } else {
+    style.top = `${coords.bottom + 4}px`;
+  }
+  taskPickerStyle.value = style;
+}
+
+function syncTaskPicker(update: ViewUpdate) {
+  if (!props.references) {
+    closeTaskPicker();
+    return;
+  }
+  const match = taskQueryAt(update.state);
+  if (!match) {
+    closeTaskPicker();
+    return;
+  }
+  if (!taskPickerState.open) {
+    if (!props.referenceProjectId || !hashWasTyped(update)) return;
+    taskPickerState.from = match.from;
+    taskPickerState.open = true;
+    if (view.value) closeCompletion(view.value);
+  }
+  taskPickerState.search = match.search;
+  positionTaskPicker();
+}
+
+function closeTaskPicker() {
+  if (!taskPickerState.open) return;
+  taskPickerState.open = false;
+  taskPickerState.search = "";
+  taskPickerState.from = 0;
+}
+
+function onTaskPicked(task: Task) {
+  const editor = view.value;
+  if (!editor || !taskPickerState.open) return;
+  const head = editor.state.selection.main.head;
+  const from = Math.min(taskPickerState.from, head);
+  const markdown = `${taskReferenceMarkdown(task)} `;
+  editor.dispatch({
+    changes: { from, to: head, insert: markdown },
+    selection: { anchor: from + markdown.length },
+    scrollIntoView: true,
+    userEvent: "input.complete",
+  });
+  closeTaskPicker();
+  editor.focus();
+}
+
 const readOnly = new Compartment();
 const layout = new Compartment();
 const attributes = new Compartment();
 const placeholders = new Compartment();
 const sending = new Compartment();
+const references = new Compartment();
 
 const rootClass = computed(() =>
   cn(
     "border-input focus-within:border-ring focus-within:ring-ring/50 relative w-full rounded-lg border bg-transparent transition-colors focus-within:ring-3",
     "dark:bg-input/30",
     props.disabled && "opacity-50",
-    props.resizable && "resize-y overflow-hidden",
+    props.resizable && "overflow-hidden",
   ),
 );
 
 const rootStyle = computed(() => {
   if (props.fill) return {};
   if (props.resizable) {
-    return { height: "4rem", minHeight: "4rem", maxHeight: "24rem" };
+    return { height: `${dragHeight.value}px` };
   }
   return { height: props.height };
 });
@@ -250,6 +458,17 @@ function layoutExtension() {
   return [fillLayout];
 }
 
+function referenceExtensions() {
+  if (!props.references) return [];
+  return [
+    autocompletion({
+      override: [referenceCompletionSource()],
+      icons: false,
+      tooltipClass: () => "cm-reference-tooltip",
+    }),
+  ];
+}
+
 function submitCommand(editor: EditorView): boolean {
   if (editor.composing || props.disabled) return false;
   emit("submit");
@@ -280,6 +499,8 @@ function extensions() {
     rectangularSelection(),
     crosshairCursor(),
     EditorView.lineWrapping,
+
+    tooltips({ parent: document.body }),
     EditorView.clickAddsSelectionRange.of(
       (event) => event.altKey || (MAC ? event.metaKey : event.ctrlKey),
     ),
@@ -291,6 +512,7 @@ function extensions() {
     highlightSelectionMatches(),
     baseTheme,
     layout.of(layoutExtension()),
+    references.of(referenceExtensions()),
     readOnly.of(readOnlyExtensions()),
     attributes.of(contentAttributes()),
     placeholders.of(placeholderExtension(props.placeholder)),
@@ -305,6 +527,7 @@ function extensions() {
       if (update.docChanged) {
         emit("update:modelValue", update.state.doc.toString());
       }
+      if (update.docChanged || update.selectionSet) syncTaskPicker(update);
     }),
   ];
 }
@@ -321,6 +544,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopResize();
   view.value?.destroy();
   view.value = undefined;
 });
@@ -338,15 +562,36 @@ watch(
 
 watch(
   () => props.disabled,
-  (disabled) => {
+  () => {
     view.value?.dispatch({
-      effects: readOnly.reconfigure([
-        EditorState.readOnly.of(disabled),
-        EditorView.editable.of(!disabled),
-      ]),
+      effects: readOnly.reconfigure(readOnlyExtensions()),
     });
   },
 );
+
+function startResize(event: PointerEvent) {
+  if (event.button !== 0 || !props.resizable || props.fill) return;
+  event.preventDefault();
+  dragging.value = true;
+  dragStartY = event.clientY;
+  dragStartHeight = dragHeight.value;
+  document.body.style.cursor = "row-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize, { once: true });
+}
+
+function onResizeMove(event: PointerEvent) {
+  const next = dragStartHeight + event.clientY - dragStartY;
+  dragHeight.value = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
+}
+
+function stopResize() {
+  dragging.value = false;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  window.removeEventListener("pointermove", onResizeMove);
+}
 
 watch(
   () => [props.fill, props.resizable, props.height] as const,
@@ -354,6 +599,28 @@ watch(
     view.value?.dispatch({
       effects: layout.reconfigure(layoutExtension()),
     });
+  },
+);
+
+watch(
+  () => props.references,
+  (enabled) => {
+    const editor = view.value;
+    if (!editor) return;
+    if (!enabled) {
+      closeCompletion(editor);
+      closeTaskPicker();
+    }
+    editor.dispatch({
+      effects: references.reconfigure(referenceExtensions()),
+    });
+  },
+);
+
+watch(
+  () => props.referenceProjectId,
+  (projectId) => {
+    if (!projectId) closeTaskPicker();
   },
 );
 

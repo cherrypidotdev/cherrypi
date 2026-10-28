@@ -223,7 +223,7 @@ FROM (
         WHERE ptm.project_id = pa.ancestor_id AND tm.actor_id = sqlc.arg(actor_id)
       )
     )
-);
+) AS project_roles;
 
 -- name: ListProjectsForActor :many
 WITH roots AS (
@@ -330,7 +330,7 @@ SELECT DISTINCT actor_id FROM (
   SELECT tm.actor_id FROM project_team_memberships ptm
   JOIN team_members tm ON tm.team_id = ptm.team_id
   WHERE ptm.project_id = sqlc.arg(project_id)
-)
+) AS project_members
 ORDER BY actor_id;
 
 

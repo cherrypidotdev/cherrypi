@@ -32,6 +32,8 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
           CheckSquareIcon.size-4(v-if="allSelected")
           MinusSquareIcon.size-4(v-else-if="someSelected")
           SquareIcon.size-4(v-else)
+      TableHead.w-8(title="Favorites stay on top of every list")
+        StarIcon.text-muted-foreground(class="size-3.5" aria-label="Favorites")
       template(v-for="column in visibleColumns" :key="column.key")
         TableHead(:class="column.widthClass" :title="column.hint")
           button.flex.items-center.gap-1(
@@ -62,6 +64,16 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
         )
           CheckSquareIcon.size-4(v-if="selected.has(task.id)")
           SquareIcon.size-4(v-else)
+      TableCell.w-8(@click.stop)
+        button.flex.items-center.justify-center.rounded-md.p-1.transition-colors(
+          type="button"
+          :class="task.favorite ? 'text-amber-500' : 'text-muted-foreground/60 hover:text-foreground'"
+          :title="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-label="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-pressed="task.favorite"
+          @click="$emit('toggleFavorite', task.id)"
+        )
+          StarIcon.size-4(:fill="task.favorite ? 'currentColor' : 'none'")
       template(v-for="column in visibleColumns" :key="column.key")
         TableCell(v-if="column.key === 'state'")
           .flex.flex-nowrap.items-center(class="gap-1.5")
@@ -72,13 +84,14 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
             )
               component.size-3.shrink-0(:is="taskStateIcon(task.state)")
               | {{ taskStateLabelFor(task) }}
-            span.inline-flex.shrink-0.items-center.text-xs.text-amber-600(
-              v-if="isTaskBlocked(task)"
-              class="gap-0.5 dark:text-amber-400"
-              :title="taskBlockedTitle(task)"
+            span.text-muted-foreground.inline-flex.shrink-0.cursor-help.items-center(
+              v-if="taskWaitingReason(task)"
+              role="img"
+              :title="taskWaitingReason(task)"
+              :aria-label="taskWaitingReason(task)"
+              data-testid="task-waiting-reason"
             )
-              OctagonPauseIcon.size-3.shrink-0
-              | {{ task.blockers }}
+              InfoIcon.size-3
             .border-border.divide-border.inline-flex.items-center.divide-x.overflow-hidden.rounded-md.border(
               v-if="rowActions(task).length"
             )
@@ -242,10 +255,8 @@ import {
   formatTimestamp,
 } from "@/lib/format";
 import {
-  isTaskBlocked,
   shortTaskId,
   tagStyle,
-  taskBlockedTitle,
   taskName,
   taskNameClass,
   taskPriorityClass,
@@ -258,6 +269,7 @@ import {
   taskStateIcon,
   taskStateLabelFor,
   taskTitlePending,
+  taskWaitingReason,
 } from "@/lib/task";
 import { TaskReferenceKind, TaskState, type Task } from "@cherrypi/sdk";
 import {
@@ -274,12 +286,13 @@ import {
   ExternalLinkIcon,
   HardDriveDownloadIcon,
   InboxIcon,
+  InfoIcon,
   LockIcon,
   MinusSquareIcon,
-  OctagonPauseIcon,
   PinIcon,
   PlayIcon,
   SquareIcon,
+  StarIcon,
   Undo2Icon,
   type LucideIcon,
 } from "@lucide/vue";
@@ -325,6 +338,7 @@ const emit = defineEmits<{
   sort: [key: string];
   toggleSelect: [id: string];
   toggleSelectAll: [];
+  toggleFavorite: [id: string];
 }>();
 
 const { columns } = useTaskColumns();
@@ -348,10 +362,11 @@ const someSelected = computed(
   () => props.tasks.some((t) => props.selected.has(t.id)) && !allSelected.value,
 );
 
-const columnCount = computed(() => 1 + visibleColumns.value.length);
+const columnCount = computed(() => 2 + visibleColumns.value.length);
 
 const skeletonWidths = computed(() => [
   "w-5",
+  "w-4",
   ...visibleColumns.value.map((column) => column.skeleton),
 ]);
 
@@ -365,8 +380,11 @@ function sortIcon(key: string) {
 
 function stateUpdatedTitle(task: Task): string {
   const at = task.stateUpdatedAt;
-  if (!at) return "";
-  return `${formatTimestamp(at)} (${formatRelativeTimestamp(at)})`;
+  const updated = at
+    ? `${formatTimestamp(at)} (${formatRelativeTimestamp(at)})`
+    : "";
+
+  return [taskWaitingReason(task), updated].filter(Boolean).join(" — ");
 }
 
 function projectName(id: string): string {
@@ -443,7 +461,9 @@ function rowActions(task: Task): RowAction[] {
       ];
 
     case TaskState.BACKLOG:
-      return [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
+      return task.startedAt
+        ? []
+        : [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
     case TaskState.QUEUED:
       return [{ key: "dequeue", title: "Back to Backlog", icon: Undo2Icon }];
     case TaskState.SETTLED:

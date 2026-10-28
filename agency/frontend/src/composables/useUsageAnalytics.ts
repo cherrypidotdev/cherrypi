@@ -37,7 +37,7 @@ import {
   type MaybeRefOrGetter,
 } from "vue";
 
-export type UsageContext = "project" | "agent";
+export type UsageContext = "project" | "agent" | "agency";
 
 export interface UsageSeriesPoint {
   date: Date;
@@ -415,10 +415,11 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
         tokens: number;
       }
     >();
+
+    const byAgent = context.value === "project";
     for (const row of rows.value) {
-      const id = context.value === "project" ? row.agentId : row.projectId;
-      const name =
-        context.value === "project" ? row.agentName : row.projectName;
+      const id = byAgent ? row.agentId : row.projectId;
+      const name = byAgent ? row.agentName : row.projectName;
       const group = groups.get(id) ?? {
         id,
         name,

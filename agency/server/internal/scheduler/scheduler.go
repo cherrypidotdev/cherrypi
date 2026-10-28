@@ -278,37 +278,130 @@ func (s *Scheduler) Reconcile(ctx context.Context) {
 	}
 }
 
+type agentVerdict int
+
+const (
+	agentReady agentVerdict = iota
+
+	agentOffline
+
+	agentForeign
+
+	agentFull
+
+	agentUnknown
+)
+
+func (s *Scheduler) checkAgent(
+	ctx context.Context,
+	task tasks.Task,
+	agent agents.Agent,
+) (agentVerdict, error) {
+	if s.Connected == nil || !s.Connected(agent.ID) {
+		return agentOffline, nil
+	}
+	member, err := s.Tasks.IsMember(ctx, task.ProjectID, agent.ID)
+	if err != nil {
+		return agentUnknown, err
+	}
+	if !member {
+		return agentForeign, nil
+	}
+	lim, err := s.Limits.Get(ctx, agent.ID)
+	if err != nil {
+		return agentUnknown, err
+	}
+	counts, err := s.Tasks.RunningCounts(ctx, agent.ID)
+	if err != nil {
+		return agentUnknown, err
+	}
+	if tasks.Fits(lim, counts, task.ProjectID, task.Tags) {
+		return agentReady, nil
+	}
+	return agentFull, nil
+}
+
 func (s *Scheduler) pickAgent(ctx context.Context, task tasks.Task) (agents.Agent, bool) {
 	candidates := s.candidates(ctx, task)
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
 
 	for _, agent := range candidates {
-		if s.Connected == nil || !s.Connected(agent.ID) {
-			continue
-		}
-		member, err := s.Tasks.IsMember(ctx, task.ProjectID, agent.ID)
+		verdict, err := s.checkAgent(ctx, task, agent)
 		if err != nil {
-			log.Printf("[scheduler] membership %s/%d: %v", task.ProjectID, agent.ID, err)
+			log.Printf("[scheduler] check agent %d for %s: %v", agent.ID, task.ID, err)
 			continue
 		}
-		if !member {
-			continue
-		}
-		lim, err := s.Limits.Get(ctx, agent.ID)
-		if err != nil {
-			log.Printf("[scheduler] limits %d: %v", agent.ID, err)
-			continue
-		}
-		counts, err := s.Tasks.RunningCounts(ctx, agent.ID)
-		if err != nil {
-			log.Printf("[scheduler] running counts %d: %v", agent.ID, err)
-			continue
-		}
-		if tasks.Fits(lim, counts, task.ProjectID, task.Tags) {
+		if verdict == agentReady {
 			return agent, true
 		}
 	}
 	return agents.Agent{}, false
+}
+
+func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
+	if task.State != tasks.StateQueued {
+		return ""
+	}
+	if blockers := tasks.IncompleteBlockerIDs(task.References); len(blockers) > 0 {
+		sort.SliceStable(blockers, func(i, j int) bool {
+			return taskIDLess(blockers[i], blockers[j])
+		})
+		return "Waiting for tasks to become completed: " + strings.Join(blockers, ", ")
+	}
+
+	candidates := s.candidates(ctx, task)
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	if len(candidates) == 0 {
+		return "Waiting for an eligible agent"
+	}
+
+	full, foreign, unknown := false, false, false
+	for _, agent := range candidates {
+		verdict, err := s.checkAgent(ctx, task, agent)
+		if err != nil {
+			unknown = true
+			continue
+		}
+		switch verdict {
+		case agentReady:
+			return "Waiting for the scheduler"
+		case agentFull:
+			full = true
+		case agentForeign:
+			foreign = true
+		}
+	}
+	if full {
+		return "Waiting for free agent slot"
+	}
+	if foreign || unknown {
+		return "Waiting for an eligible agent"
+	}
+	return "Waiting for an agent to connect"
+}
+
+func taskIDLess(a, b string) bool {
+	ap, an, aok := splitTaskID(a)
+	bp, bn, bok := splitTaskID(b)
+	if aok && bok {
+		if ap != bp {
+			return ap < bp
+		}
+		return an < bn
+	}
+	return a < b
+}
+
+func splitTaskID(id string) (string, int64, bool) {
+	i := strings.LastIndexByte(id, '-')
+	if i <= 0 || i == len(id)-1 {
+		return "", 0, false
+	}
+	n, err := strconv.ParseInt(id[i+1:], 10, 64)
+	if err != nil {
+		return "", 0, false
+	}
+	return id[:i], n, true
 }
 
 func (s *Scheduler) candidates(ctx context.Context, task tasks.Task) []agents.Agent {

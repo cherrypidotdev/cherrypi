@@ -28,6 +28,7 @@ type Store interface {
 	RegisterAgent(ctx context.Context, p RegisterAgentParams) (AgentRow, error)
 	TransitionTask(ctx context.Context, p TransitionTaskParams) (int64, error)
 	AddAgentOwner(ctx context.Context, p AddAgentOwnerParams) error
+	AddTaskFavorite(ctx context.Context, p AddTaskFavoriteParams) error
 	AddTaskLead(ctx context.Context, p AddTaskLeadParams) error
 	AddTaskReference(ctx context.Context, p UpsertTaskReferenceParams) error
 	AddTaskSubscription(ctx context.Context, p AddTaskSubscriptionParams) error
@@ -178,6 +179,8 @@ type Store interface {
 	DeleteTask(ctx context.Context, id string) error
 	DeleteTaskArtifact(ctx context.Context, taskID string, artifactID string) error
 	DeleteTaskArtifacts(ctx context.Context, taskID string) error
+	DeleteTaskFavorite(ctx context.Context, p DeleteTaskFavoriteParams) error
+	DeleteTaskFavoritesByActor(ctx context.Context, actorID ids.ActorID) error
 	DeleteTaskLeads(ctx context.Context, taskID string) error
 	DeleteTaskLinks(ctx context.Context, taskID string) error
 	DeleteTaskSubscription(ctx context.Context, p DeleteTaskSubscriptionParams) error
@@ -307,6 +310,7 @@ type Store interface {
 	InsertTaskLog(ctx context.Context, p InsertTaskLogParams) error
 	InsertTeamLog(ctx context.Context, p InsertTeamLogParams) error
 	InsertUserLog(ctx context.Context, p InsertUserLogParams) error
+	IsActorFavoriteTask(ctx context.Context, p IsActorFavoriteTaskParams) (bool, error)
 	IsActorInTaskTeam(ctx context.Context, p IsActorInTaskTeamParams) (bool, error)
 	IsProjectDescendant(ctx context.Context, projectID, ancestorID string) (bool, error)
 	IsActorSubscribedToTask(
@@ -389,6 +393,7 @@ type Store interface {
 		ctx context.Context,
 		actorID ids.ActorID,
 	) ([]ExternalCredential, error)
+	ListFavoriteTaskIDs(ctx context.Context, actorID ids.ActorID) ([]string, error)
 	ListIdentityProviders(ctx context.Context) ([]IdentityProvider, error)
 	ListInvitations(ctx context.Context) ([]InvitationRow, error)
 	ListLDAPCredentialsByActor(

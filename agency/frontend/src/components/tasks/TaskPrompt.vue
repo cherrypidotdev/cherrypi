@@ -76,9 +76,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               ref="editor"
               v-model="draft"
               placeholder="What should the agent do? Markdown supported."
+              resizable
+              references
               test-id="prompt-textarea"
               aria-label="Task prompt"
-              title="Tab indents · Ctrl+Enter saves · Ctrl+K deletes to the end of the line"
+              title="Tab indents · Ctrl+Enter saves · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+              :reference-project-id="task.projectId"
+              :reference-task-id="task.id"
               @submit="save"
               @paste="onPaste"
             )

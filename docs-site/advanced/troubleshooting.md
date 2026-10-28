@@ -47,6 +47,10 @@ After a token rotation, restart the agent so the new token is picked up.
 
 ## A task does not start
 
+The queued task's page shows its exact waiting reason, for example
+`Waiting for tasks to become completed: PRFX-1, PRFX-2` or
+`Waiting for free agent slot`.
+
 - **No eligible agent** — the assignee must be a member of the task's project
   and have a free slot. Check project access and the agent's concurrency limits.
 - **Agent offline** — the scheduler will not send work to a disconnected agent.

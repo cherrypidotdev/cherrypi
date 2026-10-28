@@ -107,7 +107,15 @@ export interface ListTasksFilter {
 
   size?: TaskSize;
 
+  priority?: TaskPriority;
+
   archived?: boolean;
+
+  referenceProjectId?: string;
+
+  limit?: number;
+
+  offset?: number;
 }
 
 export interface ReopenTaskOptions {
@@ -212,6 +220,10 @@ export interface SetTaskLeadsInput {
 
 export interface SetTaskSubscriptionInput {
   subscribed: boolean;
+}
+
+export interface SetTaskFavoriteInput {
+  favorite: boolean;
 }
 
 export interface BulkUpdateTaskResult {

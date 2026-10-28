@@ -157,8 +157,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :submitting="wizardSubmitting"
         :errors="wizardErrors"
         :storage-key="wizardStorageKey"
+        :agent-id="agentId"
+        :model-config="modelConfig"
+        :model-selection="modelSelection"
+        :model-disabled="modelDisabled"
         @submit="submitWizard"
         @decline="declineWizard"
+        @model-change="emit('modelChange', $event)"
       )
 
       template(v-if="!showWizard")
@@ -242,11 +247,16 @@ import {
 } from "@/lib/questionnaire";
 import { agent } from "@/lib/sdk";
 import {
+  EMPTY_TASK_MODEL_SELECTION,
+  type TaskModelSelection,
+} from "@/lib/task";
+import {
   ToolPhase,
   type Attachment,
   type ExtensionUiRequest,
   type ExtensionUiResponse,
   type QuestionnaireAnswerInput,
+  type TaskConfig,
   type TaskEvent,
 } from "@cherrypi/sdk";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -280,11 +290,23 @@ const props = withDefaults(
     attachments?: Attachment[];
 
     actorPictures?: Map<string, Attachment>;
+
+    agentId?: string;
+
+    modelConfig?: TaskConfig;
+
+    modelSelection?: TaskModelSelection;
+
+    modelDisabled?: boolean;
   }>(),
   {
     waitingForInput: undefined,
     attachments: () => [],
     actorPictures: () => new Map<string, Attachment>(),
+    agentId: "",
+    modelConfig: undefined,
+    modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
+    modelDisabled: false,
   },
 );
 
@@ -312,6 +334,8 @@ const emit = defineEmits<{
   queue: [steering: string[]];
 
   openAttachment: [attachment: Attachment];
+
+  modelChange: [selection: TaskModelSelection];
 }>();
 
 const items = ref<Item[]>([]);

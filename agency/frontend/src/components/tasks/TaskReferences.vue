@@ -93,38 +93,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     | A blocking reference holds this task back until the referenced task is completed.
 
   .relative
-    SearchIcon.text-muted-foreground.pointer-events-none.absolute.size-4(
-      class="top-1/2 left-2.5 -translate-y-1/2"
-    )
-    Input.w-full.pl-8(
-      v-model="search"
-      placeholder="Add reference…"
-      autocomplete="off"
-      @focus="open = true"
-      @keydown.esc="open = false"
-    )
-    .bg-popover.text-popover-foreground.absolute.z-50.mt-1.max-h-56.w-full.overflow-y-auto.rounded-md.border.p-1.shadow-md(
+    .relative
+      SearchIcon.text-muted-foreground.pointer-events-none.absolute.size-4(
+        class="top-1/2 left-2.5 -translate-y-1/2"
+      )
+      Input.w-full.pl-8(
+        v-model="search"
+        placeholder="Add reference…"
+        autocomplete="off"
+        @focus="open = true"
+      )
+    TaskPicker.absolute.top-full.right-0.left-0.z-50.mt-1(
       v-if="open"
+      :search="search"
+      :reference-project-id="task.projectId"
+      :exclude-ids="excludeIds"
+      @pick="addCandidate"
     )
-      p.text-muted-foreground.px-2.text-xs(v-if="searching") Searching…
-      p.text-muted-foreground.px-2.text-xs(v-else-if="!candidates.length")
-        | No available tasks.
-      template(v-else)
-        p.text-muted-foreground.px-2.text-xs(v-if="!search.trim()")
-          | Recent tasks
-        button.inline-flex.w-full.min-w-0.items-center.rounded-full.border.px-2.text-left.text-xs(
-          v-for="candidate in candidates"
-          :key="candidate.id"
-          type="button"
-          class="hover:bg-muted py-0.5"
-          :class="taskStateClassFor(candidate)"
-          :title="taskReferenceTitle(candidate)"
-          @click="add(candidate)"
-          :disabled="busy === candidate.id"
-        )
-          component.size-3.shrink-0(:is="taskStateIcon(candidate.state)")
-          strong.shrink-0.font-semibold {{ candidate.id }}:
-          span.truncate(:class="taskNameClass(candidate)") {{ taskReferenceName(candidate) }}
 
   Dialog(:open="confirmOpen" @update:open="confirmOpen = $event")
     DialogContent(class="sm:max-w-md")
@@ -159,7 +144,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { referenceProjectIds } from "@/lib/project";
 import { agency } from "@/lib/sdk";
 import {
   TASK_REFERENCE_KINDS,
@@ -170,7 +154,6 @@ import {
   taskReferenceKindTextClass,
   taskReferenceName,
   taskReferenceTitle,
-  taskStateClassFor,
   taskStateIcon,
   taskStateLabel,
 } from "@/lib/task";
@@ -181,29 +164,47 @@ import {
   type TaskReference,
 } from "@cherrypi/sdk";
 import { LockIcon, SearchIcon, TriangleAlertIcon, XIcon } from "@lucide/vue";
-import { onClickOutside, refDebounced } from "@vueuse/core";
+import { onClickOutside, useEventListener } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
+import TaskPicker from "./TaskPicker.vue";
 
 const props = defineProps<{ task: Task }>();
 const emit = defineEmits<{ updated: [Task] }>();
 
-const candidates = ref<Task[]>([]);
-const searching = ref(false);
 const busy = ref("");
 const search = ref("");
-const debouncedSearch = refDebounced(search, 300);
-const root = ref<HTMLElement | null>(null);
 const open = ref(false);
+const root = ref<HTMLElement | null>(null);
 const confirmOpen = ref(false);
 const pending = ref<TaskReference | null>(null);
 const pendingKind = ref<TaskReferenceKind>(TaskReferenceKind.BLOCKING);
 
+const references = computed(() => props.task.references ?? []);
+const excludeIds = computed(() => [
+  props.task.id,
+  ...references.value.map((ref) => ref.id),
+]);
+const referencedBy = computed(() => props.task.referencedBy ?? []);
+
 onClickOutside(root, () => (open.value = false));
 
-const references = computed(() => props.task.references ?? []);
-const referencedBy = computed(() => props.task.referencedBy ?? []);
+useEventListener(
+  window,
+  "keydown",
+  (event: KeyboardEvent) => {
+    if (!open.value || event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    open.value = false;
+  },
+  { capture: true },
+);
+
+watch(search, (value) => {
+  if (value.trim()) open.value = true;
+});
 
 const activeTask = computed(
   () =>
@@ -211,41 +212,6 @@ const activeTask = computed(
     props.task.state === TaskState.RUNNING ||
     props.task.state === TaskState.INPUT,
 );
-
-let searchSeq = 0;
-async function searchCandidates() {
-  const query = debouncedSearch.value.trim();
-  const projectId = props.task.projectId || undefined;
-  const seq = ++searchSeq;
-  searching.value = true;
-  try {
-    const projectIDs = projectId
-      ? await referenceProjectIds(projectId)
-      : [undefined];
-    const results = await Promise.all(
-      projectIDs.map((id) =>
-        agency.listTasks({ search: query || undefined, projectId: id }),
-      ),
-    );
-
-    if (seq !== searchSeq) return;
-    const excluded = new Set([
-      props.task.id,
-      ...references.value.map((ref) => ref.id),
-    ]);
-    const found = new Map<string, Task>();
-    for (const task of results.flat()) found.set(task.id, task);
-    const available = [...found.values()].filter(
-      (task) => !excluded.has(task.id),
-    );
-    candidates.value = query ? available.slice(0, 8) : available;
-  } catch (err) {
-    if (seq === searchSeq)
-      toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    if (seq === searchSeq) searching.value = false;
-  }
-}
 
 async function apply(refId: string, kind: TaskReferenceKind) {
   busy.value = refId;
@@ -261,13 +227,9 @@ async function apply(refId: string, kind: TaskReferenceKind) {
   }
 }
 
-async function add(candidate: Task) {
-  if (await apply(candidate.id, TaskReferenceKind.INFORMATIONAL)) {
-    search.value = "";
-    candidates.value = candidates.value.filter(
-      (item) => item.id !== candidate.id,
-    );
-  }
+async function addCandidate(candidate: Task) {
+  await apply(candidate.id, TaskReferenceKind.INFORMATIONAL);
+  search.value = "";
 }
 
 function requestKind(ref: TaskReference, kind: unknown) {
@@ -301,8 +263,6 @@ async function remove(ref: TaskReference) {
   try {
     const updated = await agency.removeTaskReference(props.task.id, ref.id);
     emit("updated", updated);
-
-    if (open.value) void searchCandidates();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -310,21 +270,9 @@ async function remove(ref: TaskReference) {
   }
 }
 
-watch(debouncedSearch, () => void searchCandidates());
-
-watch(open, (isOpen) => {
-  if (isOpen) void searchCandidates();
-});
-watch(search, (value) => {
-  if (value.trim()) open.value = true;
-});
-
 watch(
   () => props.task.id,
   () => {
-    search.value = "";
-    candidates.value = [];
-    open.value = false;
     confirmOpen.value = false;
     pending.value = null;
   },

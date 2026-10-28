@@ -66,7 +66,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CardDescription
               | Projects form a tree. Anyone who can view a parent may also view
               | every descendant, and tasks may reference tasks in descendant or
-              | sibling projects.
+              | sibling projects. Root projects are not siblings and cannot
+              | reference each other's tasks.
           CardContent.flex.flex-col.gap-5
             template(v-if="hierarchy")
               .flex.flex-col.gap-1(v-if="hierarchy.parent")

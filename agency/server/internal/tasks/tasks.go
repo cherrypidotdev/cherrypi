@@ -120,6 +120,14 @@ var (
 
 	ErrCannotPrompt = errors.New("not allowed to prompt this task")
 
+	ErrFollowUpRequired = errors.New(
+		"task has already started; send a follow-up prompt to queue it",
+	)
+
+	ErrPostponedNotDraft = errors.New(
+		"a task that has already started cannot return to draft",
+	)
+
 	ErrActorRequired = errors.New("an authenticated actor is required")
 )
 
@@ -175,7 +183,9 @@ type Task struct {
 
 	LeadActorIDs []ids.ActorID
 
-	Subscribed     bool
+	Subscribed bool
+
+	Favorite       bool
 	AssigneePinned bool
 	Priority       int64
 	Size           string
@@ -227,7 +237,18 @@ type Filter struct {
 
 	Size string
 
+	Priority *int64
+
 	Archived bool
+
+	ReferenceProjectID string
+
+	Limit  int64
+	Offset int64
+
+	VisibleToActorID ids.ActorID
+
+	VisibleToAdmin bool
 }
 
 type CreateParams struct {
@@ -558,6 +579,17 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 			return Task{}, err
 		}
 		t.Subscribed = subscribed
+		favorite, err := s.store.IsActorFavoriteTask(
+			ctx,
+			store.IsActorFavoriteTaskParams{
+				TaskID:  id,
+				ActorID: int64(actorID),
+			},
+		)
+		if err != nil {
+			return Task{}, err
+		}
+		t.Favorite = favorite
 	}
 	return t, nil
 }
@@ -590,16 +622,37 @@ func (s *Service) snapshot(ctx context.Context, id string) (Task, error) {
 
 func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 	rows, err := s.store.ListTasks(ctx, store.ListTasksParams{
-		ProjectID: nullString(f.ProjectID),
-		AgentID:   nullID(f.AgentID),
-		State:     nullString(string(f.State)),
-		Archived:  boolInt(f.Archived),
-		TagID:     nullString(f.TagID),
-		Search:    nullString(f.Search),
-		Size:      nullString(f.Size),
+		ProjectID:          nullString(f.ProjectID),
+		AgentID:            nullID(f.AgentID),
+		State:              nullString(string(f.State)),
+		Archived:           boolInt(f.Archived),
+		TagID:              nullString(f.TagID),
+		Search:             nullString(f.Search),
+		Size:               nullString(f.Size),
+		Priority:           nullInt64Ptr(f.Priority),
+		ReferenceProjectID: nullString(f.ReferenceProjectID),
+		PageLimit:          nullPositive(f.Limit),
+		PageOffset:         f.Offset,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if f.VisibleToActorID != 0 && !f.VisibleToAdmin && s.projects != nil {
+		visibleProjects, err := s.projects.ProjectsForActor(ctx, f.VisibleToActorID)
+		if err != nil {
+			return nil, err
+		}
+		visible := make(map[string]bool, len(visibleProjects))
+		for _, project := range visibleProjects {
+			visible[project.ID] = true
+		}
+		kept := rows[:0]
+		for _, row := range rows {
+			if !row.ProjectID.Valid || row.ProjectID.String == "" || visible[row.ProjectID.String] {
+				kept = append(kept, row)
+			}
+		}
+		rows = kept
 	}
 	tagsByTask, err := s.allTags(ctx)
 	if err != nil {
@@ -626,6 +679,20 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 		out[i] = toTask(row, tagsByTask[row.ID], linksByTask[row.ID], refsByTask[row.ID], nil)
 		out[i].TeamIDs = teamsByTask[row.ID]
 		out[i].LeadActorIDs = actorIDsFromInt64s(leadsByTask[row.ID])
+	}
+
+	if actorID := actorIDFrom(ctx); actorID != 0 {
+		favoriteIDs, err := s.store.ListFavoriteTaskIDs(ctx, actorID)
+		if err != nil {
+			return nil, err
+		}
+		favorites := make(map[string]struct{}, len(favoriteIDs))
+		for _, id := range favoriteIDs {
+			favorites[id] = struct{}{}
+		}
+		for i := range out {
+			_, out[i].Favorite = favorites[out[i].ID]
+		}
 	}
 
 	prioritizeSearchMatches(out, f.Search)
@@ -813,6 +880,9 @@ func (s *Service) Queue(ctx context.Context, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	if !cur.StartedAt.IsZero() {
+		return Task{}, ErrFollowUpRequired
+	}
 	if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
 		return Task{}, err
 	}
@@ -865,6 +935,9 @@ func (s *Service) Demote(ctx context.Context, id string) (Task, error) {
 	cur, err := s.requireState(ctx, id, StateBacklog)
 	if err != nil {
 		return Task{}, err
+	}
+	if !cur.StartedAt.IsZero() {
+		return Task{}, ErrPostponedNotDraft
 	}
 	now := time.Now().UnixMilli()
 	n, err := s.store.TransitionTask(
@@ -1470,6 +1543,15 @@ func (s *Service) RequeueWithPrompt(
 	if err != nil {
 		return Task{}, err
 	}
+	switch cur.State {
+	case StateSettled, StateFailed, StateCompleted, StateCancelled:
+	case StateBacklog:
+		if cur.StartedAt.IsZero() {
+			return Task{}, ErrWrongState
+		}
+	default:
+		return Task{}, ErrWrongState
+	}
 	pending := prompt
 	if undelivered := strings.TrimSpace(cur.PendingPrompt); undelivered != "" {
 		pending = undelivered + "\n\n" + prompt
@@ -1550,6 +1632,10 @@ func (s *Service) Reopen(ctx context.Context, id string, queue bool) (Task, erro
 	}
 	state := StateBacklog
 	if queue {
+
+		if !cur.StartedAt.IsZero() && cur.State != StateFailed {
+			return Task{}, ErrFollowUpRequired
+		}
 		if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
 			return Task{}, err
 		}
@@ -2521,6 +2607,59 @@ func (s *Service) SetSubscribed(
 	return t, nil
 }
 
+func (s *Service) SetFavorite(
+	ctx context.Context,
+	id string,
+	actorID ids.ActorID,
+	favorite bool,
+) (Task, error) {
+	if actorID == 0 {
+		return Task{}, ErrActorRequired
+	}
+	if _, err := s.Get(ctx, id); err != nil {
+		return Task{}, err
+	}
+	if favorite {
+		if err := s.store.AddTaskFavorite(ctx, store.AddTaskFavoriteParams{
+			TaskID:    id,
+			ActorID:   int64(actorID),
+			CreatedAt: time.Now().UnixMilli(),
+		}); err != nil {
+			return Task{}, err
+		}
+	} else {
+		if err := s.store.DeleteTaskFavorite(ctx, store.DeleteTaskFavoriteParams{
+			TaskID:  id,
+			ActorID: int64(actorID),
+		}); err != nil {
+			return Task{}, err
+		}
+	}
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+
+	t.Favorite = favorite
+	return t, nil
+}
+
+func (s *Service) CanView(
+	ctx context.Context,
+	projectID string,
+	actorID ids.ActorID,
+	isAdmin bool,
+) (bool, error) {
+	if isAdmin || actorID == 0 || strings.TrimSpace(projectID) == "" {
+		return true, nil
+	}
+	if s.projects == nil {
+		return false, nil
+	}
+	_, ok, err := s.projects.EffectiveRole(ctx, projectID, actorID, false)
+	return ok, err
+}
+
 func (s *Service) CanCreateInProject(
 	ctx context.Context,
 	projectID string,
@@ -2685,14 +2824,18 @@ func toTask(
 	}
 }
 
-func countBlockers(refs []Reference) int {
-	n := 0
+func IncompleteBlockerIDs(refs []Reference) []string {
+	out := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		if ref.Kind == ReferenceBlocking && ref.State != StateCompleted {
-			n++
+			out = append(out, ref.ID)
 		}
 	}
-	return n
+	return out
+}
+
+func countBlockers(refs []Reference) int {
+	return len(IncompleteBlockerIDs(refs))
 }
 
 func (s *Service) setTeamPromptPins(
@@ -2728,6 +2871,17 @@ func nullID[T ~int64](id T) sql.NullInt64 {
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func nullPositive(n int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: n, Valid: n > 0}
+}
+
+func nullInt64Ptr(n *int64) sql.NullInt64 {
+	if n == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *n, Valid: true}
 }
 
 func normalizeSize(size string) string {

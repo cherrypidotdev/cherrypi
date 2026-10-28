@@ -89,7 +89,7 @@ Card.border-primary
 
     p.text-destructive.mt-2.text-xs(v-if="multiple && errors") {{ errors }}
 
-  CardFooter.justify-between.border-t(v-if="!readonly")
+  CardFooter.flex-wrap.justify-between.border-t(v-if="!readonly")
     Button(
       variant="ghost"
       size="sm"
@@ -98,14 +98,25 @@ Card.border-primary
     )
       XIcon(data-icon="inline-start")
       span Decline
-    Button(@click="submit" :disabled="disabled || remaining > 0")
-      Spinner(v-if="submitting" data-icon="inline-start")
-      SendIcon(v-else data-icon="inline-start")
-      span {{ submitting ? "Submitting…" : "Submit answers" }}
+    .flex.items-center.gap-2
+      TaskModelPicker(
+        v-if="agentId"
+        :agent-id="agentId"
+        :config="modelConfig"
+        :selection="modelSelection"
+        :use-defaults="false"
+        @change="emit('modelChange', $event)"
+        :disabled="modelDisabled || submitting"
+      )
+      Button(@click="submit" :disabled="disabled || remaining > 0")
+        Spinner(v-if="submitting" data-icon="inline-start")
+        SendIcon(v-else data-icon="inline-start")
+        span {{ submitting ? "Submitting…" : "Submit answers" }}
 </template>
 
 <script setup lang="ts">
 import MarkdownText from "@/components/MarkdownText.vue";
+import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -123,28 +134,50 @@ import {
   type QuestionnaireAnswer,
   type QuestionnaireQuestion,
 } from "@/lib/questionnaire";
+import {
+  EMPTY_TASK_MODEL_SELECTION,
+  type TaskModelSelection,
+} from "@/lib/task";
+import type { TaskConfig } from "@cherrypi/sdk";
 import { CheckIcon, HourglassIcon, SendIcon, XIcon } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import QuestionEditor from "./QuestionEditor.vue";
 
-const props = defineProps<{
-  questions: QuestionnaireQuestion[];
-  submitting: boolean;
-  errors?: string;
+const props = withDefaults(
+  defineProps<{
+    questions: QuestionnaireQuestion[];
+    submitting: boolean;
+    errors?: string;
 
-  storageKey?: string;
+    storageKey?: string;
 
-  readonly?: boolean;
+    readonly?: boolean;
 
-  reviewAnswers?: QuestionnaireAnswer[];
+    reviewAnswers?: QuestionnaireAnswer[];
 
-  cancelled?: boolean;
+    cancelled?: boolean;
 
-  unavailable?: boolean;
-}>();
+    unavailable?: boolean;
+
+    agentId?: string;
+
+    modelConfig?: TaskConfig;
+
+    modelSelection?: TaskModelSelection;
+
+    modelDisabled?: boolean;
+  }>(),
+  {
+    agentId: "",
+    modelConfig: undefined,
+    modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
+    modelDisabled: false,
+  },
+);
 const emit = defineEmits<{
   submit: [answers: QuestionnaireAnswer[]];
   decline: [];
+  modelChange: [selection: TaskModelSelection];
 }>();
 
 const readonlyTitle = computed(() => {

@@ -16,37 +16,6 @@
 
 import type { Attachment } from "@cherrypi/sdk";
 
-const TRAILER_MARKER = "\n\n--- attached: ";
-const TRAILER_SUFFIX = " ---";
-const TRAILER_ENTRY = /\[[^\]]*\(#(\d+)\)\]\(([^)]*)\)/g;
-
-export interface ParsedTrailer {
-  text: string;
-  attachmentIds: string[];
-}
-
-export function parseAttachmentTrailer(text: string): ParsedTrailer {
-  const trimmed = text.trimEnd();
-  const index = trimmed.lastIndexOf(TRAILER_MARKER);
-  if (index === -1 || !trimmed.endsWith(TRAILER_SUFFIX)) {
-    return { text, attachmentIds: [] };
-  }
-
-  const body = trimmed.slice(
-    index + TRAILER_MARKER.length,
-    trimmed.length - TRAILER_SUFFIX.length,
-  );
-  const attachmentIds: string[] = [];
-  for (const match of body.matchAll(TRAILER_ENTRY)) {
-    attachmentIds.push(match[1]!);
-  }
-  return { text: trimmed.slice(0, index), attachmentIds };
-}
-
-export function stripAttachmentTrailer(text: string): string {
-  return parseAttachmentTrailer(text).text;
-}
-
 export function attachmentFilename(file: File): string {
   if (file.name) return file.name;
   const extension = (file.type.split("/")[1] || "bin").split("+")[0];

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -171,7 +172,7 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 
 	stream, err := client.Connect(ctx)
 	if err != nil {
-		return err
+		return classifyHTTP2Failure(ctx, err)
 	}
 
 	if err := stream.Send(&tunnelv1.Frame{Hello: &tunnelv1.Hello{
@@ -179,7 +180,10 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 		ProtocolVersion: c.cfg.ProtocolVersion,
 	}}); err != nil {
 
-		return &transportUnsupportedError{err: err}
+		err = terminalStreamError(stream, err)
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
+		return classifyHTTP2Failure(ctx, err)
 	}
 
 	conn := sharedtunnel.ClientConn(stream)
@@ -194,8 +198,10 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 		return err
 	}
 	if err := probeHTTP2(ctx, session); err != nil {
+
 		_ = session.Close()
-		return &transportUnsupportedError{err: err}
+		_ = conn.Close()
+		return classifyHTTP2Failure(ctx, terminalStreamError(stream, err))
 	}
 	logger.verbose.Store(true)
 
@@ -204,6 +210,48 @@ func (c *Client) connectHTTP2(ctx context.Context) error {
 
 	server := &http.Server{Handler: c.cfg.Handler}
 	return server.Serve(yamuxListener{session})
+}
+
+const streamErrorGrace = 250 * time.Millisecond
+
+func terminalStreamError(
+	stream *connect.BidiStreamForClientSimple[tunnelv1.Frame, tunnelv1.Frame],
+	original error,
+) error {
+	done := make(chan error, 1)
+	go func() {
+		_, err := stream.Receive()
+		done <- err
+	}()
+
+	timer := time.NewTimer(streamErrorGrace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+	case <-timer.C:
+	}
+	return original
+}
+
+func classifyHTTP2Failure(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		switch connectErr.Code() {
+		case connect.CodeUnauthenticated,
+			connect.CodePermissionDenied,
+			connect.CodeInvalidArgument,
+			connect.CodeFailedPrecondition:
+			return err
+		}
+	}
+	return &transportUnsupportedError{err: err}
 }
 
 func (c *Client) connectWS(ctx context.Context) error {

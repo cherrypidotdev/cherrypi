@@ -158,17 +158,48 @@ export function taskStateLabel(state: TaskState): string {
   }
 }
 
-export function isTaskBlocked(task: Pick<Task, "state" | "blockers">): boolean {
-  return task.state === TaskState.QUEUED && (task.blockers ?? 0) > 0;
+export function taskIncompleteBlockers(
+  task: Pick<Task, "state" | "references">,
+): TaskReference[] {
+  if (task.state !== TaskState.QUEUED) return [];
+  return (task.references ?? [])
+    .filter(
+      (ref) =>
+        ref.kind === TaskReferenceKind.BLOCKING &&
+        ref.state !== TaskState.COMPLETED,
+    )
+    .sort((a, b) => compareTaskIDs(a.id, b.id));
 }
 
-export function taskBlockedTitle(
-  task: Pick<Task, "state" | "blockers">,
+function compareTaskIDs(a: string, b: string): number {
+  const ai = a.lastIndexOf("-");
+  const bi = b.lastIndexOf("-");
+  const an = Number(a.slice(ai + 1));
+  const bn = Number(b.slice(bi + 1));
+  if (ai > 0 && bi > 0 && Number.isInteger(an) && Number.isInteger(bn)) {
+    const ap = a.slice(0, ai);
+    const bp = b.slice(0, bi);
+    return ap === bp ? an - bn : ap.localeCompare(bp);
+  }
+  return a.localeCompare(b);
+}
+
+export function taskWaitingReason(
+  task: Pick<Task, "state" | "blockers" | "references" | "waitingReason">,
 ): string {
-  const n = task.blockers ?? 0;
-  return n === 1
-    ? "Blocked by 1 incomplete reference"
-    : `Blocked by ${n} incomplete references`;
+  if (task.state !== TaskState.QUEUED) return "";
+  if (task.waitingReason) return task.waitingReason;
+
+  const blockers = taskIncompleteBlockers(task);
+  if (blockers.length) {
+    return `Waiting for tasks to become completed: ${blockers
+      .map((ref) => ref.id)
+      .join(", ")}`;
+  }
+  if ((task.blockers ?? 0) > 0) {
+    return "Waiting for blocking tasks to become completed";
+  }
+  return "Waiting for free agent slot";
 }
 
 export function taskStateClass(state: TaskState): string {

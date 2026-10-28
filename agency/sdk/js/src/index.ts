@@ -47,6 +47,7 @@ export {
   type ReopenTaskOptions,
   type SetTaskModelInput,
   type SetTaskLeadsInput,
+  type SetTaskFavoriteInput,
   type SetTaskSubscriptionInput,
   type SetTaskTeamsInput,
   type TagLimitInput,

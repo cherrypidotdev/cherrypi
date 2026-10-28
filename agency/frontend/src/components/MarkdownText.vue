@@ -17,17 +17,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-component(ref="root" v-html="html" :is="tag")
+component(ref="root" v-html="html" :is="tag" @click="onReferenceClick")
 </template>
 
 <script setup lang="ts">
+import { loadReferenceDirectory, referencePlugin } from "@/lib/references";
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  getCurrentInstance,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import type { Router } from "vue-router";
+
+
+
 
 // as line breaks. Streaming works because the parent re-renders on every delta
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
+
+
+
 
 const fence = md.renderer.rules.fence!;
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
@@ -38,7 +53,13 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return fence(tokens, idx, options, env, self);
 };
 
+
+
+
+md.use(referencePlugin);
+
 const props = defineProps<{ text: string; inline?: boolean }>();
+
 
 const tag = computed(() => (props.inline ? "span" : "div"));
 const root = ref<HTMLElement>();
@@ -47,6 +68,49 @@ const html = computed(() =>
     props.inline ? md.renderInline(props.text) : md.render(props.text),
   ),
 );
+
+
+
+
+const hasReferences = computed(() =>
+  /\]\(ref:(?:actor|project|team)\
+);
+watch(
+  hasReferences,
+  (present) => {
+    if (present) void loadReferenceDirectory();
+  },
+  { immediate: true },
+);
+
+
+
+
+const router = getCurrentInstance()?.appContext.config.globalProperties
+  .$router as Router | undefined;
+
+function onReferenceClick(event: MouseEvent) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  const target = event.target as Element | null;
+  const anchor = target?.closest<HTMLAnchorElement>("a.ref-chip");
+  if (!anchor) return;
+  const href = anchor.getAttribute("href");
+  if (!href || !href.startsWith("/")) return;
+  if (!router) return;
+  event.preventDefault();
+  void router.push(href);
+}
+
+
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -73,7 +137,9 @@ async function renderMermaid() {
         : "default",
     });
     await mermaid.run({ nodes: Array.from(nodes), suppressErrors: true });
-  } catch {}
+  } catch {
+
+  }
 }
 
 function scheduleMermaid() {

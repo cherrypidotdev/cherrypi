@@ -18,6 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-4xl.flex-col.gap-6.p-6
+  BackButton.-ml-2.self-start(
+    :fallback="{ to: { name: 'users' }, label: 'Users' }"
+  )
   .flex.items-center.gap-4
     span.relative.size-16.shrink-0.overflow-hidden.rounded-full
       img.absolute.inset-0.size-full.object-cover(
@@ -140,6 +143,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
+import BackButton from "@/components/BackButton.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
 import {
