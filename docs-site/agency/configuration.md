@@ -93,7 +93,7 @@ the `minio-init` service creates it.
 
 | Section | What you configure |
 | --- | --- |
-| General | Agency name, logo, favicon and primary color. |
+| General | Agency name, logo, favicon, primary color and the Overview Usage/Concurrency KPI switches. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |

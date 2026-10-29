@@ -21,13 +21,15 @@
 
 -- name: CreateIdentityProvider :one
 INSERT INTO identity_providers (
-  kind, slug, name, enabled, issuer, authorization_endpoint, token_endpoint,
-  userinfo_endpoint, jwks_uri, client_id, client_secret, scopes,
-  subject_path, email_path, name_path, created_at, updated_at
+  kind, slug, name, enabled, auto_provision, issuer,
+  authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri,
+  client_id, client_secret, scopes, subject_path, email_path, name_path,
+  created_at, updated_at
 )
 VALUES (
   sqlc.arg(kind), sqlc.arg(slug), sqlc.arg(name), sqlc.arg(enabled),
-  sqlc.arg(issuer), sqlc.arg(authorization_endpoint), sqlc.arg(token_endpoint),
+  sqlc.arg(auto_provision), sqlc.arg(issuer),
+  sqlc.arg(authorization_endpoint), sqlc.arg(token_endpoint),
   sqlc.arg(userinfo_endpoint), sqlc.arg(jwks_uri), sqlc.arg(client_id),
   sqlc.arg(client_secret), sqlc.arg(scopes), sqlc.arg(subject_path),
   sqlc.arg(email_path), sqlc.arg(name_path), sqlc.arg(created_at),
@@ -53,6 +55,7 @@ SET kind = sqlc.arg(kind),
     slug = sqlc.arg(slug),
     name = sqlc.arg(name),
     enabled = sqlc.arg(enabled),
+    auto_provision = sqlc.arg(auto_provision),
     issuer = sqlc.arg(issuer),
     authorization_endpoint = sqlc.arg(authorization_endpoint),
     token_endpoint = sqlc.arg(token_endpoint),
@@ -107,13 +110,14 @@ DELETE FROM external_credentials WHERE provider_id = sqlc.arg(provider_id);
 
 -- name: CreateLDAPProvider :one
 INSERT INTO ldap_providers (
-  slug, name, enabled, host, port, encryption, insecure, base_dn, bind_dn,
-  bind_password, user_filter, username_attr, email_attr, name_attr,
-  created_at, updated_at
+  slug, name, enabled, auto_provision, host, port, encryption, insecure,
+  base_dn, bind_dn, bind_password, user_filter, username_attr, email_attr,
+  name_attr, created_at, updated_at
 )
 VALUES (
-  sqlc.arg(slug), sqlc.arg(name), sqlc.arg(enabled), sqlc.arg(host),
-  sqlc.arg(port), sqlc.arg(encryption), sqlc.arg(insecure), sqlc.arg(base_dn),
+  sqlc.arg(slug), sqlc.arg(name), sqlc.arg(enabled),
+  sqlc.arg(auto_provision), sqlc.arg(host), sqlc.arg(port),
+  sqlc.arg(encryption), sqlc.arg(insecure), sqlc.arg(base_dn),
   sqlc.arg(bind_dn), sqlc.arg(bind_password), sqlc.arg(user_filter),
   sqlc.arg(username_attr), sqlc.arg(email_attr), sqlc.arg(name_attr),
   sqlc.arg(created_at), sqlc.arg(updated_at)
@@ -137,6 +141,7 @@ UPDATE ldap_providers
 SET slug = sqlc.arg(slug),
     name = sqlc.arg(name),
     enabled = sqlc.arg(enabled),
+    auto_provision = sqlc.arg(auto_provision),
     host = sqlc.arg(host),
     port = sqlc.arg(port),
     encryption = sqlc.arg(encryption),

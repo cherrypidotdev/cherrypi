@@ -45,6 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         SelectItem(v-for="item in agents" :key="item.id" :value="item.id") {{ item.displayName || item.username }}
 
   UsageOverview(
+    v-if="showUsageKpi"
     context="agency"
     :agent-id="filterAgent === ALL ? '' : filterAgent"
     :project-id="filterProject === ALL ? '' : filterProject"
@@ -72,11 +73,14 @@ import {
 import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
+import { useSettings } from "@/composables/useSettings";
 import { sortProjectsByName } from "@/lib/project";
 import { computed, onMounted, ref } from "vue";
 
 const { agents, loadAgents } = useAgents();
+const { settings, loadSettings } = useSettings();
 const { active: projects, loadProjects } = useProjects();
+const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
 const projectOptions = computed(() => sortProjectsByName(projects.value));
 
 const ALL = "__all__";
@@ -86,5 +90,6 @@ const filterProject = ref(ALL);
 onMounted(() => {
   void loadAgents();
   void loadProjects();
+  void loadSettings();
 });
 </script>

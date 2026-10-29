@@ -43,6 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableHead Agent
             TableHead Username
             TableHead Status
+            TableHead Concurrency
             TableHead Version
             TableHead Address
             TableHead Last seen
@@ -50,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         TableBody
           TableRowsSkeleton(
             v-if="loading && !agents.length"
-            :widths="['w-40', 'w-24', 'w-20', 'w-32', 'w-28', 'w-24']"
+            :widths="['w-40', 'w-24', 'w-20', 'w-36', 'w-32', 'w-28', 'w-24']"
           )
           TableRow(v-for="item in agents" :key="item.id")
             TableCell
@@ -68,6 +69,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableCell.text-muted-foreground.font-mono {{ item.username }}
             TableCell
               Badge(variant="outline" :class="agentStatusClass(item.status)") {{ agentStatusLabel(item.status) }}
+            TableCell
+              ConcurrencyTrack(
+                v-if="fleetStat(item.id)"
+                :label="item.displayName || item.username"
+                size="sm"
+                :used="fleetStat(item.id)?.used ?? 0"
+                :cap="fleetStat(item.id)?.cap ?? 1"
+                :waiting="fleetStat(item.id)?.waiting ?? 0"
+              )
+              span.text-muted-foreground.text-2xs(v-else) —
             TableCell
               .flex.items-center.gap-2
                 span.font-mono.text-xs(
@@ -99,7 +110,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   Trash2Icon(data-icon="inline-start")
                   span Delete
           TableRow(v-if="!agents.length && !loading")
-            TableCell.text-muted-foreground(:colspan="7") No agents yet.
+            TableCell.text-muted-foreground(:colspan="8") No agents yet.
 
   Card
     CardHeader
@@ -139,6 +150,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -168,6 +180,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgents } from "@/composables/useAgents";
+import { useFleetConcurrency } from "@/composables/useFleetConcurrency";
 import { withProgress } from "@/composables/useProgress";
 import {
   agentStatusClass,
@@ -187,6 +200,11 @@ import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
 const { agents, loading, error, loadAgents, refresh } = useAgents();
+const { stats: fleetStats } = useFleetConcurrency(() => agents.value);
+
+function fleetStat(agentId: string) {
+  return fleetStats.value[agentId];
+}
 const router = useRouter();
 
 const username = ref("");

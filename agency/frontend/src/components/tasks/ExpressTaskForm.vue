@@ -66,6 +66,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             title="Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
             :reference-project-id="selectedProjectId"
             @submit="submit"
+            @task-picked="addPromptReference"
             @paste="onPaste"
           )
           .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
@@ -322,6 +323,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
       TaskReferencePicker(
         v-model="references"
         :project-id="selectedProjectId"
+        :known-tasks="referenceTasks"
         :disabled="!projectReady"
       )
 
@@ -399,11 +401,13 @@ import {
 import { teamApi } from "@/lib/team";
 import {
   TaskPriority,
+  TaskReferenceKind,
   TaskSize,
   TaskState,
   type CreateTaskInput,
   type Project,
   type ProjectAgent,
+  type Task,
   type TaskReferenceInput,
 } from "@cherrypi/sdk";
 import {
@@ -480,6 +484,8 @@ const selectedTags = ref<Set<string>>(new Set());
 
 const defaultTagsProject = ref("");
 const references = ref<TaskReferenceInput[]>([]);
+
+const referenceTasks = ref<Task[]>([]);
 
 const projectTeams = ref<ProjectTeamLink[]>([]);
 const leadCandidates = ref<LeadCandidate[]>([]);
@@ -827,6 +833,7 @@ watch(
   selectedProjectId,
   async (id) => {
     references.value = [];
+    referenceTasks.value = [];
     selectedTags.value = new Set();
     defaultTagsProject.value = "";
     owningTeamIds.value = [];
@@ -889,6 +896,18 @@ function toggleTag(id: string) {
   selectedTags.value = next;
 }
 
+function addPromptReference(task: Task) {
+  if (!references.value.some((ref) => ref.taskId === task.id)) {
+    references.value = [
+      ...references.value,
+      { taskId: task.id, kind: TaskReferenceKind.INFORMATIONAL },
+    ];
+  }
+  if (!referenceTasks.value.some((item) => item.id === task.id)) {
+    referenceTasks.value = [...referenceTasks.value, task];
+  }
+}
+
 async function submit() {
   if (!prompt.value.trim() || saving.value || !projectReady.value) return;
   saving.value = true;
@@ -941,6 +960,7 @@ async function submit() {
     prompt.value = "";
     clearStaged();
     references.value = [];
+    referenceTasks.value = [];
 
     tab.value = "write";
     await nextTick();

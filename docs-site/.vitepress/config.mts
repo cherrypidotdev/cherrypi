@@ -266,59 +266,63 @@ export default defineConfig({
     },
     returnToTopLabel: "Back to top",
     darkModeSwitchLabel: "Appearance",
+    langMenuLabel: "Change language",
     sidebarMenuLabel: "Menu",
     skipToContentLabel: "Skip to content",
     externalLinkIcon: true,
-    locales: {
-      root: {
-        label: "English",
-        lang: "en-US",
-      },
-      ru: {
-        label: "Русский",
-        lang: "ru-RU",
-        link: "/ru/",
-        themeConfig: {
-          nav: navRu,
-          sidebar: sidebarRu,
-          outline: { level: [2, 3], label: "На этой странице" },
-          docFooter: {
-            prev: "Предыдущая страница",
-            next: "Следующая страница",
-          },
-          lastUpdated: {
-            text: "Обновлено",
-            formatOptions: { dateStyle: "medium", timeStyle: "short" },
-          },
-          editLink: {
-            pattern: `${repository}/edit/main/docs-site/:path`,
-            text: "Редактировать на GitHub",
-          },
-          returnToTopLabel: "Наверх",
-          darkModeSwitchLabel: "Оформление",
-          sidebarMenuLabel: "Меню",
-          skipToContentLabel: "Перейти к содержимому",
-          footer: {
-            message:
-              'Распространяется по лицензии <a href="https://github.com/cherrypidotdev/cherrypi/blob/main/LICENSE">AGPL-3.0</a>.',
-            copyright: "© Авторы CherryPi",
-          },
-          search: {
-            provider: "local",
-            options: {
-              translations: {
-                button: {
-                  buttonText: "Поиск по документации",
-                  buttonAriaLabel: "Поиск по документации",
-                },
-                modal: {
-                  noResultsText: "Ничего не найдено:",
-                  resetButtonTitle: "Очистить запрос",
-                  footer: {
-                    selectText: "выбрать",
-                    navigateText: "перейти",
-                    closeText: "закрыть",
-                  },
+  },
+  // VitePress reads the language menu (and the per-locale theme config) from
+
+  locales: {
+    root: {
+      label: "English",
+      lang: "en-US",
+    },
+    ru: {
+      label: "Русский",
+      lang: "ru-RU",
+      link: "/ru/",
+      themeConfig: {
+        nav: navRu,
+        sidebar: sidebarRu,
+        outline: { level: [2, 3], label: "На этой странице" },
+        docFooter: {
+          prev: "Предыдущая страница",
+          next: "Следующая страница",
+        },
+        lastUpdated: {
+          text: "Обновлено",
+          formatOptions: { dateStyle: "medium", timeStyle: "short" },
+        },
+        editLink: {
+          pattern: `${repository}/edit/main/docs-site/:path`,
+          text: "Редактировать на GitHub",
+        },
+        returnToTopLabel: "Наверх",
+        darkModeSwitchLabel: "Оформление",
+        langMenuLabel: "Сменить язык",
+        sidebarMenuLabel: "Меню",
+        skipToContentLabel: "Перейти к содержимому",
+        footer: {
+          message:
+            'Распространяется по лицензии <a href="https://github.com/cherrypidotdev/cherrypi/blob/main/LICENSE">AGPL-3.0</a>.',
+          copyright: "© Авторы CherryPi",
+        },
+        search: {
+          provider: "local",
+          options: {
+            translations: {
+              button: {
+                buttonText: "Поиск по документации",
+                buttonAriaLabel: "Поиск по документации",
+              },
+              modal: {
+                noResultsText: "Ничего не найдено:",
+                resetButtonTitle: "Очистить запрос",
+                footer: {
+                  selectText: "выбрать",
+                  navigateText: "перейти",
+                  closeText: "закрыть",
                 },
               },
             },

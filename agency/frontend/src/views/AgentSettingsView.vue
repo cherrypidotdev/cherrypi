@@ -389,7 +389,7 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 import { toast } from "vue3-toastify";
 import LogsView from "./LogsView.vue";
 
@@ -402,7 +402,14 @@ const isAdmin = computed(() => currentAccount.value?.is_admin ?? false);
 const PI_DEFAULT = "__pi_default__";
 const PI_DEFAULT_LEVEL = "__model_default__";
 
-const tab = ref("general");
+const SETTINGS_TABS = ["general", "projects", "tasks", "security"];
+const settingsRoute = useRoute();
+const tab = ref(
+  typeof settingsRoute.query.section === "string" &&
+    SETTINGS_TABS.includes(settingsRoute.query.section)
+    ? settingsRoute.query.section
+    : "general",
+);
 const item = ref<Agent>();
 const name = ref("");
 const description = ref("");

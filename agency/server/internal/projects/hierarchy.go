@@ -324,6 +324,8 @@ func (s *Service) parentOptions(
 			return nil, err
 		}
 		if ok {
+
+			option.Project = candidate
 			out = append(out, option)
 		}
 	}
@@ -365,6 +367,7 @@ func (s *Service) childOptions(
 			return nil, err
 		}
 		if ok {
+			option.Project = candidate
 			out = append(out, option)
 		}
 	}
@@ -375,7 +378,8 @@ func (s *Service) childOptions(
 	return out, nil
 }
 
-// invite; a shared owner team still allows a direct link without that.
+// invite; a shared owner team still allows a direct link without that. The
+
 func (s *Service) parentOption(
 	ctx context.Context,
 	parent Project,
@@ -401,7 +405,6 @@ func (s *Service) parentOption(
 		return ParentOption{}, false, nil
 	}
 	return ParentOption{
-		Project:          child,
 		CanInvite:        canInvite,
 		CanLinkDirectly:  direct,
 		SharedOwnerTeams: shared,

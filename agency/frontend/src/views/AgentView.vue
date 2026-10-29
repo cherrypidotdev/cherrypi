@@ -42,6 +42,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         TabsList
           TabsTrigger(value="overview") Overview
           TabsTrigger(value="usage") Usage
+          TabsTrigger(value="concurrency") Concurrency
           TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") Terminals
           TabsTrigger(value="rdp") RDP
           TabsTrigger(value="logs") Logs
@@ -105,7 +106,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 | No projects
 
         UsageOverview(
-          v-if="currentAgentId"
+          v-if="currentAgentId && showUsageKpi"
+          context="agent"
+          :agent-id="currentAgentId"
+        )
+
+        ConcurrencyKpis(
+          v-if="currentAgentId && showConcurrencyKpi"
           context="agent"
           :agent-id="currentAgentId"
         )
@@ -126,6 +133,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :agent-id="currentAgentId"
         )
 
+    TabsContent.flex-1.overflow-auto(value="concurrency")
+      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
+        AgentConcurrency(:agent-id="currentAgentId")
+
     TabsContent.flex-1.overflow-hidden(value="terminals")
       RootTerminalsView(embedded)
 
@@ -143,6 +154,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import BackButton from "@/components/BackButton.vue";
+import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";
+import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -152,6 +165,7 @@ import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useAgents } from "@/composables/useAgents";
 import { setPageTitle } from "@/composables/usePageTitle";
+import { useSettings } from "@/composables/useSettings";
 import {
   agentStatusClass,
   agentStatusLabel,
@@ -173,9 +187,22 @@ import RootTerminalsView from "./RootTerminalsView.vue";
 
 const route = useRoute();
 const { agents, loadAgents } = useAgents();
+const { settings, loadSettings } = useSettings();
 const { canManageAgent } = useAgentAccess();
+const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
+const showConcurrencyKpi = computed(
+  () => settings.value?.showConcurrencyKpi !== false,
+);
 
-const TABS = ["overview", "usage", "terminals", "rdp", "logs", "settings"];
+const TABS = [
+  "overview",
+  "usage",
+  "concurrency",
+  "terminals",
+  "rdp",
+  "logs",
+  "settings",
+];
 const tab = ref(
   typeof route.query.tab === "string" && TABS.includes(route.query.tab)
     ? route.query.tab
@@ -215,7 +242,7 @@ function teamLogo(team: Team): string {
 }
 
 onMounted(async () => {
-  await loadAgents();
+  await Promise.all([loadAgents(), loadSettings()]);
   try {
     const [projectList, teamList] = await Promise.all([
       agency.listAgentProjects(currentAgentId.value),

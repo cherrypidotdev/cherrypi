@@ -1,0 +1,62 @@
+/*
+CherryPi: A multi-agent-multi-human self-hosted agency
+Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/*
+ * The docs ship English and Russian. VitePress' default theme hides the
+ * language picker below 1280px, which would leave narrow viewports without any
+ * way to reach the translation, so keep it visible at every width.
+ */
+.VPNavBarTranslations {
+  display: flex !important;
+  align-items: center;
+}
+
+/* The nav gets tight on phones once VitePress collapses it to icons; drop the
+ * label chevron and the surrounding padding, keep the languages icon. */
+@media (max-width: 767px) {
+  .VPNavBarTranslations .button {
+    padding: 0 8px;
+  }
+
+  .VPNavBarTranslations .text-icon {
+    display: none;
+  }
+}
+
+/* Between the phone and desktop layouts (768–1023px) the expanded search box
+ * leaves no room for the nav groups and the language picker at once. Collapse
+ * search to its icon, as VitePress already does below 768px. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .VPNavBarSearch {
+    flex-grow: 0;
+    padding-left: 0;
+  }
+
+  .DocSearch-Button {
+    width: 48px;
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .DocSearch-Button-Placeholder,
+  .DocSearch-Button-Keys {
+    display: none !important;
+  }
+}

@@ -191,8 +191,17 @@ func (h *Handler) providerCallback(w http.ResponseWriter, r *http.Request, slug 
 				return linkErr
 			},
 		)
+		if err != nil && provider.AutoProvision {
+			// The provider opted out of invite-only: create a member account
+
+			actor, err = h.Service.ProvisionExternalActor(r.Context(), provider, user)
+		}
 		if err != nil {
-			h.redirectAuthError(w, r, "unlinked")
+			code := "unlinked"
+			if provider.AutoProvision {
+				code = "provision"
+			}
+			h.redirectAuthError(w, r, code)
 			return
 		}
 	}
@@ -271,6 +280,13 @@ func (h *Handler) ldapLogin(w http.ResponseWriter, r *http.Request) {
 				return linkErr
 			},
 		)
+		if err != nil && provider.AutoProvision {
+			// The directory opted out of invite-only: create a member account
+
+			actor, err = h.Service.ProvisionLDAPActor(
+				r.Context(), provider, ldapUser,
+			)
+		}
 		if err != nil {
 			writeAccountError(w, err)
 			return
@@ -656,6 +672,7 @@ type providerRequest struct {
 	Slug                  string `json:"slug"`
 	Name                  string `json:"name"`
 	Enabled               *bool  `json:"enabled"`
+	AutoProvision         bool   `json:"auto_provision"`
 	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
@@ -681,6 +698,7 @@ func (in providerRequest) toInput(creating bool) IdentityProviderInput {
 		Slug:                  in.Slug,
 		Name:                  in.Name,
 		Enabled:               enabled,
+		AutoProvision:         in.AutoProvision,
 		Issuer:                in.Issuer,
 		AuthorizationEndpoint: in.AuthorizationEndpoint,
 		TokenEndpoint:         in.TokenEndpoint,
@@ -696,20 +714,21 @@ func (in providerRequest) toInput(creating bool) IdentityProviderInput {
 }
 
 type ldapProviderRequest struct {
-	Slug         string `json:"slug"`
-	Name         string `json:"name"`
-	Enabled      *bool  `json:"enabled"`
-	Host         string `json:"host"`
-	Port         int64  `json:"port"`
-	Encryption   string `json:"encryption"`
-	Insecure     bool   `json:"insecure"`
-	BaseDN       string `json:"base_dn"`
-	BindDN       string `json:"bind_dn"`
-	BindPassword string `json:"bind_password"`
-	UserFilter   string `json:"user_filter"`
-	UsernameAttr string `json:"username_attr"`
-	EmailAttr    string `json:"email_attr"`
-	NameAttr     string `json:"name_attr"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	Enabled       *bool  `json:"enabled"`
+	AutoProvision bool   `json:"auto_provision"`
+	Host          string `json:"host"`
+	Port          int64  `json:"port"`
+	Encryption    string `json:"encryption"`
+	Insecure      bool   `json:"insecure"`
+	BaseDN        string `json:"base_dn"`
+	BindDN        string `json:"bind_dn"`
+	BindPassword  string `json:"bind_password"`
+	UserFilter    string `json:"user_filter"`
+	UsernameAttr  string `json:"username_attr"`
+	EmailAttr     string `json:"email_attr"`
+	NameAttr      string `json:"name_attr"`
 }
 
 func (in ldapProviderRequest) toInput(creating bool) LDAPProviderInput {
@@ -720,20 +739,21 @@ func (in ldapProviderRequest) toInput(creating bool) LDAPProviderInput {
 		enabled = false
 	}
 	return LDAPProviderInput{
-		Slug:         in.Slug,
-		Name:         in.Name,
-		Enabled:      enabled,
-		Host:         in.Host,
-		Port:         in.Port,
-		Encryption:   in.Encryption,
-		Insecure:     in.Insecure,
-		BaseDN:       in.BaseDN,
-		BindDN:       in.BindDN,
-		BindPassword: in.BindPassword,
-		UserFilter:   in.UserFilter,
-		UsernameAttr: in.UsernameAttr,
-		EmailAttr:    in.EmailAttr,
-		NameAttr:     in.NameAttr,
+		Slug:          in.Slug,
+		Name:          in.Name,
+		Enabled:       enabled,
+		AutoProvision: in.AutoProvision,
+		Host:          in.Host,
+		Port:          in.Port,
+		Encryption:    in.Encryption,
+		Insecure:      in.Insecure,
+		BaseDN:        in.BaseDN,
+		BindDN:        in.BindDN,
+		BindPassword:  in.BindPassword,
+		UserFilter:    in.UserFilter,
+		UsernameAttr:  in.UsernameAttr,
+		EmailAttr:     in.EmailAttr,
+		NameAttr:      in.NameAttr,
 	}
 }
 
@@ -768,6 +788,7 @@ func identityProviderJSON(p IdentityProvider) map[string]any {
 		"slug":                   p.Slug,
 		"name":                   p.Name,
 		"enabled":                p.Enabled,
+		"auto_provision":         p.AutoProvision,
 		"issuer":                 p.Issuer,
 		"authorization_endpoint": p.AuthorizationEndpoint,
 		"token_endpoint":         p.TokenEndpoint,
@@ -799,6 +820,7 @@ func ldapProviderJSON(p LDAPProvider) map[string]any {
 		"slug":              p.Slug,
 		"name":              p.Name,
 		"enabled":           p.Enabled,
+		"auto_provision":    p.AutoProvision,
 		"host":              p.Host,
 		"port":              p.Port,
 		"encryption":        p.Encryption,
@@ -885,6 +907,11 @@ func writeFederationError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, "identity not found")
 	case errors.Is(err, ErrExternalNotAllowed):
 		writeError(w, http.StatusForbidden, "no account is linked to this identity")
+	case errors.Is(err, ErrProvisionUnavailable):
+		writeError(
+			w, http.StatusForbidden,
+			"could not create an account from this identity",
+		)
 	case errors.Is(err, ErrProviderUnavailable):
 		writeError(w, http.StatusBadGateway, "identity provider is unavailable")
 	case errors.Is(err, ErrLDAPUnavailable):

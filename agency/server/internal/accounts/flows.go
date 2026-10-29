@@ -106,10 +106,11 @@ func (s *Service) FinishOIDC(
 		name = strings.SplitN(email, "@", 2)[0]
 	}
 	return ExternalUser{
-		Subject:  idToken.Subject,
-		Email:    NormalizeEmail(email),
-		Name:     name,
-		Username: claims.PreferredUsername,
+		Subject:       idToken.Subject,
+		Email:         NormalizeEmail(email),
+		EmailVerified: claims.EmailVerified,
+		Name:          name,
+		Username:      claims.PreferredUsername,
 	}, nil
 }
 

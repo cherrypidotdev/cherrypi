@@ -30,12 +30,31 @@ Configure these under **Settings → Authentication**.
 | --- | --- |
 | **Password** | Username or confirmed e-mail + password. Can be disabled for members while administrators retain access. |
 | **Magic link** | A single-use link sent by e-mail. |
-| **OIDC / OAuth2** | Generic OIDC discovery, or a generic OAuth2 provider. Multiple providers are supported. |
-| **LDAP** | Multiple directories. LDAP users are invite-only: an administrator invites the directory username first. |
+| **OIDC / OAuth2** | Generic OIDC discovery, or a generic OAuth2 provider. Multiple providers are supported. Invite-only unless the provider allows automatic account creation. |
+| **LDAP** | Multiple directories. Invite-only unless the directory allows automatic account creation. |
 | **TOTP** | Per-method two-factor policy with one-time recovery codes. |
 
 Password login is the default. If you disable it, keep at least one working
 provider or an administrator with a password.
+
+### Automatic account creation
+
+Federated sign-in is invite-only by default. On each OIDC/OAuth2 or LDAP
+provider you can enable **Create users on first sign-in** in **Settings →
+Authentication**. The first successful login then creates a `member` account
+and links the provider identity to it:
+
+- the username comes from the provider (`preferred_username`, the e-mail local
+  part, or the display name), lower-cased and sanitized to letters, digits,
+  `.`, `_` and `-`;
+- a name that is already taken gets a `-2`, `-3`, … suffix — an existing
+  account is never adopted, so a provider cannot take over a local account;
+- the display name and e-mail are copied; the address is marked confirmed only
+  when the provider asserts `email_verified`;
+- no teams or projects are granted automatically.
+
+Leave the switch off to keep inviting people first and letting them link an
+identity from **Account → Linked accounts**.
 
 ### SMTP
 

@@ -49,11 +49,17 @@ func (s *SettingsServer) UpdateSettings(
 ) (*agencyv1.UpdateSettingsResponse, error) {
 	in := req.Settings
 	if in == nil {
-		in = &agencyv1.Settings{}
+
+		in = &agencyv1.Settings{
+			ShowUsageKpi:       true,
+			ShowConcurrencyKpi: true,
+		}
 	}
 	updated, err := s.Settings.Update(ctx, settings.Settings{
-		AgencyName:   in.AgencyName,
-		PrimaryColor: in.PrimaryColor,
+		AgencyName:         in.AgencyName,
+		PrimaryColor:       in.PrimaryColor,
+		ShowUsageKPI:       in.ShowUsageKpi,
+		ShowConcurrencyKPI: in.ShowConcurrencyKpi,
 	})
 	if err != nil {
 		if errors.Is(err, settings.ErrInvalidColor) {
@@ -69,10 +75,12 @@ func (s *SettingsServer) toProto(
 	in settings.Settings,
 ) *agencyv1.Settings {
 	return &agencyv1.Settings{
-		AgencyName:   in.AgencyName,
-		PrimaryColor: in.PrimaryColor,
-		Logo:         s.attachment(ctx, in.LogoAttachmentID),
-		Favicon:      s.attachment(ctx, in.FaviconAttachmentID),
+		AgencyName:         in.AgencyName,
+		PrimaryColor:       in.PrimaryColor,
+		ShowUsageKpi:       in.ShowUsageKPI,
+		ShowConcurrencyKpi: in.ShowConcurrencyKPI,
+		Logo:               s.attachment(ctx, in.LogoAttachmentID),
+		Favicon:            s.attachment(ctx, in.FaviconAttachmentID),
 	}
 }
 

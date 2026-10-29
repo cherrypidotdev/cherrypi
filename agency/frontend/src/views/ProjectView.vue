@@ -49,6 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsList
         TabsTrigger(value="overview") Overview
         TabsTrigger(value="usage") Usage
+        TabsTrigger(value="concurrency") Concurrency
         TabsTrigger(value="settings") Settings
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
@@ -57,9 +58,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsContent(value="overview")
       .flex.flex-col.gap-6
         UsageOverview(
-          v-if="project"
+          v-if="project && showUsageKpi"
           context="project"
           :project-id="project.id"
+        )
+        ConcurrencyKpis(
+          v-if="project && showConcurrencyKpi"
+          context="project"
+          :project="project"
         )
 
         ExpressTaskForm(v-if="project && canPrompt" :project-id="project.id")
@@ -81,6 +87,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsContent(value="usage")
       UsageDashboard(v-if="project" context="project" :project-id="project.id")
 
+    TabsContent.flex-1.overflow-auto(value="concurrency")
+      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
+        ProjectConcurrency(v-if="project" :project="project")
+
     TabsContent(value="settings")
       ProjectSettingsView(
         v-if="project"
@@ -91,6 +101,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import BackButton from "@/components/BackButton.vue";
+import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
+import ProjectConcurrency from "@/components/concurrency/ProjectConcurrency.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +120,7 @@ import { useAgents } from "@/composables/useAgents";
 import type { BackFallback } from "@/composables/useBackNavigation";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { useProjects } from "@/composables/useProjects";
+import { useSettings } from "@/composables/useSettings";
 import { projectAccessApi } from "@/lib/projectAccess";
 import { agency } from "@/lib/sdk";
 import type { Project } from "@cherrypi/sdk";
@@ -121,9 +134,14 @@ const props = defineProps<{ slug: string }>();
 const route = useRoute();
 const router = useRouter();
 const { loadAgents } = useAgents();
+const { settings, loadSettings } = useSettings();
+const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
+const showConcurrencyKpi = computed(
+  () => settings.value?.showConcurrencyKpi !== false,
+);
 const { projects, loadProjects } = useProjects();
 
-const TABS = ["overview", "usage", "settings"];
+const TABS = ["overview", "usage", "concurrency", "settings"];
 const tab = ref(
   typeof route.query.tab === "string" && TABS.includes(route.query.tab)
     ? route.query.tab
@@ -190,6 +208,6 @@ watch(tab, (value) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadAgents(), loadProjects(), load()]);
+  await Promise.all([loadAgents(), loadProjects(), loadSettings(), load()]);
 });
 </script>

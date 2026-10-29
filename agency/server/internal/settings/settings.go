@@ -27,8 +27,10 @@ import (
 )
 
 const (
-	keyAgencyName   = "agency_name"
-	keyPrimaryColor = "primary_color"
+	keyAgencyName         = "agency_name"
+	keyPrimaryColor       = "primary_color"
+	keyShowUsageKPI       = "show_usage_kpi"
+	keyShowConcurrencyKPI = "show_concurrency_kpi"
 
 	KeyAgencyLogoAttachmentID    = "agency_logo_attachment_id"
 	KeyAgencyFaviconAttachmentID = "agency_favicon_attachment_id"
@@ -41,6 +43,9 @@ var colorPattern = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 type Settings struct {
 	AgencyName   string
 	PrimaryColor string
+
+	ShowUsageKPI       bool
+	ShowConcurrencyKPI bool
 
 	LogoAttachmentID    int64
 	FaviconAttachmentID int64
@@ -58,13 +63,17 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 		return Settings{}, err
 	}
 
-	var out Settings
+	out := Settings{ShowUsageKPI: true, ShowConcurrencyKPI: true}
 	for _, row := range rows {
 		switch row.Key {
 		case keyAgencyName:
 			out.AgencyName = row.Value
 		case keyPrimaryColor:
 			out.PrimaryColor = row.Value
+		case keyShowUsageKPI:
+			out.ShowUsageKPI = parseBoolDefault(row.Value)
+		case keyShowConcurrencyKPI:
+			out.ShowConcurrencyKPI = parseBoolDefault(row.Value)
 		case KeyAgencyLogoAttachmentID:
 			out.LogoAttachmentID = parseAttachmentID(row.Value)
 		case KeyAgencyFaviconAttachmentID:
@@ -72,6 +81,14 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 		}
 	}
 	return out, nil
+}
+
+func parseBoolDefault(value string) bool {
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return true
+	}
+	return parsed
 }
 
 func parseAttachmentID(value string) int64 {
@@ -107,10 +124,30 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	); err != nil {
 		return Settings{}, err
 	}
+	if err := s.store.UpsertSetting(
+		ctx,
+		store.UpsertSettingParams{
+			Key:   keyShowUsageKPI,
+			Value: strconv.FormatBool(in.ShowUsageKPI),
+		},
+	); err != nil {
+		return Settings{}, err
+	}
+	if err := s.store.UpsertSetting(
+		ctx,
+		store.UpsertSettingParams{
+			Key:   keyShowConcurrencyKPI,
+			Value: strconv.FormatBool(in.ShowConcurrencyKPI),
+		},
+	); err != nil {
+		return Settings{}, err
+	}
 
 	return Settings{
 		AgencyName:          name,
 		PrimaryColor:        color,
+		ShowUsageKPI:        in.ShowUsageKPI,
+		ShowConcurrencyKPI:  in.ShowConcurrencyKPI,
 		LogoAttachmentID:    current.LogoAttachmentID,
 		FaviconAttachmentID: current.FaviconAttachmentID,
 	}, nil

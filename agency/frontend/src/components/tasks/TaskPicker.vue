@@ -97,6 +97,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         option(v-for="tag in tagOptions" :key="tag.id" :value="tag.id") {{ tag.name }}
   .max-h-56.overflow-y-auto.p-1(
     ref="list"
+    role="listbox"
     @scroll.passive="onScroll"
     data-testid="task-picker-list"
   )
@@ -110,13 +111,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       p.text-muted-foreground.px-2.text-xs(v-if="!search.trim()")
         | Recent tasks
       button.inline-flex.w-full.min-w-0.items-center.gap-1.rounded-full.border.px-2.text-left.text-xs(
-        v-for="candidate in candidates"
+        v-for="(candidate, index) in candidates"
         :key="candidate.id"
         type="button"
-        class="hover:bg-muted py-0.5"
-        :class="taskStateClassFor(candidate)"
+        role="option"
+        class="py-0.5"
+        :class="candidateClass(candidate, index)"
+        :aria-selected="index === activeIndex"
         :title="taskReferenceTitle(candidate)"
         @click="pick(candidate)"
+        @mouseenter="activeIndex = index"
+        data-task-candidate
       )
         component.size-3.shrink-0(:is="taskStateIcon(candidate.state)")
         strong.shrink-0.font-semibold {{ candidate.id }}:
@@ -152,7 +157,7 @@ import {
   type Task,
 } from "@cherrypi/sdk";
 import { refDebounced } from "@vueuse/core";
-import { computed, onMounted, ref, toRef, watch } from "vue";
+import { computed, nextTick, onMounted, ref, toRef, watch } from "vue";
 import { toast } from "vue3-toastify";
 
 const PAGE_SIZE = 20;
@@ -211,6 +216,7 @@ const candidates = ref<Task[]>([]);
 const loading = ref(false);
 const hasMore = ref(true);
 const offset = ref(0);
+const activeIndex = ref(0);
 
 const projectOptions = computed(() => sortProjectsByName(projects.value));
 const agentOptions = computed(() =>
@@ -344,6 +350,7 @@ async function loadPage(reset: boolean) {
 }
 
 function restart() {
+  activeIndex.value = 0;
   void loadPage(true);
 }
 
@@ -364,12 +371,55 @@ function onScroll(event: Event) {
   if (nearBottom && hasMore.value && !loading.value) void loadPage(false);
 }
 
+function candidateClass(candidate: Task, index: number) {
+  return [
+    taskStateClassFor(candidate),
+    index === activeIndex.value ? "bg-muted" : "hover:bg-muted",
+  ];
+}
+
 function pick(candidate: Task) {
   emit("pick", candidate);
   candidates.value = candidates.value.filter(
     (item) => item.id !== candidate.id,
   );
+  if (activeIndex.value >= candidates.value.length) {
+    activeIndex.value = Math.max(0, candidates.value.length - 1);
+  }
 }
+
+async function ensureActiveVisible() {
+  await nextTick();
+  const rows = list.value?.querySelectorAll<HTMLElement>(
+    "[data-task-candidate]",
+  );
+  rows?.[activeIndex.value]?.scrollIntoView({ block: "nearest" });
+}
+
+function moveActive(delta: number) {
+  const count = candidates.value.length;
+  if (!count) return;
+  activeIndex.value = (activeIndex.value + delta + count) % count;
+  void ensureActiveVisible();
+}
+
+function pickActive(): boolean {
+  const candidate = candidates.value[activeIndex.value];
+  if (!candidate) return false;
+  pick(candidate);
+  return true;
+}
+
+defineExpose({ moveActive, pickActive });
+
+watch(
+  () => candidates.value.length,
+  (length) => {
+    if (activeIndex.value >= length) {
+      activeIndex.value = Math.max(0, length - 1);
+    }
+  },
+);
 
 watch(debouncedSearch, restart);
 watch(

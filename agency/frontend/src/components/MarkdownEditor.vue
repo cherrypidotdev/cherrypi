@@ -37,6 +37,7 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
       :style="taskPickerStyle"
     )
       TaskPicker(
+        ref="taskPicker"
         :search="taskPickerState.search"
         :reference-project-id="referenceProjectId"
         :exclude-ids="taskPickerExcludeIds"
@@ -70,7 +71,11 @@ import {
   markdownKeymap,
   markdownLanguage,
 } from "@codemirror/lang-markdown";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import {
+  HighlightStyle,
+  syntaxHighlighting,
+  syntaxTree,
+} from "@codemirror/language";
 import {
   highlightSelectionMatches,
   searchKeymap,
@@ -141,6 +146,8 @@ const emit = defineEmits<{
   "update:modelValue": [value: string];
 
   submit: [];
+
+  "task-picked": [task: Task];
 }>();
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -158,9 +165,15 @@ let dragStartHeight = MIN_HEIGHT;
 const TaskPicker = defineAsyncComponent(
   () => import("@/components/tasks/TaskPicker.vue"),
 );
+
+interface TaskPickerHandle {
+  moveActive: (delta: number) => void;
+  pickActive: () => boolean;
+}
 const TASK_PICKER_WIDTH = 416;
 const TASK_PICKER_HEIGHT = 300;
 const taskPickerRoot = ref<HTMLElement>();
+const taskPicker = ref<TaskPickerHandle>();
 const taskPickerState = reactive({ open: false, from: 0, search: "" });
 const taskPickerStyle = ref<Record<string, string>>({});
 const taskPickerExcludeIds = computed(() =>
@@ -196,6 +209,36 @@ useEventListener(
 
 useEventListener(
   window,
+  "keydown",
+  (event: KeyboardEvent) => {
+    if (
+      !taskPickerState.open ||
+      event.isComposing ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    const target = event.target as Node | null;
+    if (!target || !host.value?.contains(target)) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      taskPicker.value?.moveActive(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    if (!taskPicker.value?.pickActive()) return;
+    event.preventDefault();
+    event.stopPropagation();
+  },
+  { capture: true },
+);
+
+useEventListener(
+  window,
   "scroll",
   () => {
     if (taskPickerState.open) positionTaskPicker();
@@ -206,6 +249,56 @@ useEventListener(window, "resize", () => {
   if (taskPickerState.open) positionTaskPicker();
 });
 
+function isEscaped(text: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (text[cursor] !== "\\") break;
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
+
+function inCode(state: EditorState, position: number): boolean {
+  for (
+    let node: SyntaxNode | null = syntaxTree(state).resolveInner(position, 1);
+    node;
+    node = node.parent
+  ) {
+    if (
+      node.name === "FencedCode" ||
+      node.name === "CodeBlock" ||
+      node.name === "InlineCode"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function taskQuerySearch(query: string): string | null {
+  let search = "";
+  let quoted = false;
+  for (let index = 0; index < query.length; index += 1) {
+    const char = query[index]!;
+    if (index === 0 && char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === "\n" || char === "\r") return null;
+    if (!quoted && char === "#") return null;
+    if (!quoted && (char === " " || char === "\t")) return null;
+    search += char;
+  }
+  return search;
+}
+
 function taskQueryAt(
   state: EditorState,
 ): { from: number; search: string } | null {
@@ -215,11 +308,11 @@ function taskQueryAt(
   const hash = before.lastIndexOf("#");
   if (hash < 0) return null;
   if (hash > 0 && before[hash - 1] === "#") return null;
-  const search = before.slice(hash + 1);
 
-  if (search.includes("\n") || search.includes("#")) return null;
-
-  if (search.startsWith(" ") || search.startsWith("\t")) return null;
+  if (isEscaped(before, hash)) return null;
+  if (inCode(state, hash)) return null;
+  const search = taskQuerySearch(before.slice(hash + 1));
+  if (search === null) return null;
   return { from: hash, search };
 }
 
@@ -308,6 +401,7 @@ function onTaskPicked(task: Task) {
   });
   closeTaskPicker();
   editor.focus();
+  emit("task-picked", task);
 }
 
 const readOnly = new Compartment();

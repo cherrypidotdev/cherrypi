@@ -23,7 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       CardTitle Federated identity providers
       CardDescription
         | Generic OIDC discovery and the generic OAuth2 shim. Users link an
-        | identity from their account after signing in; logins are invite-only.
+        | identity from their account after signing in. Without automatic
+        | account creation, logins stay invite-only.
       .flex.justify-end
         Button(size="sm" variant="outline" @click="startAddProvider")
           PlusIcon(data-icon="inline-start")
@@ -37,6 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.items-center.gap-2
             p.truncate.text-sm.font-medium {{ provider.name }}
             Badge(variant="secondary") {{ provider.kind }}
+            Badge(v-if="provider.auto_provision" variant="outline") auto-provision
             Badge(v-if="!provider.enabled" variant="outline") disabled
           p.text-muted-foreground.truncate.text-xs
             | {{ provider.slug }} · {{ provider.issuer || provider.authorization_endpoint }}
@@ -150,12 +152,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Field
                 FieldLabel Name path
                 Input(v-model="providerForm.name_path" placeholder="name")
-          Field.flex-row.items-center.gap-2
-            Switch(
-              :model-value="providerForm.enabled"
-              @update:model-value="providerForm.enabled = Boolean($event)"
-            )
-            FieldLabel Enabled
+          .flex.flex-col.gap-1
+            Field.flex-row.items-center.gap-2
+              Switch(
+                :model-value="providerForm.enabled"
+                @update:model-value="providerForm.enabled = Boolean($event)"
+              )
+              FieldLabel Enabled
+            Field.flex-row.items-center.gap-2
+              Switch(
+                :model-value="providerForm.auto_provision"
+                @update:model-value="providerForm.auto_provision = Boolean($event)"
+              )
+              FieldLabel Create users on first sign-in
+            p.text-muted-foreground.text-xs
+              | A member account is created and linked on the first successful
+              | login. The provider username is used; a numeric suffix is added
+              | when it is taken. Leave off to keep invite-only.
         p.text-destructive.text-sm(v-if="error") {{ error }}
         .flex.justify-end.gap-2
           Button(
@@ -170,7 +183,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       CardTitle LDAP directories
       CardDescription
         | Multiple providers; the sign-in page lists them. Users link a
-        | directory username from their account.
+        | directory username from their account. Without automatic account
+        | creation, directory logins stay invite-only.
       .flex.justify-end
         Button(size="sm" variant="outline" @click="startAddLDAP")
           PlusIcon(data-icon="inline-start")
@@ -184,6 +198,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.items-center.gap-2
             p.truncate.text-sm.font-medium {{ provider.name }}
             Badge(variant="secondary") {{ provider.encryption }}
+            Badge(v-if="provider.auto_provision" variant="outline") auto-provision
             Badge(v-if="!provider.enabled" variant="outline") disabled
           p.text-muted-foreground.truncate.text-xs
             | {{ provider.slug }} · {{ provider.host }}:{{ provider.port }} · {{ provider.base_dn }}
@@ -266,12 +281,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             Field
               FieldLabel Name attribute
               Input(v-model="ldapForm.name_attr" placeholder="cn")
-          Field.flex-row.items-center.gap-2
-            Switch(
-              :model-value="ldapForm.enabled"
-              @update:model-value="ldapForm.enabled = Boolean($event)"
-            )
-            FieldLabel Enabled
+          .flex.flex-col.gap-1
+            Field.flex-row.items-center.gap-2
+              Switch(
+                :model-value="ldapForm.enabled"
+                @update:model-value="ldapForm.enabled = Boolean($event)"
+              )
+              FieldLabel Enabled
+            Field.flex-row.items-center.gap-2
+              Switch(
+                :model-value="ldapForm.auto_provision"
+                @update:model-value="ldapForm.auto_provision = Boolean($event)"
+              )
+              FieldLabel Create users on first sign-in
+            p.text-muted-foreground.text-xs
+              | A member account is created and linked on the first successful
+              | bind. The directory username is used; a numeric suffix is added
+              | when it is taken. Leave off to keep invite-only.
         p.text-destructive.text-sm(v-if="error") {{ error }}
         .flex.justify-end.gap-2
           Button(type="button" variant="outline" @click="ldapFormOpen = false") Cancel
@@ -487,6 +513,7 @@ function defaultProviderForm() {
     slug: "",
     name: "",
     enabled: true,
+    auto_provision: false,
     issuer: "",
     authorization_endpoint: "",
     token_endpoint: "",
@@ -506,6 +533,7 @@ function defaultLDAPForm() {
     slug: "",
     name: "",
     enabled: true,
+    auto_provision: false,
     host: "",
     port: 389,
     encryption: "none",
@@ -554,6 +582,7 @@ function startEditProvider(provider: IdentityProvider): void {
     slug: provider.slug,
     name: provider.name,
     enabled: provider.enabled,
+    auto_provision: provider.auto_provision,
     issuer: provider.issuer,
     authorization_endpoint: provider.authorization_endpoint,
     token_endpoint: provider.token_endpoint,
@@ -612,6 +641,7 @@ function startEditLDAP(provider: LDAPProvider): void {
     slug: provider.slug,
     name: provider.name,
     enabled: provider.enabled,
+    auto_provision: provider.auto_provision,
     host: provider.host,
     port: provider.port,
     encryption: provider.encryption,

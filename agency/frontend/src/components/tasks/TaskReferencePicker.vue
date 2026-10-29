@@ -120,8 +120,10 @@ const props = withDefaults(
     projectId?: string;
 
     disabled?: boolean;
+
+    knownTasks?: Task[];
   }>(),
-  { projectId: "", disabled: false },
+  { projectId: "", disabled: false, knownTasks: () => [] },
 );
 const emit = defineEmits<{ "update:modelValue": [TaskReferenceInput[]] }>();
 
@@ -190,9 +192,27 @@ function setKind(entry: SelectedReference, kind: unknown) {
 }
 
 watch(
-  () => props.modelValue,
-  (refs) => {
-    if (refs.length === 0 && selected.value.length) selected.value = [];
+  [() => props.modelValue, () => props.knownTasks],
+  ([refs, known]) => {
+    const knownById = new Map(known.map((task) => [task.id, task]));
+    const next = selected.value.filter((entry) =>
+      refs.some((ref) => ref.taskId === entry.task.id),
+    );
+    for (const entry of next) {
+      const ref = refs.find((item) => item.taskId === entry.task.id);
+      if (ref?.kind !== undefined) entry.kind = ref.kind;
+    }
+    for (const ref of refs) {
+      if (next.some((entry) => entry.task.id === ref.taskId)) continue;
+      const task = knownById.get(ref.taskId);
+      if (!task) continue;
+      next.push({
+        task,
+        kind: ref.kind ?? TaskReferenceKind.INFORMATIONAL,
+      });
+    }
+    selected.value = next;
   },
+  { deep: true },
 );
 </script>

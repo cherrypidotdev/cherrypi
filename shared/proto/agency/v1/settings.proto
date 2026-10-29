@@ -39,6 +39,12 @@ message Settings {
   
   
   Attachment favicon = 4;
+  
+  
+  bool show_usage_kpi = 5;
+  
+  
+  bool show_concurrency_kpi = 6;
 }
 
 message GetSettingsRequest {}

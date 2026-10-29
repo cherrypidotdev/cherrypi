@@ -168,6 +168,10 @@ export interface AgencySettingsInput {
   agencyName: string;
 
   primaryColor: string;
+
+  showUsageKpi?: boolean;
+
+  showConcurrencyKpi?: boolean;
 }
 
 export interface CreateAgentInput {
@@ -568,7 +572,14 @@ export class AgencyClient {
     options?: CallOptions,
   ): Promise<Settings> {
     const res = await this.settings.updateSettings(
-      { settings: input },
+      {
+        settings: {
+          agencyName: input.agencyName,
+          primaryColor: input.primaryColor,
+          showUsageKpi: input.showUsageKpi ?? true,
+          showConcurrencyKpi: input.showConcurrencyKpi ?? true,
+        },
+      },
       options,
     );
     return res.settings!;

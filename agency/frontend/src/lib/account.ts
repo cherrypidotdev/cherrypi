@@ -120,6 +120,7 @@ export interface IdentityProvider {
   slug: string;
   name: string;
   enabled: boolean;
+  auto_provision: boolean;
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
@@ -140,6 +141,7 @@ export interface LDAPProvider {
   slug: string;
   name: string;
   enabled: boolean;
+  auto_provision: boolean;
   host: string;
   port: number;
   encryption: string;

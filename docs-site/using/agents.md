@@ -52,15 +52,18 @@ that role.
 
 ## Concurrency limits
 
-Open **Settings → Limits** on the agent to control how many tasks it runs:
+Open **Agent → Concurrency** to see live slot usage. The limits themselves
+are still edited under **Settings → Tasks** (overall and per-tag caps) and
+**Settings → Projects** (per-project and per-project-per-tag caps):
 
 - total concurrent tasks;
 - concurrent tasks per project;
 - per-tag and per-project-tag overrides.
 
-The scheduler drains queued tasks while a slot is free. Defaults are
-conservative; raise them when the host has capacity and your model provider
-allows the traffic.
+The **Project → Concurrency** tab shows the same picture across the project's
+member agents, including the per-agent project and tag caps. The scheduler
+drains queued tasks while a slot is free. Defaults are conservative; raise them
+when the host has capacity and your model provider allows the traffic.
 
 ## Tokens
 

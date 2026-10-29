@@ -98,6 +98,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       @changed="onFaviconChanged"
                     )
                     FieldDescription Defaults to the logo when empty.
+                Separator
+                .flex.flex-col.gap-4
+                  .flex.flex-col
+                    span.text-sm.font-medium Overview KPIs
+                    span.text-muted-foreground.text-xs
+                      | Choose which summary rows appear on the Agent, Project and
+                      | agency Tasks overviews.
+                  .flex.items-center.justify-between.gap-3
+                    .flex.flex-col
+                      span.text-sm.font-medium Show Usage KPIs
+                      span.text-muted-foreground.text-xs
+                        | Cost, tokens, rounds, completed tasks and active time.
+                    Switch(
+                      :model-value="showUsageKpi"
+                      @update:model-value="showUsageKpi = Boolean($event)"
+                    )
+                  .flex.items-center.justify-between.gap-3
+                    .flex.flex-col
+                      span.text-sm.font-medium Show Concurrency KPIs
+                      span.text-muted-foreground.text-xs
+                        | Slots held, waiting work, free slots and full caps.
+                    Switch(
+                      :model-value="showConcurrencyKpi"
+                      @update:model-value="showConcurrencyKpi = Boolean($event)"
+                    )
                 p.text-destructive.text-sm(v-if="error") {{ error }}
                 .flex.justify-end
                   Button(type="submit" :disabled="saving")
@@ -172,6 +197,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withProgress } from "@/composables/useProgress";
 import { useSettings } from "@/composables/useSettings";
@@ -201,6 +227,8 @@ watch(
 const name = ref("");
 const primary = ref("");
 const hexDraft = ref("");
+const showUsageKpi = ref(true);
+const showConcurrencyKpi = ref(true);
 const saving = ref(false);
 
 watch(primary, (value) => {
@@ -212,6 +240,8 @@ onMounted(async () => {
   await loadSettings(true);
   name.value = settings.value?.agencyName ?? "";
   primary.value = settings.value?.primaryColor ?? "";
+  showUsageKpi.value = settings.value?.showUsageKpi !== false;
+  showConcurrencyKpi.value = settings.value?.showConcurrencyKpi !== false;
 });
 
 function onPick(event: Event) {
@@ -257,6 +287,8 @@ async function save() {
       saveSettings({
         agencyName: name.value.trim(),
         primaryColor: primary.value,
+        showUsageKpi: showUsageKpi.value,
+        showConcurrencyKpi: showConcurrencyKpi.value,
       }),
     );
     toast.success("Settings saved");

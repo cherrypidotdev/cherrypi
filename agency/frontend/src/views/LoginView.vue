@@ -229,7 +229,10 @@ const logoUrl = computed(() => settings.value?.logo?.url || "/logo.png");
 const ERROR_MESSAGES: Record<string, string> = {
   state: "The sign-in session expired. Please try again.",
   provider: "The identity provider could not be reached.",
-  unlinked: "No account is linked to that identity. Contact an administrator.",
+  unlinked:
+    "No account is linked to that identity. Ask an administrator to invite you, or to enable automatic account creation for this provider.",
+  provision:
+    "Your identity was verified, but CherryPi could not create an account for it. Ask an administrator to invite you.",
   disabled: "This account is disabled.",
   denied: "Sign-in was cancelled.",
   auth: "Please sign in first.",

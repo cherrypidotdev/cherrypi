@@ -54,12 +54,14 @@ var (
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
+// of rejecting an unlinked identity (invite-only).
 type IdentityProvider struct {
 	ID                    int64
 	Kind                  string
 	Slug                  string
 	Name                  string
 	Enabled               bool
+	AutoProvision         bool
 	Issuer                string
 	AuthorizationEndpoint string
 	TokenEndpoint         string
@@ -80,6 +82,7 @@ type IdentityProviderInput struct {
 	Slug                  string
 	Name                  string
 	Enabled               bool
+	AutoProvision         bool
 	Issuer                string
 	AuthorizationEndpoint string
 	TokenEndpoint         string
@@ -104,11 +107,13 @@ type ExternalIdentity struct {
 	CreatedAt    time.Time
 }
 
+// unlinked directory username (invite-only).
 type LDAPProvider struct {
 	ID              int64
 	Slug            string
 	Name            string
 	Enabled         bool
+	AutoProvision   bool
 	Host            string
 	Port            int64
 	Encryption      string
@@ -125,20 +130,21 @@ type LDAPProvider struct {
 }
 
 type LDAPProviderInput struct {
-	Slug         string
-	Name         string
-	Enabled      bool
-	Host         string
-	Port         int64
-	Encryption   string
-	Insecure     bool
-	BaseDN       string
-	BindDN       string
-	BindPassword string
-	UserFilter   string
-	UsernameAttr string
-	EmailAttr    string
-	NameAttr     string
+	Slug          string
+	Name          string
+	Enabled       bool
+	AutoProvision bool
+	Host          string
+	Port          int64
+	Encryption    string
+	Insecure      bool
+	BaseDN        string
+	BindDN        string
+	BindPassword  string
+	UserFilter    string
+	UsernameAttr  string
+	EmailAttr     string
+	NameAttr      string
 }
 
 type LDAPIdentity struct {
@@ -153,7 +159,9 @@ type LDAPIdentity struct {
 type ExternalUser struct {
 	Subject string
 	Email   string
-	Name    string
+
+	EmailVerified bool
+	Name          string
 
 	// generic OAuth2 shim's name path). It matches provider-scoped invites.
 	Username string
@@ -222,6 +230,7 @@ func (s *Service) CreateIdentityProvider(
 		Slug:                  in.Slug,
 		Name:                  in.Name,
 		Enabled:               boolToInt(in.Enabled),
+		AutoProvision:         boolToInt(in.AutoProvision),
 		Issuer:                in.Issuer,
 		AuthorizationEndpoint: in.AuthorizationEndpoint,
 		TokenEndpoint:         in.TokenEndpoint,
@@ -271,6 +280,7 @@ func (s *Service) UpdateIdentityProvider(
 		Slug:                  in.Slug,
 		Name:                  in.Name,
 		Enabled:               boolToInt(in.Enabled),
+		AutoProvision:         boolToInt(in.AutoProvision),
 		Issuer:                in.Issuer,
 		AuthorizationEndpoint: in.AuthorizationEndpoint,
 		TokenEndpoint:         in.TokenEndpoint,
@@ -373,6 +383,7 @@ func identityProviderFromRow(row store.IdentityProvider) IdentityProvider {
 		Slug:                  row.Slug,
 		Name:                  row.Name,
 		Enabled:               row.Enabled != 0,
+		AutoProvision:         row.AutoProvision != 0,
 		Issuer:                row.Issuer,
 		AuthorizationEndpoint: row.AuthorizationEndpoint,
 		TokenEndpoint:         row.TokenEndpoint,
@@ -555,22 +566,23 @@ func (s *Service) CreateLDAPProvider(
 
 	now := s.now()
 	row, err := s.store.CreateLDAPProvider(ctx, store.CreateLDAPProviderParams{
-		Slug:         in.Slug,
-		Name:         in.Name,
-		Enabled:      boolToInt(in.Enabled),
-		Host:         in.Host,
-		Port:         in.Port,
-		Encryption:   in.Encryption,
-		Insecure:     boolToInt(in.Insecure),
-		BaseDn:       in.BaseDN,
-		BindDn:       in.BindDN,
-		BindPassword: in.BindPassword,
-		UserFilter:   in.UserFilter,
-		UsernameAttr: in.UsernameAttr,
-		EmailAttr:    in.EmailAttr,
-		NameAttr:     in.NameAttr,
-		CreatedAt:    now.UnixMilli(),
-		UpdatedAt:    now.UnixMilli(),
+		Slug:          in.Slug,
+		Name:          in.Name,
+		Enabled:       boolToInt(in.Enabled),
+		AutoProvision: boolToInt(in.AutoProvision),
+		Host:          in.Host,
+		Port:          in.Port,
+		Encryption:    in.Encryption,
+		Insecure:      boolToInt(in.Insecure),
+		BaseDn:        in.BaseDN,
+		BindDn:        in.BindDN,
+		BindPassword:  in.BindPassword,
+		UserFilter:    in.UserFilter,
+		UsernameAttr:  in.UsernameAttr,
+		EmailAttr:     in.EmailAttr,
+		NameAttr:      in.NameAttr,
+		CreatedAt:     now.UnixMilli(),
+		UpdatedAt:     now.UnixMilli(),
 	})
 	if err != nil {
 		if isUniqueError(err) {
@@ -603,22 +615,23 @@ func (s *Service) UpdateLDAPProvider(
 		return LDAPProvider{}, err
 	}
 	if err := s.store.UpdateLDAPProvider(ctx, store.UpdateLDAPProviderParams{
-		Slug:         in.Slug,
-		Name:         in.Name,
-		Enabled:      boolToInt(in.Enabled),
-		Host:         in.Host,
-		Port:         in.Port,
-		Encryption:   in.Encryption,
-		Insecure:     boolToInt(in.Insecure),
-		BaseDn:       in.BaseDN,
-		BindDn:       in.BindDN,
-		BindPassword: in.BindPassword,
-		UserFilter:   in.UserFilter,
-		UsernameAttr: in.UsernameAttr,
-		EmailAttr:    in.EmailAttr,
-		NameAttr:     in.NameAttr,
-		UpdatedAt:    s.now().UnixMilli(),
-		ID:           id,
+		Slug:          in.Slug,
+		Name:          in.Name,
+		Enabled:       boolToInt(in.Enabled),
+		AutoProvision: boolToInt(in.AutoProvision),
+		Host:          in.Host,
+		Port:          in.Port,
+		Encryption:    in.Encryption,
+		Insecure:      boolToInt(in.Insecure),
+		BaseDn:        in.BaseDN,
+		BindDn:        in.BindDN,
+		BindPassword:  in.BindPassword,
+		UserFilter:    in.UserFilter,
+		UsernameAttr:  in.UsernameAttr,
+		EmailAttr:     in.EmailAttr,
+		NameAttr:      in.NameAttr,
+		UpdatedAt:     s.now().UnixMilli(),
+		ID:            id,
 	}); err != nil {
 		if isUniqueError(err) {
 			return LDAPProvider{}, ErrProviderSlugInUse
@@ -701,6 +714,7 @@ func ldapProviderFromRow(row store.LdapProvider) LDAPProvider {
 		Slug:            row.Slug,
 		Name:            row.Name,
 		Enabled:         row.Enabled != 0,
+		AutoProvision:   row.AutoProvision != 0,
 		Host:            row.Host,
 		Port:            row.Port,
 		Encryption:      row.Encryption,

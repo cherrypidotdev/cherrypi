@@ -108,6 +108,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :title="item.status === AgentStatus.ONLINE ? 'Online' : 'Offline'"
               )
             span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ item.displayName || item.username }}
+            span.ml-auto.inline-flex.shrink-0.items-center(
+              v-if="!collapsed && fleetStat(item.id)"
+              class="gap-1.5"
+              :title="fleetTitle(item.id)"
+            )
+              span.text-3xs.min-w-3.text-right.font-mono.text-amber-600(
+                v-if="fleetStat(item.id)?.waiting"
+                class="dark:text-amber-400"
+              ) {{ fleetStat(item.id)?.waiting }}
+              ConcurrencyTrack.w-10(
+                :label="item.displayName || item.username"
+                size="sm"
+                :used="fleetStat(item.id)?.used ?? 0"
+                :cap="fleetStat(item.id)?.cap ?? 1"
+                :waiting="0"
+                :show-count="false"
+                :show-waiting="false"
+              )
           RouterLink.text-muted-foreground.flex.items-center.gap-2.rounded-md.px-3.py-2.text-xs.font-medium(
             v-if="!collapsed"
             :to="{ name: 'agents' }"
@@ -264,6 +282,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import ProjectsNav from "@/components/ProjectsNav.vue";
 import SidebarSection from "@/components/SidebarSection.vue";
 import TaskComposerDialog from "@/components/tasks/TaskComposerDialog.vue";
@@ -271,6 +290,7 @@ import { Button } from "@/components/ui/button";
 import { useAgents } from "@/composables/useAgents";
 import { attentionPreference } from "@/composables/useAttentionPreferences";
 import { useDirectory } from "@/composables/useDirectory";
+import { useFleetConcurrency } from "@/composables/useFleetConcurrency";
 import { useNotifications } from "@/composables/useNotifications";
 import { usePageTitle } from "@/composables/usePageTitle";
 import {
@@ -419,6 +439,18 @@ const sidebarAgents = computed(() => {
 });
 
 const sidebarTeams = computed(() => teams.value);
+
+const { stats: fleetStats } = useFleetConcurrency(() => sidebarAgents.value);
+
+function fleetStat(agentId: string) {
+  return fleetStats.value[agentId];
+}
+
+function fleetTitle(agentId: string): string {
+  const stat = fleetStat(agentId);
+  if (!stat) return "";
+  return `${stat.used}/${stat.cap} slots held${stat.waiting ? ` · ${stat.waiting} waiting` : ""}`;
+}
 
 const { section } = usePageTitle();
 watchEffect(() => {
