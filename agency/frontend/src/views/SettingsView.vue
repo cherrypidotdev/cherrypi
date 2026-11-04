@@ -123,6 +123,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       :model-value="showConcurrencyKpi"
                       @update:model-value="showConcurrencyKpi = Boolean($event)"
                     )
+                Separator
+                .flex.flex-col.gap-3
+                  .flex.flex-col
+                    span.text-sm.font-medium Notification sounds
+                    span.text-muted-foreground.text-xs
+                      | The sound set every browser in the agency uses for task
+                      | notifications. Each user controls their own volume in User
+                      | settings.
+                  .flex.flex-wrap.items-end.gap-3
+                    Field.flex-1
+                      FieldLabel(for="org-notification-sound-set") Sound set
+                      Select(v-model="notificationSoundSet")
+                        SelectTrigger#org-notification-sound-set.w-full
+                          SelectValue
+                        SelectContent
+                          SelectItem(
+                            v-for="set in SOUND_SETS"
+                            :key="set.id"
+                            :value="set.id"
+                          ) {{ set.name }}
+                      FieldDescription {{ selectedSoundSet.description }}
+                    Button(
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      :aria-label="previewing ? 'Stop the sound preview' : 'Preview this sound set'"
+                      @click="previewSound"
+                    )
+                      Spinner(v-if="previewing" data-icon="inline-start")
+                      PlayIcon(v-else data-icon="inline-start")
+                      span {{ previewing ? "Stop" : "Preview" }}
                 p.text-destructive.text-sm(v-if="error") {{ error }}
                 .flex.justify-end
                   Button(type="submit" :disabled="saving")
@@ -195,16 +226,27 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withProgress } from "@/composables/useProgress";
 import { useSettings } from "@/composables/useSettings";
+import { useSoundPreferences } from "@/composables/useSoundPreferences";
 import { currentAccount } from "@/lib/account";
+import { ATTENTION_EVENTS } from "@/lib/attentionEvents";
+import { previewSoundSet, stopSound } from "@/lib/sounds/play";
+import { SOUND_SETS, soundSetById } from "@/lib/sounds/sets";
 import { PromptScope, type Attachment } from "@cherrypi/sdk";
-import { CheckIcon, RotateCcwIcon } from "@lucide/vue";
-import { computed, onMounted, ref, watch } from "vue";
+import { CheckIcon, PlayIcon, RotateCcwIcon } from "@lucide/vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { toast } from "vue3-toastify";
 
@@ -229,7 +271,31 @@ const primary = ref("");
 const hexDraft = ref("");
 const showUsageKpi = ref(true);
 const showConcurrencyKpi = ref(true);
+const notificationSoundSet = ref("cherry");
 const saving = ref(false);
+
+const { soundVolume } = useSoundPreferences();
+const previewing = ref(false);
+let previewToken = 0;
+const selectedSoundSet = computed(() =>
+  soundSetById(notificationSoundSet.value),
+);
+
+async function previewSound() {
+  if (previewing.value) {
+    stopSound();
+    previewing.value = false;
+    return;
+  }
+  previewing.value = true;
+  const token = ++previewToken;
+  await previewSoundSet(
+    notificationSoundSet.value,
+    soundVolume.value,
+    ATTENTION_EVENTS.map((event) => event.kind),
+  );
+  if (token === previewToken) previewing.value = false;
+}
 
 watch(primary, (value) => {
   hexDraft.value = value;
@@ -242,6 +308,12 @@ onMounted(async () => {
   primary.value = settings.value?.primaryColor ?? "";
   showUsageKpi.value = settings.value?.showUsageKpi !== false;
   showConcurrencyKpi.value = settings.value?.showConcurrencyKpi !== false;
+  notificationSoundSet.value = settings.value?.notificationSoundSet || "cherry";
+});
+
+onUnmounted(() => {
+  previewToken += 1;
+  stopSound();
 });
 
 function onPick(event: Event) {
@@ -289,6 +361,7 @@ async function save() {
         primaryColor: primary.value,
         showUsageKpi: showUsageKpi.value,
         showConcurrencyKpi: showConcurrencyKpi.value,
+        notificationSoundSet: notificationSoundSet.value,
       }),
     );
     toast.success("Settings saved");

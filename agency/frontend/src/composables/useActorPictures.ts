@@ -46,6 +46,23 @@ export function useActorPictures() {
     return map;
   });
 
+  const namesByKey = computed(() => {
+    const map = new Map<string, string>();
+    for (const user of users.value) {
+      const name = user.name?.trim();
+      if (!name) continue;
+      map.set(String(user.id), name);
+      if (user.username) map.set(user.username, name);
+    }
+    for (const agent of agents.value) {
+      const name = agent.displayName?.trim();
+      if (!name) continue;
+      if (agent.actorId) map.set(agent.actorId, name);
+      if (agent.username) map.set(agent.username, name);
+    }
+    return map;
+  });
+
   function pictureFor(
     sender: MessageSender | undefined,
   ): Attachment | undefined {
@@ -57,9 +74,24 @@ export function useActorPictures() {
     return byUsername.value.get(sender.username);
   }
 
+  function nameFor(sender: MessageSender | undefined): string | undefined {
+    if (!sender || sender.kind === "system") return undefined;
+    if (sender.id) {
+      const byId = namesByKey.value.get(sender.id);
+      if (byId) return byId;
+    }
+    return namesByKey.value.get(sender.username);
+  }
+
   async function loadActorPictures(): Promise<void> {
     await Promise.all([loadUsers(), loadAgents()]);
   }
 
-  return { actorPictures: byActorId, loadActorPictures, pictureFor };
+  return {
+    actorNames: namesByKey,
+    actorPictures: byActorId,
+    loadActorPictures,
+    nameFor,
+    pictureFor,
+  };
 }

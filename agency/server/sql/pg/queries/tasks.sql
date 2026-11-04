@@ -164,7 +164,20 @@ SELECT * FROM tasks
 WHERE state IN ('running', 'input') AND archived_at IS NULL
 ORDER BY created_at ASC;
 
--- name: UpdateDraftTask :one
+-- name: ListSessionTasks :many
+
+
+
+
+SELECT * FROM tasks
+WHERE state IN ('running', 'input', 'settled', 'failed')
+  AND session_id <> ''
+  AND session_deleted_at IS NULL
+  AND archived_at IS NULL
+ORDER BY created_at ASC;
+
+-- name: UpdateBacklogTask :one
+
 
 
 UPDATE tasks SET
@@ -184,24 +197,14 @@ UPDATE tasks SET
   workspace = sqlc.arg(workspace),
   auto_title = sqlc.arg(auto_title),
   updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id) AND state = 'draft'
+WHERE id = sqlc.arg(id) AND state = 'backlog' AND started_at IS NULL
 RETURNING *;
-
--- name: PromoteTask :execrows
-
-UPDATE tasks SET state = 'backlog', updated_at = $1, error = ''
-WHERE id = $2 AND state = 'draft';
-
--- name: DemoteTask :execrows
-
-UPDATE tasks SET state = 'draft', updated_at = $1, error = ''
-WHERE id = $2 AND state = 'backlog';
 
 -- name: QueueTask :execrows
 
 
 UPDATE tasks SET state = 'queued', queued_at = COALESCE(queued_at, $1), updated_at = $2, error = ''
-WHERE id = $3 AND state IN ('draft', 'backlog');
+WHERE id = $3 AND state = 'backlog';
 
 -- name: DequeueTask :execrows
 
@@ -258,14 +261,14 @@ WHERE id = $4 AND state IN ('running', 'input');
 
 UPDATE tasks SET state = 'completed', settled_at = $1, updated_at = $2, error = '',
   pending_prompt = '', pending_prompt_actor_id = NULL
-WHERE id = $3 AND state IN ('draft', 'backlog', 'queued', 'settled', 'failed', 'cancelled');
+WHERE id = $3 AND state IN ('backlog', 'queued', 'settled', 'failed', 'cancelled');
 
 -- name: CancelTask :execrows
 
 
 UPDATE tasks SET state = 'cancelled', settled_at = $1, updated_at = $2,
   pending_prompt = '', pending_prompt_actor_id = NULL
-WHERE id = $3 AND state IN ('draft', 'backlog', 'queued', 'settled', 'failed', 'completed');
+WHERE id = $3 AND state IN ('backlog', 'queued', 'settled', 'failed', 'completed');
 
 -- name: ArchiveTask :execrows
 
@@ -298,7 +301,13 @@ WHERE id = $2;
 
 
 UPDATE tasks SET prompt = $1, updated_at = $2
-WHERE id = $3 AND state IN ('draft', 'backlog');
+WHERE id = $3 AND state = 'backlog' AND started_at IS NULL;
+
+-- name: SetTaskModel :execrows
+
+
+UPDATE tasks SET model_provider = $1, model_id = $2, thinking_level = $3, updated_at = $4
+WHERE id = $5 AND state = 'backlog' AND started_at IS NULL;
 
 -- name: SetTaskPendingPrompt :execrows
 
@@ -306,7 +315,7 @@ WHERE id = $3 AND state IN ('draft', 'backlog');
 UPDATE tasks SET pending_prompt = sqlc.arg(pending_prompt),
   pending_prompt_actor_id = sqlc.narg(pending_prompt_actor_id),
   updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id) AND state = 'draft';
+WHERE id = sqlc.arg(id) AND state = 'backlog' AND started_at IS NULL;
 
 -- name: RequeueTask :execrows
 UPDATE tasks SET

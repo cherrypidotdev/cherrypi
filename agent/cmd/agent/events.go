@@ -19,6 +19,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"cherrypi.vladfaust.com/agent/cmd/agent/appcontext"
 )
@@ -31,7 +32,8 @@ func serveEvents(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			return
 		}
 
-		ch, unsubscribe := appCtx.Events.Subscribe()
+		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+		ch, unsubscribe := appCtx.Events.Subscribe(since)
 		defer unsubscribe()
 
 		w.Header().Set("Content-Type", "application/x-ndjson")

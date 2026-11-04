@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
+import { IS_MAC } from "@/lib/platform";
 import type { EditorView } from "@codemirror/view";
 import type { VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
@@ -65,4 +66,20 @@ export function pressKey(
   });
   target.dispatchEvent(event);
   return event;
+}
+
+export function pressModKey(
+  target: HTMLElement,
+  init: KeyboardEventInit = {},
+): KeyboardEvent {
+  return pressKey(
+    target,
+    IS_MAC ? { ...init, metaKey: true } : { ...init, ctrlKey: true },
+  );
+}
+
+export function pressRedoKey(target: HTMLElement): KeyboardEvent {
+  return IS_MAC
+    ? pressModKey(target, { key: "z", code: "KeyZ", shiftKey: true })
+    : pressModKey(target, { key: "y", code: "KeyY" });
 }

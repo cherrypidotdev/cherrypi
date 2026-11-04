@@ -17,168 +17,175 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
-  Card
-    CardHeader
-      CardTitle Active projects
-      CardDescription
-        | Archiving a project hides it and its tasks; un-archiving shows them
-        | again.
-    CardContent
-      p.text-destructive.text-sm(v-if="error") {{ error }}
-      Table
-        TableHeader
-          TableRow
-            TableHead Project
-            TableHead Slug
-            TableHead Tasks
-            TableHead Created
-            TableHead
-        TableBody
-          TableRowsSkeleton(
-            v-if="loading && !active.length"
-            :widths="['w-40', 'w-24', 'w-16', 'w-28', 'w-24']"
-          )
-          TableRow(v-for="project in active" :key="project.id")
-            TableCell
-              RouterLink.flex.items-center.gap-2.font-medium(
-                :to="{ name: 'project', params: { slug: project.slug } }"
-              )
-                span.size-6.shrink-0(:innerHTML="logo(project)")
-                span {{ project.name }}
-                span.text-muted-foreground.truncate.text-xs(
-                  v-if="project.description"
+.mx-auto.flex.w-full.max-w-5xl.flex-col.gap-3.p-3
+  section.d-card.bg-base-100.border
+    .d-card-body
+      .d-card-title.flex.items-center.gap-2
+        FolderIcon
+        h2 Active projects
+        span.d-badge.d-badge-sm.d-badge-soft {{ active.length }}
+
+      .d-alert.d-alert-error.d-alert-soft.text-sm(v-if="error" role="alert")
+        | {{ error }}
+
+      .overflow-x-auto
+        table.d-table
+          thead
+            tr
+              th Project
+              th Slug
+              th Created
+              th.text-right Actions
+
+          tbody
+            template(v-if="loading && !active.length")
+              tr(v-for="row in 3" :key="row")
+                td(v-for="(width, index) in skeletonWidths" :key="index")
+                  .d-skeleton.h-4(:class="width")
+
+            tr(v-for="project in active" :key="project.id")
+              td
+                RouterLink.d-link-hover.flex.items-center.gap-2(
+                  :to="{ name: 'project', params: { slug: project.slug } }"
                 )
-                  | {{ project.description }}
-            TableCell.text-muted-foreground.font-mono.text-xs {{ project.slug }}
-            TableCell.text-muted-foreground {{ taskCount(project.id) }}
-            TableCell.text-muted-foreground {{ formatTimestamp(project.createdAt) }}
-            TableCell
-              .flex.justify-end.gap-2
-                Button(variant="outline" size="sm" @click="archive(project)")
-                  ArchiveIcon(data-icon="inline-start")
-                  span Archive
-          TableRow(v-if="!active.length && !loading")
-            TableCell.text-muted-foreground(:colspan="5") No active projects.
+                  span.size-6.shrink-0(:innerHTML="logo(project)")
+                  span.font-semibold {{ project.name }}
 
-  Card
-    CardHeader
-      button.flex.w-full.cursor-pointer.items-center.gap-2(
-        type="button"
-        @click="showArchived = !showArchived"
-      )
-        ChevronDownIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
-          :class="showArchived ? '' : '-rotate-90'"
+              td.text-muted-foreground.font-mono.text-xs @{{ project.slug }}
+              td.text-muted-foreground {{ formatTimestamp(project.createdAt) }}
+
+              td
+                .flex.justify-end
+                  button.d-btn.d-btn-outline.d-btn-sm(
+                    type="button"
+                    @click="archive(project)"
+                  )
+                    ArchiveIcon(:size="16")
+                    span Archive
+
+            tr(v-if="!active.length && !loading")
+              td.text-muted-foreground(:colspan="4") No active projects.
+
+  section.d-card.bg-base-100.border
+    .d-card-body(class="@container")
+      .d-card-title.flex.items-center.gap-2
+        FolderPlusIcon
+        h2 New project
+
+      form.grid.gap-3(class="@3xl:grid-cols-2" @submit.prevent="create")
+        fieldset.d-fieldset
+          label.d-fieldset-legend(for="project-name") Name
+          input#project-name.d-input.w-full(
+            v-model="name"
+            placeholder="Website"
+          )
+
+        fieldset.d-fieldset
+          label.d-fieldset-legend(for="project-slug") Slug
+          input#project-slug.d-input.w-full(
+            v-model="slug"
+            :placeholder="slugPlaceholder"
+            autocomplete="off"
+          )
+          p.d-fieldset-label
+            | Lowercase kebab-case, unique, and immutable.
+
+        fieldset.d-fieldset
+          label.d-fieldset-legend(for="project-prefix") Task prefix
+          input#project-prefix.d-input.w-full(
+            v-model="prefix"
+            :placeholder="prefixPlaceholder"
+            autocapitalize="characters"
+            autocomplete="off"
+          )
+          p.d-fieldset-label
+            | Uppercase letters, digits, and dashes prefixed to task ids;
+            | unique. Derived from the slug when blank.
+
+        fieldset.d-fieldset
+          label.d-fieldset-legend(for="project-description")
+            | Description
+          textarea#project-description.d-textarea.w-full(v-model="description")
+
+        .d-alert.d-alert-error.d-alert-soft.col-span-full(
+          v-if="createError"
+          role="alert"
         )
-        CardTitle Archived projects
-        Badge(variant="secondary") {{ archived.length }}
-    CardContent(v-if="showArchived")
-      Table
-        TableHeader
-          TableRow
-            TableHead Project
-            TableHead Slug
-            TableHead Archived
-            TableHead
-        TableBody
-          TableRow(v-for="project in archived" :key="project.id")
-            TableCell
-              RouterLink.flex.items-center.gap-2.font-medium(
-                :to="{ name: 'project', params: { slug: project.slug } }"
-              )
-                span.size-6.shrink-0(:innerHTML="logo(project)")
-                span {{ project.name }}
-            TableCell.text-muted-foreground.font-mono.text-xs {{ project.slug }}
-            TableCell.text-muted-foreground {{ formatTimestamp(project.archivedAt) }}
-            TableCell
-              .flex.justify-end.gap-2
-                Button(variant="outline" size="sm" @click="unarchive(project)")
-                  ArchiveRestoreIcon(data-icon="inline-start")
-                  span Unarchive
-          TableRow(v-if="!archived.length")
-            TableCell.text-muted-foreground(:colspan="4") No archived projects.
+          | {{ createError }}
 
-  Card
-    CardHeader
-      CardTitle New project
-      CardDescription
-        | Projects group tasks across every agent. The slug is set once and
-        | used as the project's URL.
-    CardContent
-      form.flex.flex-col.gap-4(@submit.prevent="create")
-        FieldGroup
-          Field
-            FieldLabel(for="project-name") Name
-            Input#project-name(v-model="name" placeholder="Website")
-          Field
-            FieldLabel(for="project-slug") Slug
-            Input#project-slug(
-              v-model="slug"
-              :placeholder="slugPlaceholder"
-              autocomplete="off"
-            )
-            FieldDescription Lowercase kebab-case, unique, and immutable.
-          Field
-            FieldLabel(for="project-prefix") Task prefix
-            Input#project-prefix(
-              v-model="prefix"
-              :placeholder="prefixPlaceholder"
-              autocapitalize="characters"
-              autocomplete="off"
-            )
-            FieldDescription
-              | Uppercase letters, digits, and dashes prefixed to task ids;
-              | unique. Derived from the slug when blank.
-          Field
-            FieldLabel(for="project-description") Description
-            Textarea#project-description(v-model="description")
-        p.text-destructive.text-sm(v-if="createError") {{ createError }}
-        .flex.justify-end
-          Button(type="submit" :disabled="creating || !name.trim()")
-            Spinner(v-if="creating" data-icon="inline-start")
-            PlusIcon(v-else data-icon="inline-start")
+        .col-span-full.flex.justify-end
+          button.d-btn.d-btn-primary(
+            type="submit"
+            :disabled="creating || !name.trim()"
+          )
+            span.d-loading.d-loading-spinner.d-loading-xs(v-if="creating")
+            SparklesIcon(v-else :size="16")
             span Create
+
+  section.d-collapse.d-collapse-arrow.bg-base-100.border
+    input(type="checkbox" aria-label="Show archived projects")
+
+    .d-collapse-title.flex.items-center.gap-2
+      ArchiveIcon
+      h2 Archived projects
+      span.d-badge.d-badge-sm.d-badge-soft {{ archived.length }}
+
+    .d-collapse-content.p-0
+      .flex.flex-col.gap-2.border-t.p-3
+        .d-alert(role="alert")
+          InfoIcon(:size="16")
+          p
+            | Archiving a project hides it and its tasks; un-archiving shows them
+            | again.
+
+        .overflow-x-auto
+          table.d-table
+            thead
+              tr
+                th Project
+                th Slug
+                th Archived
+                th.text-right Actions
+
+            tbody
+              tr(v-for="project in archived" :key="project.id")
+                td
+                  RouterLink.d-link-hover.flex.items-center.gap-2(
+                    :to="{ name: 'project', params: { slug: project.slug } }"
+                  )
+                    span.size-6.shrink-0(:innerHTML="logo(project)")
+                    span.font-semibold {{ project.name }}
+
+                td.text-muted-foreground.font-mono.text-xs @{{ project.slug }}
+                td.text-muted-foreground
+                  | {{ formatTimestamp(project.archivedAt) }}
+
+                td
+                  .flex.justify-end
+                    button.d-btn.d-btn-outline.d-btn-sm(
+                      type="button"
+                      @click="unarchive(project)"
+                    )
+                      ArchiveRestoreIcon(:size="16")
+                      span Unarchive
+
+              tr(v-if="!archived.length")
+                td.text-muted-foreground(:colspan="4") No archived projects.
 </template>
 
 <script setup lang="ts">
-import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import { formatTimestamp } from "@/lib/format";
 import { normalizeTaskPrefix, slugify } from "@/lib/project";
-import { agency } from "@/lib/sdk";
 import { type Project } from "@cherrypi/sdk";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  ChevronDownIcon,
-  PlusIcon,
+  FolderIcon,
+  FolderPlusIcon,
+  InfoIcon,
+  SparklesIcon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref } from "vue";
@@ -202,7 +209,8 @@ const prefix = ref("");
 const description = ref("");
 const creating = ref(false);
 const createError = ref("");
-const showArchived = ref(false);
+
+const skeletonWidths = ["w-40", "w-24", "w-28", "w-16"];
 
 const slugPlaceholder = computed(() => slugify(name.value) || "project");
 const prefixPlaceholder = computed(
@@ -210,26 +218,6 @@ const prefixPlaceholder = computed(
     normalizeTaskPrefix(slug.value.trim() ? slug.value : name.value) ||
     "PROJECT",
 );
-
-const taskCounts = ref(new Map<string, number>());
-
-async function loadCounts() {
-  try {
-    const tasks = await agency.listTasks();
-    const counts = new Map<string, number>();
-    for (const task of tasks) {
-      if (!task.projectId) continue;
-      counts.set(task.projectId, (counts.get(task.projectId) ?? 0) + 1);
-    }
-    taskCounts.value = counts;
-  } catch {
-    taskCounts.value = new Map();
-  }
-}
-
-function taskCount(projectId: string): number {
-  return taskCounts.value.get(projectId) ?? 0;
-}
 
 function logo(project: Project): string {
   return toSvg(project.id, 24);
@@ -252,7 +240,6 @@ async function create() {
     prefix.value = "";
     description.value = "";
     toast.success("Project created");
-    await loadCounts();
   } catch (err) {
     createError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -284,7 +271,5 @@ async function unarchive(project: Project) {
   }
 }
 
-onMounted(async () => {
-  await Promise.all([loadProjects(true), loadCounts()]);
-});
+onMounted(() => loadProjects(true));
 </script>

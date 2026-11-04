@@ -38,6 +38,12 @@ export interface ProjectTeamLink {
   member_count: number;
   created_at: string;
   updated_at: string;
+
+  inherited_role?: ProjectRole;
+
+  inherited_from_project_id?: string;
+  inherited_from_project_name?: string;
+  inherited_from_project_slug?: string;
 }
 
 export interface ProjectTeamInvitation {
@@ -62,7 +68,10 @@ export interface ProjectAccess {
   project_id: string;
   role: ProjectRole;
   members: ProjectMemberGrant[];
+
   teams: ProjectTeamLink[];
+
+  inherited_teams: ProjectTeamLink[];
   invitations: ProjectTeamInvitation[];
   can_delete: boolean;
   can_manage_access: boolean;
@@ -162,6 +171,16 @@ export const PROJECT_ROLE_HINT: Record<ProjectRole, string> = {
   viewer: "View and comment only",
 };
 
+export function projectTeamsWithInherited(
+  access: ProjectAccess,
+): ProjectTeamLink[] {
+  const seen = new Set(access.teams.map((team) => team.team_id));
+  return [
+    ...access.teams,
+    ...access.inherited_teams.filter((team) => !seen.has(team.team_id)),
+  ];
+}
+
 const PROJECTS = "/api/rest/projects";
 
 export const projectAccessApi = {
@@ -245,7 +264,10 @@ export const projectAccessApi = {
     teamId: number,
     role: ProjectRole,
     note = "",
-  ): Promise<{ invitation: ProjectTeamInvitation }> {
+  ): Promise<{
+    team?: ProjectTeamLink;
+    invitation?: ProjectTeamInvitation;
+  }> {
     return request("POST", `${PROJECTS}/${projectId}/teams`, {
       team_id: teamId,
       role,

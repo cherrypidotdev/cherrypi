@@ -39,6 +39,8 @@ import (
 
 const resumeNudge = "Your previous run was interrupted by a server restart. Continue from where you left off and finish the task."
 
+const retryNudge = "Your previous run failed. Continue from where you left off and finish the task."
+
 var (
 	ErrInvalidPrompt = errors.New("prompt is required")
 
@@ -49,6 +51,8 @@ var (
 	ErrInvalidModel = errors.New("provider and model id are required")
 
 	ErrInvalidThinkingLevel = errors.New("thinking level is required")
+
+	ErrSessionBusy = errors.New("the session is busy")
 )
 
 const (
@@ -443,6 +447,26 @@ func (m *Manager) ClearQueue(ctx context.Context, id string) error {
 	return s.ClearQueue(ctx)
 }
 
+func (m *Manager) Restart(ctx context.Context, id string) error {
+	row, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if Terminal(Status(row.Status)) {
+		return nil
+	}
+	s := m.get(id)
+	if s == nil {
+		return nil
+	}
+	if err := s.Restart(); err != nil {
+		slog.Info("task restart refused", "session_id", id, "error", err)
+		return err
+	}
+	slog.Info("task session restarted", "session_id", id)
+	return nil
+}
+
 func (m *Manager) end(ctx context.Context, id string) (sqlitedb.Task, error) {
 	row, err := m.store.GetSession(ctx, id)
 	if err != nil {
@@ -457,6 +481,7 @@ func (m *Manager) end(ctx context.Context, id string) (sqlitedb.Task, error) {
 		s.opMu.Lock()
 		s.mu.Lock()
 		running := s.running
+		s.stopRequested = true
 		s.mu.Unlock()
 		if running {
 
@@ -557,11 +582,11 @@ func (m *Manager) Retry(ctx context.Context, id, projectID string, seq int64) er
 		return err
 	}
 
-	prompt := row.Prompt
+	pending := ""
 	if row.PendingPrompt.Valid && strings.TrimSpace(row.PendingPrompt.String) != "" {
-		prompt = row.PendingPrompt.String
+		pending = row.PendingPrompt.String
 	}
-	if strings.TrimSpace(prompt) == "" {
+	if pending == "" && strings.TrimSpace(row.Prompt) == "" {
 		return ErrInvalidPrompt
 	}
 
@@ -578,9 +603,18 @@ func (m *Manager) Retry(ctx context.Context, id, projectID string, seq int64) er
 		return err
 	}
 
-	text := prompt
-	if s.historyHasPrompt(prompt) {
+	var text string
+	switch {
+	case pending != "" && s.historyHasPrompt(pending):
+
 		text = resumeNudge
+	case pending != "":
+		text = pending
+	case s.historyHasUserMessage():
+		text = retryNudge
+	default:
+
+		text = row.Prompt
 	}
 	slog.Info("task resumed", "session_id", id, "task_id", s.agencyTaskID)
 	return s.prompt(ctx, text)

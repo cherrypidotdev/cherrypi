@@ -59,7 +59,10 @@ var (
 	ErrMemberNotFound     = errors.New("project member not found")
 	ErrInvalidRole        = errors.New("project role must be owner, member or viewer")
 	ErrTeamHasNoAccess    = errors.New("team is not attached to the project")
-	ErrLastOwner          = errors.New("a project must keep at least one owner")
+	ErrRoleBelowInherited = errors.New(
+		"team already has a stronger inherited role on the project",
+	)
+	ErrLastOwner = errors.New("a project must keep at least one owner")
 )
 
 type TeamOwnerChecker interface {
@@ -79,20 +82,28 @@ type Member struct {
 }
 
 type TeamLink struct {
-	TeamID          int64
-	TeamName        string
-	TeamDescription string
-	Role            string
-	MemberCount     int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	TeamID                   int64
+	TeamName                 string
+	TeamDescription          string
+	Role                     string
+	MemberCount              int64
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	InheritedRole            string
+	InheritedFromProjectID   string
+	InheritedFromProjectName string
+	InheritedFromProjectSlug string
 }
 
 type TeamProject struct {
-	ProjectID   string
-	ProjectName string
-	ProjectSlug string
-	Role        string
+	ProjectID                string
+	ProjectName              string
+	ProjectSlug              string
+	Role                     string
+	Inherited                bool
+	InheritedFromProjectID   string
+	InheritedFromProjectName string
+	InheritedFromProjectSlug string
 }
 
 type TeamInvitation struct {
@@ -111,6 +122,13 @@ type TeamInvitation struct {
 	CreatedAt           time.Time
 	ExpiresAt           time.Time
 	RespondedAt         *time.Time
+}
+
+// InviteTeamResult is the outcome of requesting team access: a pending
+
+type InviteTeamResult struct {
+	Invitation *TeamInvitation
+	Team       *TeamLink
 }
 
 type LogEntry struct {
@@ -703,20 +721,48 @@ func (s *Service) Teams(
 	actorID ids.ActorID,
 	isAdmin bool,
 ) ([]TeamLink, error) {
+	links, _, err := s.teamLinks(ctx, projectID, actorID, isAdmin)
+	return links, err
+}
+
+func (s *Service) InheritedTeams(
+	ctx context.Context,
+	projectID string,
+	actorID ids.ActorID,
+	isAdmin bool,
+) ([]TeamLink, error) {
+	_, inherited, err := s.teamLinks(ctx, projectID, actorID, isAdmin)
+	return inherited, err
+}
+
+func (s *Service) teamLinks(
+	ctx context.Context,
+	projectID string,
+	actorID ids.ActorID,
+	isAdmin bool,
+) ([]TeamLink, []TeamLink, error) {
 	p, err := s.Get(ctx, projectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := s.RequireRole(ctx, p.ID, actorID, isAdmin, RoleViewer); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	inherited, err := s.inheritedTeamLinks(ctx, p.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	inheritedByTeam := make(map[int64]TeamLink, len(inherited))
+	for _, link := range inherited {
+		inheritedByTeam[link.TeamID] = link
 	}
 	rows, err := s.store.ListProjectTeamMemberships(ctx, p.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := make([]TeamLink, len(rows))
+	direct := make([]TeamLink, len(rows))
 	for i, row := range rows {
-		out[i] = TeamLink{
+		direct[i] = TeamLink{
 			TeamID:          row.TeamID,
 			TeamName:        row.TeamName,
 			TeamDescription: row.TeamDescription,
@@ -725,8 +771,96 @@ func (s *Service) Teams(
 			CreatedAt:       time.UnixMilli(row.CreatedAt),
 			UpdatedAt:       time.UnixMilli(row.UpdatedAt),
 		}
+		if hint, ok := inheritedByTeam[row.TeamID]; ok {
+			direct[i].InheritedRole = hint.Role
+			direct[i].InheritedFromProjectID = hint.InheritedFromProjectID
+			direct[i].InheritedFromProjectName = hint.InheritedFromProjectName
+			direct[i].InheritedFromProjectSlug = hint.InheritedFromProjectSlug
+		}
+	}
+	rest := make([]TeamLink, 0, len(inherited))
+	for _, link := range inherited {
+		if _, ok := findTeamLink(direct, link.TeamID); ok {
+			continue
+		}
+		rest = append(rest, link)
+	}
+	return direct, rest, nil
+}
+
+func findTeamLink(links []TeamLink, teamID int64) (TeamLink, bool) {
+	for _, link := range links {
+		if link.TeamID == teamID {
+			return link, true
+		}
+	}
+	return TeamLink{}, false
+}
+
+func (s *Service) inheritedTeamLinks(
+	ctx context.Context,
+	projectID string,
+) ([]TeamLink, error) {
+	rows, err := s.store.ListInheritedProjectTeams(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TeamLink, len(rows))
+	for i, row := range rows {
+		out[i] = TeamLink{
+			TeamID:                   row.TeamID,
+			TeamName:                 row.TeamName,
+			TeamDescription:          row.TeamDescription,
+			Role:                     roleFromWeight(row.RoleWeight),
+			MemberCount:              row.MemberCount,
+			InheritedRole:            roleFromWeight(row.RoleWeight),
+			InheritedFromProjectID:   row.SourceProjectID,
+			InheritedFromProjectName: row.SourceProjectName,
+			InheritedFromProjectSlug: row.SourceProjectSlug,
+		}
 	}
 	return out, nil
+}
+
+func (s *Service) TeamRole(
+	ctx context.Context,
+	projectID string,
+	teamID int64,
+) (string, bool, error) {
+	p, err := s.Get(ctx, projectID)
+	if err != nil {
+		return "", false, err
+	}
+	weight := int64(0)
+	if row, err := s.store.GetProjectTeamMembership(
+		ctx,
+		store.GetProjectTeamMembershipParams{ProjectID: p.ID, TeamID: teamID},
+	); err == nil {
+		weight = int64(roleWeight(row.Role))
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", false, err
+	}
+	inherited, err := s.inheritedTeamLinks(ctx, p.ID)
+	if err != nil {
+		return "", false, err
+	}
+	for _, link := range inherited {
+		if link.TeamID == teamID && int64(roleWeight(link.Role)) > weight {
+			weight = int64(roleWeight(link.Role))
+		}
+	}
+	if weight <= 0 {
+		return "", false, nil
+	}
+	return roleFromWeight(weight), true, nil
+}
+
+func (s *Service) TeamIDs(ctx context.Context, projectID string) ([]int64, error) {
+	p, err := s.Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.ListProjectTeamIDsWithAccess(ctx, p.ID)
 }
 
 func (s *Service) SetTeamRole(
@@ -746,6 +880,11 @@ func (s *Service) SetTeamRole(
 	}
 	if _, err := s.RequireRole(ctx, p.ID, caller, isAdmin, RoleOwner); err != nil {
 		return TeamLink{}, err
+	}
+	if inherited, ok, err := s.teamInheritedRole(ctx, p.ID, teamID); err != nil {
+		return TeamLink{}, err
+	} else if ok && roleWeight(role) < roleWeight(inherited) {
+		return TeamLink{}, ErrRoleBelowInherited
 	}
 	if existing, err := s.store.GetProjectTeamMembership(
 		ctx,
@@ -849,13 +988,34 @@ func (s *Service) TeamProjects(ctx context.Context, teamID int64) ([]TeamProject
 	out := make([]TeamProject, len(rows))
 	for i, row := range rows {
 		out[i] = TeamProject{
-			ProjectID:   row.ProjectID,
-			ProjectName: row.ProjectName,
-			ProjectSlug: row.ProjectSlug,
-			Role:        row.Role,
+			ProjectID:                row.ProjectID,
+			ProjectName:              row.ProjectName,
+			ProjectSlug:              row.ProjectSlug,
+			Role:                     roleFromWeight(row.RoleWeight),
+			Inherited:                row.SourceDepth > 0,
+			InheritedFromProjectID:   row.SourceProjectID,
+			InheritedFromProjectName: row.SourceProjectName,
+			InheritedFromProjectSlug: row.SourceProjectSlug,
 		}
 	}
 	return out, nil
+}
+
+func (s *Service) teamInheritedRole(
+	ctx context.Context,
+	projectID string,
+	teamID int64,
+) (string, bool, error) {
+	links, err := s.inheritedTeamLinks(ctx, projectID)
+	if err != nil {
+		return "", false, err
+	}
+	for _, link := range links {
+		if link.TeamID == teamID {
+			return link.Role, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (s *Service) teamLink(
@@ -883,8 +1043,9 @@ func (s *Service) teamLink(
 	return TeamLink{}, ErrTeamHasNoAccess
 }
 
-// InviteTeam creates a pending invitation for a team. Owner only; an owner of
-// the invitee team approves it (admins may override).
+// InviteTeam grants a team access to a project. Owner only. A team that
+
+// invitee team's owners approves (admins may override).
 func (s *Service) InviteTeam(
 	ctx context.Context,
 	projectID string,
@@ -892,42 +1053,73 @@ func (s *Service) InviteTeam(
 	role, note string,
 	caller ids.ActorID,
 	isAdmin bool,
-) (TeamInvitation, error) {
+) (InviteTeamResult, error) {
 	p, err := s.Get(ctx, projectID)
 	if err != nil {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
 	}
 	if role == "" {
 		role = RoleMember
 	}
 	if !validRole(role) {
-		return TeamInvitation{}, ErrInvalidRole
+		return InviteTeamResult{}, ErrInvalidRole
 	}
 	if _, err := s.RequireRole(ctx, p.ID, caller, isAdmin, RoleOwner); err != nil {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
 	}
 	team, err := s.store.GetTeam(ctx, teamID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return TeamInvitation{}, ErrTeamNotFound
+		return InviteTeamResult{}, ErrTeamNotFound
 	}
 	if err != nil {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
 	}
 	if _, err := s.store.GetProjectTeamMembership(
 		ctx,
 		store.GetProjectTeamMembershipParams{ProjectID: p.ID, TeamID: teamID},
 	); err == nil {
-		return TeamInvitation{}, ErrTeamAlreadyLinked
+		return InviteTeamResult{}, ErrTeamAlreadyLinked
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
+	}
+	inherited, inherits, err := s.teamInheritedRole(ctx, p.ID, teamID)
+	if err != nil {
+		return InviteTeamResult{}, err
+	}
+	if inherits && roleWeight(role) < roleWeight(inherited) {
+		return InviteTeamResult{}, ErrRoleBelowInherited
+	}
+	if inherits && roleWeight(role) <= roleWeight(inherited) {
+		now := time.Now().UnixMilli()
+		if err := s.store.UpsertProjectTeamMembership(
+			ctx,
+			store.UpsertProjectTeamMembershipParams{
+				ProjectID:        p.ID,
+				TeamID:           teamID,
+				Role:             role,
+				GrantedByActorID: nullActor(caller),
+				CreatedAt:        now,
+				UpdatedAt:        now,
+			},
+		); err != nil {
+			return InviteTeamResult{}, err
+		}
+		s.writeLog(ctx, p.ID, "team", "attached", "", role,
+			"Attached "+team.Name+" as "+role+" (already inherited "+inherited+")",
+			map[string]any{"team_id": teamID, "role": role, "inherited_role": inherited})
+		link, err := s.teamLink(ctx, p.ID, teamID)
+		if err != nil {
+			return InviteTeamResult{}, err
+		}
+		return InviteTeamResult{Team: &link}, nil
 	}
 	if _, err := s.store.GetPendingProjectTeamInvitation(
 		ctx,
 		store.GetPendingProjectTeamInvitationParams{ProjectID: p.ID, TeamID: teamID},
 	); err == nil {
-		return TeamInvitation{}, ErrInvitationExists
+		return InviteTeamResult{}, ErrInvitationExists
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
 	}
 
 	now := time.Now()
@@ -944,12 +1136,13 @@ func (s *Service) InviteTeam(
 		},
 	)
 	if err != nil {
-		return TeamInvitation{}, err
+		return InviteTeamResult{}, err
 	}
 	s.writeLog(ctx, p.ID, "invitation", "invited", "", team.Name,
 		"Invited team "+team.Name+" with the "+role+" role",
 		map[string]any{"team_id": teamID, "role": role})
-	return toTeamInvitation(row, p.Name, p.Slug, team.Name, team.Description, "", ""), nil
+	invitation := toTeamInvitation(row, p.Name, p.Slug, team.Name, team.Description, "", "")
+	return InviteTeamResult{Invitation: &invitation}, nil
 }
 
 func (s *Service) Invitations(
@@ -1246,26 +1439,45 @@ func (s *Service) requireAnotherOwner(ctx context.Context, projectID string) err
 }
 
 func (s *Service) ownerCount(ctx context.Context, projectID string) (int, error) {
-	grants, err := s.store.ListProjectActorGrants(ctx, projectID)
+
+	projectIDs := []string{projectID}
+	ancestors, err := s.store.ListProjectAncestorIDs(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	teams, err := s.store.ListProjectTeamMemberships(ctx, projectID)
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, grant := range grants {
-		if grant.Role == RoleOwner {
-			count++
+	projectIDs = append(projectIDs, ancestors...)
+	actorOwners := make(map[int64]bool)
+	teamOwners := make(map[int64]bool)
+	for _, id := range projectIDs {
+		grants, err := s.store.ListProjectActorGrants(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		for _, grant := range grants {
+			if grant.Role == RoleOwner {
+				actorOwners[grant.ActorID] = true
+			}
+		}
+		teams, err := s.store.ListProjectTeamMemberships(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		for _, team := range teams {
+			if team.Role == RoleOwner {
+				teamOwners[team.TeamID] = true
+			}
 		}
 	}
-	for _, team := range teams {
-		if team.Role == RoleOwner {
-			count++
-		}
-	}
-	return count, nil
+	return len(actorOwners) + len(teamOwners), nil
+}
+
+func (s *Service) WriteLog(
+	ctx context.Context,
+	projectID string,
+	kind, field, oldValue, newValue, message string,
+	data any,
+) {
+	s.writeLog(ctx, projectID, kind, field, oldValue, newValue, message, data)
 }
 
 func (s *Service) writeLog(
@@ -1371,4 +1583,35 @@ func nullTime(value sql.NullInt64) *time.Time {
 	}
 	t := time.UnixMilli(value.Int64)
 	return &t
+}
+
+func (s *Service) OwnerActorIDs(ctx context.Context, projectID string) ([]ids.ActorID, error) {
+	p, err := s.Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	actorIDs, err := s.store.ListProjectMemberActorIDs(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ids.ActorID, 0, len(actorIDs))
+	for _, raw := range actorIDs {
+		actorID := ids.ActorID(raw)
+		weight, err := s.store.GetEffectiveProjectRole(ctx, p.ID, actorID)
+		if err != nil {
+			return nil, err
+		}
+		if weight >= int64(roleWeight(RoleOwner)) {
+			out = append(out, actorID)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) LogPrompt(
+	ctx context.Context,
+	projectID, kind, field, oldValue, newValue, message string,
+	data any,
+) {
+	s.writeLog(ctx, projectID, kind, field, oldValue, newValue, message, data)
 }

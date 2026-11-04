@@ -33,13 +33,19 @@ function load(): AttentionPreferences {
     const saved = JSON.parse(raw) as Partial<AttentionPreferences>;
     for (const event of ATTENTION_EVENTS) {
       const pref = saved[event.kind];
-      if (
-        pref &&
-        typeof pref.sound === "boolean" &&
-        typeof pref.browser === "boolean"
-      ) {
-        base[event.kind] = { sound: pref.sound, browser: pref.browser };
-      }
+      if (!pref || typeof pref !== "object") continue;
+
+      const fallback = base[event.kind] ?? {
+        sound: false,
+        browser: false,
+        toast: false,
+      };
+      base[event.kind] = {
+        sound: typeof pref.sound === "boolean" ? pref.sound : fallback.sound,
+        browser:
+          typeof pref.browser === "boolean" ? pref.browser : fallback.browser,
+        toast: typeof pref.toast === "boolean" ? pref.toast : fallback.toast,
+      };
     }
   } catch {}
   return base;
@@ -54,7 +60,9 @@ function persist() {
 }
 
 export function attentionPreference(kind: string): AttentionPreference {
-  return preferences.value[kind] ?? { sound: false, browser: false };
+  return (
+    preferences.value[kind] ?? { sound: false, browser: false, toast: false }
+  );
 }
 
 export function setAttentionPreference(

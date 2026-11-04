@@ -38,8 +38,8 @@ service TaskService {
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
   
   
-  
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  
   
   
   
@@ -53,12 +53,6 @@ service TaskService {
   
   
   rpc QueueTask(QueueTaskRequest) returns (QueueTaskResponse);
-  
-  
-  rpc PromoteTask(PromoteTaskRequest) returns (PromoteTaskResponse);
-  
-  
-  rpc DemoteTask(DemoteTaskRequest) returns (DemoteTaskResponse);
   
   rpc DequeueTask(DequeueTaskRequest) returns (DequeueTaskResponse);
   
@@ -129,6 +123,20 @@ service TaskService {
   
   
   
+  rpc ListTaskComments(ListTaskCommentsRequest) returns (ListTaskCommentsResponse);
+  
+  
+  rpc AddTaskComment(AddTaskCommentRequest) returns (AddTaskCommentResponse);
+  
+  
+  rpc UpdateTaskComment(UpdateTaskCommentRequest) returns (UpdateTaskCommentResponse);
+  
+  
+  rpc DeleteTaskComment(DeleteTaskCommentRequest) returns (DeleteTaskCommentResponse);
+  
+  
+  
+  
   rpc BulkUpdateTask(BulkUpdateTaskRequest) returns (BulkUpdateTaskResponse);
 
   
@@ -148,13 +156,18 @@ service TaskService {
   
   
   rpc ClearTaskQueue(ClearTaskQueueRequest) returns (ClearTaskQueueResponse);
+  
+  
+  
+  
+  rpc RestartTaskSession(RestartTaskSessionRequest) returns (RestartTaskSessionResponse);
 }
 
 
 enum TaskState {
   TASK_STATE_UNSPECIFIED = 0;
-  
-  TASK_STATE_DRAFT = 1;
+  reserved 1; 
+  reserved "TASK_STATE_DRAFT";
   reserved 9; 
   
   
@@ -236,6 +249,20 @@ message TaskRuntime {
   bool waiting_for_input = 2;
   
   bool process_running = 3;
+}
+
+
+
+
+message TaskTemplateInfo {
+  
+  string template_id = 1;
+  
+  string template_name = 2;
+  
+  int64 version = 3;
+  
+  string args_json = 4;
 }
 
 
@@ -364,6 +391,16 @@ message Task {
   
   
   string waiting_reason = 53;
+  
+  
+  
+  int32 unread_comments = 54;
+  
+  
+  TaskProgress progress = 55;
+  
+  
+  TaskTemplateInfo template = 56;
 }
 
 
@@ -434,6 +471,38 @@ message TaskMessage {
 
 
 
+message TaskComment {
+  
+  int64 id = 1;
+  
+  string task_id = 2;
+  
+  string author_actor_id = 3;
+  
+  string author_name = 4;
+  string author_username = 5;
+  string author_kind = 6;
+  string author_picture_url = 7;
+  
+  string body = 8;
+  
+  
+  repeated Attachment attachments = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  
+  bool edited = 12;
+  
+  bool deleted = 13;
+  
+  string deleted_by_actor_id = 14;
+  string deleted_by_name = 15;
+  string deleted_by_username = 16;
+  google.protobuf.Timestamp deleted_at = 17;
+}
+
+
+
 
 enum TaskReferenceKind {
   TASK_REFERENCE_KIND_UNSPECIFIED = 0;
@@ -473,6 +542,37 @@ message TaskLink {
   string url = 1;
   
   string label = 2;
+}
+
+
+enum TaskProgressItemStatus {
+  TASK_PROGRESS_ITEM_STATUS_UNSPECIFIED = 0;
+  TASK_PROGRESS_ITEM_STATUS_PENDING = 1;
+  TASK_PROGRESS_ITEM_STATUS_IN_PROGRESS = 2;
+  TASK_PROGRESS_ITEM_STATUS_DONE = 3;
+}
+
+
+message TaskProgressItem {
+  string text = 1;
+  TaskProgressItemStatus status = 2;
+}
+
+
+
+
+message TaskProgress {
+  // A one-line description of what the agent is doing now (may be empty).
+  string summary = 1;
+  
+  
+  repeated TaskProgressItem items = 2;
+  
+  int32 done = 3;
+  
+  int32 total = 4;
+  
+  google.protobuf.Timestamp updated_at = 5;
 }
 
 
@@ -561,9 +661,30 @@ message CreateTaskRequest {
   
   
   repeated string lead_actor_ids = 19;
+  
+  
+  string template_id = 20;
+  
+  string template_args_json = 21;
+  
+  int64 template_version = 22;
+  
+  
+  
+  
+  bool template_prompt_override = 23;
 }
 message CreateTaskResponse {
   Task task = 1;
+}
+
+
+
+
+message TaskModelOverride {
+  string provider = 1;
+  string model_id = 2;
+  string thinking_level = 3;
 }
 
 message UpdateTaskRequest {
@@ -595,11 +716,16 @@ message UpdateTaskRequest {
   optional string set_assignee_actor_id = 17;
   
   
+  
   optional string set_pending_prompt = 18;
   
   
-  
   optional string set_prompt = 19;
+  
+  
+  
+  
+  optional TaskModelOverride set_model = 20;
 }
 message UpdateTaskResponse {
   Task task = 1;
@@ -609,20 +735,6 @@ message QueueTaskRequest {
   string id = 1;
 }
 message QueueTaskResponse {
-  Task task = 1;
-}
-
-message PromoteTaskRequest {
-  string id = 1;
-}
-message PromoteTaskResponse {
-  Task task = 1;
-}
-
-message DemoteTaskRequest {
-  string id = 1;
-}
-message DemoteTaskResponse {
   Task task = 1;
 }
 
@@ -781,6 +893,41 @@ message SetTaskFavoriteResponse {
   Task task = 1;
 }
 
+message ListTaskCommentsRequest {
+  string task_id = 1;
+}
+message ListTaskCommentsResponse {
+  repeated TaskComment comments = 1;
+  
+  int32 unread = 2;
+}
+
+message AddTaskCommentRequest {
+  string task_id = 1;
+  
+  string body = 2;
+  
+  
+  repeated int64 attachment_ids = 3;
+}
+message AddTaskCommentResponse {
+  TaskComment comment = 1;
+}
+
+message UpdateTaskCommentRequest {
+  int64 id = 1;
+  
+  string body = 2;
+}
+message UpdateTaskCommentResponse {
+  TaskComment comment = 1;
+}
+
+message DeleteTaskCommentRequest {
+  int64 id = 1;
+}
+message DeleteTaskCommentResponse {}
+
 message BulkUpdateTaskRequest {
   repeated string ids = 1;
   
@@ -916,6 +1063,11 @@ message ClearTaskQueueRequest {
   string id = 1;
 }
 message ClearTaskQueueResponse {}
+
+message RestartTaskSessionRequest {
+  string id = 1;
+}
+message RestartTaskSessionResponse {}
 
 
 service TagService {

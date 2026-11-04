@@ -21,8 +21,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,11 +36,35 @@ var ErrTaskHistoryNotFound = errors.New("task history: task not found")
 
 var ErrTaskHistoryUnauthorized = errors.New("task history: unauthorized")
 
+type TaskHistoryStatusError struct {
+	Status  int
+	Message string
+}
+
+func (e *TaskHistoryStatusError) Error() string {
+	return fmt.Sprintf("task history: status %d: %s", e.Status, e.Message)
+}
+
+func (e *TaskHistoryStatusError) Is(target error) bool {
+	switch target {
+	case ErrTaskHistoryNotFound:
+		return e.Status == http.StatusNotFound &&
+			strings.Contains(strings.ToLower(e.Message), "task not found")
+	case ErrTaskHistoryUnauthorized:
+		return e.Status == http.StatusUnauthorized ||
+			e.Status == http.StatusForbidden
+	default:
+		return false
+	}
+}
+
 const (
 	historyRetryBase        = time.Second
 	historyRetryMax         = 2 * time.Minute
 	historyAuthRefreshLimit = 3
 	historyRetryJitter      = 4
+
+	historyRequestTimeout = 30 * time.Second
 )
 
 func historyBackoff(failures int) time.Duration {
@@ -73,6 +100,7 @@ func (s *Session) resetHistorySync() {
 	s.historyDisabled = false
 	s.noteHistorySuccessLocked()
 	s.histMu.Unlock()
+	slog.Debug("task history sync armed", "session_id", s.ID)
 }
 
 func (s *Session) startHistoryWatch() {
@@ -105,6 +133,32 @@ func (s *Session) stopHistoryWatch() {
 	defer done()
 
 	s.syncHistory(ctx, true)
+
+	if pending := s.unsyncedEntries(); pending > 0 {
+		slog.Warn(
+			"task history left unsynced",
+			"session_id", s.ID,
+			"entries", pending,
+			"disabled", s.historyDisabled,
+		)
+	}
+}
+
+func (s *Session) unsyncedEntries() int {
+	s.histMu.Lock()
+	defer s.histMu.Unlock()
+	local := s.readSessionEntries()
+	if len(local) == 0 {
+		return 0
+	}
+	if s.syncedTip == "" {
+		return len(local)
+	}
+	i := findEntry(local, s.syncedTip)
+	if i < 0 {
+		return len(local)
+	}
+	return len(local) - i - 1
 }
 
 func (s *Session) watchHistory(ctx context.Context) {
@@ -140,9 +194,17 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 		return
 	}
 	if !force && time.Now().Before(s.historyRetryAt) {
+		slog.Debug(
+			"task history flush deferred",
+			"session_id", s.ID,
+			"retry_in", time.Until(s.historyRetryAt).Round(time.Millisecond).String(),
+		)
 		return
 	}
 	local := s.readSessionEntries()
+
+	ctx, cancel := context.WithTimeout(ctx, historyRequestTimeout)
+	defer cancel()
 
 	if !s.historyReconciled {
 		remote, err := s.cfg.FetchTaskHistory(ctx, projectID, seq)
@@ -151,11 +213,14 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 			return
 		}
 		s.noteHistorySuccessLocked()
+		action := "fast-forward"
 		switch {
 		case len(remote) == 0:
 
+			action = "start"
 		case len(local) == 0:
 
+			action = "reconstruct"
 			if err := s.writeSessionEntries(remote); err != nil {
 				log.Printf("[session %s] reconstruct session: %v", s.ID, err)
 				return
@@ -164,6 +229,7 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 		default:
 			if findEntry(local, remote[len(remote)-1].ID) < 0 {
 
+				action = "rewrite"
 				if err := s.writeSessionEntries(remote); err != nil {
 					log.Printf("[session %s] reconstruct session: %v", s.ID, err)
 					return
@@ -179,6 +245,13 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 			}
 		}
 		s.historyReconciled = true
+		slog.Info(
+			"task history reconciled",
+			"session_id", s.ID,
+			"action", action,
+			"agency_entries", len(remote),
+			"local_entries", len(local),
+		)
 	}
 
 	start := 0
@@ -186,6 +259,11 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 		i := findEntry(local, s.syncedTip)
 		if i < 0 {
 
+			slog.Warn(
+				"task history anchor lost, reconciling again",
+				"session_id", s.ID,
+				"anchor", s.syncedTip,
+			)
 			s.historyReconciled = false
 			return
 		}
@@ -200,12 +278,23 @@ func (s *Session) syncHistory(ctx context.Context, force bool) {
 		return
 	}
 	s.syncedTip = tail[len(tail)-1].ID
+	slog.Debug(
+		"task history flushed",
+		"session_id", s.ID,
+		"entries", len(tail),
+		"tip", s.syncedTip,
+	)
 	s.noteHistorySuccessLocked()
 }
 
 func (s *Session) noteHistoryError(ctx context.Context, err error) {
 	if errors.Is(err, ErrTaskHistoryNotFound) {
 		s.historyDisabled = true
+		slog.Warn(
+			"task history sync disabled: the agency does not know this task",
+			"session_id", s.ID,
+			"error", err,
+		)
 		return
 	}
 	if errors.Is(err, ErrTaskHistoryUnauthorized) &&
@@ -221,16 +310,23 @@ func (s *Session) noteHistoryError(ctx context.Context, err error) {
 	s.historyFailures++
 	delay := historyBackoff(s.historyFailures)
 	s.historyRetryAt = time.Now().Add(delay)
-	log.Printf(
-		"[session %s] sync task history (attempt %d, retry in %s): %v",
-		s.ID,
-		s.historyFailures,
-		delay.Round(time.Millisecond),
-		err,
+	slog.Warn(
+		"task history sync failed",
+		"session_id", s.ID,
+		"attempt", s.historyFailures,
+		"retry_in", delay.Round(time.Millisecond).String(),
+		"error", err,
 	)
 }
 
 func (s *Session) noteHistorySuccessLocked() {
+	if s.historyFailures > 0 {
+		slog.Info(
+			"task history sync recovered",
+			"session_id", s.ID,
+			"failures", s.historyFailures,
+		)
+	}
 	s.historyFailures = 0
 	s.historyRetryAt = time.Time{}
 	s.historyAuthAttempts = 0

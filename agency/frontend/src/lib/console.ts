@@ -42,6 +42,12 @@ export interface MessageSender {
   kind: string;
 }
 
+export const SYSTEM_SENDER: MessageSender = {
+  username: "system",
+  name: "System",
+  kind: "system",
+};
+
 /** One rendered line in the task console. */
 export type Item =
   | {
@@ -51,9 +57,11 @@ export type Item =
 
       attachmentIds: string[];
 
-      sender?: MessageSender;
+      sender: MessageSender;
+
+      at?: number;
     }
-  | { id: number; kind: "text"; text: string }
+  | { id: number; kind: "text"; text: string; at?: number }
   | ({ id: number; kind: "thinking"; text: string } & ActivityTiming)
   | ({
       id: number;
@@ -67,7 +75,7 @@ export type Item =
       details: string;
       isError: boolean;
     } & ActivityTiming)
-  | { id: number; kind: "log"; text: string };
+  | { id: number; kind: "log"; text: string; at?: number };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
@@ -213,7 +221,7 @@ export function newItem(event: TaskEvent): NewItem | null {
   const at = timestampMs(event.at);
   switch (payload.case) {
     case "text":
-      return { kind: "text", text: payload.value.delta };
+      return { kind: "text", text: payload.value.delta, at };
     case "thinking":
       return {
         kind: "thinking",
@@ -222,10 +230,16 @@ export function newItem(event: TaskEvent): NewItem | null {
         endedAt: at,
       };
     case "userMessage": {
-      return { kind: "user", ...userMessageParts(payload.value) };
+      const parts = userMessageParts(payload.value);
+      return {
+        kind: "user",
+        ...parts,
+        sender: parts.sender ?? SYSTEM_SENDER,
+        at,
+      };
     }
     case "log":
-      return { kind: "log", text: payload.value.line };
+      return { kind: "log", text: payload.value.line, at };
     case "tool": {
       const tool = payload.value;
       return {

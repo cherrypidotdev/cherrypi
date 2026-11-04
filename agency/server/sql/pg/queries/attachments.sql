@@ -41,9 +41,13 @@ DELETE FROM attachments WHERE id = sqlc.arg(id);
 SELECT a.* FROM attachments a
 WHERE NOT EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.attachment_id = a.id)
   AND NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.attachment_id = a.id)
+  AND NOT EXISTS (
+    SELECT 1 FROM task_comment_attachments tca WHERE tca.attachment_id = a.id
+  )
   AND NOT EXISTS (SELECT 1 FROM artifact_parts ap WHERE ap.attachment_id = a.id)
   AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.picture_attachment_id = a.id)
   AND NOT EXISTS (SELECT 1 FROM actors ag WHERE ag.picture_attachment_id = a.id)
+  AND NOT EXISTS (SELECT 1 FROM sites s WHERE s.attachment_id = a.id)
   AND NOT EXISTS (
     SELECT 1 FROM settings s
     WHERE s.key IN ('agency_logo_attachment_id', 'agency_favicon_attachment_id')

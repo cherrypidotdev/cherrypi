@@ -22,6 +22,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :class="compact ? '' : 'min-h-0 flex-1 overflow-auto p-4'"
   )
     .flex.w-full.flex-col.gap-3
+      .flex.flex-wrap.items-center.gap-2(v-if="showModelPicker")
+        span.text-muted-foreground.text-xs(v-if="!agentId")
+          | Assign an agent to choose a model
+        TaskModelPicker.ml-auto(
+          :agent-id="agentId"
+          :selection="modelSelection"
+          @change="onModelChange"
+          :disabled="savingModel || !agentId"
+        )
       template(v-if="!editing")
         .flex.flex-col.gap-2
           .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm.transition-colors(
@@ -75,6 +84,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               v-if="tab === 'write'"
               ref="editor"
               v-model="draft"
+              v-model:resize-height="editorHeight"
               placeholder="What should the agent do? Markdown supported."
               resizable
               references
@@ -166,6 +176,7 @@ import AttachmentList from "@/components/attachments/AttachmentList.vue";
 import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
+import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
 import WritePreviewTabs from "@/components/tasks/WritePreviewTabs.vue";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -178,14 +189,10 @@ import {
   sketchSceneFilename,
   toStoredSnapshot,
 } from "@/lib/sketches";
-import {
-  type Attachment,
-  type Task,
-  TaskState,
-  type UpdateTaskInput,
-} from "@cherrypi/sdk";
+import type { TaskModelSelection } from "@/lib/task";
+import { type Attachment, type Task } from "@cherrypi/sdk";
 import { CheckIcon, PaperclipIcon, PencilIcon } from "@lucide/vue";
-import { computed, defineAsyncComponent, nextTick, ref } from "vue";
+import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { toast } from "vue3-toastify";
 
 const props = withDefaults(
@@ -199,6 +206,8 @@ const props = withDefaults(
     field?: "prompt" | "pendingPrompt";
 
     compact?: boolean;
+
+    agentId?: string;
   }>(),
   {
     editable: false,
@@ -206,6 +215,7 @@ const props = withDefaults(
     text: undefined,
     field: "prompt",
     compact: false,
+    agentId: "",
   },
 );
 const emit = defineEmits<{
@@ -252,11 +262,70 @@ const inheritProse = {
   "--tw-prose-td-borders": "currentColor",
 };
 
+const showModelPicker = computed(
+  () => props.editable && !props.compact && props.field === "prompt",
+);
+const modelSelection = ref<TaskModelSelection>(selectionFromTask(props.task));
+const savingModel = ref(false);
+
+function selectionFromTask(task: Task): TaskModelSelection {
+  return {
+    modelProvider: task.modelProvider,
+    modelId: task.modelId,
+    thinkingLevel: task.thinkingLevel,
+  };
+}
+
+watch(
+  () =>
+    [
+      props.task.modelProvider,
+      props.task.modelId,
+      props.task.thinkingLevel,
+    ] as const,
+  () => {
+    if (!savingModel.value) {
+      modelSelection.value = selectionFromTask(props.task);
+    }
+  },
+);
+
+async function onModelChange(next: TaskModelSelection) {
+  if (savingModel.value) return;
+  const previous = modelSelection.value;
+  const modelChanged =
+    next.modelProvider !== previous.modelProvider ||
+    next.modelId !== previous.modelId;
+  const levelChanged = next.thinkingLevel !== previous.thinkingLevel;
+  if (!modelChanged && !levelChanged) return;
+  modelSelection.value = next;
+  savingModel.value = true;
+  try {
+    const updated = await agency.updateTask(props.task.id, {
+      setModel: {
+        provider: next.modelProvider,
+        modelId: next.modelId,
+        thinkingLevel: next.thinkingLevel,
+      },
+    });
+    modelSelection.value = selectionFromTask(updated);
+
+    emit("changed");
+  } catch (err) {
+    modelSelection.value = previous;
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    savingModel.value = false;
+  }
+}
+
 const editing = ref(false);
 const saving = ref(false);
 const draft = ref("");
 const error = ref("");
 const editor = ref<InstanceType<typeof MarkdownEditor> | null>(null);
+
+const editorHeight = ref<number | undefined>();
 const tab = ref<"write" | "preview">("write");
 
 const { uploading, upload } = useAttachmentUpload(() => ({
@@ -386,24 +455,8 @@ async function save() {
     let next: Task;
     if (props.field === "pendingPrompt") {
       next = await agency.updateTask(current.id, { setPendingPrompt: prompt });
-    } else if (current.state === TaskState.BACKLOG) {
-      next = await agency.updateTask(current.id, { setPrompt: prompt });
     } else {
-      const input: UpdateTaskInput = {
-        prompt,
-        name: current.name,
-        autoTitle: current.autoTitle,
-        workspace: current.workspace,
-        priority: current.priority,
-        size: current.size,
-        projectId: current.projectId,
-        assigneeActorId: current.assigneeActorId,
-        tagIds: current.tags.map((tag) => tag.id),
-        modelProvider: current.modelProvider,
-        modelId: current.modelId,
-        thinkingLevel: current.thinkingLevel,
-      };
-      next = await agency.updateTask(current.id, input);
+      next = await agency.updateTask(current.id, { setPrompt: prompt });
     }
     editing.value = false;
     emit("saved", next);

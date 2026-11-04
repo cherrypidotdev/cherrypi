@@ -125,6 +125,14 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
                 :title="taskName(task)"
               )
                 | {{ taskName(task) }}
+              span.inline-flex.shrink-0.items-center.rounded-full.bg-amber-500.px-1.text-xs.font-semibold.text-white(
+                v-if="task.unreadComments > 0"
+                class="gap-0.5"
+                :title="`${task.unreadComments} unread comment${task.unreadComments === 1 ? '' : 's'}`"
+                data-testid="task-unread-comments"
+              )
+                MessageSquareIcon.size-3
+                span {{ task.unreadComments > 99 ? "99+" : task.unreadComments }}
               span.text-muted-foreground.shrink-0(
                 v-if="task.archived && task.sessionId && !task.sessionDeletedAt"
                 title="Archived while the agent was offline: its Pi session and workspace still need cleanup"
@@ -132,11 +140,41 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
                 HardDriveDownloadIcon.size-3.text-amber-500
               span.text-muted-foreground.shrink-0(
                 v-else-if="task.sessionDeletedAt"
-                title="The agent's Pi session and workspace were cleaned up; the conversation is stored in the agency"
+                title="The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency"
               )
                 CircleSlashIcon.size-3
             span.text-muted-foreground.font-mono.text-xs(:title="task.id")
               | {{ shortTaskId(task.id) }}
+        TableCell(v-else-if="column.key === 'progress'")
+          .flex.flex-col.gap-1(v-if="taskProgressHasPlan(task.progress)")
+            .flex.items-center(class="gap-1.5")
+              .bg-muted.w-14.overflow-hidden.rounded-full(class="h-1.5")
+                .h-full.rounded-full.bg-emerald-500(
+                  :style="{ width: `${taskProgressPercent(task.progress)}%` }"
+                )
+              span.text-xs.tabular-nums
+                | {{ taskProgressCount(task.progress) }}
+              span.animate-pulse.rounded-full.bg-blue-500(
+                v-if="task.state === TaskState.RUNNING && taskProgressInProgress(task.progress)"
+                class="size-1.5"
+                title="A step is in progress"
+              )
+            span.text-muted-foreground.max-w-28.truncate.text-xs(
+              v-if="task.progress?.summary"
+              :title="task.progress.summary"
+            ) {{ task.progress.summary }}
+          span.text-muted-foreground.text-xs(
+            v-else-if="taskPlanFlag(task.progress, task.size, task.state) === 'hint'"
+            title="Planning is optional for small tasks"
+          ) No plan
+          span.inline-flex.items-center.gap-1.text-xs.text-amber-600(
+            v-else-if="taskPlanFlag(task.progress, task.size, task.state) === 'missing'"
+            class="dark:text-amber-400"
+            title="The agent has not published a plan for this task"
+          )
+            CircleAlertIcon.size-3.shrink-0
+            | No plan
+          span.text-muted-foreground.text-xs(v-else) —
         TableCell(v-else-if="column.key === 'links'")
           .flex.flex-wrap.items-center.gap-1(v-if="task.links.length")
             a.text-muted-foreground.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs(
@@ -219,7 +257,7 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               )
               span.truncate.text-sm {{ agentName(task.assigneeActorId) }}
             PinIcon.text-muted-foreground.size-3.shrink-0(
-              v-if="task.assigneePinned && task.state !== TaskState.DRAFT"
+              v-if="task.assigneePinned"
               title="Pinned to this agent"
               aria-label="Pinned to this agent"
             )
@@ -259,8 +297,13 @@ import {
   tagStyle,
   taskName,
   taskNameClass,
+  taskPlanFlag,
   taskPriorityClass,
   taskPriorityLabel,
+  taskProgressCount,
+  taskProgressHasPlan,
+  taskProgressInProgress,
+  taskProgressPercent,
   taskReferenceName,
   taskReferenceTitle,
   taskSizeClass,
@@ -281,16 +324,18 @@ import {
   BanIcon,
   CheckIcon,
   CheckSquareIcon,
+  CircleAlertIcon,
   CircleSlashIcon,
   EraserIcon,
   ExternalLinkIcon,
   HardDriveDownloadIcon,
-  InboxIcon,
   InfoIcon,
   LockIcon,
+  MessageSquareIcon,
   MinusSquareIcon,
   PinIcon,
   PlayIcon,
+  RotateCcwIcon,
   SquareIcon,
   StarIcon,
   Undo2Icon,
@@ -327,9 +372,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   open: [id: string];
   enqueue: [task: Task];
-  promote: [task: Task];
-  demote: [task: Task];
   dequeue: [task: Task];
+  retry: [task: Task];
   complete: [task: Task];
   cancel: [task: Task];
   archive: [task: Task];
@@ -424,9 +468,8 @@ function taskCost(task: Task): string {
 
 type RowActionKey =
   | "enqueue"
-  | "promote"
-  | "demote"
   | "dequeue"
+  | "retry"
   | "complete"
   | "cancel"
   | "archive"
@@ -454,20 +497,19 @@ function rowActions(task: Task): RowAction[] {
     return actions;
   }
   switch (task.state) {
-    case TaskState.DRAFT:
-      return [
-        { key: "enqueue", title: "Queue", icon: PlayIcon },
-        { key: "promote", title: "Move to Backlog", icon: InboxIcon },
-      ];
-
     case TaskState.BACKLOG:
       return task.startedAt
         ? []
         : [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
     case TaskState.QUEUED:
-      return [{ key: "dequeue", title: "Back to Backlog", icon: Undo2Icon }];
-    case TaskState.SETTLED:
+      return [{ key: "dequeue", title: "Move to Backlog", icon: Undo2Icon }];
+
     case TaskState.FAILED:
+      return [
+        { key: "retry", title: "Retry", icon: RotateCcwIcon },
+        { key: "cancel", title: "Cancel", icon: BanIcon },
+      ];
+    case TaskState.SETTLED:
       return [
         { key: "complete", title: "Complete", icon: CheckIcon },
         { key: "cancel", title: "Cancel", icon: BanIcon },
@@ -486,14 +528,11 @@ function runRowAction(task: Task, action: RowAction) {
     case "enqueue":
       emit("enqueue", task);
       break;
-    case "promote":
-      emit("promote", task);
-      break;
-    case "demote":
-      emit("demote", task);
-      break;
     case "dequeue":
       emit("dequeue", task);
+      break;
+    case "retry":
+      emit("retry", task);
       break;
     case "complete":
       emit("complete", task);

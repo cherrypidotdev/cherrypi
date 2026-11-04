@@ -1,0 +1,257 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/task.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+service TaskTemplateService {
+  
+  
+  rpc ListTaskTemplates(ListTaskTemplatesRequest) returns (ListTaskTemplatesResponse);
+  
+  rpc GetTaskTemplate(GetTaskTemplateRequest) returns (GetTaskTemplateResponse);
+  
+  rpc CreateTaskTemplate(CreateTaskTemplateRequest) returns (CreateTaskTemplateResponse);
+  
+  
+  
+  rpc UpdateTaskTemplate(UpdateTaskTemplateRequest) returns (UpdateTaskTemplateResponse);
+  
+  
+  rpc ArchiveTaskTemplate(ArchiveTaskTemplateRequest) returns (ArchiveTaskTemplateResponse);
+  rpc UnarchiveTaskTemplate(UnarchiveTaskTemplateRequest) returns (UnarchiveTaskTemplateResponse);
+  
+  rpc ListTaskTemplateVersions(ListTaskTemplateVersionsRequest) returns (ListTaskTemplateVersionsResponse);
+  
+  rpc RestoreTaskTemplateVersion(RestoreTaskTemplateVersionRequest) returns (RestoreTaskTemplateVersionResponse);
+  
+  
+  
+  rpc ValidateTaskTemplate(ValidateTaskTemplateRequest) returns (ValidateTaskTemplateResponse);
+  
+  
+  rpc RenderTaskTemplate(RenderTaskTemplateRequest) returns (RenderTaskTemplateResponse);
+}
+
+
+
+enum TaskTemplateArgType {
+  TASK_TEMPLATE_ARG_TYPE_UNSPECIFIED = 0;
+  TASK_TEMPLATE_ARG_TYPE_TEXT = 1;
+  TASK_TEMPLATE_ARG_TYPE_MULTILINE = 2;
+  TASK_TEMPLATE_ARG_TYPE_NUMBER = 3;
+  TASK_TEMPLATE_ARG_TYPE_BOOLEAN = 4;
+  TASK_TEMPLATE_ARG_TYPE_SELECT = 5;
+}
+
+
+message TaskTemplateArgOption {
+  string value = 1;
+  string label = 2;
+}
+
+
+
+message TaskTemplateArg {
+  string key = 1;
+  string label = 2;
+  string description = 3;
+  TaskTemplateArgType type = 4;
+  bool required = 5;
+  
+  
+  string default_value = 6;
+  repeated TaskTemplateArgOption options = 7;
+}
+
+
+message TaskTemplateContent {
+  
+  string body = 1;
+  
+  
+  string title_template = 2;
+  repeated TaskTemplateArg args = 3;
+  
+  TaskPriority default_priority = 4;
+  TaskSize default_size = 5;
+  repeated string default_tag_ids = 6;
+  repeated int32 default_team_ids = 7;
+  repeated string default_lead_actor_ids = 8;
+}
+
+
+message TaskTemplateVersion {
+  int64 version = 1;
+  TaskTemplateContent content = 2;
+  google.protobuf.Timestamp created_at = 3;
+  string created_by_actor_id = 4;
+}
+
+
+message TaskTemplate {
+  string id = 1;
+  string project_id = 2;
+  string name = 3;
+  string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp archived_at = 7;
+  
+  
+  int64 latest_version = 8;
+  TaskTemplateVersion latest = 9;
+}
+
+message ListTaskTemplatesRequest {
+  string project_id = 1;
+  
+  
+  bool include_archived = 2;
+}
+
+message ListTaskTemplatesResponse {
+  repeated TaskTemplate templates = 1;
+}
+
+message GetTaskTemplateRequest {
+  string id = 1;
+}
+
+message GetTaskTemplateResponse {
+  TaskTemplate template = 1;
+}
+
+message CreateTaskTemplateRequest {
+  string project_id = 1;
+  string name = 2;
+  string description = 3;
+  TaskTemplateContent content = 4;
+}
+
+message CreateTaskTemplateResponse {
+  TaskTemplate template = 1;
+  
+  repeated string warnings = 2;
+}
+
+message UpdateTaskTemplateRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  
+  TaskTemplateContent content = 4;
+}
+
+message UpdateTaskTemplateResponse {
+  TaskTemplate template = 1;
+  
+  bool version_created = 2;
+  repeated string warnings = 3;
+}
+
+message ArchiveTaskTemplateRequest {
+  string id = 1;
+}
+
+message ArchiveTaskTemplateResponse {
+  TaskTemplate template = 1;
+}
+
+message UnarchiveTaskTemplateRequest {
+  string id = 1;
+}
+
+message UnarchiveTaskTemplateResponse {
+  TaskTemplate template = 1;
+}
+
+message ListTaskTemplateVersionsRequest {
+  string template_id = 1;
+}
+
+message ListTaskTemplateVersionsResponse {
+  repeated TaskTemplateVersion versions = 1;
+}
+
+message RestoreTaskTemplateVersionRequest {
+  string template_id = 1;
+  int64 version = 2;
+}
+
+message RestoreTaskTemplateVersionResponse {
+  TaskTemplate template = 1;
+  
+  int64 created_version = 2;
+}
+
+message ValidateTaskTemplateRequest {
+  string project_id = 1;
+  TaskTemplateContent content = 2;
+}
+
+message ValidateTaskTemplateResponse {
+  bool valid = 1;
+  
+  
+  repeated string errors = 2;
+  
+  repeated string warnings = 3;
+  
+  
+  repeated string undeclared_variables = 4;
+  
+  repeated string unused_arguments = 5;
+}
+
+message RenderTaskTemplateRequest {
+  string template_id = 1;
+  
+  int64 version = 2;
+  
+  
+  
+  string args_json = 3;
+  
+  
+  
+  
+  string project_id = 4;
+  TaskTemplateContent content = 5;
+}
+
+message RenderTaskTemplateResponse {
+  string template_id = 1;
+  string template_name = 2;
+  int64 version = 3;
+  string prompt = 4;
+  string title = 5;
+  TaskPriority priority = 6;
+  TaskSize size = 7;
+  repeated string tag_ids = 8;
+  repeated int32 team_ids = 9;
+  repeated string lead_actor_ids = 10;
+  
+  string args_json = 11;
+}

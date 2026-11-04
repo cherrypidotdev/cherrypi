@@ -31,6 +31,10 @@ docs-site/node_modules
 docs-site/.vitepress/dist
 docs-site/.vitepress/cache
 
+dev/*/node_modules
+dev/*/dist
+dev/*/*.zip
+
 agency/server/cmd/agency/frontenddist
 agency/server/cmd/agency/docsdist
 

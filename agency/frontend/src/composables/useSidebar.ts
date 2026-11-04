@@ -47,12 +47,18 @@ export function setSidebarCollapsed(value: boolean) {
   persist();
 }
 
-export type SidebarSection = "projects" | "agents" | "teams" | "users";
+export type SidebarSection =
+  | "projects"
+  | "sites"
+  | "agents"
+  | "teams"
+  | "users";
 
 const SECTIONS_KEY = "cherrypi.sidebar.sections";
 
 const DEFAULT_SECTIONS: Record<SidebarSection, boolean> = {
   projects: true,
+  sites: false,
   agents: false,
   teams: false,
   users: false,

@@ -1003,6 +1003,7 @@ func patJSON(p PAT) map[string]any {
 		"created_at":   p.CreatedAt.UTC().Format(time.RFC3339),
 		"last_used_at": nil,
 		"expires_at":   nil,
+		"site_id":      p.SiteID,
 	}
 	if p.LastUsedAt != nil {
 		out["last_used_at"] = p.LastUsedAt.UTC().Format(time.RFC3339)

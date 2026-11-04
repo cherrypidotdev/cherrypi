@@ -57,6 +57,28 @@ WHERE id = (
 )
 RETURNING *;
 
+-- name: RefreshUnreadTaskCommentNotification :one
+
+
+
+
+UPDATE notifications
+SET
+  title = sqlc.arg(title),
+  body = sqlc.arg(body),
+  created_at = sqlc.arg(created_at)
+WHERE id = (
+  SELECT n.id FROM notifications n
+  WHERE
+    n.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id))
+    AND n.kind = sqlc.arg(kind)
+    AND n.read_at IS NULL
+    AND n.recipient_actor_id IS NOT DISTINCT FROM sqlc.arg(recipient_actor_id)
+  ORDER BY n.created_at DESC
+  LIMIT 1
+)
+RETURNING *;
+
 -- name: ListNotifications :many
 SELECT n.*, t.id AS task_id, t.project_id AS project_id
 FROM notifications n

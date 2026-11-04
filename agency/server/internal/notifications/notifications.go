@@ -78,6 +78,28 @@ func (s *Service) Create(ctx context.Context, n Notification) error {
 			return err
 		}
 	}
+	if (n.Kind == "task_comment" || n.Kind == "task_mention") && n.TaskID != "" {
+		row, err := s.store.RefreshUnreadTaskCommentNotification(
+			ctx,
+			store.RefreshUnreadTaskCommentNotificationParams{
+				Title:            n.Title,
+				Body:             n.Body,
+				CreatedAt:        createdAt.UnixMilli(),
+				TaskID:           n.TaskID,
+				Kind:             n.Kind,
+				RecipientActorID: nullActorID(n.RecipientActorID),
+			},
+		)
+		switch {
+		case err == nil:
+			n.ID = row.ID
+			n.CreatedAt = createdAt
+			s.hub.publish(n)
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+	}
 
 	row, err := s.store.CreateNotification(ctx, store.CreateNotificationParams{
 		AgentID:          sql.NullInt64{Int64: int64(n.AgentID), Valid: n.AgentID != 0},

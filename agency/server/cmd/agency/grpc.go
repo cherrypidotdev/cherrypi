@@ -29,8 +29,10 @@ import (
 	promptsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/prompts"
 	realtimegrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/realtime"
 	settingsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/settings"
+	sitesgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/sites"
 	tagsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/tags"
 	taskgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/task"
+	tasktemplatesgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/tasktemplates"
 	terminalgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/terminal"
 	webhookgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/webhook"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
@@ -65,6 +67,14 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler = agencyv1connect.NewSettingsServiceHandler(settingsService)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	siteService := &sitesgrpc.SiteServer{
+		Sites:       appCtx.Sites,
+		Accounts:    appCtx.Accounts,
+		Attachments: appCtx.Attachments,
+	}
+	path, handler = agencyv1connect.NewSiteServiceHandler(siteService)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
 	projectService := &projectsgrpc.ProjectServer{
 		Projects:    appCtx.Projects,
 		Agents:      appCtx.Agents,
@@ -75,14 +85,20 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	promptService := &promptsgrpc.PromptServer{
+		Flow:     appCtx.PromptFlow,
 		Prompts:  appCtx.Prompts,
 		Projects: appCtx.Projects,
 		Agents:   appCtx.Agents,
 		Tasks:    appCtx.Tasks,
 		Settings: appCtx.Settings,
 		Teams:    appCtx.Teams,
+		Accounts: appCtx.Accounts,
 	}
 	path, handler = agencyv1connect.NewPromptServiceHandler(promptService)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
+	templateService := &tasktemplatesgrpc.Server{Templates: appCtx.Templates}
+	path, handler = agencyv1connect.NewTaskTemplateServiceHandler(templateService)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	taskService := &taskgrpc.TaskServer{
@@ -93,6 +109,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Scheduler:   appCtx.Scheduler,
 		Attachments: appCtx.Attachments,
 		Artifacts:   appCtx.Artifacts,
+		Templates:   appCtx.Templates,
 		Actors: func(ctx context.Context, id ids.ActorID) (taskgrpc.ActorInfo, error) {
 			actor, err := appCtx.Accounts.GetActor(ctx, id)
 			if err != nil {
@@ -135,7 +152,11 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler = agencyv1connect.NewTagServiceHandler(tagService)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
-	dashboardService := &dashboardgrpc.DashboardServer{Hub: appCtx.Hub, Store: appCtx.Store}
+	dashboardService := &dashboardgrpc.DashboardServer{
+		Hub:    appCtx.Hub,
+		Store:  appCtx.Store,
+		Health: appCtx.Health,
+	}
 	path, handler = agencyv1connect.NewDashboardServiceHandler(dashboardService)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 

@@ -133,11 +133,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 FieldGroup
                   .grid.grid-cols-2.gap-3
                     Field
-                      FieldLabel(for="invite-username") Username
-                      Input#invite-username(
+                      FieldLabel(for="invite-actor") Actor
+                      ActorCombobox#invite-actor(
                         v-model="inviteUsername"
-                        placeholder="jane"
-                        autocomplete="off"
+                        placeholder="Search actors…"
+                        kinds="all"
                       )
                     Field
                       FieldLabel Role
@@ -254,8 +254,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CardHeader
               CardTitle Projects
               CardDescription
-                | Projects this team has been granted access to, each with a
-                | project-specific prompt.
+                | Projects this team can access, directly or through a parent
+                | project, each with a project-specific prompt.
             CardContent
               Empty(v-if="!projects.length")
                 EmptyTitle No projects
@@ -275,7 +275,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         :innerHTML="projectLogo(project.id)"
                       )
                       span.text-sm.font-medium {{ project.name }}
+                      Badge(v-if="project.inherited" variant="outline")
+                        | Inherited
                     Badge(variant="secondary") {{ roleLabel(project.role) }}
+                    RouterLink.text-muted-foreground.text-xs(
+                      v-if="project.inherited && project.inherited_from_project_slug"
+                      class="hover:text-foreground"
+                      :to="{ name: 'project', params: { slug: project.inherited_from_project_slug } }"
+                    ) via {{ project.inherited_from_project_name }}
                     RouterLink.text-muted-foreground(
                       class="hover:text-foreground"
                       aria-label="Open project"
@@ -373,6 +380,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorCombobox from "@/components/ActorCombobox.vue";
 import BackButton from "@/components/BackButton.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";

@@ -20,6 +20,7 @@ import {
   AgentLogLevel,
   TaskPriority,
   TaskState,
+  type AddTaskCommentInput,
   type AddToTaskOptions,
   type AgencyUsageResponse,
   type AgencyWebhook,
@@ -37,6 +38,7 @@ import {
   type GetTaskHistoryOptions,
   type GetTaskHistoryResult,
   type ListTagsFilter,
+  type ListTaskCommentsResult,
   type ListTasksFilter,
   type QuestionnaireAnswerInput,
   type ReopenTaskOptions,
@@ -46,6 +48,7 @@ import {
   type SetTaskTeamsInput,
   type Tag,
   type Task,
+  type TaskComment,
   type TaskConfig,
   type TaskEvent,
   type TaskSize,
@@ -82,10 +85,6 @@ export const agent = {
   ): Promise<Task> => agency.updateTask(id, input, o),
   queueTask: (id: string, o?: CallOptions): Promise<Task> =>
     agency.queueTask(id, o),
-  promoteTask: (id: string, o?: CallOptions): Promise<Task> =>
-    agency.promoteTask(id, o),
-  demoteTask: (id: string, o?: CallOptions): Promise<Task> =>
-    agency.demoteTask(id, o),
   dequeueTask: (id: string, o?: CallOptions): Promise<Task> =>
     agency.dequeueTask(id, o),
   mergeTasks: (ids: string[], o?: CallOptions): Promise<Task> =>
@@ -96,6 +95,8 @@ export const agent = {
     agency.unarchiveTask(id, o),
   cleanupTaskSession: (id: string, o?: CallOptions): Promise<Task> =>
     agency.cleanupTaskSession(id, o),
+  restartTaskSession: (id: string, o?: CallOptions): Promise<void> =>
+    agency.restartTaskSession(id, o),
   closeOutTask: (
     id: string,
     outcome: TaskState,
@@ -134,6 +135,21 @@ export const agent = {
     input: SetTaskSubscriptionInput,
     o?: CallOptions,
   ): Promise<Task> => agency.setTaskSubscription(id, input, o),
+  listTaskComments: (
+    id: string,
+    o?: CallOptions,
+  ): Promise<ListTaskCommentsResult> => agency.listTaskComments(id, o),
+  addTaskComment: (
+    input: AddTaskCommentInput,
+    o?: CallOptions,
+  ): Promise<TaskComment> => agency.addTaskComment(input, o),
+  updateTaskComment: (
+    id: bigint,
+    body: string,
+    o?: CallOptions,
+  ): Promise<TaskComment> => agency.updateTaskComment(id, body, o),
+  deleteTaskComment: (id: bigint, o?: CallOptions): Promise<void> =>
+    agency.deleteTaskComment(id, o),
   bulkUpdateTask: (
     input: BulkUpdateTaskInput,
     o?: CallOptions,

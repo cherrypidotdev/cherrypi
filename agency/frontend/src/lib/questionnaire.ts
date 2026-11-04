@@ -43,11 +43,10 @@ export function parseOption(option: string): OptionLine {
 
 export interface QuestionnaireOption {
   label: string;
+
   description: string;
 
   recommended?: boolean;
-
-  preview?: string;
 }
 
 export interface QuestionnaireQuestion {
@@ -89,7 +88,6 @@ export function parseQuestionnaire(argsJson: string): Questionnaire | null {
         label: o.label,
         description: typeof o.description === "string" ? o.description : "",
         recommended: o.recommended === true,
-        preview: typeof o.preview === "string" ? o.preview : undefined,
       });
     }
     if (options.length === 0) {
@@ -117,7 +115,12 @@ export interface QuestionnaireAnswerReview {
 
   selected?: string[];
   notes?: string;
-  preview?: string;
+}
+
+export interface QuestionnaireAnsweredBy {
+  id: string;
+  username: string;
+  name: string;
 }
 
 export interface QuestionnaireReview {
@@ -126,6 +129,10 @@ export interface QuestionnaireReview {
   cancelled: boolean;
 
   unavailable: boolean;
+
+  finalNote?: string;
+
+  answeredBy?: QuestionnaireAnsweredBy;
 }
 
 export function parseQuestionnaireReview(
@@ -146,6 +153,8 @@ export function parseQuestionnaireReview(
     answers?: unknown;
     cancelled?: unknown;
     unavailable?: unknown;
+    finalNote?: unknown;
+    answeredBy?: unknown;
   } | null;
   if (!raw || !Array.isArray(raw.answers)) {
     return null;
@@ -167,15 +176,50 @@ export function parseQuestionnaireReview(
         ? a.selected.filter((s): s is string => typeof s === "string")
         : undefined,
       notes: typeof a.notes === "string" ? a.notes : undefined,
-      preview: typeof a.preview === "string" ? a.preview : undefined,
     });
   }
+  const finalNote =
+    typeof raw.finalNote === "string" && raw.finalNote.trim().length > 0
+      ? raw.finalNote
+      : undefined;
+  const answeredBy = parseAnsweredBy(raw.answeredBy);
   return {
     questions: parsed.questions,
     answers,
     cancelled: raw.cancelled === true,
     unavailable: raw.unavailable === true,
+    ...(finalNote ? { finalNote } : {}),
+    ...(answeredBy ? { answeredBy } : {}),
   };
+}
+
+function parseAnsweredBy(value: unknown): QuestionnaireAnsweredBy | undefined {
+  const by = value as Record<string, unknown> | null | undefined;
+  if (!by || typeof by !== "object") {
+    return undefined;
+  }
+  const answeredBy: QuestionnaireAnsweredBy = {
+    id: typeof by.id === "string" ? by.id : "",
+    username: typeof by.username === "string" ? by.username : "",
+    name: typeof by.name === "string" ? by.name : "",
+  };
+  if (!answeredBy.id && !answeredBy.username && !answeredBy.name) {
+    return undefined;
+  }
+  return answeredBy;
+}
+
+export function answeredByLabel(by: QuestionnaireAnsweredBy): string {
+  if (by.name && by.username) {
+    return `${by.name} (@${by.username})`;
+  }
+  if (by.name) {
+    return by.name;
+  }
+  if (by.username) {
+    return `@${by.username}`;
+  }
+  return `actor ${by.id}`;
 }
 
 export function questionnaireAnswersFromReview(
@@ -260,6 +304,7 @@ export interface QuestionnaireAnswerWire {
 export function questionnaireResponseValue(
   questions: QuestionnaireQuestion[],
   answers: QuestionnaireAnswer[],
+  finalNote = "",
 ): string {
   const payload = questions.map((_, index) => {
     const answer = answers[index] ?? emptyAnswer();
@@ -275,7 +320,8 @@ export function questionnaireResponseValue(
     }
     return wire;
   });
-  return JSON.stringify({ answers: payload });
+  const note = finalNote.trim();
+  return JSON.stringify({ answers: payload, ...(note ? { note } : {}) });
 }
 
 export function multiSelectValue(answer: QuestionnaireAnswer): string {

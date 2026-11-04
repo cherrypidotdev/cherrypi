@@ -32,6 +32,8 @@ import ProjectView from "@/views/ProjectView.vue";
 import ProjectsView from "@/views/ProjectsView.vue";
 import ResetPasswordView from "@/views/ResetPasswordView.vue";
 import SettingsView from "@/views/SettingsView.vue";
+import SiteView from "@/views/SiteView.vue";
+import SitesView from "@/views/SitesView.vue";
 import TaskView from "@/views/TaskView.vue";
 import TeamView from "@/views/TeamView.vue";
 import TeamsView from "@/views/TeamsView.vue";
@@ -97,6 +99,19 @@ const router = createRouter({
           component: TaskView,
           props: true,
           meta: { title: "Task" },
+        },
+        {
+          path: "sites",
+          name: "sites",
+          component: SitesView,
+          meta: { title: "Sites" },
+        },
+        {
+          path: "sites/:id",
+          name: "site",
+          component: SiteView,
+          props: true,
+          meta: { title: "Site" },
         },
         {
           path: "usage",

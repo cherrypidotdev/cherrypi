@@ -19,11 +19,13 @@ import type { Desktop } from "./gen/buf/agent/v1/desktop_pb.js";
 import type { TaskEvent } from "./gen/buf/agent/v1/task_pb.js";
 import type {
   Task,
+  TaskComment,
   TaskPriority,
   TaskReferenceKind,
   TaskSize,
   TaskState,
 } from "./gen/buf/agency/v1/task_pb.js";
+import type { TaskTemplateArgType } from "./gen/buf/agency/v1/task_templates_pb.js";
 
 export interface CallOptions {
   signal?: AbortSignal;
@@ -34,10 +36,23 @@ export interface WatchTaskOptions extends CallOptions {
 }
 
 export type RealtimeKind =
-  "sync" | "tasks" | "usage" | "terminals" | "agent-logs" | "agents";
+  | "sync"
+  | "tasks"
+  | "usage"
+  | "terminals"
+  | "agent-logs"
+  | "agents"
+  | "sites"
+  | "health";
 
 export interface RealtimeEvent {
   kind: RealtimeKind;
+}
+
+export interface ListSitesFilter {
+  originTaskId?: string;
+
+  agencyWideOnly?: boolean;
 }
 
 export interface WatchRealtimeOptions extends CallOptions {}
@@ -48,12 +63,28 @@ export interface AddToTaskOptions extends CallOptions {
   messageId?: string;
 }
 
+export interface ListTaskCommentsResult {
+  comments: TaskComment[];
+
+  unread: number;
+}
+
+export interface AddTaskCommentInput {
+  taskId: string;
+
+  body: string;
+
+  attachmentIds?: bigint[];
+}
+
 export interface AttachmentUploadInput {
   file: Blob;
 
   filename?: string;
 
   taskId?: string;
+
+  commentAttachment?: boolean;
 
   agentId?: string;
 
@@ -139,6 +170,14 @@ export interface CreateTaskInput {
 
   size?: TaskSize;
 
+  templateId?: string;
+
+  templateVersion?: number;
+
+  templateArgs?: Record<string, unknown>;
+
+  templatePromptOverride?: boolean;
+
   teamIds?: number[];
 
   leadActorIds?: string[];
@@ -185,6 +224,14 @@ export interface UpdateTaskInput {
   setPendingPrompt?: string;
 
   setPrompt?: string;
+
+  setModel?: TaskModelInput;
+}
+
+export interface TaskModelInput {
+  provider: string;
+  modelId: string;
+  thinkingLevel?: string;
 }
 
 export interface TaskLinkInput {
@@ -208,6 +255,65 @@ export interface BulkUpdateTaskInput {
   ids: string[];
 
   attributes: TaskAttributeInput;
+}
+
+export interface TaskTemplateArgOptionInput {
+  value: string;
+  label?: string;
+}
+
+export interface TaskTemplateArgInput {
+  key: string;
+  label?: string;
+  description?: string;
+  type?: TaskTemplateArgType;
+  required?: boolean;
+  defaultValue?: string;
+  options?: TaskTemplateArgOptionInput[];
+}
+
+export interface TaskTemplateContentInput {
+  body: string;
+  titleTemplate?: string;
+  args?: TaskTemplateArgInput[];
+  defaultPriority?: TaskPriority;
+  defaultSize?: TaskSize;
+  defaultTagIds?: string[];
+  defaultTeamIds?: number[];
+  defaultLeadActorIds?: string[];
+}
+
+export interface CreateTaskTemplateInput {
+  projectId: string;
+  name: string;
+  description?: string;
+  content: TaskTemplateContentInput;
+}
+
+export interface UpdateTaskTemplateInput {
+  name: string;
+  description?: string;
+
+  content?: TaskTemplateContentInput;
+}
+
+export interface RenderTaskTemplateInput {
+  templateId?: string;
+
+  version?: number;
+
+  args?: Record<string, unknown>;
+
+  content?: TaskTemplateContentInput;
+  projectId?: string;
+}
+
+export interface TaskTemplateValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  undeclaredVariables: string[];
+  unusedArguments: string[];
 }
 
 export interface SetTaskTeamsInput {
@@ -296,6 +402,10 @@ export interface AgentDefaultsInput {
   modelId?: string;
   modelName?: string;
   thinkingLevel?: string;
+}
+
+export interface AgentHealthSettingsInput {
+  intervalSeconds?: number;
 }
 
 export type ExtensionUiResponse =

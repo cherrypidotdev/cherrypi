@@ -21,6 +21,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
@@ -233,7 +234,13 @@ func (s *AgentServer) CreateAgent(
 		return nil, mapError(err)
 	}
 	if s.Prompts != nil && req.Prompt != "" {
-		if _, err := s.Prompts.Set(ctx, prompts.ScopeAgent, a.ID, "", req.Prompt); err != nil {
+		if _, err := s.Prompts.SetVersion(ctx, prompts.SetParams{
+			Scope:         prompts.ScopeAgent,
+			AgentID:       a.ID,
+			Content:       req.Prompt,
+			AuthorActorID: creatorActorID,
+			Note:          "Initial agent prompt",
+		}); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
@@ -262,6 +269,12 @@ func (s *AgentServer) UpdateAgent(
 	a, err := s.Agents.Update(ctx, actorid.ParseAgent(req.Id), req.DisplayName, req.Description)
 	if err != nil {
 		return nil, mapError(err)
+	}
+	if req.PromptAutoApprove != nil {
+		a, err = s.Agents.SetPromptAutoApprove(ctx, a.ID, *req.PromptAutoApprove)
+		if err != nil {
+			return nil, mapError(err)
+		}
 	}
 	out := toProto(a)
 	s.enrichPicture(ctx, a.ID, out)
@@ -378,6 +391,78 @@ func (s *AgentServer) UpdateAgentTaskLimits(
 	return &agencyv1.UpdateAgentTaskLimitsResponse{Limits: toProtoLimits(lim)}, nil
 }
 
+func (s *AgentServer) GetAgentHealthSettings(
+	ctx context.Context,
+	req *agencyv1.GetAgentHealthSettingsRequest,
+) (*agencyv1.GetAgentHealthSettingsResponse, error) {
+	settings, err := s.Agents.HealthSettings(ctx, actorid.ParseAgent(req.AgentId))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.GetAgentHealthSettingsResponse{
+		Settings: toProtoHealthSettings(settings),
+	}, nil
+}
+
+func (s *AgentServer) UpdateAgentHealthSettings(
+	ctx context.Context,
+	req *agencyv1.UpdateAgentHealthSettingsRequest,
+) (*agencyv1.UpdateAgentHealthSettingsResponse, error) {
+	agentID := actorid.ParseAgent(req.AgentId)
+	if err := s.requireAgentAccess(ctx, agentID); err != nil {
+		return nil, err
+	}
+	settings, err := s.Agents.SetHealthSettings(
+		ctx,
+		agentID,
+		fromProtoHealthSettings(req.GetSettings()),
+	)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	s.pushHealthSettings(ctx, agentID, settings)
+	return &agencyv1.UpdateAgentHealthSettingsResponse{
+		Settings: toProtoHealthSettings(settings),
+	}, nil
+}
+
+func (s *AgentServer) pushHealthSettings(
+	ctx context.Context,
+	agentID ids.AgentID,
+	settings agents.HealthSettings,
+) {
+	if s.Hub == nil {
+		return
+	}
+	conn, err := s.Hub.Connection(agentID)
+	if err != nil {
+		return
+	}
+	pushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := conn.SetHealthInterval(pushCtx, settings.Seconds()); err != nil {
+		log.Printf("Push health interval to agent %d: %v", agentID, err)
+	}
+}
+
+func toProtoHealthSettings(settings agents.HealthSettings) *agencyv1.AgentHealthSettings {
+	out := &agencyv1.AgentHealthSettings{}
+	if seconds := settings.Seconds(); seconds != nil {
+		out.IntervalSeconds = seconds
+	}
+	return out
+}
+
+func fromProtoHealthSettings(in *agencyv1.AgentHealthSettings) agents.HealthSettings {
+	if in == nil || in.IntervalSeconds == nil {
+		return agents.HealthSettings{}
+	}
+	return agents.HealthSettings{
+		Configured: true,
+		Interval:   time.Duration(*in.IntervalSeconds) * time.Second,
+	}
+}
+
 func (s *AgentServer) ListAgentTokens(
 	ctx context.Context,
 	req *agencyv1.ListAgentTokensRequest,
@@ -476,20 +561,21 @@ func toProtoAgentToken(p accounts.PAT) *agencyv1.AgentToken {
 
 func toProto(a agents.Agent) *agencyv1.Agent {
 	return &agencyv1.Agent{
-		Id:              actorid.Format(a.ID),
-		ActorId:         actorid.Format(a.ActorID),
-		Username:        a.Username,
-		DisplayName:     a.DisplayName,
-		Description:     a.Description,
-		Role:            a.Role,
-		Status:          agencyv1.AgentStatus(a.Status),
-		Version:         a.Version,
-		ProtocolVersion: a.ProtocolVersion,
-		VersionStatus:   agencyv1.AgentVersionStatus(a.VersionStatus),
-		RemoteAddr:      a.RemoteAddr,
-		CreatedAt:       timestamppb.New(a.CreatedAt),
-		UpdatedAt:       timestamppb.New(a.UpdatedAt),
-		LastSeenAt:      timestampOrNil(a.LastSeenAt),
+		Id:                actorid.Format(a.ID),
+		ActorId:           actorid.Format(a.ActorID),
+		Username:          a.Username,
+		DisplayName:       a.DisplayName,
+		Description:       a.Description,
+		Role:              a.Role,
+		Status:            agencyv1.AgentStatus(a.Status),
+		Version:           a.Version,
+		ProtocolVersion:   a.ProtocolVersion,
+		VersionStatus:     agencyv1.AgentVersionStatus(a.VersionStatus),
+		RemoteAddr:        a.RemoteAddr,
+		CreatedAt:         timestamppb.New(a.CreatedAt),
+		UpdatedAt:         timestamppb.New(a.UpdatedAt),
+		LastSeenAt:        timestampOrNil(a.LastSeenAt),
+		PromptAutoApprove: a.PromptAutoApprove,
 	}
 }
 
@@ -562,7 +648,7 @@ func mapError(err error) *connect.Error {
 	case errors.Is(err, agents.ErrAgentExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, agents.ErrInvalidUsername), errors.Is(err, agents.ErrInvalidDefaults),
-		errors.Is(err, agents.ErrInvalidRole):
+		errors.Is(err, agents.ErrInvalidRole), errors.Is(err, agents.ErrInvalidHealthInterval):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

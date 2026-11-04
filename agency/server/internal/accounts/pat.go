@@ -34,6 +34,24 @@ func (s *Service) CreatePAT(
 	name string,
 	expiresAt *time.Time,
 ) (string, PAT, error) {
+	return s.createPAT(ctx, actorID, name, "", expiresAt)
+}
+
+func (s *Service) CreateSitePAT(
+	ctx context.Context,
+	actorID ids.ActorID,
+	siteID, name string,
+	expiresAt *time.Time,
+) (string, PAT, error) {
+	return s.createPAT(ctx, actorID, name, siteID, expiresAt)
+}
+
+func (s *Service) createPAT(
+	ctx context.Context,
+	actorID ids.ActorID,
+	name, siteID string,
+	expiresAt *time.Time,
+) (string, PAT, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "token"
@@ -53,6 +71,7 @@ func (s *Service) CreatePAT(
 		Prefix:    displayPrefix(token),
 		CreatedAt: now.UnixMilli(),
 		ExpiresAt: expiry,
+		SiteID:    strings.TrimSpace(siteID),
 	})
 	if err != nil {
 		return "", PAT{}, err
@@ -104,6 +123,7 @@ func (s *Service) ResolvePAT(ctx context.Context, token string) (Identity, PAT, 
 		CreatedAt:  row.CreatedAt,
 		LastUsedAt: row.LastUsedAt,
 		ExpiresAt:  row.ExpiresAt,
+		SiteID:     row.SiteID,
 	})
 	return identity, pat, nil
 }
@@ -139,6 +159,7 @@ func patFromRow(row store.PersonalAccessToken) PAT {
 		Name:      row.Name,
 		Prefix:    row.Prefix,
 		CreatedAt: time.UnixMilli(row.CreatedAt),
+		SiteID:    row.SiteID,
 	}
 	if row.LastUsedAt.Valid {
 		t := time.UnixMilli(row.LastUsedAt.Int64)

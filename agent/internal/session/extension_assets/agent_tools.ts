@@ -34,7 +34,7 @@ export default function (pi: ExtensionAPI) {
       state: Type.Optional(
         Type.String({
           description:
-            "Only tasks in this state (draft, backlog, queued, running, settled, input, failed, completed, cancelled).",
+            "Only tasks in this state (backlog, queued, running, settled, input, failed, completed, cancelled).",
         }),
       ),
       search: Type.Optional(
@@ -123,13 +123,35 @@ export default function (pi: ExtensionAPI) {
     name: "createTask",
     label: "Create Task",
     description:
-      "Create a CherryPi task in a project this agent can create in. `state` is required and must be `draft` or `backlog`: an agent cannot queue work directly. Optionally assign it to a member agent, add tags or references, name it, and set its priority or size.",
+      "Create a CherryPi task in a project this agent can create in. `state` is required and must be `backlog`: an agent cannot queue work directly. Optionally create it from a project task template with `templateId` and `templateArgs`; an explicit `prompt` is then appended as extra instructions, and explicit fields override the template defaults. Otherwise assign it to a member agent, add tags or references, name it, and set its priority or size.",
     parameters: Type.Object({
       projectId: Type.String({ description: "Project id or slug." }),
-      prompt: Type.String({ description: "The task prompt." }),
-      state: Type.Union([Type.Literal("draft"), Type.Literal("backlog")], {
+      prompt: Type.Optional(
+        Type.String({
+          description:
+            "The task prompt, or extra instructions appended to a template's rendered prompt.",
+        }),
+      ),
+      templateId: Type.Optional(
+        Type.String({
+          description:
+            "Task template id from the project. The agency renders it with templateArgs.",
+        }),
+      ),
+      templateVersion: Type.Optional(
+        Type.Number({
+          description: "Template version to render; omit or 0 for the latest.",
+        }),
+      ),
+      templateArgs: Type.Optional(
+        Type.Record(Type.String(), Type.Any(), {
+          description:
+            "Template argument values, keyed by argument key. Strings, numbers and booleans are accepted.",
+        }),
+      ),
+      state: Type.Literal("backlog", {
         description:
-          "Required initial state. `draft` is never scheduled; `backlog` is likely to run but not queued yet.",
+          "Required initial state. `backlog` is likely to run but not queued yet.",
       }),
       assigneeId: Type.Optional(
         Type.String({
@@ -172,7 +194,7 @@ export default function (pi: ExtensionAPI) {
                 ],
                 {
                   description:
-                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in draft, backlog, queued, or failed. Defaults to informational.",
+                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in backlog, queued, or failed. Defaults to informational.",
                 },
               ),
             ),
@@ -188,6 +210,9 @@ export default function (pi: ExtensionAPI) {
       return request("POST", "/tasks", {
         project_id: String(params.projectId ?? ""),
         prompt: String(params.prompt ?? ""),
+        template_id: params.templateId ? String(params.templateId) : "",
+        template_version: params.templateVersion ?? 0,
+        template_args: params.templateArgs ?? {},
         assignee_actor_id: params.assigneeId ? String(params.assigneeId) : "",
         name: params.name ? String(params.name) : "",
         priority: priorityValue(params.priority),
@@ -237,7 +262,7 @@ export default function (pi: ExtensionAPI) {
                 ],
                 {
                   description:
-                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in draft, backlog, queued, or failed.",
+                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in backlog, queued, or failed.",
                 },
               ),
             ),
@@ -397,6 +422,177 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "getPrompt",
+    label: "Get Prompt",
+    description:
+      "Read a versioned CherryPi prompt and whether this agent may propose a change. `scope` is `agent` (your own global prompt), `agent_project` (your prompt for one project), or `project` (a project's shared prompt). Pass `projectId` for the latter two. The response includes the content, version, author, and the caller's can_edit/can_propose/can_approve flags.",
+    parameters: Type.Object({
+      scope: Type.Union(
+        [
+          Type.Literal("agent"),
+          Type.Literal("agent_project"),
+          Type.Literal("project"),
+        ],
+        { description: "Which prompt to read." },
+      ),
+      projectId: Type.Optional(
+        Type.String({
+          description:
+            "Project id or slug; required for agent_project and project.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const query = promptQuery(params.scope, params.projectId);
+      return request("GET", `/prompts?${query.toString()}`);
+    },
+  });
+
+  pi.registerTool({
+    name: "listPromptVersions",
+    label: "List Prompt Versions",
+    description:
+      "Read a CherryPi prompt's version history, newest first, with each version's author, approver, note, and content. Use it to understand how the prompt evolved before proposing a change. Pass the same scope/projectId as getPrompt.",
+    parameters: Type.Object({
+      scope: Type.Union(
+        [
+          Type.Literal("agent"),
+          Type.Literal("agent_project"),
+          Type.Literal("project"),
+        ],
+        { description: "Which prompt's history to read." },
+      ),
+      projectId: Type.Optional(
+        Type.String({
+          description:
+            "Project id or slug; required for agent_project and project.",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Maximum versions; defaults to 50 and caps at 200.",
+        }),
+      ),
+      beforeVersion: Type.Optional(
+        Type.Number({
+          description: "Page older than this version (0 = from latest).",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const query = promptQuery(params.scope, params.projectId);
+      query.set("limit", String(params.limit ?? 50));
+      if (params.beforeVersion !== undefined) {
+        query.set("before_version", String(params.beforeVersion));
+      }
+      return request("GET", `/prompts/versions?${query.toString()}`);
+    },
+  });
+
+  pi.registerTool({
+    name: "proposePromptChange",
+    label: "Propose Prompt Change",
+    description:
+      "Propose a complete replacement for a CherryPi prompt. Use `scope=agent` for your own global prompt, `agent_project` for your prompt in one project, or `project` for a project's shared prompt (project members only). The change becomes a pending proposal that an owner approves, unless your agent has self-prompt auto-approve enabled (agent scopes only). Include a short `note` explaining why.",
+    parameters: Type.Object({
+      scope: Type.Union(
+        [
+          Type.Literal("agent"),
+          Type.Literal("agent_project"),
+          Type.Literal("project"),
+        ],
+        { description: "Which prompt to propose a change to." },
+      ),
+      content: Type.String({
+        description: "The complete replacement prompt content.",
+      }),
+      note: Type.Optional(
+        Type.String({ description: "Why this change is useful." }),
+      ),
+      projectId: Type.Optional(
+        Type.String({
+          description:
+            "Project id or slug; required for agent_project and project.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const body: Record<string, unknown> = {
+        scope: String(params.scope),
+        content: String(params.content ?? ""),
+        note: params.note ? String(params.note) : "",
+      };
+      if (params.projectId) body.project_id = String(params.projectId);
+      return request("POST", "/prompts/proposals", body);
+    },
+  });
+
+  pi.registerTool({
+    name: "listPromptProposals",
+    label: "List Prompt Proposals",
+    description:
+      "List prompt change proposals. By default returns your own proposals across scopes, newest first. Pass `mine=false` with a scope/projectId to list a target's proposals when you are allowed to approve them.",
+    parameters: Type.Object({
+      scope: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("agent"),
+            Type.Literal("agent_project"),
+            Type.Literal("project"),
+          ],
+          { description: "Optional target scope filter." },
+        ),
+      ),
+      projectId: Type.Optional(
+        Type.String({
+          description:
+            "Project id or slug; used with agent_project and project scopes.",
+        }),
+      ),
+      status: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("pending"),
+            Type.Literal("approved"),
+            Type.Literal("rejected"),
+            Type.Literal("withdrawn"),
+          ],
+          { description: "Only proposals in this status." },
+        ),
+      ),
+      mine: Type.Optional(
+        Type.Boolean({
+          description:
+            "Only your own proposals. Defaults to true; set false with a scope to list a target's proposals for approval.",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({
+          description: "Maximum proposals; defaults to 50 and caps at 200.",
+        }),
+      ),
+      beforeId: Type.Optional(
+        Type.Number({
+          description: "Page older than this proposal id.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const query = new URLSearchParams();
+      const mine = params.mine ?? true;
+      query.set("mine", String(mine));
+      if (params.scope) query.set("scope", String(params.scope));
+      if (params.projectId) query.set("project_id", String(params.projectId));
+      if (params.status) query.set("status", String(params.status));
+      query.set("limit", String(params.limit ?? 50));
+      if (params.beforeId !== undefined) {
+        query.set("before_id", String(params.beforeId));
+      }
+      return request("GET", `/prompts/proposals?${query.toString()}`);
+    },
+  });
+
+  pi.registerTool({
     name: "listProjects",
     label: "List Projects",
     description:
@@ -404,6 +600,13 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     execute: async () => request("GET", "/projects"),
   });
+}
+
+function promptQuery(scope: unknown, projectId: unknown): URLSearchParams {
+  const query = new URLSearchParams();
+  query.set("scope", String(scope ?? ""));
+  if (projectId) query.set("project_id", String(projectId));
+  return query;
 }
 
 function agencyUrl(): string {

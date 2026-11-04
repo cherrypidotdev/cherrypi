@@ -48,10 +48,14 @@ type Handler struct {
 }
 
 type TeamProjectLink struct {
-	ProjectID   string
-	ProjectName string
-	ProjectSlug string
-	Role        string
+	ProjectID                string
+	ProjectName              string
+	ProjectSlug              string
+	Role                     string
+	Inherited                bool
+	InheritedFromProjectID   string
+	InheritedFromProjectName string
+	InheritedFromProjectSlug string
 }
 
 type ProjectTeamService interface {
@@ -417,10 +421,16 @@ func (h *Handler) projects(
 	out := make([]map[string]any, len(list))
 	for i, project := range list {
 		out[i] = map[string]any{
-			"id":   project.ProjectID,
-			"name": project.ProjectName,
-			"slug": project.ProjectSlug,
-			"role": project.Role,
+			"id":        project.ProjectID,
+			"name":      project.ProjectName,
+			"slug":      project.ProjectSlug,
+			"role":      project.Role,
+			"inherited": project.Inherited,
+		}
+		if project.Inherited {
+			out[i]["inherited_from_project_id"] = project.InheritedFromProjectID
+			out[i]["inherited_from_project_name"] = project.InheritedFromProjectName
+			out[i]["inherited_from_project_slug"] = project.InheritedFromProjectSlug
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": out})

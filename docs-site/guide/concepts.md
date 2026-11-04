@@ -64,7 +64,7 @@ One unit of work. A task has:
 
 - a name and a prompt;
 - a project and an assignee agent;
-- a lifecycle state — `draft`, `queued`, `running`, `input`, `settled`,
+- a lifecycle state — `backlog`, `queued`, `running`, `input`, `settled`,
   `failed`, `completed` or `cancelled`;
 - a transcript made of user messages and Pi session entries;
 - attachments, links and artifacts;
@@ -90,6 +90,14 @@ agency.
 **Artifacts** are files an agent produces and publishes as the outcome of a
 task. They appear in the task's **Artifacts** tab, with a name, description and
 optional preview.
+
+## Site
+
+A static website a task publishes as a zip archive. The agency stores the
+archive, serves it at `/sites/<id>`, and adds a **Site** tab beside the task
+chat. A site keeps its origin task and creator, may be listed agency-wide in
+the sidebar, and can request a site-scoped personal access token from its
+visitor through an agency consent modal. See [Sites](/using/sites).
 
 ## Team
 

@@ -44,6 +44,7 @@ export function useUsage(
   agentId: MaybeRefOrGetter<string> = "",
   projectId: MaybeRefOrGetter<string> = "",
   range: MaybeRefOrGetter<UsageRange> = "all",
+  model: MaybeRefOrGetter<string> = "",
 ) {
   const usage = ref<AgencyUsageResponse | undefined>();
   const error = ref("");
@@ -53,6 +54,7 @@ export function useUsage(
   const agentIdValue = computed(() => toValue(agentId));
   const projectIdValue = computed(() => toValue(projectId));
   const rangeValue = computed(() => toValue(range));
+  const modelValue = computed(() => toValue(model));
 
   async function refresh() {
     const gen = ++generation;
@@ -61,7 +63,11 @@ export function useUsage(
       const next = await agency.getUsage(
         agentIdValue.value,
         projectIdValue.value,
-        { sinceMs: bounds.sinceMs, untilMs: bounds.untilMs },
+        {
+          sinceMs: bounds.sinceMs,
+          untilMs: bounds.untilMs,
+          model: modelValue.value || undefined,
+        },
       );
       if (gen !== generation) return;
       usage.value = next;
@@ -91,7 +97,7 @@ export function useUsage(
     return map;
   });
 
-  watch([agentIdValue, projectIdValue, rangeValue], () => {
+  watch([agentIdValue, projectIdValue, rangeValue, modelValue], () => {
     generation++;
     usage.value = undefined;
     loading.value = true;

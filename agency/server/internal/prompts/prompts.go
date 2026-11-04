@@ -43,6 +43,14 @@ var (
 	ErrInvalidScope = errors.New("invalid prompt scope")
 
 	ErrInvalidTarget = errors.New("prompt scope requires the matching agent and project ids")
+
+	ErrNoChange = errors.New("the proposed content does not change the prompt")
+
+	ErrProposalNotFound = errors.New("prompt proposal not found")
+
+	ErrProposalNotPending = errors.New("prompt proposal is not pending")
+
+	ErrProposalStale = errors.New("prompt proposal is stale")
 )
 
 type Prompt struct {
@@ -50,6 +58,87 @@ type Prompt struct {
 	Content   string
 	Version   int64
 	UpdatedAt time.Time
+
+	AuthorActorID ids.ActorID
+
+	ApprovedByActorID ids.ActorID
+
+	Note string
+
+	ProposalID int64
+
+	AutoApproved bool
+}
+
+type ProposalStatus string
+
+const (
+	ProposalPending   ProposalStatus = "pending"
+	ProposalApproved  ProposalStatus = "approved"
+	ProposalRejected  ProposalStatus = "rejected"
+	ProposalWithdrawn ProposalStatus = "withdrawn"
+)
+
+type Proposal struct {
+	ID               int64
+	Scope            Scope
+	AgentID          ids.AgentID
+	TeamID           int64
+	ProjectID        string
+	Content          string
+	BaseVersion      int64
+	AuthorActorID    ids.ActorID
+	Note             string
+	Status           ProposalStatus
+	AutoApproved     bool
+	CreatedAt        time.Time
+	DecidedAt        time.Time
+	DecidedByActorID ids.ActorID
+	DecisionNote     string
+
+	Stale bool
+
+	LatestVersion int64
+}
+
+type SetParams struct {
+	Scope     Scope
+	AgentID   ids.AgentID
+	TeamID    int64
+	ProjectID string
+	Content   string
+
+	AuthorActorID ids.ActorID
+
+	ApprovedByActorID ids.ActorID
+
+	Note string
+
+	ProposalID int64
+
+	AutoApproved bool
+}
+
+type CreateProposalParams struct {
+	Scope         Scope
+	AgentID       ids.AgentID
+	TeamID        int64
+	ProjectID     string
+	Content       string
+	AuthorActorID ids.ActorID
+	Note          string
+}
+
+type ProposalFilter struct {
+	Scope     Scope
+	AgentID   ids.AgentID
+	TeamID    int64
+	ProjectID string
+	Status    ProposalStatus
+
+	MineActorID ids.ActorID
+	Limit       int
+	BeforeID    int64
 }
 
 type TeamVersionIDs struct {
@@ -76,7 +165,13 @@ const BuiltinGuidance = "# Presentation\n\n" +
 	"- Use HTML for structure and emphasis: `<details>`/`<summary>` for collapsible sections, `<table>` for tabular data, `<kbd>` for keybindings, `<mark>` for highlights, and `<sub>`/`<sup>` where notation calls for them.\n" +
 	"- Fence diagrams in a ```mermaid block (flowchart, sequence, class, state, ER, gantt, …); the dashboard draws them as diagrams.\n" +
 	"- Otherwise use Markdown as usual for prose, lists, code and links.\n\n" +
-	"Reach for these only when they make the answer clearer; plain prose is fine for everything else."
+	"Reach for these only when they make the answer clearer; plain prose is fine for everything else.\n\n" +
+	"# Planning\n\n" +
+	"Every task starts with a plan, and the plan is part of the work, not a report about it. Before your first tool call — and always before doing the work — publish a short plan with `reportTaskProgress`: 3–8 ordered items, each `pending` (a genuinely one-step task gets one item). Updating the plan is bookkeeping, never a stopping point: call the tool and carry on with the work in the same turn, and only end the run when the task is actually done. Then keep it current:\n\n" +
+	"- At the end of every turn in which you used tools, update the plan: mark finished items `done`, the step you are on `in_progress`, and the next ones `pending`.\n" +
+	"- Update the one-line summary when what you are doing changes, so the operator can see it at a glance.\n" +
+	"- Plans are expected to change — when new user input, a CI result, or another external event invalidates a step, replace the list instead of forcing the old plan.\n" +
+	"- Before you finish a run, reconcile the plan: everything you completed is `done`, nothing you finished is left `pending`, and a task that turned out different gets a new list. A run does not settle while the plan is missing, unfinished, or stale."
 
 type Service struct {
 	store store.Store
@@ -90,6 +185,14 @@ func (s *Service) Get(
 	agentID ids.AgentID, projectID string,
 ) (Prompt, error) {
 	return s.get(ctx, scope, agentID, 0, projectID)
+}
+
+func (s *Service) GetAt(
+	ctx context.Context,
+	scope Scope,
+	agentID ids.AgentID, teamID int64, projectID string,
+) (Prompt, error) {
+	return s.get(ctx, scope, agentID, teamID, projectID)
 }
 
 func (s *Service) GetForTeam(
@@ -142,7 +245,12 @@ func (s *Service) Set(
 	scope Scope,
 	agentID ids.AgentID, projectID, content string,
 ) (Prompt, error) {
-	return s.set(ctx, scope, agentID, 0, projectID, content)
+	return s.SetVersion(ctx, SetParams{
+		Scope:     scope,
+		AgentID:   agentID,
+		ProjectID: projectID,
+		Content:   content,
+	})
 }
 
 func (s *Service) SetForTeam(
@@ -150,42 +258,52 @@ func (s *Service) SetForTeam(
 	scope Scope,
 	teamID int64, projectID, content string,
 ) (Prompt, error) {
-	return s.set(ctx, scope, 0, teamID, projectID, content)
+	return s.SetVersion(ctx, SetParams{
+		Scope:     scope,
+		TeamID:    teamID,
+		ProjectID: projectID,
+		Content:   content,
+	})
 }
 
-func (s *Service) set(
-	ctx context.Context,
-	scope Scope,
-	agentID ids.AgentID, teamID int64, projectID, content string,
-) (Prompt, error) {
-	if err := scope.validate(agentID, teamID, projectID); err != nil {
+func (s *Service) SetVersion(ctx context.Context, p SetParams) (Prompt, error) {
+	if err := p.Scope.validate(p.AgentID, p.TeamID, p.ProjectID); err != nil {
 		return Prompt{}, err
 	}
-	cur, err := s.get(ctx, scope, agentID, teamID, projectID)
+	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.ProjectID)
 	if err != nil {
 		return Prompt{}, err
 	}
-	if cur.Content == content {
+	if cur.Content == p.Content {
 		return cur, nil
 	}
 
 	version, err := s.store.LatestPromptVersion(ctx, store.LatestPromptVersionParams{
-		Scope:     string(scope),
-		AgentID:   sql.NullInt64{Int64: int64(agentID), Valid: true},
-		TeamID:    sql.NullInt64{Int64: teamID, Valid: true},
-		ProjectID: sql.NullString{String: projectID, Valid: true},
+		Scope:     string(p.Scope),
+		AgentID:   sql.NullInt64{Int64: int64(p.AgentID), Valid: true},
+		TeamID:    sql.NullInt64{Int64: p.TeamID, Valid: true},
+		ProjectID: sql.NullString{String: p.ProjectID, Valid: true},
 	})
 	if err != nil {
 		return Prompt{}, err
 	}
+	autoApproved := int64(0)
+	if p.AutoApproved {
+		autoApproved = 1
+	}
 	row, err := s.store.InsertPrompt(ctx, store.InsertPromptParams{
-		Scope:     string(scope),
-		AgentID:   agentID,
-		TeamID:    teamID,
-		ProjectID: projectID,
-		Content:   content,
-		Version:   version + 1,
-		CreatedAt: time.Now().UnixMilli(),
+		Scope:             string(p.Scope),
+		AgentID:           p.AgentID,
+		TeamID:            p.TeamID,
+		ProjectID:         p.ProjectID,
+		Content:           p.Content,
+		Version:           version + 1,
+		CreatedAt:         time.Now().UnixMilli(),
+		AuthorActorID:     int64(p.AuthorActorID),
+		ApprovedByActorID: int64(p.ApprovedByActorID),
+		Note:              p.Note,
+		ProposalID:        p.ProposalID,
+		AutoApproved:      autoApproved,
 	})
 	if err != nil {
 		return Prompt{}, err
@@ -280,6 +398,256 @@ func dedupeSorted(values []int64) []int64 {
 	return out[:n]
 }
 
+func (s *Service) ListVersions(
+	ctx context.Context,
+	scope Scope,
+	agentID ids.AgentID, teamID int64, projectID string,
+	limit int, beforeVersion int64,
+) ([]Prompt, error) {
+	if err := scope.validate(agentID, teamID, projectID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	rows, err := s.store.ListPromptVersions(ctx, store.ListPromptVersionsParams{
+		Scope:         string(scope),
+		AgentID:       sql.NullInt64{Int64: int64(agentID), Valid: true},
+		TeamID:        sql.NullInt64{Int64: teamID, Valid: true},
+		ProjectID:     sql.NullString{String: projectID, Valid: true},
+		BeforeVersion: beforeVersion,
+		MaxCount:      int64(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Prompt, len(rows))
+	for i, row := range rows {
+		out[i] = toPrompt(row)
+	}
+	return out, nil
+}
+
+func (s *Service) CreateProposal(
+	ctx context.Context,
+	p CreateProposalParams,
+) (Proposal, error) {
+	if err := p.Scope.validate(p.AgentID, p.TeamID, p.ProjectID); err != nil {
+		return Proposal{}, err
+	}
+	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.ProjectID)
+	if err != nil {
+		return Proposal{}, err
+	}
+	if cur.Content == p.Content {
+		return Proposal{}, ErrNoChange
+	}
+	row, err := s.store.InsertPromptProposal(
+		ctx,
+		store.InsertPromptProposalParams{
+			Scope:         string(p.Scope),
+			AgentID:       p.AgentID,
+			TeamID:        p.TeamID,
+			ProjectID:     p.ProjectID,
+			Content:       p.Content,
+			BaseVersion:   cur.Version,
+			AuthorActorID: int64(p.AuthorActorID),
+			Note:          p.Note,
+			CreatedAt:     time.Now().UnixMilli(),
+		},
+	)
+	if err != nil {
+		return Proposal{}, err
+	}
+	out := toProposal(row)
+	out.LatestVersion = cur.Version
+	return out, nil
+}
+
+func (s *Service) GetProposal(ctx context.Context, id int64) (Proposal, error) {
+	row, err := s.store.GetPromptProposal(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Proposal{}, ErrProposalNotFound
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	out := toProposal(row)
+	if err := s.fillProposalState(ctx, &out); err != nil {
+		return Proposal{}, err
+	}
+	return out, nil
+}
+
+func (s *Service) ListProposals(
+	ctx context.Context,
+	f ProposalFilter,
+) ([]Proposal, error) {
+	if f.Limit <= 0 {
+		f.Limit = 50
+	}
+	if f.Limit > 200 {
+		f.Limit = 200
+	}
+	var (
+		rows []store.PromptProposal
+		err  error
+	)
+	if f.MineActorID != 0 {
+		var status any
+		if f.Status != "" {
+			status = string(f.Status)
+		}
+		rows, err = s.store.ListPromptProposalsByAuthor(
+			ctx,
+			store.ListPromptProposalsByAuthorParams{
+				AuthorActorID: int64(f.MineActorID),
+				Status:        status,
+				BeforeID:      f.BeforeID,
+				MaxCount:      int64(f.Limit),
+			},
+		)
+	} else {
+		if err := f.Scope.validate(f.AgentID, f.TeamID, f.ProjectID); err != nil {
+			return nil, err
+		}
+		var status any
+		if f.Status != "" {
+			status = string(f.Status)
+		}
+		rows, err = s.store.ListPromptProposalsByTarget(
+			ctx,
+			store.ListPromptProposalsByTargetParams{
+				Scope:     string(f.Scope),
+				AgentID:   sql.NullInt64{Int64: int64(f.AgentID), Valid: true},
+				TeamID:    sql.NullInt64{Int64: f.TeamID, Valid: true},
+				ProjectID: sql.NullString{String: f.ProjectID, Valid: true},
+				Status:    status,
+				BeforeID:  f.BeforeID,
+				MaxCount:  int64(f.Limit),
+			},
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Proposal, len(rows))
+	for i, row := range rows {
+		out[i] = toProposal(row)
+		if err := s.fillProposalState(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) ApproveProposal(
+	ctx context.Context,
+	id int64, approverActorID ids.ActorID, note string, autoApproved bool,
+) (Prompt, Proposal, error) {
+	prompt, row, err := s.store.ApprovePromptProposal(
+		ctx,
+		store.ApprovePromptProposalParams{
+			ID:               id,
+			DecidedByActorID: approverActorID,
+			DecisionNote:     note,
+			AutoApproved:     autoApproved,
+			Now:              time.Now().UnixMilli(),
+		},
+	)
+	switch {
+	case errors.Is(err, store.ErrPromptProposalNotFound):
+		return Prompt{}, Proposal{}, ErrProposalNotFound
+	case errors.Is(err, store.ErrPromptProposalNotPending):
+		return Prompt{}, Proposal{}, ErrProposalNotPending
+	case errors.Is(err, store.ErrPromptProposalStale):
+		return Prompt{}, Proposal{}, ErrProposalStale
+	case err != nil:
+		return Prompt{}, Proposal{}, err
+	}
+	out := toProposal(row)
+	out.LatestVersion = prompt.Version
+	return toPrompt(prompt), out, nil
+}
+
+func (s *Service) RejectProposal(
+	ctx context.Context,
+	id int64, approverActorID ids.ActorID, note string,
+) (Proposal, error) {
+	row, err := s.store.SetPromptProposalDecision(
+		ctx,
+		store.SetPromptProposalDecisionParams{
+			Status:           string(ProposalRejected),
+			DecidedAt:        sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true},
+			DecidedByActorID: int64(approverActorID),
+			DecisionNote:     note,
+			AutoApproved:     0,
+			ID:               id,
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, getErr := s.GetProposal(ctx, id); errors.Is(getErr, ErrProposalNotFound) {
+			return Proposal{}, ErrProposalNotFound
+		}
+		return Proposal{}, ErrProposalNotPending
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	out := toProposal(row)
+	if err := s.fillProposalState(ctx, &out); err != nil {
+		return Proposal{}, err
+	}
+	return out, nil
+}
+
+func (s *Service) WithdrawProposal(
+	ctx context.Context,
+	id int64, authorActorID ids.ActorID, note string,
+) (Proposal, error) {
+	row, err := s.store.WithdrawPromptProposal(
+		ctx,
+		store.WithdrawPromptProposalParams{
+			DecidedAt:     sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true},
+			DecisionNote:  note,
+			ID:            id,
+			AuthorActorID: int64(authorActorID),
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, getErr := s.GetProposal(ctx, id); errors.Is(getErr, ErrProposalNotFound) {
+			return Proposal{}, ErrProposalNotFound
+		}
+		return Proposal{}, ErrProposalNotPending
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	out := toProposal(row)
+	if err := s.fillProposalState(ctx, &out); err != nil {
+		return Proposal{}, err
+	}
+	return out, nil
+}
+
+func (s *Service) fillProposalState(ctx context.Context, p *Proposal) error {
+	latest, err := s.store.LatestPromptVersion(ctx, store.LatestPromptVersionParams{
+		Scope:     string(p.Scope),
+		AgentID:   sql.NullInt64{Int64: int64(p.AgentID), Valid: true},
+		TeamID:    sql.NullInt64{Int64: p.TeamID, Valid: true},
+		ProjectID: sql.NullString{String: p.ProjectID, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	p.LatestVersion = latest
+	p.Stale = p.Status == ProposalPending && latest != p.BaseVersion
+	return nil
+}
+
 func (sc Scope) TeamScoped() bool {
 	return sc == ScopeTeam || sc == ScopeTeamProject
 }
@@ -321,9 +689,37 @@ func joinNonEmpty(parts ...string) string {
 
 func toPrompt(row store.Prompt) Prompt {
 	return Prompt{
-		ID:        row.ID,
-		Content:   row.Content,
-		Version:   row.Version,
-		UpdatedAt: time.UnixMilli(row.CreatedAt),
+		ID:                row.ID,
+		Content:           row.Content,
+		Version:           row.Version,
+		UpdatedAt:         time.UnixMilli(row.CreatedAt),
+		AuthorActorID:     ids.ActorID(row.AuthorActorID.Int64),
+		ApprovedByActorID: ids.ActorID(row.ApprovedByActorID.Int64),
+		Note:              row.Note,
+		ProposalID:        row.ProposalID.Int64,
+		AutoApproved:      row.AutoApproved != 0,
 	}
+}
+
+func toProposal(row store.PromptProposal) Proposal {
+	p := Proposal{
+		ID:               row.ID,
+		Scope:            Scope(row.Scope),
+		AgentID:          ids.AgentID(row.AgentID.Int64),
+		TeamID:           row.TeamID.Int64,
+		ProjectID:        row.ProjectID.String,
+		Content:          row.Content,
+		BaseVersion:      row.BaseVersion,
+		AuthorActorID:    ids.ActorID(row.AuthorActorID),
+		Note:             row.Note,
+		Status:           ProposalStatus(row.Status),
+		AutoApproved:     row.AutoApproved != 0,
+		CreatedAt:        time.UnixMilli(row.CreatedAt),
+		DecidedByActorID: ids.ActorID(row.DecidedByActorID.Int64),
+		DecisionNote:     row.DecisionNote,
+	}
+	if row.DecidedAt.Valid {
+		p.DecidedAt = time.UnixMilli(row.DecidedAt.Int64)
+	}
+	return p
 }

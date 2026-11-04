@@ -18,6 +18,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
 )
@@ -35,8 +36,6 @@ type RegisterAgentParams struct {
 type TaskEvent string
 
 const (
-	TaskPromote           TaskEvent = "promote"
-	TaskDemote            TaskEvent = "demote"
 	TaskQueue             TaskEvent = "queue"
 	TaskDequeue           TaskEvent = "dequeue"
 	TaskArchive           TaskEvent = "archive"
@@ -81,4 +80,18 @@ type TransitionTaskParams struct {
 
 	AgentID   ids.AgentID
 	SessionID string
+}
+
+var (
+	ErrPromptProposalNotFound   = errors.New("prompt proposal not found")
+	ErrPromptProposalNotPending = errors.New("prompt proposal is not pending")
+	ErrPromptProposalStale      = errors.New("prompt proposal is stale")
+)
+
+type ApprovePromptProposalParams struct {
+	ID               int64
+	DecidedByActorID ids.ActorID
+	DecisionNote     string
+	AutoApproved     bool
+	Now              int64
 }

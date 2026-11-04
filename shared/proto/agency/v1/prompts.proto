@@ -49,6 +49,22 @@ enum PromptScope {
 }
 
 
+enum PromptProposalStatus {
+  PROMPT_PROPOSAL_STATUS_UNSPECIFIED = 0;
+  PROMPT_PROPOSAL_STATUS_PENDING = 1;
+  PROMPT_PROPOSAL_STATUS_APPROVED = 2;
+  PROMPT_PROPOSAL_STATUS_REJECTED = 3;
+  PROMPT_PROPOSAL_STATUS_WITHDRAWN = 4;
+}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -57,12 +73,36 @@ service PromptService {
   rpc SetPrompt(SetPromptRequest) returns (SetPromptResponse);
   
   
+  rpc ListPromptVersions(ListPromptVersionsRequest) returns (ListPromptVersionsResponse);
+  
+  
   
   rpc ListAgentProjectPrompts(ListAgentProjectPromptsRequest) returns (ListAgentProjectPromptsResponse);
   
   
   
   rpc GetTaskSystemPrompt(GetTaskSystemPromptRequest) returns (GetTaskSystemPromptResponse);
+
+  
+  rpc CreatePromptProposal(CreatePromptProposalRequest) returns (CreatePromptProposalResponse);
+  
+  
+  
+  rpc ListPromptProposals(ListPromptProposalsRequest) returns (ListPromptProposalsResponse);
+  
+  
+  
+  rpc DecidePromptProposal(DecidePromptProposalRequest) returns (DecidePromptProposalResponse);
+  
+  rpc WithdrawPromptProposal(WithdrawPromptProposalRequest) returns (WithdrawPromptProposalResponse);
+}
+
+
+message PromptActor {
+  string actor_id = 1;
+  string username = 2;
+  string name = 3;
+  string kind = 4;
 }
 
 
@@ -72,6 +112,19 @@ message Prompt {
   
   int64 version = 2;
   google.protobuf.Timestamp updated_at = 3;
+  
+  int64 id = 4;
+  
+  PromptActor author = 5;
+  
+  
+  PromptActor approved_by = 6;
+  
+  string note = 7;
+  
+  int64 proposal_id = 8;
+  
+  bool auto_approved = 9;
 }
 
 message GetPromptRequest {
@@ -86,6 +139,12 @@ message GetPromptRequest {
 
 message GetPromptResponse {
   Prompt prompt = 1;
+  
+  bool can_edit = 2;
+  
+  bool can_propose = 3;
+  
+  bool can_approve = 4;
 }
 
 message SetPromptRequest {
@@ -95,10 +154,27 @@ message SetPromptRequest {
   string content = 4;
   
   int64 team_id = 5;
+  
+  string note = 6;
 }
 
 message SetPromptResponse {
   Prompt prompt = 1;
+}
+
+message ListPromptVersionsRequest {
+  PromptScope scope = 1;
+  string agent_id = 2;
+  string project_id = 3;
+  int64 team_id = 4;
+  
+  uint32 limit = 5;
+  
+  int64 before_version = 6;
+}
+
+message ListPromptVersionsResponse {
+  repeated Prompt versions = 1;
 }
 
 message AgentProjectPrompt {
@@ -112,6 +188,88 @@ message ListAgentProjectPromptsRequest {
 
 message ListAgentProjectPromptsResponse {
   repeated AgentProjectPrompt prompts = 1;
+}
+
+
+message PromptProposal {
+  int64 id = 1;
+  PromptScope scope = 2;
+  string agent_id = 3;
+  string project_id = 4;
+  int64 team_id = 5;
+  
+  string content = 6;
+  
+  int64 base_version = 7;
+  PromptActor author = 8;
+  string note = 9;
+  PromptProposalStatus status = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp decided_at = 12;
+  PromptActor decided_by = 13;
+  string decision_note = 14;
+  
+  
+  bool stale = 15;
+  
+  bool auto_approved = 16;
+  
+  int64 latest_version = 17;
+  
+  bool is_mine = 18;
+}
+
+message CreatePromptProposalRequest {
+  PromptScope scope = 1;
+  string agent_id = 2;
+  string project_id = 3;
+  int64 team_id = 4;
+  string content = 5;
+  string note = 6;
+}
+
+message CreatePromptProposalResponse {
+  PromptProposal proposal = 1;
+}
+
+message ListPromptProposalsRequest {
+  
+  
+  PromptScope scope = 1;
+  string agent_id = 2;
+  string project_id = 3;
+  int64 team_id = 4;
+  
+  PromptProposalStatus status = 5;
+  
+  bool mine = 6;
+  uint32 limit = 7;
+  int64 before_id = 8;
+}
+
+message ListPromptProposalsResponse {
+  repeated PromptProposal proposals = 1;
+}
+
+message DecidePromptProposalRequest {
+  int64 id = 1;
+  bool approve = 2;
+  string note = 3;
+}
+
+message DecidePromptProposalResponse {
+  PromptProposal proposal = 1;
+  
+  Prompt prompt = 2;
+}
+
+message WithdrawPromptProposalRequest {
+  int64 id = 1;
+  string note = 2;
+}
+
+message WithdrawPromptProposalResponse {
+  PromptProposal proposal = 1;
 }
 
 

@@ -51,18 +51,21 @@ func (s *SettingsServer) UpdateSettings(
 	if in == nil {
 
 		in = &agencyv1.Settings{
-			ShowUsageKpi:       true,
-			ShowConcurrencyKpi: true,
+			ShowUsageKpi:         true,
+			ShowConcurrencyKpi:   true,
+			NotificationSoundSet: settings.DefaultNotificationSoundSet,
 		}
 	}
 	updated, err := s.Settings.Update(ctx, settings.Settings{
-		AgencyName:         in.AgencyName,
-		PrimaryColor:       in.PrimaryColor,
-		ShowUsageKPI:       in.ShowUsageKpi,
-		ShowConcurrencyKPI: in.ShowConcurrencyKpi,
+		AgencyName:           in.AgencyName,
+		PrimaryColor:         in.PrimaryColor,
+		ShowUsageKPI:         in.ShowUsageKpi,
+		ShowConcurrencyKPI:   in.ShowConcurrencyKpi,
+		NotificationSoundSet: in.NotificationSoundSet,
 	})
 	if err != nil {
-		if errors.Is(err, settings.ErrInvalidColor) {
+		if errors.Is(err, settings.ErrInvalidColor) ||
+			errors.Is(err, settings.ErrInvalidSoundSet) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -75,12 +78,13 @@ func (s *SettingsServer) toProto(
 	in settings.Settings,
 ) *agencyv1.Settings {
 	return &agencyv1.Settings{
-		AgencyName:         in.AgencyName,
-		PrimaryColor:       in.PrimaryColor,
-		ShowUsageKpi:       in.ShowUsageKPI,
-		ShowConcurrencyKpi: in.ShowConcurrencyKPI,
-		Logo:               s.attachment(ctx, in.LogoAttachmentID),
-		Favicon:            s.attachment(ctx, in.FaviconAttachmentID),
+		AgencyName:           in.AgencyName,
+		PrimaryColor:         in.PrimaryColor,
+		ShowUsageKpi:         in.ShowUsageKPI,
+		ShowConcurrencyKpi:   in.ShowConcurrencyKPI,
+		NotificationSoundSet: in.NotificationSoundSet,
+		Logo:                 s.attachment(ctx, in.LogoAttachmentID),
+		Favicon:              s.attachment(ctx, in.FaviconAttachmentID),
 	}
 }
 

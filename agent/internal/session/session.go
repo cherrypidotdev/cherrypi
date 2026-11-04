@@ -131,13 +131,18 @@ type Session struct {
 	stopping bool
 	running  bool
 
+	stopRequested bool
+
 	runStartedAt time.Time
+
+	runFailure string
 
 	runWaitAccum  time.Duration
 	waitStartedAt time.Time
 	pending       map[string]chan response
 	reqID         uint64
 	model         string
+	provider      string
 	lastUse       sqlitedb.SumUsageBySessionRow
 	subs          map[chan Event]struct{}
 	logRing       []string
@@ -238,6 +243,8 @@ type record struct {
 	AssistantMessageEvent json.RawMessage `json:"assistantMessageEvent"`
 	Message               json.RawMessage `json:"message"`
 
+	FinalError string `json:"finalError"`
+
 	Steering []string `json:"steering"`
 	FollowUp []string `json:"followUp"`
 
@@ -307,6 +314,7 @@ func (s *Session) promptConfigured(
 
 		s.mu.Lock()
 		s.model = modelID
+		s.provider = provider
 		s.mu.Unlock()
 	}
 
@@ -543,8 +551,9 @@ func pidOf(cmd *exec.Cmd) sql.NullInt64 {
 
 type stateData struct {
 	Model struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		Provider string `json:"provider"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
 	} `json:"model"`
 }
 
@@ -558,6 +567,7 @@ func (s *Session) loadInitialState(ctx context.Context) {
 			}
 			s.mu.Lock()
 			s.model = model
+			s.provider = st.Model.Provider
 			s.mu.Unlock()
 		}
 	}
@@ -720,11 +730,11 @@ func (s *Session) setModel(cfg SessionConfig) {
 	if model == "" {
 		model = cfg.ModelName
 	}
-	if model == "" {
-		return
-	}
 	s.mu.Lock()
-	s.model = model
+	s.provider = cfg.ModelProvider
+	if model != "" {
+		s.model = model
+	}
 	s.mu.Unlock()
 }
 
@@ -741,7 +751,7 @@ type sessionStats struct {
 	} `json:"contextUsage"`
 }
 
-func (s *Session) settle() {
+func (s *Session) settle(errMsg string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -764,17 +774,26 @@ func (s *Session) settle() {
 		log.Printf("[session %s] get_session_stats: %v", s.ID, err)
 	}
 
-	if err := s.store.ClearSessionPendingPrompt(ctx, sqlitedb.ClearSessionPendingPromptParams{
-		UpdatedAt: time.Now().UnixMilli(),
-		ID:        s.ID,
-	}); err != nil {
-		log.Printf("[session %s] clear pending prompt: %v", s.ID, err)
+	if errMsg == "" {
+		if err := s.store.ClearSessionPendingPrompt(ctx, sqlitedb.ClearSessionPendingPromptParams{
+			UpdatedAt: time.Now().UnixMilli(),
+			ID:        s.ID,
+		}); err != nil {
+			log.Printf("[session %s] clear pending prompt: %v", s.ID, err)
+		}
 	}
 
 	s.setRunning(false)
-	slog.Info("run settled", "session_id", s.ID, "task_id", s.agencyTaskID)
 
 	s.clearWaitingStore(ctx)
+	if errMsg != "" {
+		slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", errMsg)
+		s.markFailed(ctx, errMsg)
+		s.scheduleIdleReap()
+		return
+	}
+
+	slog.Info("run settled", "session_id", s.ID, "task_id", s.agencyTaskID)
 	s.notifyAgentState("run_settled", StatusDone)
 	s.scheduleIdleReap()
 }
@@ -793,6 +812,10 @@ func (s *Session) Stop(ctx context.Context) error {
 		s.opMu.Unlock()
 		return err
 	}
+
+	s.mu.Lock()
+	s.stopRequested = true
+	s.mu.Unlock()
 
 	abortCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	_, err := s.send(abortCtx, "abort", nil)
@@ -848,6 +871,10 @@ func (s *Session) waitSettled(ctx context.Context, timeout time.Duration) bool {
 }
 
 func (s *Session) foldInterruptedRun(ctx context.Context) error {
+	s.mu.Lock()
+	s.stopRequested = true
+	s.mu.Unlock()
+
 	abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	_, _ = s.send(abortCtx, "abort", nil)
 	cancel()
@@ -894,9 +921,29 @@ func (s *Session) ClearQueue(ctx context.Context) error {
 	return err
 }
 
+func (s *Session) Restart() error {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	s.mu.Lock()
+	hasProcess := s.cmd != nil
+	busy := s.running || s.waiting
+	s.mu.Unlock()
+	if busy {
+		return ErrSessionBusy
+	}
+	if !hasProcess {
+		return nil
+	}
+
+	s.stopProcess()
+	return nil
+}
+
 func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 	s.mu.Lock()
 	model := s.model
+	provider := s.provider
 	prev := s.lastUse
 	activeMs := s.runActiveDurationLocked(time.Now()).Milliseconds()
 	s.mu.Unlock()
@@ -911,6 +958,7 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 
 	err := s.store.InsertUsage(ctx, sqlitedb.InsertUsageParams{
 		SessionID:    s.ID,
+		Provider:     provider,
 		Model:        model,
 		InputTokens:  deltaIn,
 		OutputTokens: deltaOut,
@@ -924,6 +972,7 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 	}
 
 	s.notify("usage", map[string]any{
+		"provider":      provider,
 		"model":         model,
 		"input_tokens":  deltaIn,
 		"output_tokens": deltaOut,
@@ -940,6 +989,16 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 		ActiveMs:     prev.ActiveMs + activeMs,
 	}
 	s.mu.Unlock()
+}
+
+func (s *Session) failPendingLocked(reason string) {
+	for id, ch := range s.pending {
+		select {
+		case ch <- response{Success: false, Error: reason}:
+		default:
+		}
+		delete(s.pending, id)
+	}
 }
 
 func (s *Session) send(
@@ -1032,13 +1091,39 @@ func (s *Session) handleRecord(b []byte) {
 
 	case "agent_start":
 		s.setRunning(true)
+		s.mu.Lock()
+		s.stopRequested = false
+		s.mu.Unlock()
 		slog.Info("run started", "session_id", s.ID, "task_id", s.agencyTaskID)
 		s.emit(Event{Kind: EventRunStarted})
 		s.notifyAgentState("run_started", StatusInProgress)
 
+	case "message_end":
+		s.trackRunError(rec.Message)
+
+	case "auto_retry_end":
+
+		if rec.Success != nil {
+			s.setRunFailure(*rec.Success, rec.FinalError)
+		}
+
 	case "agent_settled":
+		s.mu.Lock()
+
+		errMsg := s.runFailure
+		if s.stopRequested {
+			errMsg = ""
+		}
+		s.runFailure = ""
+		s.stopRequested = false
+		s.mu.Unlock()
+		if errMsg != "" {
+
+			go s.settle(errMsg)
+			return
+		}
 		s.emit(Event{Kind: EventRunSettled})
-		go s.settle()
+		go s.settle("")
 
 	case "message_update":
 		var ev struct {
@@ -1125,6 +1210,7 @@ func rawString(raw json.RawMessage) string {
 const (
 	taskURLsCustomType      = "cherrypi_task_urls"
 	taskArtifactsCustomType = "cherrypi_task_artifacts"
+	taskProgressCustomType  = "cherrypi_task_progress"
 )
 
 func (s *Session) handleEntryAppended(b []byte) {
@@ -1144,6 +1230,8 @@ func (s *Session) handleEntryAppended(b []byte) {
 		s.handleTaskURLsEntry(rec.Entry.Data)
 	case taskArtifactsCustomType:
 		s.handleTaskArtifactsEntry(rec.Entry.Data)
+	case taskProgressCustomType:
+		s.handleTaskProgressEntry(rec.Entry.Data)
 	}
 }
 
@@ -1166,6 +1254,34 @@ func (s *Session) handleTaskURLsEntry(raw json.RawMessage) {
 		links = append(links, map[string]any{"url": u.URL, "label": u.Label})
 	}
 	s.notify("task_link", map[string]any{"links": links})
+}
+
+func (s *Session) handleTaskProgressEntry(raw json.RawMessage) {
+	var data struct {
+		Summary string `json:"summary"`
+		Todos   []struct {
+			Text   string `json:"text"`
+			Status string `json:"status"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(raw, &data) != nil {
+		return
+	}
+
+	todos := make([]map[string]any, 0, len(data.Todos))
+	for _, item := range data.Todos {
+		if item.Text == "" {
+			continue
+		}
+		todos = append(todos, map[string]any{
+			"text":   item.Text,
+			"status": item.Status,
+		})
+	}
+	s.notify("task_progress", map[string]any{
+		"summary": data.Summary,
+		"todos":   todos,
+	})
 }
 
 func (s *Session) handleTaskArtifactsEntry(raw json.RawMessage) {
@@ -1208,7 +1324,7 @@ func (s *Session) reap(cmd *exec.Cmd) {
 	if s.cmd == cmd {
 		s.cmd = nil
 		s.stdin = nil
-		s.pending = nil
+		s.failPendingLocked("pi process exited")
 	}
 	exited := s.exited
 	s.mu.Unlock()
@@ -1247,7 +1363,7 @@ func (s *Session) stopProcess() {
 	exited := s.exited
 	s.cmd = nil
 	s.stdin = nil
-	s.pending = nil
+	s.failPendingLocked("session stopped")
 	s.stopping = true
 	s.mu.Unlock()
 
@@ -1291,7 +1407,7 @@ func (s *Session) forceStop() {
 	cmd := s.cmd
 	s.cmd = nil
 	s.stdin = nil
-	s.pending = nil
+	s.failPendingLocked("session stopped")
 	s.stopping = true
 	s.mu.Unlock()
 
@@ -1300,16 +1416,40 @@ func (s *Session) forceStop() {
 	}
 }
 
-func (s *Session) fail(msg string) {
+func (s *Session) trackRunError(raw json.RawMessage) {
+	var msg struct {
+		Role         string `json:"role"`
+		StopReason   string `json:"stopReason"`
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &msg) != nil || msg.Role != "assistant" {
+		return
+	}
+	s.setRunFailure(msg.StopReason != "error", msg.ErrorMessage)
+}
+
+func (s *Session) setRunFailure(ok bool, errMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ok {
+		s.runFailure = ""
+		return
+	}
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = "model request failed"
+	}
+
+	if errMsg == "Retry cancelled" {
+		s.runFailure = ""
+		return
+	}
+	s.runFailure = errMsg
+}
+
+func (s *Session) markFailed(ctx context.Context, msg string) {
 	if s.probe {
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	s.setRunning(false)
-	slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", msg)
 
 	now := time.Now().UnixMilli()
 	if err := s.store.EndSession(ctx, sqlitedb.EndSessionParams{
@@ -1323,7 +1463,20 @@ func (s *Session) fail(msg string) {
 	}
 
 	s.emit(statusEvent(StatusFailed, msg))
-	s.notifyAgentState("failed", StatusFailed)
+	s.notifyAgentFailure(msg)
+}
+
+func (s *Session) fail(msg string) {
+	if s.probe {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.setRunning(false)
+	slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", msg)
+	s.markFailed(ctx, msg)
 }
 
 func (s *Session) historyHasPrompt(prompt string) bool {
@@ -1334,6 +1487,15 @@ func (s *Session) historyHasPrompt(prompt string) bool {
 			continue
 		}
 		return ev.Text == prompt
+	}
+	return false
+}
+
+func (s *Session) historyHasUserMessage() bool {
+	for _, entry := range s.readHistory() {
+		if entry.event.Kind == EventUser {
+			return true
+		}
 	}
 	return false
 }
@@ -1632,6 +1794,14 @@ func (s *Session) notify(event string, payload map[string]any) {
 
 func (s *Session) notifyAgentState(state string, status Status) {
 	s.notify("agent_state_changed", map[string]any{"state": state, "status": int64(status)})
+}
+
+func (s *Session) notifyAgentFailure(errMsg string) {
+	s.notify("agent_state_changed", map[string]any{
+		"state":  "failed",
+		"status": int64(StatusFailed),
+		"error":  errMsg,
+	})
 }
 
 func (s *Session) scheduleIdleReap() {

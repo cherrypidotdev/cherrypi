@@ -777,6 +777,24 @@ func (s *PgStore) ListProjectTeamMembershipsForTeam(
 	return fromPgListProjectTeamMembershipsForTeamRowSlice(rows), nil
 }
 
+func (s *PgStore) ListInheritedProjectTeams(
+	ctx context.Context,
+	projectID string,
+) ([]ListInheritedProjectTeamsRow, error) {
+	rows, err := s.q.ListInheritedProjectTeams(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListInheritedProjectTeamsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListProjectTeamIDsWithAccess(
+	ctx context.Context,
+	projectID string,
+) ([]int64, error) {
+	return s.q.ListProjectTeamIDsWithAccess(ctx, projectID)
+}
+
 func (s *PgStore) CountProjectsOwnedByTeam(ctx context.Context, teamID int64) (int64, error) {
 	return s.q.CountProjectsOwnedByTeam(ctx, teamID)
 }
@@ -1110,11 +1128,19 @@ func (s *PgStore) ListRunningTasks(ctx context.Context) ([]Task, error) {
 	return fromPgTaskSlice(rows), nil
 }
 
-func (s *PgStore) UpdateDraftTask(
+func (s *PgStore) ListSessionTasks(ctx context.Context) ([]Task, error) {
+	rows, err := s.q.ListSessionTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
+}
+
+func (s *PgStore) UpdateBacklogTask(
 	ctx context.Context,
-	p UpdateDraftTaskParams,
+	p UpdateBacklogTaskParams,
 ) (Task, error) {
-	row, err := s.q.UpdateDraftTask(ctx, pgdb.UpdateDraftTaskParams(p))
+	row, err := s.q.UpdateBacklogTask(ctx, pgdb.UpdateBacklogTaskParams(p))
 	if err != nil {
 		return Task{}, err
 	}
@@ -1135,6 +1161,13 @@ func (s *PgStore) SetTaskPrompt(
 	return s.q.SetTaskPrompt(ctx, pgdb.SetTaskPromptParams(p))
 }
 
+func (s *PgStore) SetTaskModel(
+	ctx context.Context,
+	p SetTaskModelParams,
+) (int64, error) {
+	return s.q.SetTaskModel(ctx, pgdb.SetTaskModelParams(p))
+}
+
 func (s *PgStore) SetTaskPendingPrompt(
 	ctx context.Context,
 	p SetTaskPendingPromptParams,
@@ -1149,6 +1182,29 @@ func (s *PgStore) TaskIDBySession(
 	return s.q.TaskIDBySession(ctx, pgdb.TaskIDBySessionParams(p))
 }
 
+func (s *PgStore) GetTaskProgress(
+	ctx context.Context,
+	taskID string,
+) (TaskPlan, error) {
+	row, err := s.q.GetTaskProgress(ctx, taskID)
+	if err != nil {
+		return TaskPlan{}, err
+	}
+	items, err := s.q.ListTaskProgressItemsByTask(ctx, taskID)
+	if err != nil {
+		return TaskPlan{}, err
+	}
+	out := TaskPlan{Summary: row.Summary, UpdatedAt: row.UpdatedAt}
+	for _, item := range items {
+		out.Items = append(out.Items, TaskPlanItem{
+			Position: int64(item.Position),
+			Text:     item.Text,
+			Status:   ProgressItemStatus(item.Status),
+		})
+	}
+	return out, nil
+}
+
 func (s *PgStore) SessionAgentID(
 	ctx context.Context,
 	sessionID string,
@@ -1159,6 +1215,35 @@ func (s *PgStore) SessionAgentID(
 
 func (s *PgStore) SetTaskError(ctx context.Context, p SetTaskErrorParams) (int64, error) {
 	return s.q.SetTaskError(ctx, pgdb.SetTaskErrorParams(p))
+}
+
+func (s *PgStore) SetTaskProgress(
+	ctx context.Context,
+	p SetTaskPlanParams,
+) error {
+	return s.tx(ctx, func(q *pgdb.Queries) error {
+		if err := q.UpsertTaskProgress(ctx, pgdb.UpsertTaskProgressParams{
+			TaskID:    p.TaskID,
+			Summary:   p.Summary,
+			UpdatedAt: p.UpdatedAt,
+		}); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgressItems(ctx, p.TaskID); err != nil {
+			return err
+		}
+		for _, item := range p.Items {
+			if err := q.InsertTaskProgressItem(ctx, pgdb.InsertTaskProgressItemParams{
+				TaskID:   p.TaskID,
+				Position: int32(item.Position),
+				Text:     item.Text,
+				Status:   int32(item.Status),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *PgStore) SetTaskSession(
@@ -1333,6 +1418,33 @@ func (s *PgStore) ListTaskLinksByTask(
 	return fromPgListTaskLinksByTaskRowSlice(rows), nil
 }
 
+func (s *PgStore) ListTaskProgress(
+	ctx context.Context,
+) (map[string]TaskPlan, error) {
+	summaries, err := s.q.ListTaskProgress(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.q.ListTaskProgressItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TaskPlan, len(summaries))
+	for _, row := range summaries {
+		out[row.TaskID] = TaskPlan{Summary: row.Summary, UpdatedAt: row.UpdatedAt}
+	}
+	for _, item := range items {
+		progress := out[item.TaskID]
+		progress.Items = append(progress.Items, TaskPlanItem{
+			Position: int64(item.Position),
+			Text:     item.Text,
+			Status:   ProgressItemStatus(item.Status),
+		})
+		out[item.TaskID] = progress
+	}
+	return out, nil
+}
+
 func (s *PgStore) DeleteTaskLinks(ctx context.Context, taskID string) error {
 	return s.q.DeleteTaskLinks(ctx, taskID)
 }
@@ -1343,6 +1455,24 @@ func (s *PgStore) InsertTaskLink(ctx context.Context, p InsertTaskLinkParams) er
 
 func (s *PgStore) InsertTaskLog(ctx context.Context, p InsertTaskLogParams) error {
 	return s.q.InsertTaskLog(ctx, pgdb.InsertTaskLogParams(p))
+}
+
+func (s *PgStore) RecordQuestionnaireResponse(
+	ctx context.Context,
+	p RecordQuestionnaireResponseParams,
+) error {
+	return s.q.RecordQuestionnaireResponse(ctx, pgdb.RecordQuestionnaireResponseParams(p))
+}
+
+func (s *PgStore) ListQuestionnaireResponses(
+	ctx context.Context,
+	taskID string,
+) ([]ListQuestionnaireResponsesRow, error) {
+	rows, err := s.q.ListQuestionnaireResponses(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListQuestionnaireResponsesRowSlice(rows), nil
 }
 
 func (s *PgStore) ListTaskLogsByTask(
@@ -1747,12 +1877,16 @@ func (s *PgStore) ListAgentUsage(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
 	sinceMs sql.NullInt64,
 	untilMs sql.NullInt64,
 ) ([]ListAgentUsageRow, error) {
 	rows, err := s.q.ListAgentUsage(ctx, pgdb.ListAgentUsageParams(ListAgentUsageParams{
 		AgentID:   agentID,
 		ProjectID: projectID,
+		Provider:  provider,
+		Model:     model,
 		SinceMs:   sinceMs,
 		UntilMs:   untilMs,
 	}))
@@ -1774,6 +1908,8 @@ func (s *PgStore) ListAgentUsageByDay(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
 	sinceMs sql.NullInt64,
 	untilMs sql.NullInt64,
 ) ([]ListAgentUsageByDayRow, error) {
@@ -1782,6 +1918,8 @@ func (s *PgStore) ListAgentUsageByDay(
 		pgdb.ListAgentUsageByDayParams(ListAgentUsageByDayParams{
 			AgentID:   agentID,
 			ProjectID: projectID,
+			Provider:  provider,
+			Model:     model,
 			SinceMs:   sinceMs,
 			UntilMs:   untilMs,
 		}),
@@ -1790,6 +1928,47 @@ func (s *PgStore) ListAgentUsageByDay(
 		return nil, err
 	}
 	return fromPgListAgentUsageByDayRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentUsageByModel(
+	ctx context.Context,
+	agentID sql.NullInt64,
+	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
+) ([]ListAgentUsageByModelRow, error) {
+	rows, err := s.q.ListAgentUsageByModel(
+		ctx,
+		pgdb.ListAgentUsageByModelParams(ListAgentUsageByModelParams{
+			AgentID:   agentID,
+			ProjectID: projectID,
+			Provider:  provider,
+			Model:     model,
+			SinceMs:   sinceMs,
+			UntilMs:   untilMs,
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentUsageByModelRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentUsageModels(
+	ctx context.Context,
+	agentID sql.NullInt64,
+	projectID sql.NullString,
+) ([]ListAgentUsageModelsRow, error) {
+	rows, err := s.q.ListAgentUsageModels(ctx, pgdb.ListAgentUsageModelsParams{
+		AgentID:   agentID,
+		ProjectID: projectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentUsageModelsRowSlice(rows), nil
 }
 
 func (s *PgStore) CreateAttachment(
@@ -2525,4 +2704,393 @@ func (s *PgStore) ListTeamLogs(
 		return nil, err
 	}
 	return fromPgListTeamLogsRowSlice(rows), nil
+}
+
+func (s *PgStore) CreateSite(
+	ctx context.Context,
+	p CreateSiteParams,
+) (Site, error) {
+	row, err := s.q.CreateSite(ctx, pgdb.CreateSiteParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromPgSite(row), nil
+}
+
+func (s *PgStore) GetSite(
+	ctx context.Context,
+	id string,
+) (Site, error) {
+	row, err := s.q.GetSite(ctx, id)
+	if err != nil {
+		return Site{}, err
+	}
+	return fromPgSite(row), nil
+}
+
+func (s *PgStore) ListSites(
+	ctx context.Context,
+) ([]Site, error) {
+	rows, err := s.q.ListSites(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgSiteSlice(rows), nil
+}
+
+func (s *PgStore) ListSitesByOriginTask(
+	ctx context.Context,
+	originTaskID string,
+) ([]Site, error) {
+	rows, err := s.q.ListSitesByOriginTask(ctx, originTaskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgSiteSlice(rows), nil
+}
+
+func (s *PgStore) UpdateSiteSettings(
+	ctx context.Context,
+	p UpdateSiteSettingsParams,
+) (Site, error) {
+	row, err := s.q.UpdateSiteSettings(ctx, pgdb.UpdateSiteSettingsParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromPgSite(row), nil
+}
+
+func (s *PgStore) UpdateSiteContent(
+	ctx context.Context,
+	p UpdateSiteContentParams,
+) (Site, error) {
+	row, err := s.q.UpdateSiteContent(ctx, pgdb.UpdateSiteContentParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromPgSite(row), nil
+}
+
+func (s *PgStore) DeleteSite(
+	ctx context.Context,
+	id string,
+) error {
+	return s.q.DeleteSite(ctx, id)
+}
+
+func (s *PgStore) UpdateSite(
+	ctx context.Context,
+	p UpdateSiteParams,
+) (Site, error) {
+	row, err := s.q.UpdateSite(ctx, pgdb.UpdateSiteParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromPgSite(row), nil
+}
+
+func (s *PgStore) SiteIDByAttachment(
+	ctx context.Context,
+	attachmentID int64,
+) (string, error) {
+	return s.q.SiteIDByAttachment(ctx, attachmentID)
+}
+
+func (s *PgStore) CreateTaskComment(
+	ctx context.Context,
+	p CreateTaskCommentParams,
+) (TaskComment, error) {
+	row, err := s.q.CreateTaskComment(ctx, pgdb.CreateTaskCommentParams(p))
+	if err != nil {
+		return TaskComment{}, err
+	}
+	return fromPgTaskComment(row), nil
+}
+
+func (s *PgStore) GetTaskComment(ctx context.Context, id int64) (TaskComment, error) {
+	row, err := s.q.GetTaskComment(ctx, id)
+	if err != nil {
+		return TaskComment{}, err
+	}
+	return fromPgTaskComment(row), nil
+}
+
+func (s *PgStore) GetTaskCommentTaskID(ctx context.Context, id int64) (string, error) {
+	return s.q.GetTaskCommentTaskID(ctx, id)
+}
+
+func (s *PgStore) UpdateTaskCommentBody(
+	ctx context.Context,
+	p UpdateTaskCommentBodyParams,
+) error {
+	return s.q.UpdateTaskCommentBody(ctx, pgdb.UpdateTaskCommentBodyParams(p))
+}
+
+func (s *PgStore) SoftDeleteTaskComment(
+	ctx context.Context,
+	p SoftDeleteTaskCommentParams,
+) error {
+	return s.q.SoftDeleteTaskComment(ctx, pgdb.SoftDeleteTaskCommentParams(p))
+}
+
+func (s *PgStore) ListTaskComments(
+	ctx context.Context,
+	taskID string,
+) ([]TaskComment, error) {
+	rows, err := s.q.ListTaskComments(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskCommentSlice(rows), nil
+}
+
+func (s *PgStore) LinkTaskCommentAttachment(
+	ctx context.Context,
+	p LinkTaskCommentAttachmentParams,
+) error {
+	return s.q.LinkTaskCommentAttachment(ctx, pgdb.LinkTaskCommentAttachmentParams(p))
+}
+
+func (s *PgStore) DeleteTaskCommentAttachments(ctx context.Context, commentID int64) error {
+	return s.q.DeleteTaskCommentAttachments(ctx, commentID)
+}
+
+func (s *PgStore) DeleteTaskCommentAttachmentsByAttachment(
+	ctx context.Context,
+	attachmentID int64,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByAttachment(ctx, attachmentID)
+}
+
+func (s *PgStore) ListTaskCommentAttachments(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskCommentAttachmentsRow, error) {
+	rows, err := s.q.ListTaskCommentAttachments(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListTaskCommentAttachmentsRowSlice(rows), nil
+}
+
+func (s *PgStore) GetTaskCommentRead(
+	ctx context.Context,
+	p GetTaskCommentReadParams,
+) (int64, error) {
+	return s.q.GetTaskCommentRead(ctx, pgdb.GetTaskCommentReadParams(p))
+}
+
+func (s *PgStore) UpsertTaskCommentRead(
+	ctx context.Context,
+	p UpsertTaskCommentReadParams,
+) error {
+	return s.q.UpsertTaskCommentRead(ctx, pgdb.UpsertTaskCommentReadParams(p))
+}
+
+func (s *PgStore) CountUnreadTaskComments(
+	ctx context.Context,
+	p CountUnreadTaskCommentsParams,
+) (int64, error) {
+	return s.q.CountUnreadTaskComments(ctx, pgdb.CountUnreadTaskCommentsParams(p))
+}
+
+func (s *PgStore) ListUnreadTaskCommentCounts(
+	ctx context.Context,
+	actorID ids.ActorID,
+) ([]ListUnreadTaskCommentCountsRow, error) {
+	rows, err := s.q.ListUnreadTaskCommentCounts(ctx, int64(actorID))
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListUnreadTaskCommentCountsRowSlice(rows), nil
+}
+
+func (s *PgStore) DeleteTaskCommentAttachmentsByTask(
+	ctx context.Context,
+	taskID string,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByTask(ctx, taskID)
+}
+
+func (s *PgStore) DeleteTaskComments(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskComments(ctx, taskID)
+}
+
+func (s *PgStore) DeleteTaskCommentReads(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskCommentReads(ctx, taskID)
+}
+
+func (s *PgStore) DeleteTaskCommentAttachmentsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentAttachmentsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByProjectAgent(
+		ctx,
+		pgdb.DeleteTaskCommentAttachmentsByProjectAgentParams(p),
+	)
+}
+
+func (s *PgStore) DeleteTaskCommentsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentsByProjectAgent(
+		ctx,
+		pgdb.DeleteTaskCommentsByProjectAgentParams(p),
+	)
+}
+
+func (s *PgStore) DeleteTaskCommentReadsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentReadsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentReadsByProjectAgent(
+		ctx,
+		pgdb.DeleteTaskCommentReadsByProjectAgentParams(p),
+	)
+}
+
+func (s *PgStore) DeleteTaskCommentReadsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteTaskCommentReadsByActor(ctx, int64(actorID))
+}
+
+func (s *PgStore) RefreshUnreadTaskCommentNotification(
+	ctx context.Context,
+	p RefreshUnreadTaskCommentNotificationParams,
+) (Notification, error) {
+	row, err := s.q.RefreshUnreadTaskCommentNotification(
+		ctx,
+		pgdb.RefreshUnreadTaskCommentNotificationParams(p),
+	)
+	if err != nil {
+		return Notification{}, err
+	}
+	return fromPgNotification(row), nil
+}
+
+func (s *PgStore) GetPromptProposal(
+	ctx context.Context,
+	id int64,
+) (PromptProposal, error) {
+	row, err := s.q.GetPromptProposal(ctx, id)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromPgPromptProposal(row), nil
+}
+
+func (s *PgStore) InsertPromptProposal(
+	ctx context.Context,
+	p InsertPromptProposalParams,
+) (PromptProposal, error) {
+	row, err := s.q.InsertPromptProposal(ctx, pgdb.InsertPromptProposalParams(p))
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromPgPromptProposal(row), nil
+}
+
+func (s *PgStore) ListPromptProposalsByTarget(
+	ctx context.Context,
+	p ListPromptProposalsByTargetParams,
+) ([]PromptProposal, error) {
+	rows, err := s.q.ListPromptProposalsByTarget(
+		ctx,
+		pgdb.ListPromptProposalsByTargetParams{
+			Scope:     p.Scope,
+			AgentID:   p.AgentID,
+			TeamID:    p.TeamID,
+			ProjectID: p.ProjectID,
+			Status:    p.Status,
+			BeforeID:  p.BeforeID,
+			MaxCount:  int32(p.MaxCount),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgPromptProposalSlice(rows), nil
+}
+
+func (s *PgStore) ListPromptProposalsByAuthor(
+	ctx context.Context,
+	p ListPromptProposalsByAuthorParams,
+) ([]PromptProposal, error) {
+	rows, err := s.q.ListPromptProposalsByAuthor(
+		ctx,
+		pgdb.ListPromptProposalsByAuthorParams{
+			AuthorActorID: p.AuthorActorID,
+			Status:        p.Status,
+			BeforeID:      p.BeforeID,
+			MaxCount:      int32(p.MaxCount),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgPromptProposalSlice(rows), nil
+}
+
+func (s *PgStore) ListPromptVersions(
+	ctx context.Context,
+	p ListPromptVersionsParams,
+) ([]Prompt, error) {
+	rows, err := s.q.ListPromptVersions(ctx, pgdb.ListPromptVersionsParams{
+		Scope:         p.Scope,
+		AgentID:       p.AgentID,
+		TeamID:        p.TeamID,
+		ProjectID:     p.ProjectID,
+		BeforeVersion: p.BeforeVersion,
+		MaxCount:      int32(p.MaxCount),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromPgPromptSlice(rows), nil
+}
+
+func (s *PgStore) SetPromptProposalDecision(
+	ctx context.Context,
+	p SetPromptProposalDecisionParams,
+) (PromptProposal, error) {
+	row, err := s.q.SetPromptProposalDecision(
+		ctx,
+		pgdb.SetPromptProposalDecisionParams(p),
+	)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromPgPromptProposal(row), nil
+}
+
+func (s *PgStore) WithdrawPromptProposal(
+	ctx context.Context,
+	p WithdrawPromptProposalParams,
+) (PromptProposal, error) {
+	row, err := s.q.WithdrawPromptProposal(
+		ctx,
+		pgdb.WithdrawPromptProposalParams(p),
+	)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromPgPromptProposal(row), nil
+}
+
+func (s *PgStore) SetPromptAutoApprove(
+	ctx context.Context,
+	id ids.AgentID,
+	enabled bool,
+) error {
+	value := int64(0)
+	if enabled {
+		value = 1
+	}
+	return s.q.UpdateAgentPromptAutoApprove(
+		ctx,
+		pgdb.UpdateAgentPromptAutoApproveParams{PromptAutoApprove: value, ID: int64(id)},
+	)
 }

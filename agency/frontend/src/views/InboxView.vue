@@ -97,26 +97,41 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 : '',
             ]"
           >
-            <div class="flex items-start gap-3">
+            <div class="flex min-w-0 flex-1 items-start gap-3">
               <span
                 class="mt-1 size-2 shrink-0 rounded-full"
                 :class="dotClass(item.severity)"
               />
-              <div class="flex flex-col gap-0.5">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium">{{ item.title }}</span>
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div class="flex min-w-0 items-center gap-2">
+                  <span class="truncate text-sm font-medium">{{
+                    item.title
+                  }}</span>
                   <Badge v-if="!item.readAt" variant="secondary">new</Badge>
                 </div>
-                <span v-if="item.body" class="text-muted-foreground text-sm">{{
-                  item.body
-                }}</span>
-                <span class="text-muted-foreground text-xs">
+
+                <div
+                  v-if="item.body"
+                  class="truncate text-muted-foreground text-sm"
+                  :title="plainNotificationText(item.body)"
+                >
+                  <MarkdownText
+                    v-if="isCommentNotification(item.kind)"
+                    :text="item.body"
+                    inline
+                  />
+                  <span v-else>{{ item.body }}</span>
+                </div>
+                <span class="truncate text-muted-foreground text-xs">
                   <template v-if="item.taskId">
                     {{ item.agentId.slice(0, 8) }} · task
                     {{ item.taskId.slice(0, 8) }}
                   </template>
                   <template v-else-if="item.kind === 'team_invitation'">
                     Team invitation
+                  </template>
+                  <template v-else-if="item.kind.startsWith('prompt_proposal')">
+                    Prompt proposal
                   </template>
                   <template v-else>{{ item.agentId.slice(0, 8) }}</template>
                   · {{ formatTimestamp(item.createdAt) }}
@@ -173,6 +188,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import MarkdownText from "@/components/MarkdownText.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -195,6 +211,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useNotifications } from "@/composables/useNotifications";
 import { formatTimestamp } from "@/lib/format";
+import { plainNotificationText } from "@/lib/notificationText";
 import type { AgencyNotification } from "@cherrypi/sdk";
 import { CheckCheckIcon, CheckIcon, Trash2Icon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
@@ -215,6 +232,10 @@ const {
 
 const deleteOpen = ref(false);
 const deleting = ref(false);
+
+function isCommentNotification(kind: string): boolean {
+  return kind === "task_comment" || kind === "task_mention";
+}
 
 function dotClass(severity: string): string {
   switch (severity) {
@@ -253,7 +274,16 @@ function isLinked(item: AgencyNotification): boolean {
 }
 
 function linkFor(item: AgencyNotification): RouteLocationRaw {
-  if (item.taskId) return { name: "task", params: { id: item.taskId } };
+  if (item.taskId) {
+    if (item.kind === "task_mention") {
+      return {
+        name: "task",
+        params: { id: item.taskId },
+        query: { tab: "comments" },
+      };
+    }
+    return { name: "task", params: { id: item.taskId } };
+  }
   if (item.kind === "team_invitation") return { name: "teams" };
   return { name: "inbox" };
 }

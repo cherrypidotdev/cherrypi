@@ -26,6 +26,7 @@ import {
   AgentService,
   type Agent,
   type AgentDefaults,
+  type AgentHealthSettings,
   type AgentLog,
   AgentLogLevel,
   type AgentTaskLimits,
@@ -41,6 +42,7 @@ import {
   type RespondToExtensionUiRequest,
   type Tag,
   type Task,
+  type TaskComment,
 } from "./gen/buf/agency/v1/task_pb.js";
 import {
   AttachmentSchema,
@@ -53,12 +55,22 @@ import {
   type ProjectAgent,
 } from "./gen/buf/agency/v1/projects_pb.js";
 import {
+  PromptProposalStatus,
   PromptScope,
   PromptService,
   type AgentProjectPrompt,
   type Prompt,
+  type PromptActor,
+  type PromptProposal,
   type SystemPromptSection,
 } from "./gen/buf/agency/v1/prompts_pb.js";
+import {
+  TaskTemplateArgType,
+  TaskTemplateService,
+  type TaskTemplate,
+  type TaskTemplateContent,
+  type TaskTemplateVersion,
+} from "./gen/buf/agency/v1/task_templates_pb.js";
 import { DashboardService as AgencyDashboardService } from "./gen/buf/agency/v1/dashboard_pb.js";
 import {
   SettingsService,
@@ -81,7 +93,11 @@ import {
   NotificationService as AgencyNotificationService,
   type Notification,
 } from "./gen/buf/agency/v1/notifications_pb.js";
-import type { GetUsageResponse } from "./gen/buf/agency/v1/dashboard_pb.js";
+import { SiteService, type Site } from "./gen/buf/agency/v1/sites_pb.js";
+import type {
+  AgentHealthSample,
+  GetUsageResponse,
+} from "./gen/buf/agency/v1/dashboard_pb.js";
 import {
   TerminalKind,
   type Terminal,
@@ -99,8 +115,10 @@ import {
   readCookie,
   CSRF_COOKIE,
   CSRF_HEADER,
+  type AddTaskCommentInput,
   type AddToTaskOptions,
   type AgentDefaultsInput,
+  type AgentHealthSettingsInput,
   type AgentTaskLimitsInput,
   type AttachmentReplaceInput,
   type AttachmentUploadInput,
@@ -108,12 +126,15 @@ import {
   type BulkUpdateTaskResult,
   type CallOptions,
   type CreateTaskInput,
+  type CreateTaskTemplateInput,
   type CreateTagInput,
   type ExtensionUiResponse,
   type GetTaskHistoryOptions,
   type GetTaskHistoryResult,
   type GetDesktopResult,
+  type ListSitesFilter,
   type ListTagsFilter,
+  type ListTaskCommentsResult,
   type ListTasksFilter,
   type QuestionnaireAnswerInput,
   type RealtimeEvent,
@@ -128,6 +149,11 @@ import {
   type SetTaskTeamsInput,
   type UpdateTagInput,
   type UpdateTaskInput,
+  type UpdateTaskTemplateInput,
+  type RenderTaskTemplateInput,
+  type TaskTemplateArgInput,
+  type TaskTemplateContentInput,
+  type TaskTemplateValidationResult,
   type WatchTaskOptions,
 } from "./common.js";
 
@@ -138,6 +164,9 @@ export {
   AgentVersionStatus,
 } from "./gen/buf/agency/v1/agents_pb.js";
 export type { Project, ProjectAgent, AgentProjectMembership };
+export type { TaskTemplate, TaskTemplateVersion };
+export { TaskTemplateArgType };
+export type { Site };
 export type { AgentProjectPrompt, Prompt, SystemPromptSection };
 export { PromptScope };
 export type { Settings as AgencySettings };
@@ -148,12 +177,17 @@ export type {
   GetUsageResponse as AgencyUsageResponse,
   AgentTaskUsage,
   UsageDay as AgencyUsageDay,
+  UsageModel as AgencyUsageModel,
 } from "./gen/buf/agency/v1/dashboard_pb.js";
+
+export const UNKNOWN_USAGE_MODEL = "__unknown__";
 
 export interface GetUsageOptions extends CallOptions {
   sinceMs?: number;
 
   untilMs?: number;
+
+  model?: string;
 }
 
 export interface AgencyClientOptions {
@@ -172,6 +206,8 @@ export interface AgencySettingsInput {
   showUsageKpi?: boolean;
 
   showConcurrencyKpi?: boolean;
+
+  notificationSoundSet?: string;
 }
 
 export interface CreateAgentInput {
@@ -180,6 +216,13 @@ export interface CreateAgentInput {
   description?: string;
 
   prompt?: string;
+}
+
+export interface UpdateSiteInput {
+  title?: string;
+  description?: string;
+  onlyCreatorMayEdit?: boolean;
+  agencyWide?: boolean;
 }
 
 export interface CreateProjectInput {
@@ -204,6 +247,50 @@ export interface PromptTarget {
   projectId?: string;
 }
 
+export interface PromptAccess {
+  canEdit: boolean;
+  canPropose: boolean;
+  canApprove: boolean;
+}
+
+export interface PromptWithAccess extends PromptAccess {
+  prompt: Prompt;
+}
+
+export interface ListPromptVersionsOptions {
+  limit?: number;
+
+  beforeVersion?: bigint | number;
+}
+
+export interface CreatePromptProposalInput {
+  scope: PromptScope;
+  target?: PromptTarget;
+
+  content: string;
+
+  note?: string;
+}
+
+export interface ListPromptProposalsFilter {
+  target?: PromptTarget;
+  scope?: PromptScope;
+  status?: PromptProposalStatus;
+
+  mine?: boolean;
+  limit?: number;
+  beforeId?: bigint | number;
+}
+
+export interface PromptProposalDecision {
+  proposal: PromptProposal;
+
+  prompt?: Prompt;
+}
+
+export type { PromptActor, PromptProposal };
+export { PromptProposalStatus };
+
 export interface ProjectAgentPermissionsInput {
   canListTasks: boolean;
   canCreateTasks: boolean;
@@ -221,10 +308,12 @@ export class AgencyClient {
   private readonly tags: Client<typeof TagService>;
   private readonly projects: Client<typeof ProjectService>;
   private readonly prompts: Client<typeof PromptService>;
+  private readonly taskTemplates: Client<typeof TaskTemplateService>;
   private readonly dashboard: Client<typeof AgencyDashboardService>;
   private readonly terminals: Client<typeof AgencyTerminalService>;
   private readonly desktops: Client<typeof AgencyDesktopService>;
   private readonly notifications: Client<typeof AgencyNotificationService>;
+  private readonly sites: Client<typeof SiteService>;
   private readonly webhooks: Client<typeof AgencyWebhookService>;
   private readonly realtime: Client<typeof RealtimeService>;
 
@@ -251,10 +340,12 @@ export class AgencyClient {
     this.tags = createClient(TagService, transport);
     this.projects = createClient(ProjectService, transport);
     this.prompts = createClient(PromptService, transport);
+    this.taskTemplates = createClient(TaskTemplateService, transport);
     this.dashboard = createClient(AgencyDashboardService, transport);
     this.terminals = createClient(AgencyTerminalService, transport);
     this.desktops = createClient(AgencyDesktopService, transport);
     this.notifications = createClient(AgencyNotificationService, transport);
+    this.sites = createClient(SiteService, transport);
     this.webhooks = createClient(AgencyWebhookService, transport);
     this.realtime = createClient(RealtimeService, transport);
   }
@@ -316,10 +407,23 @@ export class AgencyClient {
 
   async updateAgent(
     id: string,
-    input: { displayName: string; description: string },
+    input: {
+      displayName: string;
+      description: string;
+
+      promptAutoApprove?: boolean;
+    },
     options?: CallOptions,
   ): Promise<Agent> {
-    const res = await this.agents.updateAgent({ id, ...input }, options);
+    const res = await this.agents.updateAgent(
+      {
+        id,
+        displayName: input.displayName,
+        description: input.description,
+        promptAutoApprove: input.promptAutoApprove,
+      },
+      options,
+    );
     return res.agent!;
   }
 
@@ -507,6 +611,168 @@ export class AgencyClient {
     await this.projects.removeProjectAgent({ projectId, agentId }, options);
   }
 
+  async listTaskTemplates(
+    projectId: string,
+    includeArchived = false,
+    options?: CallOptions,
+  ): Promise<TaskTemplate[]> {
+    const res = await this.taskTemplates.listTaskTemplates(
+      { projectId, includeArchived },
+      options,
+    );
+    return res.templates;
+  }
+
+  async getTaskTemplate(
+    id: string,
+    options?: CallOptions,
+  ): Promise<TaskTemplate> {
+    const res = await this.taskTemplates.getTaskTemplate({ id }, options);
+    return res.template!;
+  }
+
+  async createTaskTemplate(
+    input: CreateTaskTemplateInput,
+    options?: CallOptions,
+  ): Promise<{ template: TaskTemplate; warnings: string[] }> {
+    const res = await this.taskTemplates.createTaskTemplate(
+      {
+        projectId: input.projectId,
+        name: input.name,
+        description: input.description ?? "",
+        content: templateContent(input.content),
+      },
+      options,
+    );
+    return { template: res.template!, warnings: res.warnings };
+  }
+
+  async updateTaskTemplate(
+    id: string,
+    input: UpdateTaskTemplateInput,
+    options?: CallOptions,
+  ): Promise<{
+    template: TaskTemplate;
+    versionCreated: boolean;
+    warnings: string[];
+  }> {
+    const res = await this.taskTemplates.updateTaskTemplate(
+      {
+        id,
+        name: input.name,
+        description: input.description ?? "",
+        content: input.content ? templateContent(input.content) : undefined,
+      },
+      options,
+    );
+    return {
+      template: res.template!,
+      versionCreated: res.versionCreated,
+      warnings: res.warnings,
+    };
+  }
+
+  async archiveTaskTemplate(
+    id: string,
+    options?: CallOptions,
+  ): Promise<TaskTemplate> {
+    const res = await this.taskTemplates.archiveTaskTemplate({ id }, options);
+    return res.template!;
+  }
+
+  async unarchiveTaskTemplate(
+    id: string,
+    options?: CallOptions,
+  ): Promise<TaskTemplate> {
+    const res = await this.taskTemplates.unarchiveTaskTemplate({ id }, options);
+    return res.template!;
+  }
+
+  async listTaskTemplateVersions(
+    templateId: string,
+    options?: CallOptions,
+  ): Promise<TaskTemplateVersion[]> {
+    const res = await this.taskTemplates.listTaskTemplateVersions(
+      { templateId },
+      options,
+    );
+    return res.versions;
+  }
+
+  async restoreTaskTemplateVersion(
+    templateId: string,
+    version: number,
+    options?: CallOptions,
+  ): Promise<{ template: TaskTemplate; createdVersion: number }> {
+    const res = await this.taskTemplates.restoreTaskTemplateVersion(
+      { templateId, version: BigInt(version) },
+      options,
+    );
+    return {
+      template: res.template!,
+      createdVersion: Number(res.createdVersion),
+    };
+  }
+
+  async validateTaskTemplate(
+    projectId: string,
+    content: TaskTemplateContentInput,
+    options?: CallOptions,
+  ): Promise<TaskTemplateValidationResult> {
+    const res = await this.taskTemplates.validateTaskTemplate(
+      { projectId, content: templateContent(content) },
+      options,
+    );
+    return {
+      valid: res.valid,
+      errors: res.errors,
+      warnings: res.warnings,
+      undeclaredVariables: res.undeclaredVariables,
+      unusedArguments: res.unusedArguments,
+    };
+  }
+
+  async renderTaskTemplate(
+    input: RenderTaskTemplateInput,
+    options?: CallOptions,
+  ): Promise<{
+    templateId: string;
+    templateName: string;
+    version: number;
+    prompt: string;
+    title: string;
+    priority: TaskPriority;
+    size: TaskSize;
+    tagIds: string[];
+    teamIds: number[];
+    leadActorIds: string[];
+    argsJson: string;
+  }> {
+    const res = await this.taskTemplates.renderTaskTemplate(
+      {
+        templateId: input.templateId ?? "",
+        version: BigInt(input.version ?? 0),
+        argsJson: input.args ? JSON.stringify(input.args) : "",
+        projectId: input.projectId ?? "",
+        content: input.content ? templateContent(input.content) : undefined,
+      },
+      options,
+    );
+    return {
+      templateId: res.templateId,
+      templateName: res.templateName,
+      version: Number(res.version),
+      prompt: res.prompt,
+      title: res.title,
+      priority: res.priority,
+      size: res.size,
+      tagIds: res.tagIds,
+      teamIds: res.teamIds,
+      leadActorIds: res.leadActorIds,
+      argsJson: res.argsJson,
+    };
+  }
+
   async getPrompt(
     scope: PromptScope,
     target?: PromptTarget,
@@ -524,10 +790,33 @@ export class AgencyClient {
     return res.prompt!;
   }
 
+  async getPromptWithAccess(
+    scope: PromptScope,
+    target?: PromptTarget,
+    options?: CallOptions,
+  ): Promise<PromptWithAccess> {
+    const res = await this.prompts.getPrompt(
+      {
+        scope,
+        agentId: target?.agentId ?? "",
+        teamId: BigInt(target?.teamId ?? 0),
+        projectId: target?.projectId ?? "",
+      },
+      options,
+    );
+    return {
+      prompt: res.prompt!,
+      canEdit: res.canEdit,
+      canPropose: res.canPropose,
+      canApprove: res.canApprove,
+    };
+  }
+
   async setPrompt(
     scope: PromptScope,
     content: string,
     target?: PromptTarget,
+    note?: string,
     options?: CallOptions,
   ): Promise<Prompt> {
     const res = await this.prompts.setPrompt(
@@ -537,10 +826,113 @@ export class AgencyClient {
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
         content,
+        note: note ?? "",
       },
       options,
     );
     return res.prompt!;
+  }
+
+  async listPromptVersions(
+    scope: PromptScope,
+    target?: PromptTarget,
+    options?: ListPromptVersionsOptions,
+    callOptions?: CallOptions,
+  ): Promise<Prompt[]> {
+    const res = await this.prompts.listPromptVersions(
+      {
+        scope,
+        agentId: target?.agentId ?? "",
+        teamId: BigInt(target?.teamId ?? 0),
+        projectId: target?.projectId ?? "",
+        limit: options?.limit ?? 50,
+        beforeVersion: BigInt(options?.beforeVersion ?? 0),
+      },
+      callOptions,
+    );
+    return res.versions;
+  }
+
+  async createPromptProposal(
+    input: CreatePromptProposalInput,
+    options?: CallOptions,
+  ): Promise<PromptProposal> {
+    const res = await this.prompts.createPromptProposal(
+      {
+        scope: input.scope,
+        agentId: input.target?.agentId ?? "",
+        teamId: BigInt(input.target?.teamId ?? 0),
+        projectId: input.target?.projectId ?? "",
+        content: input.content,
+        note: input.note ?? "",
+      },
+      options,
+    );
+    return res.proposal!;
+  }
+
+  async listPromptProposals(
+    filter?: ListPromptProposalsFilter,
+    options?: CallOptions,
+  ): Promise<PromptProposal[]> {
+    const target = filter?.target;
+    const scope = filter?.scope;
+    const mine = filter?.mine ?? !target;
+    const res = await this.prompts.listPromptProposals(
+      {
+        scope: scope ?? PromptScope.UNSPECIFIED,
+        agentId: target?.agentId ?? "",
+        teamId: BigInt(target?.teamId ?? 0),
+        projectId: target?.projectId ?? "",
+        status: filter?.status ?? PromptProposalStatus.UNSPECIFIED,
+        mine,
+        limit: filter?.limit ?? 50,
+        beforeId: BigInt(filter?.beforeId ?? 0),
+      },
+      options,
+    );
+    return res.proposals;
+  }
+
+  async decidePromptProposal(
+    id: bigint | number,
+    approve: boolean,
+    note = "",
+    options?: CallOptions,
+  ): Promise<PromptProposalDecision> {
+    const res = await this.prompts.decidePromptProposal(
+      { id: BigInt(id), approve, note },
+      options,
+    );
+    return { proposal: res.proposal!, prompt: res.prompt };
+  }
+
+  async approvePromptProposal(
+    id: bigint | number,
+    note = "",
+    options?: CallOptions,
+  ): Promise<PromptProposalDecision> {
+    return this.decidePromptProposal(id, true, note, options);
+  }
+
+  async rejectPromptProposal(
+    id: bigint | number,
+    note = "",
+    options?: CallOptions,
+  ): Promise<PromptProposalDecision> {
+    return this.decidePromptProposal(id, false, note, options);
+  }
+
+  async withdrawPromptProposal(
+    id: bigint | number,
+    note = "",
+    options?: CallOptions,
+  ): Promise<PromptProposal> {
+    const res = await this.prompts.withdrawPromptProposal(
+      { id: BigInt(id), note },
+      options,
+    );
+    return res.proposal!;
   }
 
   async listAgentProjectPrompts(
@@ -578,6 +970,7 @@ export class AgencyClient {
           primaryColor: input.primaryColor,
           showUsageKpi: input.showUsageKpi ?? true,
           showConcurrencyKpi: input.showConcurrencyKpi ?? true,
+          notificationSoundSet: input.notificationSoundSet ?? "",
         },
       },
       options,
@@ -638,6 +1031,12 @@ export class AgencyClient {
         state: input.state ?? TaskState.UNSPECIFIED,
         teamIds: input.teamIds ?? [],
         leadActorIds: input.leadActorIds ?? [],
+        templateId: input.templateId ?? "",
+        templateVersion: BigInt(input.templateVersion ?? 0),
+        templateArgsJson: input.templateArgs
+          ? JSON.stringify(input.templateArgs)
+          : "",
+        templatePromptOverride: input.templatePromptOverride ?? false,
       },
       options,
     );
@@ -669,6 +1068,13 @@ export class AgencyClient {
         setAssigneeActorId: input.setAssigneeActorId,
         setPendingPrompt: input.setPendingPrompt,
         setPrompt: input.setPrompt,
+        setModel: input.setModel
+          ? {
+              provider: input.setModel.provider,
+              modelId: input.setModel.modelId,
+              thinkingLevel: input.setModel.thinkingLevel ?? "",
+            }
+          : undefined,
       },
       options,
     );
@@ -699,16 +1105,6 @@ export class AgencyClient {
 
   async queueTask(id: string, options?: CallOptions): Promise<Task> {
     const res = await this.tasks.queueTask({ id }, options);
-    return res.task!;
-  }
-
-  async promoteTask(id: string, options?: CallOptions): Promise<Task> {
-    const res = await this.tasks.promoteTask({ id }, options);
-    return res.task!;
-  }
-
-  async demoteTask(id: string, options?: CallOptions): Promise<Task> {
-    const res = await this.tasks.demoteTask({ id }, options);
     return res.task!;
   }
 
@@ -855,6 +1251,42 @@ export class AgencyClient {
     return res.task!;
   }
 
+  async listTaskComments(
+    taskId: string,
+    options?: CallOptions,
+  ): Promise<ListTaskCommentsResult> {
+    const res = await this.tasks.listTaskComments({ taskId }, options);
+    return { comments: res.comments, unread: res.unread };
+  }
+
+  async addTaskComment(
+    input: AddTaskCommentInput,
+    options?: CallOptions,
+  ): Promise<TaskComment> {
+    const res = await this.tasks.addTaskComment(
+      {
+        taskId: input.taskId,
+        body: input.body,
+        attachmentIds: input.attachmentIds ?? [],
+      },
+      options,
+    );
+    return res.comment!;
+  }
+
+  async updateTaskComment(
+    id: bigint,
+    body: string,
+    options?: CallOptions,
+  ): Promise<TaskComment> {
+    const res = await this.tasks.updateTaskComment({ id, body }, options);
+    return res.comment!;
+  }
+
+  async deleteTaskComment(id: bigint, options?: CallOptions): Promise<void> {
+    await this.tasks.deleteTaskComment({ id }, options);
+  }
+
   async listTaskReferences(id: string, options?: CallOptions): Promise<Task[]> {
     const res = await this.tasks.listTaskReferences({ id }, options);
     return res.tasks;
@@ -907,22 +1339,24 @@ export class AgencyClient {
     options?: CallOptions,
   ): Promise<Attachment> {
     const selector: { kind: string; id?: string } | undefined =
-      input.taskId !== undefined
-        ? { kind: "task", id: input.taskId }
-        : input.agentId !== undefined
-          ? { kind: "agent_picture", id: input.agentId }
-          : input.projectId !== undefined
-            ? { kind: "project_picture", id: input.projectId }
-            : input.userId !== undefined
-              ? { kind: "user_picture", id: input.userId }
-              : input.agencyLogo
-                ? { kind: "agency_logo" }
-                : input.agencyFavicon
-                  ? { kind: "agency_favicon" }
-                  : undefined;
+      input.commentAttachment
+        ? { kind: "comment" }
+        : input.taskId !== undefined
+          ? { kind: "task", id: input.taskId }
+          : input.agentId !== undefined
+            ? { kind: "agent_picture", id: input.agentId }
+            : input.projectId !== undefined
+              ? { kind: "project_picture", id: input.projectId }
+              : input.userId !== undefined
+                ? { kind: "user_picture", id: input.userId }
+                : input.agencyLogo
+                  ? { kind: "agency_logo" }
+                  : input.agencyFavicon
+                    ? { kind: "agency_favicon" }
+                    : undefined;
     if (selector === undefined) {
       throw new Error(
-        "uploadAttachment: one of taskId, agentId, projectId, userId, agencyLogo, or agencyFavicon is required",
+        "uploadAttachment: one of taskId, commentAttachment, agentId, projectId, userId, agencyLogo, or agencyFavicon is required",
       );
     }
 
@@ -1009,6 +1443,84 @@ export class AgencyClient {
     }
   }
 
+  async listSites(
+    filter?: ListSitesFilter,
+    options?: CallOptions,
+  ): Promise<Site[]> {
+    const res = await this.sites.listSites(
+      {
+        originTaskId: filter?.originTaskId ?? "",
+        agencyWideOnly: filter?.agencyWideOnly ?? false,
+      },
+      options,
+    );
+    return res.sites;
+  }
+
+  async getSite(id: string, options?: CallOptions): Promise<Site> {
+    const res = await this.sites.getSite({ id }, options);
+    return res.site!;
+  }
+
+  async updateSite(
+    id: string,
+    input: UpdateSiteInput,
+    options?: CallOptions,
+  ): Promise<Site> {
+    const res = await this.sites.updateSite(
+      {
+        id,
+        title: input.title,
+        description: input.description,
+        onlyCreatorMayEdit: input.onlyCreatorMayEdit,
+        agencyWide: input.agencyWide,
+      },
+      options,
+    );
+    return res.site!;
+  }
+
+  async deleteSite(id: string, options?: CallOptions): Promise<void> {
+    await this.sites.deleteSite({ id }, options);
+  }
+
+  async prepareSiteView(id: string, options?: CallOptions): Promise<string> {
+    const res = await fetch(
+      `${this.baseUrl}/api/rest/sites/${encodeURIComponent(id)}/view`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: this.restHeaders(),
+        signal: options?.signal,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`prepareSiteView: ${await restError(res)}`);
+    }
+    const body = (await res.json()) as { content_url?: string };
+    if (!body.content_url) {
+      throw new Error("prepareSiteView: the agency returned no content URL");
+    }
+    return body.content_url;
+  }
+
+  async createSiteToken(id: string, options?: CallOptions): Promise<string> {
+    const res = await fetch(
+      `${this.baseUrl}/api/rest/sites/${encodeURIComponent(id)}/token`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: this.restHeaders(),
+        signal: options?.signal,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`createSiteToken: ${await restError(res)}`);
+    }
+    const body = (await res.json()) as { token?: string };
+    return body.token ?? "";
+  }
+
   async watchRealtime(
     onEvent: (event: RealtimeEvent) => void,
     options?: WatchRealtimeOptions,
@@ -1090,6 +1602,10 @@ export class AgencyClient {
 
   async clearTaskQueue(id: string, options?: CallOptions): Promise<void> {
     await this.tasks.clearTaskQueue({ id }, options);
+  }
+
+  async restartTaskSession(id: string, options?: CallOptions): Promise<void> {
+    await this.tasks.restartTaskSession({ id }, options);
   }
 
   async listTags(
@@ -1174,6 +1690,34 @@ export class AgencyClient {
       options,
     );
     return res.defaults!;
+  }
+
+  async getAgentHealthSettings(
+    agentId: string,
+    options?: CallOptions,
+  ): Promise<AgentHealthSettings> {
+    const res = await this.agents.getAgentHealthSettings({ agentId }, options);
+    return res.settings!;
+  }
+
+  async updateAgentHealthSettings(
+    agentId: string,
+    input: AgentHealthSettingsInput,
+    options?: CallOptions,
+  ): Promise<AgentHealthSettings> {
+    const res = await this.agents.updateAgentHealthSettings(
+      {
+        agentId,
+        settings: {
+          intervalSeconds:
+            input.intervalSeconds === undefined
+              ? undefined
+              : BigInt(input.intervalSeconds),
+        },
+      },
+      options,
+    );
+    return res.settings!;
   }
 
   async getAgentTaskLimits(
@@ -1373,18 +1917,46 @@ export class AgencyClient {
     return this.webSocketUrl(this.notificationWsPath());
   }
 
+  async getAgentHealth(
+    agentId: string,
+    options?: CallOptions,
+  ): Promise<AgentHealthSample | undefined> {
+    const res = await this.dashboard.getAgentHealth({ agentId }, options);
+    return res.sample;
+  }
+
+  async getAgentHealthHistory(
+    agentId: string,
+    sinceMs = 0,
+    untilMs = 0,
+    maxPoints = 720,
+    options?: CallOptions,
+  ): Promise<AgentHealthSample[]> {
+    const res = await this.dashboard.getAgentHealthHistory(
+      {
+        agentId,
+        sinceMs: BigInt(sinceMs),
+        untilMs: BigInt(untilMs),
+        maxPoints,
+      },
+      options,
+    );
+    return res.samples;
+  }
+
   async getUsage(
     agentId = "",
     projectId = "",
     options?: GetUsageOptions,
   ): Promise<GetUsageResponse> {
-    const { sinceMs, untilMs, ...callOptions } = options ?? {};
+    const { sinceMs, untilMs, model, ...callOptions } = options ?? {};
     return await this.dashboard.getUsage(
       {
         agentId,
         projectId,
         sinceMs: BigInt(sinceMs ?? 0),
         untilMs: BigInt(untilMs ?? 0),
+        model: model ?? "",
       },
       callOptions,
     );
@@ -1514,6 +2086,10 @@ function realtimeKindName(event: RealtimeEventPb): RealtimeKind | undefined {
       return "agent-logs";
     case RealtimeKindPb.AGENTS:
       return "agents";
+    case RealtimeKindPb.SITES:
+      return "sites";
+    case RealtimeKindPb.HEALTH:
+      return "health";
     default:
       return undefined;
   }
@@ -1527,4 +2103,28 @@ async function restError(res: Response): Promise<string> {
     }
   } catch {}
   return `${res.status} ${res.statusText}`;
+}
+
+function templateContent(input: TaskTemplateContentInput): TaskTemplateContent {
+  return {
+    body: input.body,
+    titleTemplate: input.titleTemplate ?? "",
+    args: (input.args ?? []).map((arg: TaskTemplateArgInput) => ({
+      key: arg.key,
+      label: arg.label ?? "",
+      description: arg.description ?? "",
+      type: arg.type ?? TaskTemplateArgType.TEXT,
+      required: arg.required ?? false,
+      defaultValue: arg.defaultValue ?? "",
+      options: (arg.options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label ?? "",
+      })),
+    })),
+    defaultPriority: input.defaultPriority,
+    defaultSize: input.defaultSize,
+    defaultTagIds: input.defaultTagIds ?? [],
+    defaultTeamIds: input.defaultTeamIds ?? [],
+    defaultLeadActorIds: input.defaultLeadActorIds ?? [],
+  } as TaskTemplateContent;
 }

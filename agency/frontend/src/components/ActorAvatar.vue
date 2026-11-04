@@ -17,18 +17,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-img.shrink-0.rounded-full.object-cover(
+.d-avatar.shrink-0(
   v-if="src"
-  :src="src"
-  :alt="label"
   :style="{ width: `${size}px`, height: `${size}px` }"
 )
-span.bg-muted.text-muted-foreground.flex.shrink-0.items-center.justify-center.rounded-full.font-medium(
+  .h-full.w-full.rounded-full
+    img(:src="src" :alt="label")
+.d-avatar.d-avatar-placeholder.shrink-0(
   v-else
   :title="label"
   :aria-label="label"
-  :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.42)}px` }"
-) {{ initials }}
+  :style="{ width: `${size}px`, height: `${size}px` }"
+)
+  .bg-muted.text-muted-foreground.h-full.w-full.rounded-full.font-medium(
+    :style="{ fontSize: `${Math.round(size * 0.42)}px` }"
+  ) {{ initials }}
 </template>
 
 <script setup lang="ts">

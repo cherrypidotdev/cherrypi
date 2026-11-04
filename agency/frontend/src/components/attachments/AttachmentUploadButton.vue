@@ -51,6 +51,8 @@ const props = withDefaults(
     taskId?: string;
     agentId?: string;
     projectId?: string;
+
+    comment?: boolean;
     label?: string;
     title?: string;
     accept?: string;
@@ -64,6 +66,7 @@ const { uploading, upload } = useAttachmentUpload(() => ({
   taskId: props.taskId,
   agentId: props.agentId,
   projectId: props.projectId,
+  commentAttachment: props.comment,
 }));
 
 function pick() {

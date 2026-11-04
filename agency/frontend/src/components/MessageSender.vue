@@ -17,20 +17,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.items-center.gap-2(v-if="sender" :data-sender-kind="sender.kind")
+.flex.items-center.gap-1(v-if="sender" :data-sender-kind="sender.kind")
   template(v-if="isSystem")
     Badge.font-normal(variant="outline" class="h-4.5 px-1.5 text-[10px]") {{ kindLabel }}
+
   template(v-else)
+    RouterLink.shrink-0(
+      v-if="avatar && route"
+      :to="route"
+      :title="`View ${displayName}`"
+    )
+      ActorAvatar(
+        :src="picture?.url"
+        :name="sender.name"
+        :username="sender.username"
+        :size="20"
+      )
+
     ActorAvatar(
+      v-else-if="avatar"
       :src="picture?.url"
       :name="sender.name"
       :username="sender.username"
       :size="20"
     )
-    span.text-foreground.text-xs.font-medium.whitespace-nowrap {{ displayName }}
-    span.text-muted-foreground.text-xs.whitespace-nowrap(
-      v-if="sender.username && sender.username !== displayName"
-    ) @{{ sender.username }}
+
+    component(class="hover:underline" :to="route" :is="route ? RouterLink : 'div'")
+      span.text-xs.whitespace-nowrap(
+        :class="{ 'text-muted-foreground font-mono': isUsername, 'text-foreground font-semibold': isName }"
+      ) {{ isUsername ? "@" : "" }}{{ displayName }}
+
     Badge.font-normal(
       v-if="kindLabel"
       variant="outline"
@@ -41,17 +57,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import { Badge } from "@/components/ui/badge";
+import { actorRoute } from "@/lib/actors";
 import type { MessageSender } from "@/lib/console";
 import type { Attachment } from "@cherrypi/sdk";
 import { computed } from "vue";
+import { RouterLink } from "vue-router";
 
-const props = defineProps<{
-  sender: MessageSender;
+const props = withDefaults(
+  defineProps<{
+    sender: MessageSender;
 
-  picture?: Attachment;
-}>();
+    picture?: Attachment;
+
+    avatar?: boolean;
+  }>(),
+  { avatar: true },
+);
 
 const isSystem = computed(() => props.sender.kind === "system");
+
+const route = computed(() => actorRoute(props.sender));
+
+const isName = computed(() => !!props.sender.name);
+
+const isUsername = computed(
+  () => !props.sender.name && !!props.sender.username,
+);
 
 const displayName = computed(
   () => props.sender.name || props.sender.username || "Unknown",

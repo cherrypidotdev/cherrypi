@@ -44,6 +44,8 @@ var (
 	ErrTooLarge = errors.New("attachment exceeds the size limit")
 
 	ErrNotFound = errors.New("attachment not found")
+
+	ErrSiteArchive = errors.New("attachment is a published site archive")
 )
 
 type Config struct {
@@ -173,7 +175,27 @@ func (s *Service) Replace(ctx context.Context, id int64, file File) (Attachment,
 	return fromRow(row, ""), nil
 }
 
+func (s *Service) UploadSiteArchive(
+	ctx context.Context,
+	file File,
+	createdBy string,
+) (Attachment, error) {
+	return s.UploadArtifactFile(ctx, file, createdBy)
+}
+
 func (s *Service) UploadArtifactFile(
+	ctx context.Context,
+	file File,
+	createdBy string,
+) (Attachment, error) {
+	row, err := s.storeFile(ctx, file, createdBy)
+	if err != nil {
+		return Attachment{}, err
+	}
+	return fromRow(row, ""), nil
+}
+
+func (s *Service) UploadCommentAttachment(
 	ctx context.Context,
 	file File,
 	createdBy string,
@@ -590,6 +612,29 @@ func (s *Service) TaskMessages(ctx context.Context, taskID string) ([]Message, e
 	return out, nil
 }
 
+func (s *Service) CommentAttachments(
+	ctx context.Context,
+	taskID string,
+) (map[int64][]Attachment, error) {
+	rows, err := s.store.ListTaskCommentAttachments(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]Attachment, len(rows))
+	for _, row := range rows {
+		out[row.CommentID] = append(out[row.CommentID], Attachment{
+			ID:          row.AttachmentID,
+			Filename:    row.Filename,
+			ContentType: row.ContentType,
+			Size:        row.Size,
+			StorageKey:  row.StorageKey,
+			CreatedBy:   row.CreatedBy,
+			CreatedAt:   time.UnixMilli(row.CreatedAt),
+		})
+	}
+	return out, nil
+}
+
 func (s *Service) RecordMessage(
 	ctx context.Context,
 	taskID, messageID, text string,
@@ -624,6 +669,11 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	if err != nil {
+		return err
+	}
+	if siteID, err := s.store.SiteIDByAttachment(ctx, id); err == nil && siteID != "" {
+		return ErrSiteArchive
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 

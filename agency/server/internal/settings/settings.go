@@ -27,16 +27,29 @@ import (
 )
 
 const (
-	keyAgencyName         = "agency_name"
-	keyPrimaryColor       = "primary_color"
-	keyShowUsageKPI       = "show_usage_kpi"
-	keyShowConcurrencyKPI = "show_concurrency_kpi"
+	keyAgencyName           = "agency_name"
+	keyPrimaryColor         = "primary_color"
+	keyShowUsageKPI         = "show_usage_kpi"
+	keyShowConcurrencyKPI   = "show_concurrency_kpi"
+	keyNotificationSoundSet = "notification_sound_set"
 
 	KeyAgencyLogoAttachmentID    = "agency_logo_attachment_id"
 	KeyAgencyFaviconAttachmentID = "agency_favicon_attachment_id"
 )
 
 var ErrInvalidColor = errors.New("primary color must be a lowercase #rrggbb")
+
+var ErrInvalidSoundSet = errors.New("unknown notification sound set")
+
+const DefaultNotificationSoundSet = "cherry"
+
+var notificationSoundSets = map[string]bool{
+	"classic": true,
+	"cherry":  true,
+	"wood":    true,
+	"glass":   true,
+	"arcade":  true,
+}
 
 var colorPattern = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 
@@ -46,6 +59,8 @@ type Settings struct {
 
 	ShowUsageKPI       bool
 	ShowConcurrencyKPI bool
+
+	NotificationSoundSet string
 
 	LogoAttachmentID    int64
 	FaviconAttachmentID int64
@@ -63,7 +78,11 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 		return Settings{}, err
 	}
 
-	out := Settings{ShowUsageKPI: true, ShowConcurrencyKPI: true}
+	out := Settings{
+		ShowUsageKPI:         true,
+		ShowConcurrencyKPI:   true,
+		NotificationSoundSet: DefaultNotificationSoundSet,
+	}
 	for _, row := range rows {
 		switch row.Key {
 		case keyAgencyName:
@@ -74,6 +93,10 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 			out.ShowUsageKPI = parseBoolDefault(row.Value)
 		case keyShowConcurrencyKPI:
 			out.ShowConcurrencyKPI = parseBoolDefault(row.Value)
+		case keyNotificationSoundSet:
+			if notificationSoundSets[row.Value] {
+				out.NotificationSoundSet = row.Value
+			}
 		case KeyAgencyLogoAttachmentID:
 			out.LogoAttachmentID = parseAttachmentID(row.Value)
 		case KeyAgencyFaviconAttachmentID:
@@ -102,9 +125,16 @@ func parseAttachmentID(value string) int64 {
 func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	name := strings.TrimSpace(in.AgencyName)
 	color := strings.ToLower(strings.TrimSpace(in.PrimaryColor))
+	soundSet := strings.TrimSpace(in.NotificationSoundSet)
 
 	if color != "" && !colorPattern.MatchString(color) {
 		return Settings{}, ErrInvalidColor
+	}
+	if soundSet == "" {
+		soundSet = DefaultNotificationSoundSet
+	}
+	if !notificationSoundSets[soundSet] {
+		return Settings{}, ErrInvalidSoundSet
 	}
 
 	current, err := s.Get(ctx)
@@ -142,13 +172,23 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	); err != nil {
 		return Settings{}, err
 	}
+	if err := s.store.UpsertSetting(
+		ctx,
+		store.UpsertSettingParams{
+			Key:   keyNotificationSoundSet,
+			Value: soundSet,
+		},
+	); err != nil {
+		return Settings{}, err
+	}
 
 	return Settings{
-		AgencyName:          name,
-		PrimaryColor:        color,
-		ShowUsageKPI:        in.ShowUsageKPI,
-		ShowConcurrencyKPI:  in.ShowConcurrencyKPI,
-		LogoAttachmentID:    current.LogoAttachmentID,
-		FaviconAttachmentID: current.FaviconAttachmentID,
+		AgencyName:           name,
+		PrimaryColor:         color,
+		ShowUsageKPI:         in.ShowUsageKPI,
+		ShowConcurrencyKPI:   in.ShowConcurrencyKPI,
+		NotificationSoundSet: soundSet,
+		LogoAttachmentID:     current.LogoAttachmentID,
+		FaviconAttachmentID:  current.FaviconAttachmentID,
 	}, nil
 }

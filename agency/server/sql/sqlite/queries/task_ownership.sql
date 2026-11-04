@@ -82,10 +82,18 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM task_teams WHERE team_id = sqlc.arg(team_i
 -- name: ListActorProjectTeams :many
 
 
-SELECT ptm.team_id
+
+SELECT DISTINCT ptm.team_id
 FROM project_team_memberships ptm
 JOIN team_members tm ON tm.team_id = ptm.team_id
-WHERE ptm.project_id = sqlc.arg(project_id) AND tm.actor_id = sqlc.arg(actor_id)
+WHERE tm.actor_id = sqlc.arg(actor_id)
+  AND (
+    ptm.project_id = sqlc.arg(project_id)
+    OR ptm.project_id IN (
+      SELECT pa.ancestor_id FROM project_ancestors pa
+      WHERE pa.project_id = sqlc.arg(project_id)
+    )
+  )
 ORDER BY ptm.team_id;
 
 

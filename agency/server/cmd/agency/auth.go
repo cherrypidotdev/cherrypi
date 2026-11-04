@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"log"
 	"net/http"
 	"strings"
 
@@ -69,12 +70,18 @@ func withAuth(a accountAuthenticator, next http.Handler) http.Handler {
 		identity, viaCookie, ok := resolveIdentity(a, r)
 		if ok {
 			if viaCookie && isMutating(r.Method) && !csrfOK(r) {
-				writeUnauthorized(w)
+				rejectRequest(w, r, "csrf token missing or mismatched")
 				return
 			}
 			// A username invite's first login must replace its generated
 
 			if identity.MustChangePassword && !passwordChangeExempt(r) {
+				log.Printf(
+					"[auth] reject %s %s actor=%d: password change required",
+					r.Method,
+					r.URL.Path,
+					identity.ActorID,
+				)
 				writePasswordChangeRequired(w)
 				return
 			}
@@ -89,7 +96,7 @@ func withAuth(a accountAuthenticator, next http.Handler) http.Handler {
 			return
 		}
 
-		writeUnauthorized(w)
+		rejectRequest(w, r, "no session cookie or personal access token")
 	})
 }
 
@@ -178,7 +185,7 @@ func withAttachmentAuth(
 			return
 		}
 
-		writeUnauthorized(w)
+		rejectRequest(w, r, "no agent token, session cookie or personal access token")
 	})
 }
 
@@ -190,7 +197,7 @@ func withAgentToolsAuth(
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agentID, identity, ok := resolveAgentRequest(r.Context(), users, agents, r)
 		if !ok {
-			writeUnauthorized(w)
+			rejectRequest(w, r, "no valid agent personal access token")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(withAgentContext(r.Context(), agentID, identity)))
@@ -205,7 +212,7 @@ func withAgentAuth(
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agentID, identity, ok := resolveAgentRequest(r.Context(), users, agents, r)
 		if !ok {
-			writeUnauthorized(w)
+			rejectRequest(w, r, "no valid agent personal access token")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(withAgentContext(r.Context(), agentID, identity)))
@@ -223,6 +230,11 @@ func bearerToken(r *http.Request) (string, bool) {
 
 func writeUnauthorized(w http.ResponseWriter) {
 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+}
+
+func rejectRequest(w http.ResponseWriter, r *http.Request, reason string) {
+	log.Printf("[auth] reject %s %s: %s", r.Method, r.URL.Path, reason)
+	writeUnauthorized(w)
 }
 
 func passwordChangeExempt(r *http.Request) bool {

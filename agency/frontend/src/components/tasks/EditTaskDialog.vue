@@ -52,34 +52,25 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
                   | {{ item.displayName || item.username }}
         Field
           FieldLabel(for="edit-project") Project
-          Select(v-model="projectChoice")
-            SelectTrigger#edit-project.w-full
-              SelectValue(placeholder="Select project")
-            SelectContent
-              SelectGroup
-                SelectItem(
-                  v-for="project in projectOptions"
-                  :key="project.id"
-                  :value="project.id"
-                ) {{ project.name }}
+          Combobox#edit-project(
+            v-model="projectChoice"
+            placeholder="Select project"
+            empty-text="No matching project."
+            aria-label="Project"
+            :options="projectComboboxOptions"
+          )
           FieldDescription Every task belongs to a project.
 
       Field
         FieldLabel Tags
-        .flex.min-h-9.flex-wrap.items-center.rounded-md.border.px-2(
-          class="gap-1.5 py-1.5"
+        TagPicker(
+          :project-id="selectedProjectId"
+          :tags="activeTags"
+          :model-value="[...selectedTags]"
+          @update:model-value="onTagsChange"
+          @created="refreshTags"
+          :disabled="!selectedProjectId"
         )
-          span.text-muted-foreground.text-xs(v-if="!activeTags.length")
-            | No tags yet
-          button.rounded-full.border.px-2.text-xs.transition-opacity(
-            v-for="tag in activeTags"
-            :key="tag.id"
-            type="button"
-            class="py-0.5"
-            :style="selectedTags.has(tag.id) ? tagStyle(tag.color) : undefined"
-            :class="selectedTags.has(tag.id) ? '' : 'border-border text-muted-foreground'"
-            @click="toggleTag(tag.id)"
-          ) {{ tag.name }}
 
       .grid.gap-4(class="sm:grid-cols-2")
         Field
@@ -130,7 +121,9 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
 </template>
 
 <script setup lang="ts">
+import TagPicker from "@/components/tags/TagPicker.vue";
 import { Button } from "@/components/ui/button";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -138,7 +131,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -155,7 +148,7 @@ import { useProjects } from "@/composables/useProjects";
 import { useTags } from "@/composables/useTags";
 import { sortProjectsByName } from "@/lib/project";
 import { agency } from "@/lib/sdk";
-import { TASK_SIZES, tagStyle, taskName } from "@/lib/task";
+import { TASK_SIZES, taskName } from "@/lib/task";
 import {
   TaskPriority,
   TaskSize,
@@ -211,10 +204,21 @@ const projectOptions = computed(() =>
   ),
 );
 
-const projectReady = computed(() => projectChoice.value !== NO_PROJECT);
+const projectComboboxOptions = computed<ComboboxOption[]>(() =>
+  projectOptions.value.map((project) => ({
+    value: project.id,
+    label: project.name,
+    description: project.prefix ? `#${project.prefix}` : undefined,
+  })),
+);
 
-const { active: activeTags } = useTags(() =>
+const projectReady = computed(() => projectChoice.value !== NO_PROJECT);
+const selectedProjectId = computed(() =>
   projectChoice.value === NO_PROJECT ? "" : projectChoice.value,
+);
+
+const { active: activeTags, refresh: refreshTags } = useTags(
+  () => selectedProjectId.value,
 );
 
 watch(activeTags, (list) => {
@@ -223,11 +227,8 @@ watch(activeTags, (list) => {
   if (next.size !== selectedTags.value.size) selectedTags.value = next;
 });
 
-function toggleTag(id: string) {
-  const next = new Set(selectedTags.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  selectedTags.value = next;
+function onTagsChange(ids: string[]) {
+  selectedTags.value = new Set(ids);
 }
 
 async function loadAssignee(agentId: string) {

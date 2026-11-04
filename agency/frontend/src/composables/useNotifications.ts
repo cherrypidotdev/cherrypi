@@ -20,6 +20,7 @@ import {
   playAttentionSound,
   showAttentionNotification,
 } from "@/lib/attention";
+import { navigateAttention, showAttentionToast } from "@/lib/attentionToast";
 import { agency } from "@/lib/sdk";
 import type {
   AgencyNotification,
@@ -27,7 +28,6 @@ import type {
   AttentionNotification,
 } from "@cherrypi/sdk";
 import { computed, ref } from "vue";
-import { toast } from "vue3-toastify";
 
 const notifications = ref<AgencyNotification[]>([]);
 const unread = ref(0);
@@ -98,13 +98,29 @@ let retryTimer: number | undefined;
 let retryDelay = BASE_RETRY_MS;
 let active = false;
 
-function alertInBrowser(n: AttentionNotification) {
+function desktopUnavailable(): boolean {
   const permission = attentionPermission();
-  if (permission === "denied" || permission === "unsupported") {
-    toast.info(n.body ? `${n.title}: ${n.body}` : n.title, { autoClose: 8000 });
-    return;
+  return permission === "denied" || permission === "unsupported";
+}
+
+function isTaskOnScreen(taskId: string): boolean {
+  if (!taskId) return false;
+  const path = window.location.pathname.replace(/\/$/, "");
+  return path === `/tasks/${taskId}`;
+}
+
+function openFromToast(n: AttentionNotification) {
+  if (n.id > 0) void markRead(n.id);
+  if (n.taskId) {
+    navigateAttention({
+      name: "task",
+      params: { id: n.taskId },
+
+      query: n.kind === "task_mention" ? { tab: "comments" } : undefined,
+    });
+  } else if (n.kind === "team_invitation") {
+    navigateAttention({ name: "teams" });
   }
-  showAttentionNotification(n);
 }
 
 function handleFrame(event: MessageEvent) {
@@ -120,9 +136,16 @@ function handleFrame(event: MessageEvent) {
     return;
   }
 
-  const pref = attentionPreference(frame.notification.kind);
-  if (pref.browser) alertInBrowser(frame.notification);
-  if (pref.sound) playAttentionSound(frame.notification.kind);
+  const notification = frame.notification;
+  const pref = attentionPreference(notification.kind);
+
+  const blocked = desktopUnavailable();
+  const wantsToast = pref.toast || (pref.browser && blocked);
+  if (wantsToast && !isTaskOnScreen(notification.taskId)) {
+    showAttentionToast(notification, () => openFromToast(notification));
+  }
+  if (pref.browser && !blocked) showAttentionNotification(notification);
+  if (pref.sound) playAttentionSound(notification.kind);
 
   void refresh();
 }

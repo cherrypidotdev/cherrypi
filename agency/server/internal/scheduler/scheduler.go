@@ -17,7 +17,6 @@
 package scheduler
 
 import (
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"errors"
 	"log"
@@ -27,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/ids"
+
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/limits"
@@ -35,6 +36,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 )
 
@@ -71,6 +73,8 @@ type Scheduler struct {
 
 	wake chan struct{}
 	mu   sync.Mutex
+
+	waiting map[string]string
 }
 
 func New(
@@ -210,39 +214,63 @@ func (s *Scheduler) Drain(ctx context.Context) {
 		}
 		agent, ok := s.pickAgent(ctx, task)
 		if !ok {
+			s.noteWaiting(ctx, task)
 			continue
 		}
 		s.start(ctx, task, agent)
 	}
+
+	if len(s.waiting) > 0 {
+		queuedIDs := make(map[string]struct{}, len(queued))
+		for _, task := range queued {
+			queuedIDs[task.ID] = struct{}{}
+		}
+		for id := range s.waiting {
+			if _, ok := queuedIDs[id]; !ok {
+				delete(s.waiting, id)
+			}
+		}
+	}
+}
+
+func (s *Scheduler) noteWaiting(ctx context.Context, task tasks.Task) {
+	reason := s.waitingReason(ctx, task)
+	if reason == "" {
+		return
+	}
+	if s.waiting == nil {
+		s.waiting = map[string]string{}
+	}
+	if s.waiting[task.ID] == reason {
+		return
+	}
+	s.waiting[task.ID] = reason
+	log.Printf("[scheduler] %s (%s) not started: %s", task.ID, task.State, reason)
 }
 
 func (s *Scheduler) Reconcile(ctx context.Context) {
 	if s.AgentTasks == nil {
 		return
 	}
-	running, err := s.Tasks.ListRunning(ctx)
+	held, err := s.Tasks.ListSessionTasks(ctx)
 	if err != nil {
-		log.Printf("[scheduler] list running: %v", err)
+		log.Printf("[scheduler] list session tasks: %v", err)
 		return
 	}
 
-	byActor := map[ids.ActorID][]tasks.Task{}
-	for _, task := range running {
-		if task.SessionID == "" || task.AssigneeActorID == 0 {
+	byAgent := map[ids.AgentID][]tasks.Task{}
+	for _, task := range held {
+		if task.SessionID == "" || task.SessionAgentID == 0 {
 			continue
 		}
-		byActor[task.AssigneeActorID] = append(byActor[task.AssigneeActorID], task)
+		byAgent[task.SessionAgentID] = append(byAgent[task.SessionAgentID], task)
 	}
 
-	for actorID, agentTasks := range byActor {
+	for agentID, agentTasks := range byAgent {
 		if ctx.Err() != nil {
 			return
 		}
-		agent, err := s.Agents.GetByActor(ctx, actorID)
-		if err != nil {
-			continue
-		}
-		live, err := s.AgentTasks(ctx, agent.ID)
+		live, err := s.AgentTasks(ctx, agentID)
 		if err != nil {
 			continue
 		}
@@ -253,29 +281,81 @@ func (s *Scheduler) Reconcile(ctx context.Context) {
 		for _, task := range agentTasks {
 			at := bySession[task.SessionID]
 			if at == nil {
+				s.sessionLost(ctx, task)
+				continue
+			}
+
+			if task.State != tasks.StateRunning && task.State != tasks.StateInput {
 				continue
 			}
 
 			switch {
+			case at.GetStatus() == agentv1.TaskStatus_TASK_STATUS_FAILED:
+				errMsg := at.GetError()
+				if errMsg == "" {
+					errMsg = "the agent's run failed"
+				}
+				if err := s.Tasks.FailBySession(
+					ctx,
+					agentID,
+					task.SessionID,
+					errMsg,
+				); err != nil {
+					log.Printf("[scheduler] fail %s: %v", task.ID, err)
+				}
 			case at.GetWaitingForInput():
 				if task.State != tasks.StateInput {
 					if _, err := s.Tasks.MarkInput(ctx, task.ID); err != nil {
 						log.Printf("[scheduler] mark input %s: %v", task.ID, err)
+					} else {
+						logReconciled(task, task.State, tasks.StateInput, "waiting for input")
 					}
 				}
 			case at.GetRunInProgress():
 				if task.State == tasks.StateInput {
 					if _, err := s.Tasks.ClearInput(ctx, task.ID); err != nil {
 						log.Printf("[scheduler] clear input %s: %v", task.ID, err)
+					} else {
+						logReconciled(task, task.State, tasks.StateRunning, "run in flight")
 					}
 				}
 			default:
 				if _, err := s.Tasks.Settle(ctx, task.ID); err != nil {
 					log.Printf("[scheduler] settle %s: %v", task.ID, err)
+				} else {
+					logReconciled(task, task.State, tasks.StateSettled, "run finished")
 				}
 			}
 		}
 	}
+}
+
+func (s *Scheduler) sessionLost(ctx context.Context, task tasks.Task) {
+	log.Printf(
+		"[scheduler] session lost %s on agent %d (session=%s, state=%s)",
+		task.ID, task.SessionAgentID, task.SessionID, task.State,
+	)
+	if _, err := s.Tasks.MarkSessionLost(ctx, task.ID, sessionLostReason); err != nil {
+		log.Printf("[scheduler] mark session lost %s: %v", task.ID, err)
+		return
+	}
+	if task.State == tasks.StateRunning || task.State == tasks.StateInput {
+		failReason := sessionLostReason +
+			"; re-queue or follow up to recreate it"
+		if _, err := s.Tasks.Fail(ctx, task.ID, failReason); err != nil {
+			log.Printf("[scheduler] fail lost session %s: %v", task.ID, err)
+		}
+	}
+}
+
+const sessionLostReason = "the agent no longer has this task's session " +
+	"(it may have been restarted on another machine with fresh state)"
+
+func logReconciled(task tasks.Task, from, to tasks.State, why string) {
+	log.Printf(
+		"[scheduler] reconciled %s: %s -> %s (%s, session=%s)",
+		task.ID, from, to, why, task.SessionID,
+	)
 }
 
 type agentVerdict int
@@ -286,6 +366,8 @@ const (
 	agentOffline
 
 	agentForeign
+
+	agentViewer
 
 	agentFull
 
@@ -300,12 +382,16 @@ func (s *Scheduler) checkAgent(
 	if s.Connected == nil || !s.Connected(agent.ID) {
 		return agentOffline, nil
 	}
-	member, err := s.Tasks.IsMember(ctx, task.ProjectID, agent.ID)
+	member, canPrompt, err := s.Tasks.CanRunTask(ctx, task.ProjectID, agent.ID)
 	if err != nil {
 		return agentUnknown, err
 	}
 	if !member {
 		return agentForeign, nil
+	}
+
+	if !canPrompt {
+		return agentViewer, nil
 	}
 	lim, err := s.Limits.Get(ctx, agent.ID)
 	if err != nil {
@@ -342,6 +428,10 @@ func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
 	if task.State != tasks.StateQueued {
 		return ""
 	}
+	return s.waitingReason(ctx, task)
+}
+
+func (s *Scheduler) waitingReason(ctx context.Context, task tasks.Task) string {
 	if blockers := tasks.IncompleteBlockerIDs(task.References); len(blockers) > 0 {
 		sort.SliceStable(blockers, func(i, j int) bool {
 			return taskIDLess(blockers[i], blockers[j])
@@ -355,7 +445,7 @@ func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
 		return "Waiting for an eligible agent"
 	}
 
-	full, foreign, unknown := false, false, false
+	full, foreign, viewer, unknown := false, false, false, false
 	for _, agent := range candidates {
 		verdict, err := s.checkAgent(ctx, task, agent)
 		if err != nil {
@@ -369,10 +459,15 @@ func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
 			full = true
 		case agentForeign:
 			foreign = true
+		case agentViewer:
+			viewer = true
 		}
 	}
 	if full {
 		return "Waiting for free agent slot"
+	}
+	if viewer {
+		return "Waiting for an agent with member access"
 	}
 	if foreign || unknown {
 		return "Waiting for an eligible agent"
@@ -553,6 +648,46 @@ func (s *Scheduler) failStart(ctx context.Context, taskID string, cause error) {
 	}
 }
 
+func (s *Scheduler) freshPrompt(
+	ctx context.Context,
+	task tasks.Task,
+	agent agents.Agent,
+) (appendPrompt string, pins prompts.VersionIDs, ok bool) {
+	resolved, err := s.Prompts.Resolve(ctx, agent.ID, task.ProjectID, task.TeamIDs...)
+	if err != nil {
+		log.Printf("[scheduler] resolve prompts %s: %v", task.ID, err)
+		_ = s.Tasks.SetError(ctx, task.ID, err.Error())
+		return "", prompts.VersionIDs{}, false
+	}
+	appendPrompt = resolved.Text + s.contextBlock(ctx, task, agent.ID)
+	if task.StartedAt.IsZero() {
+		pins = resolved.IDs
+	}
+	return appendPrompt, pins, true
+}
+
+func (s *Scheduler) sessionGone(
+	ctx context.Context,
+	task tasks.Task,
+	err error,
+) bool {
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		return false
+	}
+	log.Printf(
+		"[scheduler] agent %d no longer has session %s for %s, recreating: %v",
+		task.SessionAgentID, task.SessionID, task.ID, err,
+	)
+	if _, markErr := s.Tasks.MarkSessionLost(
+		ctx,
+		task.ID,
+		sessionLostReason,
+	); markErr != nil {
+		log.Printf("[scheduler] mark session lost %s: %v", task.ID, markErr)
+	}
+	return true
+}
+
 func (s *Scheduler) contextBlock(ctx context.Context, task tasks.Task, agentID ids.AgentID) string {
 	var b strings.Builder
 	b.WriteString("\n\n## CherryPi context\n\n")
@@ -562,7 +697,12 @@ func (s *Scheduler) contextBlock(ctx context.Context, task tasks.Task, agentID i
 		"calls for it. `listTasks` and `getTask` never return a task's " +
 		"conversation; read it with `getTaskHistory`. You cannot delete tasks, and " +
 		"you can only see tasks in a project you are a member of with the " +
-		"`can_list_tasks` permission. You can always see and update your own tasks.\n\n")
+		"`can_list_tasks` permission. You can always see and update your own tasks.\n\n" +
+		"Your prompts are versioned. Use `getPrompt` and `listPromptVersions` to " +
+		"read your own agent prompt or a project prompt, and `proposePromptChange` " +
+		"to suggest a complete replacement; an owner approves it (or your " +
+		"self-prompt auto-approve setting applies it immediately). " +
+		"`listPromptProposals` shows the status of your proposals.\n\n")
 
 	b.WriteString("### Current task\n\n")
 	writeField(&b, "Id", task.ID)
@@ -716,15 +856,10 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	appendPrompt := ""
 
 	if !resume {
-		resolved, err := s.Prompts.Resolve(ctx, agent.ID, task.ProjectID, task.TeamIDs...)
-		if err != nil {
-			log.Printf("[scheduler] resolve prompts %s: %v", task.ID, err)
-			_ = s.Tasks.SetError(ctx, task.ID, err.Error())
+		var ok bool
+		appendPrompt, pins, ok = s.freshPrompt(ctx, task, agent)
+		if !ok {
 			return
-		}
-		appendPrompt = resolved.Text + s.contextBlock(ctx, task, agent.ID)
-		if task.StartedAt.IsZero() {
-			pins = resolved.IDs
 		}
 	}
 
@@ -736,9 +871,13 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	if !claimed {
 		return
 	}
+	log.Printf(
+		"[scheduler] claimed %s on agent %d (resume=%t session=%q)",
+		task.ID, agent.ID, resume, task.SessionID,
+	)
 
 	if resume && task.PendingPrompt != "" {
-		if err := s.AddToTask(
+		err := s.AddToTask(
 			ctx,
 			agent.ID,
 			task.SessionID,
@@ -746,23 +885,41 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			taskRef(task),
 			s.sender(ctx, task.PendingPromptActorID),
 			s.pendingAttachments(ctx, task),
-		); err != nil {
+		)
+		if err == nil {
+			if err := s.Tasks.ClearPendingPrompt(ctx, task.ID); err != nil {
+				log.Printf("[scheduler] clear pending prompt %s: %v", task.ID, err)
+			}
+			return
+		}
+		if !s.sessionGone(ctx, task, err) {
 			log.Printf("[scheduler] add prompt %s on %d: %v", task.ID, agent.ID, err)
 			s.failStart(ctx, task.ID, err)
 			return
 		}
-		if err := s.Tasks.ClearPendingPrompt(ctx, task.ID); err != nil {
-			log.Printf("[scheduler] clear pending prompt %s: %v", task.ID, err)
+		resume = false
+		var ok bool
+		appendPrompt, _, ok = s.freshPrompt(ctx, task, agent)
+		if !ok {
+			return
 		}
-		return
 	}
 
 	if resume {
-		if err := s.RetryTask(ctx, agent.ID, task.SessionID, taskRef(task)); err != nil {
+		err := s.RetryTask(ctx, agent.ID, task.SessionID, taskRef(task))
+		if err == nil {
+			return
+		}
+		if !s.sessionGone(ctx, task, err) {
 			log.Printf("[scheduler] retry %s on %d: %v", task.ID, agent.ID, err)
 			s.failStart(ctx, task.ID, err)
+			return
 		}
-		return
+		var ok bool
+		appendPrompt, _, ok = s.freshPrompt(ctx, task, agent)
+		if !ok {
+			return
+		}
 	}
 
 	prompt := task.Prompt
@@ -799,6 +956,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	if err := s.Tasks.SetSession(ctx, task.ID, agent.ID, sessionID); err != nil {
 		log.Printf("[scheduler] store session %s: %v", task.ID, err)
 	}
+	log.Printf("[scheduler] started %s on agent %d session=%s", task.ID, agent.ID, sessionID)
 	if task.PendingPrompt != "" {
 		if err := s.Tasks.ClearPendingPrompt(ctx, task.ID); err != nil {
 			log.Printf("[scheduler] clear pending prompt %s: %v", task.ID, err)

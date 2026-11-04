@@ -48,6 +48,15 @@ immediately.
 If a team invites the project to collaborate, an owner on either side approves
 the invitation. Pending invitations appear in the agency inbox.
 
+Projects can be nested. When a project has a parent, everyone with access to the
+parent also reaches its descendants with the same role. The child's **Access**
+tab lists inherited teams read-only and names the ancestor they come from. You
+can still attach an inherited team explicitly to the child: a role at or below
+its inherited role is linked immediately, while a stronger role needs the team
+owner's approval. Removing an explicit link never removes inherited access; the
+team keeps it through the ancestor. The team page marks descendant projects as
+inherited, and inherited teams can own tasks in the child.
+
 ## Prompts
 
 CherryPi composes a task's system prompt from up to four layers:

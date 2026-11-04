@@ -45,6 +45,10 @@ message Settings {
   
   
   bool show_concurrency_kpi = 6;
+  
+  
+  
+  string notification_sound_set = 7;
 }
 
 message GetSettingsRequest {}

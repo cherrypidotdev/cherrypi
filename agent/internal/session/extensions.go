@@ -29,8 +29,14 @@ var setTaskURLsExtension []byte
 //go:embed extension_assets/upload_attachment.ts
 var uploadAttachmentExtension []byte
 
+//go:embed extension_assets/report_task_progress.ts
+var reportTaskProgressExtension []byte
+
 //go:embed extension_assets/set_task_artifacts.ts
 var setTaskArtifactsExtension []byte
+
+//go:embed extension_assets/site_tools.ts
+var siteToolsExtension []byte
 
 //go:embed extension_assets/agent_tools.ts
 var agentToolsExtension []byte
@@ -46,14 +52,16 @@ func InstallExtensions(dir string) ([]string, error) {
 		return nil, err
 	}
 
-	paths := make([]string, 0, 6)
+	paths := make([]string, 0, 8)
 	for name, content := range map[string][]byte{
-		"set_task_urls.ts":      setTaskURLsExtension,
-		"upload_attachment.ts":  uploadAttachmentExtension,
-		"set_task_artifacts.ts": setTaskArtifactsExtension,
-		"agent_tools.ts":        agentToolsExtension,
-		"ask_user_question.ts":  askUserQuestionExtension,
-		"image_budget.ts":       imageBudgetExtension,
+		"set_task_urls.ts":        setTaskURLsExtension,
+		"upload_attachment.ts":    uploadAttachmentExtension,
+		"set_task_artifacts.ts":   setTaskArtifactsExtension,
+		"report_task_progress.ts": reportTaskProgressExtension,
+		"site_tools.ts":           siteToolsExtension,
+		"agent_tools.ts":          agentToolsExtension,
+		"ask_user_question.ts":    askUserQuestionExtension,
+		"image_budget.ts":         imageBudgetExtension,
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, content, 0o644); err != nil {

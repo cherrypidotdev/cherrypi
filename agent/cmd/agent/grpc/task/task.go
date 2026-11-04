@@ -301,10 +301,22 @@ func (s *TaskServer) ClearQueue(
 	return &agentv1.ClearQueueResponse{}, nil
 }
 
+func (s *TaskServer) RestartTaskSession(
+	ctx context.Context,
+	req *agentv1.RestartTaskSessionRequest,
+) (*agentv1.RestartTaskSessionResponse, error) {
+	if err := s.Tasks.Restart(ctx, req.Id); err != nil {
+		return nil, connectError(err)
+	}
+	return &agentv1.RestartTaskSessionResponse{}, nil
+}
+
 func connectError(err error) error {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, session.ErrSessionBusy):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, session.ErrInvalidPrompt):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, session.ErrInvalidName):

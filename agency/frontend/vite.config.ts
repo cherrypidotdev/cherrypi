@@ -63,11 +63,24 @@ function appVersion(): string {
   }
 }
 
+function apiProxy(target: string | undefined) {
+  const trimmed = target?.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return undefined;
+  }
+  return {
+    "/api": { target: trimmed, changeOrigin: true, ws: true },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
+  },
+  server: {
+    proxy: apiProxy(process.env.CHERRYPI_API_TARGET),
   },
   resolve: {
     alias: {

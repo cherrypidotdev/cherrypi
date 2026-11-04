@@ -64,6 +64,13 @@ service TaskService {
   
   
   rpc ClearQueue(ClearQueueRequest) returns (ClearQueueResponse);
+  
+  
+  
+  
+  
+  
+  rpc RestartTaskSession(RestartTaskSessionRequest) returns (RestartTaskSessionResponse);
 }
 
 enum TaskStatus {
@@ -525,3 +532,8 @@ message ClearQueueRequest {
   string id = 1;
 }
 message ClearQueueResponse {}
+
+message RestartTaskSessionRequest {
+  string id = 1;
+}
+message RestartTaskSessionResponse {}

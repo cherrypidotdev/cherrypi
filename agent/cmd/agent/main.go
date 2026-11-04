@@ -31,6 +31,7 @@ import (
 	agentauth "cherrypi.vladfaust.com/agent/internal/auth"
 	"cherrypi.vladfaust.com/agent/internal/buildinfo"
 	"cherrypi.vladfaust.com/agent/internal/events"
+	"cherrypi.vladfaust.com/agent/internal/health"
 	"cherrypi.vladfaust.com/agent/internal/logging"
 	"cherrypi.vladfaust.com/agent/internal/tunnel"
 	sharedprotocol "cherrypi.vladfaust.com/shared/protocol"
@@ -83,9 +84,12 @@ func main() {
 
 	eventHub := events.New()
 	logging.Setup(logging.Config{
-		Format: config.LogFormat,
-		Level:  config.LogLevel,
-		Sink:   eventHub.Publish,
+		Format:       config.LogFormat,
+		Level:        config.LogLevel,
+		Sink:         eventHub.Publish,
+		File:         config.LogFile,
+		FileMaxBytes: config.LogFileMaxBytes,
+		FileKeep:     config.LogFiles,
 	})
 
 	log.Printf("CherryPi agent %s starting", buildinfo.Version)
@@ -97,11 +101,22 @@ func main() {
 
 	appCtx := appcontext.NewAppContext(config, eventHub)
 
+	healthCtx, healthCancel := context.WithCancel(context.Background())
+	defer healthCancel()
+	collector := health.New(health.Options{
+		HostProc: config.HealthHostProc,
+		HostSys:  config.HealthHostSys,
+		HostRoot: config.HealthHostRoot,
+		Disks:    config.HealthDisks,
+	})
+	sampler := health.NewSampler(collector, config.HealthInterval, eventHub.Publish)
+	go sampler.Run(healthCtx)
+
 	mux := http.NewServeMux()
 
 	serveApi(mux)
 	serveEvents(mux, appCtx)
-	serveGrpc(mux, appCtx)
+	serveGrpc(mux, appCtx, sampler, config.HealthInterval)
 	serveTerminals(mux, appCtx)
 	serveDesktop(mux, appCtx)
 

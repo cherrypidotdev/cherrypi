@@ -33,6 +33,7 @@ type AgentRow struct {
 	CreatedAt           int64
 	UpdatedAt           int64
 	LastSeenAt          sql.NullInt64
+	PromptAutoApprove   bool
 }
 
 func toAgentRow(
@@ -41,6 +42,7 @@ func toAgentRow(
 	picture sql.NullInt64,
 	createdAt, updatedAt int64,
 	lastSeen sql.NullInt64,
+	promptAutoApprove bool,
 ) AgentRow {
 	return AgentRow{
 		ID:                  ids.AgentID(id),
@@ -53,6 +55,7 @@ func toAgentRow(
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
 		LastSeenAt:          lastSeen,
+		PromptAutoApprove:   promptAutoApprove,
 	}
 }
 

@@ -54,18 +54,12 @@ export const OptionSchema = Type.Object({
         "Set to true to mark this as the recommended answer. The UI highlights it so the user can see the suggested choice at a glance.",
     }),
   ),
-  preview: Type.Optional(
-    Type.String({
-      description:
-        "Optional preview content rendered under this option, below the label, as Markdown (raw HTML is allowed and rendered, like in the question): use tables, lists, `<details>`, small `<pre>`/code blocks, mermaid diagrams or tiny HTML mockups that help the user compare choices.",
-    }),
-  ),
 });
 
 export const QuestionSchema = Type.Object({
   question: Type.String({
     description:
-      "The complete question to ask the user. Clear, specific, and ending with a question mark. Raw HTML is allowed and rendered (Markdown too): use it for emphasis, links, lists, and small tables. If multiSelect is true, phrase it accordingly.",
+      "The complete question to ask the user. Clear, specific, and ending with a question mark. Rendered as Markdown (emphasis, links, lists, tables, fenced mermaid diagrams); raw HTML is not rendered. Put option details and trade-offs here, not in the option description. If multiSelect is true, phrase it accordingly.",
   }),
   header: Type.String({
     maxLength: MAX_HEADER_LENGTH,
@@ -97,7 +91,6 @@ export interface OptionData {
   label: string;
   description: string;
   recommended?: boolean;
-  preview?: string;
 }
 
 export interface QuestionData {
@@ -121,8 +114,18 @@ interface WireAnswer {
   notes?: string;
 }
 
+interface WireAnsweredBy {
+  id?: string;
+  username?: string;
+  name?: string;
+}
+
 interface WireResponse {
   answers?: WireAnswer[];
+
+  note?: string;
+
+  answeredBy?: WireAnsweredBy;
 }
 
 export interface QuestionAnswer {
@@ -132,7 +135,6 @@ export interface QuestionAnswer {
   answer: string | null;
   selected?: string[];
   notes?: string;
-  preview?: string;
 }
 
 export interface QuestionnaireResult {
@@ -140,6 +142,8 @@ export interface QuestionnaireResult {
   cancelled: boolean;
 
   unavailable?: boolean;
+
+  finalNote?: string;
 }
 
 export const TOOL_DESCRIPTION = `Ask the user one or more structured questions during execution. Use when you need to:
@@ -152,7 +156,7 @@ Usage notes:
 - Up to ${MAX_QUESTIONS} questions per call (${MIN_OPTIONS}-${MAX_OPTIONS} options each). Group every clarifying question into one call instead of stacking several calls.
 - Every question always offers a "Type something." custom-answer row; do NOT author "Other" or "Type something." labels yourself. An empty custom answer is a valid answer.
 - The user can attach a free-form note to any answer, including a custom one.
-- Question text is rendered as HTML/Markdown, so you may use simple formatting (bold, links, lists, small tables).
+- Question text and option descriptions are rendered as Markdown (bold, links, lists, tables, fenced mermaid diagrams); raw HTML is NOT rendered. Put option details and trade-offs in the question body itself, not in the option description.
 - If you recommend an option, set \`recommended: true\` on it. The user sees it highlighted; you may also keep it first in the list.
 - Set \`multiSelect: true\` when several answers are valid.
 - This tool is provided by CherryPi's bundled extension; its tools take precedence over any question-related tool another extension may register.`;
@@ -162,7 +166,7 @@ export const PROMPT_SNIPPET = `Ask the user up to ${MAX_QUESTIONS} structured qu
 export const PROMPT_GUIDELINES: string[] = [
   `Use ${ASK_USER_QUESTION_TOOL_NAME} whenever the user's request is underspecified and you cannot proceed without concrete decisions — you can ask up to ${MAX_QUESTIONS} questions per invocation.`,
   `Each question MUST have ${MIN_OPTIONS}-${MAX_OPTIONS} options. Every option requires a concise label (1-5 words) and a description explaining what the choice means or its trade-offs. Every question gets an automatically appended "Type something." custom-answer row, and an answer is always required — an empty custom answer counts. Do NOT author "Other" or "Type something." labels yourself.`,
-  `Set multiSelect: true when multiple answers are valid. Mark the option you recommend with \`recommended: true\` so it is highlighted. Question text may use raw HTML/Markdown.`,
+  `Set multiSelect: true when multiple answers are valid. Mark the option you recommend with \`recommended: true\` so it is highlighted. Question text and option descriptions are Markdown (tables and fenced mermaid diagrams included); raw HTML is not rendered. Put option details and trade-offs in the question body itself.`,
   `Do not stack multiple ${ASK_USER_QUESTION_TOOL_NAME} calls back-to-back — group all clarifying questions into one invocation.`,
 ];
 
@@ -196,10 +200,6 @@ function normalizeParams(params: QuestionParams): QuestionData[] {
       label: String(o.label ?? ""),
       description: String(o.description ?? ""),
       recommended: o.recommended === true,
-      preview:
-        typeof o.preview === "string" && o.preview.length > 0
-          ? o.preview
-          : undefined,
     })),
   }));
 }
@@ -283,14 +283,14 @@ function answerFromWire(
     ...base,
     kind: "option",
     answer: chosen?.label ?? "",
-    ...(chosen?.preview && chosen.preview.length > 0
-      ? { preview: chosen.preview }
-      : {}),
     ...(notes ? { notes } : {}),
   };
 }
 
-function parseWire(value: string, questions: QuestionData[]): QuestionAnswer[] {
+function parseWire(
+  value: string,
+  questions: QuestionData[],
+): { answers: QuestionAnswer[]; note: string } {
   let parsed: WireResponse;
   try {
     parsed = JSON.parse(value) as WireResponse;
@@ -303,14 +303,55 @@ function parseWire(value: string, questions: QuestionData[]): QuestionAnswer[] {
       byIndex.set(answer.index, answer);
     }
   }
-  return questions.map((q, qi) =>
-    answerFromWire(q, qi, byIndex.get(qi) ?? { options: [] }),
-  );
+  return {
+    answers: questions.map((q, qi) =>
+      answerFromWire(q, qi, byIndex.get(qi) ?? { options: [] }),
+    ),
+    note: typeof parsed.note === "string" ? parsed.note.trim() : "",
+  };
+}
+
+export function answeredByLabel(by: WireAnsweredBy | null): string {
+  if (!by) {
+    return "";
+  }
+  if (by.name && by.username) {
+    return `${by.name} (@${by.username})`;
+  }
+  if (by.name) {
+    return by.name;
+  }
+  if (by.username) {
+    return `@${by.username}`;
+  }
+  return by.id ? `actor ${by.id}` : "";
+}
+
+function parseAnsweredBy(value: string): WireAnsweredBy | null {
+  let parsed: WireResponse;
+  try {
+    parsed = JSON.parse(value) as WireResponse;
+  } catch {
+    return null;
+  }
+  const by = parsed?.answeredBy;
+  if (!by || typeof by !== "object") {
+    return null;
+  }
+  const out: WireAnsweredBy = {};
+  if (typeof by.id === "string" && by.id.length > 0) out.id = by.id;
+  if (typeof by.username === "string" && by.username.length > 0) {
+    out.username = by.username;
+  }
+  if (typeof by.name === "string" && by.name.length > 0) out.name = by.name;
+  return out.id || out.username || out.name ? out : null;
 }
 
 export function buildEnvelope(
   answers: QuestionAnswer[],
   cancelled: boolean,
+  finalNote = "",
+  answeredBy: WireAnsweredBy | null = null,
 ): string {
   if (cancelled) {
     return "User declined to answer questions";
@@ -324,9 +365,6 @@ export function buildEnvelope(
           ? ""
           : a.answer;
     let segment = `"${a.question}"="${value}"`;
-    if (a.preview && a.preview.length > 0) {
-      segment += `. selected preview: ${a.preview}`;
-    }
     if (a.notes && a.notes.length > 0) {
       segment += `. user notes: ${a.notes}`;
     }
@@ -335,7 +373,14 @@ export function buildEnvelope(
   if (segments.length === 0) {
     return "User declined to answer questions";
   }
-  return `User has answered your questions: ${segments.join(" ")} You can now continue with the user's answers in mind.`;
+  const note = finalNote.trim();
+  const noteSegment = note.length > 0 ? ` User's final note: ${note}` : "";
+
+  const who = answeredByLabel(answeredBy);
+  const lead = who
+    ? `User "${who}" has answered your questions: `
+    : "User has answered your questions: ";
+  return `${lead}${segments.join(" ")}${noteSegment} You can now continue with the user's answers in mind.`;
 }
 
 function toolResult(
@@ -343,10 +388,19 @@ function toolResult(
   answers: QuestionAnswer[],
   cancelled: boolean,
   unavailable = false,
+  finalNote = "",
+  answeredBy: WireAnsweredBy | null = null,
 ) {
   return {
     content: [{ type: "text" as const, text }],
-    details: { answers, cancelled, ...(unavailable ? { unavailable } : {}) },
+    details: {
+      answers,
+      cancelled,
+      ...(unavailable ? { unavailable } : {}),
+      ...(finalNote.trim().length > 0 ? { finalNote: finalNote.trim() } : {}),
+
+      ...(answeredBy ? { answeredBy } : {}),
+    },
   };
 }
 
@@ -367,8 +421,16 @@ async function runBatch(ctx: ExtensionContext, questions: QuestionData[]) {
   if (unavailable) {
     return toolResult(`Error: ${unavailable}`, [], false, true);
   }
-  const answers = parseWire(raw, questions);
-  return toolResult(buildEnvelope(answers, false), answers, false);
+  const { answers, note } = parseWire(raw, questions);
+  const answeredBy = parseAnsweredBy(raw);
+  return toolResult(
+    buildEnvelope(answers, false, note, answeredBy),
+    answers,
+    false,
+    false,
+    note,
+    answeredBy,
+  );
 }
 
 function unavailableReason(value: string): string | null {
@@ -445,7 +507,19 @@ async function runWalker(ctx: ExtensionContext, questions: QuestionData[]) {
     answers.push(answerFromWire(q, qi, wire));
   }
 
-  return toolResult(buildEnvelope(answers, false), answers, false);
+  const finalNote = (
+    await ui.input(
+      "Final note for the questionnaire as a whole (optional):",
+      "",
+    )
+  )?.trim();
+  return toolResult(
+    buildEnvelope(answers, false, finalNote ?? ""),
+    answers,
+    false,
+    false,
+    finalNote ?? "",
+  );
 }
 
 export default function (pi: ExtensionAPI) {

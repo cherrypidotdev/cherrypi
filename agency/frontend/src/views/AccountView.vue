@@ -312,6 +312,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 | {{ token.prefix }}… · created {{ formatDate(token.created_at) }}
                 template(v-if="token.last_used_at") · used {{ formatDate(token.last_used_at) }}
                 template(v-if="token.expires_at") · expires {{ formatDate(token.expires_at) }}
+              p.text-muted-foreground.text-xs(v-if="token.site_id")
+                | Used by site&#32;
+                RouterLink.font-mono.underline(
+                  :to="{ name: 'site', params: { id: token.site_id } }"
+                ) {{ token.site_id }}
             Button(
               variant="destructive"
               size="sm"
@@ -371,7 +376,7 @@ import type { Attachment } from "@cherrypi/sdk";
 import { LogOutIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
 const route = useRoute();

@@ -213,9 +213,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :hide-assignee="hideAssignee"
       @open="open"
       @enqueue="enqueue"
-      @promote="promote"
-      @demote="demote"
       @dequeue="dequeue"
+      @retry="retry"
       @complete="complete"
       @cancel="cancel"
       @archive="archiveTask"
@@ -375,9 +374,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :selected="archivedSelected"
           @open="open"
           @enqueue="enqueue"
-          @promote="promote"
-          @demote="demote"
           @dequeue="dequeue"
+          @retry="retry"
           @complete="complete"
           @cancel="cancel"
           @unarchive="unarchive"
@@ -432,6 +430,8 @@ import {
   TASK_STATE_RANK,
   TASK_STATE_TABS,
   taskPriorityLabel,
+  taskProgressHasPlan,
+  taskProgressPercent,
   taskSizeLabel,
   taskStateIcon,
   taskStateTextClass,
@@ -465,7 +465,14 @@ import { computed, onMounted, ref, watch, type Component } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
-type SortKey = "state" | "priority" | "size" | "project" | "task" | "cost";
+type SortKey =
+  | "state"
+  | "priority"
+  | "size"
+  | "project"
+  | "task"
+  | "progress"
+  | "cost";
 
 const props = withDefaults(
   defineProps<{
@@ -687,6 +694,13 @@ function sortTasks(list: Task[]): Task[] {
       case "cost":
         cmp = costValue(a) - costValue(b);
         break;
+      case "progress": {
+        const aHas = taskProgressHasPlan(a.progress);
+        const bHas = taskProgressHasPlan(b.progress);
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        cmp = taskProgressPercent(a.progress) - taskProgressPercent(b.progress);
+        break;
+      }
     }
     cmp *= dir;
     if (cmp !== 0) return cmp;
@@ -815,26 +829,6 @@ const tabActions = computed<BulkAction[]>(() => {
   const state = TASK_STATE_TABS.find(
     (tab) => tab.key === activeTab.value,
   )?.state;
-  if (state === TaskState.DRAFT) {
-    return [
-      {
-        key: "enqueue",
-        label: "Queue",
-        done: "Queued",
-        icon: PlayIcon,
-        run: (task) => agent.queueTask(task.id),
-      },
-      {
-        key: "promote",
-        label: "Move to Backlog",
-        done: "Moved to backlog",
-        icon: InboxIcon,
-        run: (task) => agent.promoteTask(task.id),
-      },
-      COMPLETE_ACTION,
-      CANCEL_ACTION,
-    ];
-  }
   if (state === TaskState.BACKLOG) {
     const postponed = selectedTasks.value.some((task) =>
       Boolean(task.startedAt),
@@ -850,15 +844,6 @@ const tabActions = computed<BulkAction[]>(() => {
         unavailableHint:
           "A task that already started is queued by sending a follow-up",
       },
-      {
-        key: "demote",
-        label: "Back to Draft",
-        done: "Moved to draft",
-        icon: Undo2Icon,
-        run: (task) => agent.demoteTask(task.id),
-        unavailable: postponed,
-        unavailableHint: "A task that already started cannot return to Draft",
-      },
       COMPLETE_ACTION,
       CANCEL_ACTION,
     ];
@@ -867,7 +852,7 @@ const tabActions = computed<BulkAction[]>(() => {
     return [
       {
         key: "dequeue",
-        label: "Back to Backlog",
+        label: "Move to Backlog",
         done: "Moved to backlog",
         icon: Undo2Icon,
         run: (task) => agent.dequeueTask(task.id),
@@ -878,7 +863,7 @@ const tabActions = computed<BulkAction[]>(() => {
     return [MOVE_TO_BACKLOG_ACTION, COMPLETE_ACTION, CANCEL_ACTION];
   }
   if (state === TaskState.FAILED) {
-    return [COMPLETE_ACTION, CANCEL_ACTION];
+    return [MOVE_TO_BACKLOG_ACTION, COMPLETE_ACTION, CANCEL_ACTION];
   }
 
   if (state === TaskState.COMPLETED) {
@@ -912,7 +897,6 @@ const assigneeOptions = computed(() =>
 const bulkBusy = ref(false);
 
 const MERGEABLE_STATES: TaskState[] = [
-  TaskState.DRAFT,
   TaskState.BACKLOG,
   TaskState.QUEUED,
   TaskState.FAILED,
@@ -940,7 +924,7 @@ const archiveHint = computed(() =>
 const mergeHint = computed(() => {
   if (selectedTasks.value.length < 2) return "Select at least two tasks";
   if (!mergeableSelection.value)
-    return "Only draft, backlog, queued, or failed tasks can be merged";
+    return "Only backlog, queued, or failed tasks can be merged";
   return "Merge selected tasks";
 });
 
@@ -1170,14 +1154,6 @@ function enqueue(task: Task) {
   void runRowAction(task, () => agent.queueTask(task.id), "");
 }
 
-function promote(task: Task) {
-  void runRowAction(task, () => agent.promoteTask(task.id), "");
-}
-
-function demote(task: Task) {
-  void runRowAction(task, () => agent.demoteTask(task.id), "");
-}
-
 function dequeue(task: Task) {
   void runRowAction(task, () => agent.dequeueTask(task.id), "");
 }
@@ -1204,6 +1180,10 @@ async function closeOut(task: Task, outcome: TaskState) {
     () => agent.closeOutTask(task.id, outcome),
     outcome === TaskState.CANCELLED ? "Task cancelled" : "Task completed",
   );
+}
+
+function retry(task: Task) {
+  void runRowAction(task, () => agent.retryTask(task.id), "Task retried");
 }
 
 function complete(task: Task) {

@@ -46,6 +46,8 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
 </template>
 
 <script setup lang="ts">
+import { EDITOR_MIN_HEIGHT, clampEditorHeight } from "@/lib/editorHeight";
+import { IS_MAC } from "@/lib/platform";
 import { referenceCompletionSource } from "@/lib/referenceCompletion";
 import { taskReferenceMarkdown } from "@/lib/references";
 import { cn } from "@/lib/utils";
@@ -117,6 +119,8 @@ const props = withDefaults(
 
     resizable?: boolean;
 
+    resizeHeight?: number;
+
     submitOnEnter?: boolean;
 
     references?: boolean;
@@ -133,6 +137,7 @@ const props = withDefaults(
     height: "10rem",
     fill: false,
     resizable: false,
+    resizeHeight: undefined,
     submitOnEnter: false,
     references: false,
     referenceProjectId: "",
@@ -148,19 +153,18 @@ const emit = defineEmits<{
   submit: [];
 
   "task-picked": [task: Task];
-}>();
 
-const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  "update:resizeHeight": [height: number];
+}>();
 
 const host = ref<HTMLElement>();
 const view = shallowRef<EditorView>();
 
-const MIN_HEIGHT = 64;
-const MAX_HEIGHT = 384;
-const dragHeight = ref(MIN_HEIGHT);
+const dragHeight = ref(EDITOR_MIN_HEIGHT);
+const boxHeight = computed(() => props.resizeHeight ?? dragHeight.value);
 const dragging = ref(false);
 let dragStartY = 0;
-let dragStartHeight = MIN_HEIGHT;
+let dragStartHeight = EDITOR_MIN_HEIGHT;
 
 const TaskPicker = defineAsyncComponent(
   () => import("@/components/tasks/TaskPicker.vue"),
@@ -423,7 +427,7 @@ const rootClass = computed(() =>
 const rootStyle = computed(() => {
   if (props.fill) return {};
   if (props.resizable) {
-    return { height: `${dragHeight.value}px` };
+    return { height: `${clampEditorHeight(boxHeight.value)}px` };
   }
   return { height: props.height };
 });
@@ -487,7 +491,7 @@ const baseTheme = EditorView.theme({
   ".cm-panels": {
     backgroundColor: "var(--card)",
     color: "var(--card-foreground)",
-    borderColor: "var(--border)",
+    borderColor: "var(--border-color)",
   },
   ".cm-panel.cm-search": {
     padding: "0.375rem 0.5rem",
@@ -500,14 +504,14 @@ const baseTheme = EditorView.theme({
   },
   ".cm-textfield": {
     backgroundColor: "var(--background)",
-    borderColor: "var(--border)",
+    borderColor: "var(--border-color)",
     borderRadius: "0.375rem",
     color: "var(--foreground)",
   },
   ".cm-button": {
     backgroundImage: "none",
     backgroundColor: "var(--secondary)",
-    borderColor: "var(--border)",
+    borderColor: "var(--border-color)",
     borderRadius: "0.375rem",
     color: "var(--secondary-foreground)",
   },
@@ -595,8 +599,9 @@ function extensions() {
     EditorView.lineWrapping,
 
     tooltips({ parent: document.body }),
+
     EditorView.clickAddsSelectionRange.of(
-      (event) => event.altKey || (MAC ? event.metaKey : event.ctrlKey),
+      (event) => event.altKey || (IS_MAC ? event.metaKey : event.ctrlKey),
     ),
     EditorState.allowMultipleSelections.of(true),
     EditorState.tabSize.of(2),
@@ -668,7 +673,7 @@ function startResize(event: PointerEvent) {
   event.preventDefault();
   dragging.value = true;
   dragStartY = event.clientY;
-  dragStartHeight = dragHeight.value;
+  dragStartHeight = boxHeight.value;
   document.body.style.cursor = "row-resize";
   document.body.style.userSelect = "none";
   window.addEventListener("pointermove", onResizeMove);
@@ -676,8 +681,9 @@ function startResize(event: PointerEvent) {
 }
 
 function onResizeMove(event: PointerEvent) {
-  const next = dragStartHeight + event.clientY - dragStartY;
-  dragHeight.value = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, next));
+  const next = clampEditorHeight(dragStartHeight + event.clientY - dragStartY);
+  dragHeight.value = next;
+  emit("update:resizeHeight", next);
 }
 
 function stopResize() {

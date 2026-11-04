@@ -129,7 +129,6 @@ def ensure_agent(agency: Agency, username: str, display_name: str, description: 
 
 
 TASK_STATE_ALIASES = {
-    "draft": "TASK_STATE_DRAFT",
     "backlog": "TASK_STATE_BACKLOG",
     "queued": "TASK_STATE_QUEUED",
 }
@@ -567,7 +566,7 @@ def main() -> int:
             builders[0],
             "Split the billing service",
             "Extract billing into its own service with a typed client. Keep the existing API contracts and migrate the data behind a feature flag.",
-            "draft",
+            "backlog",
             "TASK_PRIORITY_HIGH",
             "TASK_SIZE_EPIC",
         ),

@@ -86,6 +86,64 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 CheckIcon(v-else data-icon="inline-start")
                 span Save
 
+      Card
+        CardHeader
+          CardTitle Health sampling
+          CardDescription
+            | How often the agent probes its host for the Health tab. The agency
+            | stores the interval and pushes it over the agent's tunnel, so a
+            | change applies without restarting the agent.
+        CardContent.flex.flex-col.gap-4
+          FieldGroup
+            Field(data-testid="agent-health-interval-field")
+              FieldLabel Probe interval
+              Select(
+                :model-value="healthChoice"
+                @update:model-value="onHealthChoiceChange"
+                :disabled="!canManage || savingHealth || !healthSettingsLoaded"
+              )
+                SelectTrigger.w-full(
+                  class="sm:w-64"
+                  data-testid="agent-health-interval-trigger"
+                )
+                  SelectValue
+                SelectContent
+                  SelectGroup
+                    SelectItem(value="default") Agent default
+                    SelectItem(
+                      v-for="preset in HEALTH_INTERVAL_PRESETS"
+                      :key="preset.seconds"
+                      :value="String(preset.seconds)"
+                    ) {{ preset.label }}
+                    SelectItem(value="off") Off
+                    SelectItem(value="custom") Custom…
+              FieldDescription(data-testid="agent-health-interval-summary")
+                | {{ healthIntervalSummary }}
+            Field(v-if="healthChoice === 'custom'")
+              FieldLabel(for="agent-health-interval") Custom interval
+              .flex.items-center.gap-2
+                Input#agent-health-interval(
+                  v-model="customHealthInterval"
+                  placeholder="e.g. 90s, 5m, 1h"
+                  autocomplete="off"
+                  @keyup.enter="saveCustomHealthInterval"
+                  :disabled="!canManage || savingHealth"
+                )
+                Button(
+                  type="button"
+                  variant="outline"
+                  @click="saveCustomHealthInterval"
+                  :disabled="!canManage || savingHealth"
+                  data-testid="agent-health-interval-save"
+                )
+                  Spinner(v-if="savingHealth" data-icon="inline-start")
+                  CheckIcon(v-else data-icon="inline-start")
+                  span Save
+              FieldDescription.text-destructive(v-if="customHealthError")
+                | {{ customHealthError }}
+          p.text-muted-foreground.text-xs(v-if="!canManage")
+            | Only agent owners can change the sampling interval.
+
     TabsContent(value="projects")
       Card
         CardHeader
@@ -146,22 +204,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               | Injected into new tasks on this agent, after the organization prompt
               | and before the project prompts. Edits affect future tasks only.
           CardContent.flex.flex-col.gap-3
-            .flex.items-center.justify-between.gap-2
-              span.text-sm.font-medium Overall instructions
-              span.text-muted-foreground.text-xs Version {{ agentPromptVersion }}
-            Textarea#agent-prompt(
-              v-model="agentPrompt"
+            PromptEditor(
               placeholder="Agent-wide instructions…"
+              :scope="PromptScope.AGENT"
+              :agent-id="id"
             )
-            .flex.justify-end
-              Button(
-                type="button"
-                @click="savePrompt"
-                :disabled="savingPrompt"
-              )
-                Spinner(v-if="savingPrompt" data-icon="inline-start")
-                CheckIcon(v-else data-icon="inline-start")
-                span Save prompt
+
+        Card
+          CardHeader
+            CardTitle Self-prompt auto-approve
+            CardDescription
+              | When enabled, this agent's proposals to its own agent and
+              | agent-project prompts apply immediately instead of waiting for an
+              | owner. Project prompt proposals still need a project owner.
+          CardContent.flex.items-center.justify-between.gap-3
+            p.text-muted-foreground.text-sm
+              | {{ item?.promptAutoApprove ? "Enabled: self-proposals apply immediately." : "Disabled: an owner approves self-proposals." }}
+            Switch(
+              :model-value="item?.promptAutoApprove ?? false"
+              @update:model-value="setAutoApprove"
+              :disabled="!canManage || savingAutoApprove"
+            )
         ConcurrencyPanel(:agent-id="id")
 
         Card
@@ -176,7 +239,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               | level.
             FieldGroup
               Field
-                FieldLabel Model
+                .flex.items-center.justify-between.gap-2
+                  FieldLabel Model
+
+                  Button(
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    title="Re-read the agent's models.json"
+                    @click="reloadModels"
+                    :disabled="loadingDefaults"
+                    data-testid="reset-models"
+                  )
+                    Spinner(v-if="loadingDefaults" data-icon="inline-start")
+                    RefreshCwIcon(v-else data-icon="inline-start")
+                    span Reset models
                 Select(
                   :model-value="modelChoice"
                   @update:model-value="onDefaultModelChange"
@@ -192,7 +269,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         v-for="model in modelOptions"
                         :key="`${model.provider}/${model.id}`"
                         :value="`${model.provider}/${model.id}`"
-                      ) {{ model.name || model.id }}
+                      ) {{ modelLabel(model) }}
               Field
                 FieldLabel Thinking level
                 Select(
@@ -355,6 +432,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -370,6 +448,13 @@ import { withProgress } from "@/composables/useProgress";
 import { currentAccount } from "@/lib/account";
 import { agentStatusClass, agentStatusLabel } from "@/lib/agent";
 import { formatTimestamp } from "@/lib/format";
+import {
+  formatHealthInterval,
+  HEALTH_INTERVAL_MAX_SECONDS,
+  HEALTH_INTERVAL_MIN_SECONDS,
+  HEALTH_INTERVAL_PRESETS,
+  parseHealthIntervalSeconds,
+} from "@/lib/health";
 import { agency, currentAgentId } from "@/lib/sdk";
 import {
   PromptScope,
@@ -385,6 +470,7 @@ import {
   CopyIcon,
   LogOutIcon,
   PlusIcon,
+  RefreshCwIcon,
   Trash2Icon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
@@ -413,12 +499,49 @@ const tab = ref(
 const item = ref<Agent>();
 const name = ref("");
 const description = ref("");
-const agentPrompt = ref("");
-const agentPromptVersion = ref<bigint>(0n);
 const saving = ref(false);
-const savingPrompt = ref(false);
+const savingAutoApprove = ref(false);
 const error = ref("");
 const loading = ref(true);
+
+const healthIntervalSeconds = ref<number>();
+const healthSettingsLoaded = ref(false);
+const savingHealth = ref(false);
+const customHealthInterval = ref("");
+const customHealthOpen = ref(false);
+const customHealthError = ref("");
+
+const PRESET_SECONDS = new Set(
+  HEALTH_INTERVAL_PRESETS.map((item) => item.seconds),
+);
+
+const healthChoice = computed(() => {
+  if (!healthSettingsLoaded.value) return "default";
+  if (customHealthOpen.value) return "custom";
+  const seconds = healthIntervalSeconds.value;
+  if (seconds === undefined) return "default";
+  if (seconds === 0) return "off";
+  if (PRESET_SECONDS.has(seconds)) return String(seconds);
+  return "custom";
+});
+
+const healthIntervalSummary = computed(() => {
+  if (!healthSettingsLoaded.value) return "Loading the current cadence…";
+  const seconds = healthIntervalSeconds.value;
+  let summary: string;
+  if (seconds === undefined) {
+    summary =
+      "Inherits the agent's local default (CHERRYPI_HEALTH_INTERVAL, one minute unless set).";
+  } else if (seconds === 0) {
+    summary =
+      "Sampling is disabled; the Health tab keeps its existing history.";
+  } else {
+    summary = `The agent probes the host every ${formatHealthInterval(seconds)}.`;
+  }
+  return canManage.value
+    ? summary
+    : `${summary} Only agent owners can change it.`;
+});
 
 const tokens = ref<AgentToken[]>([]);
 const loadingTokens = ref(false);
@@ -438,6 +561,11 @@ interface ModelOption {
   thinkingLevels: string[];
 }
 
+function modelLabel(model: ModelOption): string {
+  const name = model.name || model.id;
+  return model.provider ? `${model.provider}/${name}` : name;
+}
+
 const modelCatalog = ref<ModelOption[]>([]);
 
 const defaultThinkingLevels = ref<string[]>([]);
@@ -446,16 +574,13 @@ const savingDefaults = ref(false);
 async function load() {
   loading.value = true;
   try {
-    const [agentItem, tokenList, prompt] = await Promise.all([
+    const [agentItem, tokenList] = await Promise.all([
       agency.getAgent(id.value),
       agency.listAgentTokens(id.value),
-      agency.getPrompt(PromptScope.AGENT, { agentId: id.value }),
     ]);
     item.value = agentItem;
     name.value = agentItem.displayName || agentItem.username;
     description.value = agentItem.description;
-    agentPrompt.value = prompt.content;
-    agentPromptVersion.value = prompt.version;
     tokens.value = tokenList;
     projectPrompts.value = await agency.listAgentProjectPrompts(id.value);
     error.value = "";
@@ -536,6 +661,99 @@ async function loadDefaults() {
   } finally {
     loadingDefaults.value = false;
   }
+}
+
+async function loadHealthSettings() {
+  try {
+    const settings = await agency.getAgentHealthSettings(id.value);
+    const seconds =
+      settings.intervalSeconds === undefined
+        ? undefined
+        : Number(settings.intervalSeconds);
+    healthIntervalSeconds.value = seconds;
+    customHealthOpen.value =
+      seconds !== undefined && seconds > 0 && !PRESET_SECONDS.has(seconds);
+    if (seconds !== undefined && seconds > 0) {
+      customHealthInterval.value = formatHealthInterval(seconds);
+    }
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    healthSettingsLoaded.value = true;
+  }
+}
+
+async function saveHealthInterval(seconds: number | undefined) {
+  if (!canManage.value) return;
+  savingHealth.value = true;
+  customHealthError.value = "";
+  try {
+    const saved = await withProgress(() =>
+      agency.updateAgentHealthSettings(id.value, { intervalSeconds: seconds }),
+    );
+    healthIntervalSeconds.value =
+      saved.intervalSeconds === undefined
+        ? undefined
+        : Number(saved.intervalSeconds);
+    if (healthIntervalSeconds.value) {
+      customHealthInterval.value = formatHealthInterval(
+        healthIntervalSeconds.value,
+      );
+    }
+    toast.success("Health sampling interval updated");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+    await loadHealthSettings();
+  } finally {
+    savingHealth.value = false;
+  }
+}
+
+function onHealthChoiceChange(value: unknown) {
+  const choice = String(value);
+  if (choice === "custom") {
+    customHealthOpen.value = true;
+    return;
+  }
+  customHealthOpen.value = false;
+  customHealthError.value = "";
+  if (choice === "default") {
+    void saveHealthInterval(undefined);
+    return;
+  }
+  if (choice === "off") {
+    void saveHealthInterval(0);
+    return;
+  }
+  const seconds = Number(choice);
+  if (Number.isFinite(seconds)) void saveHealthInterval(seconds);
+}
+
+function saveCustomHealthInterval() {
+  const seconds = parseHealthIntervalSeconds(customHealthInterval.value);
+  if (seconds === undefined) {
+    customHealthError.value = "Enter a duration like 90s, 5m or 1h.";
+    return;
+  }
+  if (
+    seconds !== 0 &&
+    (seconds < HEALTH_INTERVAL_MIN_SECONDS ||
+      seconds > HEALTH_INTERVAL_MAX_SECONDS)
+  ) {
+    customHealthError.value = "Choose an interval between 10s and 24h, or Off.";
+    return;
+  }
+  customHealthError.value = "";
+  void saveHealthInterval(seconds);
+}
+
+async function reloadModels() {
+  await loadDefaults();
+  if (modelCatalog.value.length) {
+    toast.success(`${modelCatalog.value.length} models loaded from the agent`);
+    return;
+  }
+  toast.error("The agent is offline, so its model list is unavailable.");
 }
 
 async function saveDefaults(
@@ -653,20 +871,26 @@ async function onRoleChange(value: unknown) {
   }
 }
 
-async function savePrompt() {
-  savingPrompt.value = true;
+async function setAutoApprove(value: unknown) {
+  const enabled = Boolean(value);
+  savingAutoApprove.value = true;
   try {
-    const prompt = await withProgress(() =>
-      agency.setPrompt(PromptScope.AGENT, agentPrompt.value, {
-        agentId: id.value,
+    item.value = await withProgress(() =>
+      agency.updateAgent(id.value, {
+        displayName: item.value?.displayName || item.value?.username || "",
+        description: item.value?.description ?? "",
+        promptAutoApprove: enabled,
       }),
     );
-    agentPromptVersion.value = prompt.version;
-    toast.success("Agent prompt updated");
+    toast.success(
+      enabled
+        ? "Self-prompt auto-approve enabled"
+        : "Self-prompt auto-approve disabled",
+    );
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    savingPrompt.value = false;
+    savingAutoApprove.value = false;
   }
 }
 
@@ -762,5 +986,6 @@ watch(
 onMounted(() => {
   void load();
   void loadDefaults();
+  void loadHealthSettings();
 });
 </script>

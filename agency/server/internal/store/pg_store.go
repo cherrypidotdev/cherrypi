@@ -19,10 +19,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	pgdb "cherrypi.vladfaust.com/agency/internal/gen/pg"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"time"
 )
 
 type PgStore struct {
@@ -64,6 +66,9 @@ func (s *PgStore) deleteActorChildren(ctx context.Context, q *pgdb.Queries, acto
 		return err
 	}
 	if err := q.DeleteTaskFavoritesByActor(ctx, actorID); err != nil {
+		return err
+	}
+	if err := q.DeleteTaskCommentReadsByActor(ctx, actorID); err != nil {
 		return err
 	}
 	return q.DeleteAgentOwnerEdgesByActor(ctx, actorID)
@@ -254,6 +259,7 @@ func (s *PgStore) GetPersonalAccessTokenByHash(
 		CreatedAt:     row.CreatedAt,
 		LastUsedAt:    row.LastUsedAt,
 		ExpiresAt:     row.ExpiresAt,
+		SiteID:        row.SiteID,
 		Kind:          row.Kind,
 		Username:      row.Username,
 		ActorName:     row.ActorName,
@@ -448,7 +454,8 @@ func (s *PgStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, error
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *PgStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error) {
@@ -457,7 +464,8 @@ func (s *PgStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (Age
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *PgStore) GetAgentByUsername(ctx context.Context, username string) (AgentRow, error) {
@@ -466,7 +474,8 @@ func (s *PgStore) GetAgentByUsername(ctx context.Context, username string) (Agen
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
@@ -477,7 +486,8 @@ func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
 		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt)
+			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+			row.PromptAutoApprove != 0)
 	}
 	return out, nil
 }
@@ -575,6 +585,20 @@ func (s *PgStore) DeleteTasksByProjectAgent(
 		); err != nil {
 			return err
 		}
+		if err := q.DeleteTaskProgressItemsByProjectAgent(
+			ctx,
+			pgdb.DeleteTaskProgressItemsByProjectAgentParams(
+				DeleteTaskProgressItemsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgressByProjectAgent(
+			ctx,
+			pgdb.DeleteTaskProgressByProjectAgentParams(DeleteTaskProgressByProjectAgentParams(p)),
+		); err != nil {
+			return err
+		}
 		if err := q.ClearTaskNotificationsByProjectAgent(
 			ctx,
 			pgdb.ClearTaskNotificationsByProjectAgentParams(
@@ -622,6 +646,30 @@ func (s *PgStore) DeleteTasksByProjectAgent(
 		if err := q.DeleteTaskMessagesByProjectAgent(
 			ctx,
 			pgdb.DeleteTaskMessagesByProjectAgentParams(DeleteTaskMessagesByProjectAgentParams(p)),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByProjectAgent(
+			ctx,
+			pgdb.DeleteTaskCommentAttachmentsByProjectAgentParams(
+				DeleteTaskCommentAttachmentsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentsByProjectAgent(
+			ctx,
+			pgdb.DeleteTaskCommentsByProjectAgentParams(
+				DeleteTaskCommentsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentReadsByProjectAgent(
+			ctx,
+			pgdb.DeleteTaskCommentReadsByProjectAgentParams(
+				DeleteTaskCommentReadsByProjectAgentParams(p),
+			),
 		); err != nil {
 			return err
 		}
@@ -695,6 +743,12 @@ func (s *PgStore) DeleteTask(ctx context.Context, id string) error {
 		if err := q.DeleteTaskLinks(ctx, id); err != nil {
 			return err
 		}
+		if err := q.DeleteTaskProgressItems(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgress(ctx, id); err != nil {
+			return err
+		}
 		if err := q.ClearTaskNotifications(ctx, id); err != nil {
 			return err
 		}
@@ -717,6 +771,15 @@ func (s *PgStore) DeleteTask(ctx context.Context, id string) error {
 			return err
 		}
 		if err := q.DeleteTaskMessages(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByTask(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskComments(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentReads(ctx, id); err != nil {
 			return err
 		}
 		if err := q.DeleteTaskAttachments(ctx, id); err != nil {
@@ -770,6 +833,9 @@ func (s *PgStore) DeleteAttachment(ctx context.Context, id int64) error {
 			return err
 		}
 		if err := q.DeleteAttachmentMessageLinks(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByAttachment(ctx, id); err != nil {
 			return err
 		}
 		if err := q.DeleteArtifactPartsByAttachment(ctx, attachmentID); err != nil {
@@ -885,7 +951,7 @@ func (s *PgStore) RegisterAgent(
 			}
 		}
 		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
-			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{})
+			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{}, false)
 		return nil
 	})
 	return out, err
@@ -896,16 +962,6 @@ func (s *PgStore) TransitionTask(
 	p TransitionTaskParams,
 ) (int64, error) {
 	switch p.Event {
-	case TaskPromote:
-		return s.q.PromoteTask(ctx, pgdb.PromoteTaskParams(PromoteTaskParams{
-			UpdatedAt: p.UpdatedAt,
-			ID:        p.ID,
-		}))
-	case TaskDemote:
-		return s.q.DemoteTask(ctx, pgdb.DemoteTaskParams(DemoteTaskParams{
-			UpdatedAt: p.UpdatedAt,
-			ID:        p.ID,
-		}))
 	case TaskQueue:
 		return s.q.QueueTask(ctx, pgdb.QueueTaskParams(QueueTaskParams{
 			QueuedAt:  p.QueuedAt,
@@ -1016,4 +1072,82 @@ func (s *PgStore) TransitionTask(
 	default:
 		return 0, fmt.Errorf("unknown task event %q", p.Event)
 	}
+}
+
+func (s *PgStore) ApprovePromptProposal(
+	ctx context.Context,
+	p ApprovePromptProposalParams,
+) (Prompt, PromptProposal, error) {
+	var outPrompt Prompt
+	var outProposal PromptProposal
+	err := s.tx(ctx, func(q *pgdb.Queries) error {
+		proposal, err := q.GetPromptProposal(ctx, p.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPromptProposalNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if proposal.Status != "pending" {
+			return ErrPromptProposalNotPending
+		}
+		latest, err := q.LatestPromptVersion(ctx, pgdb.LatestPromptVersionParams{
+			Scope:     proposal.Scope,
+			AgentID:   sql.NullInt64{Int64: proposal.AgentID.Int64, Valid: true},
+			TeamID:    sql.NullInt64{Int64: proposal.TeamID.Int64, Valid: true},
+			ProjectID: sql.NullString{String: proposal.ProjectID.String, Valid: true},
+		})
+		if err != nil {
+			return err
+		}
+		if latest != proposal.BaseVersion {
+			return ErrPromptProposalStale
+		}
+		now := p.Now
+		if now == 0 {
+			now = time.Now().UnixMilli()
+		}
+		auto := int64(0)
+		if p.AutoApproved {
+			auto = 1
+		}
+		promptRow, err := q.InsertPrompt(ctx, pgdb.InsertPromptParams{
+			Scope:             proposal.Scope,
+			AgentID:           proposal.AgentID,
+			TeamID:            proposal.TeamID,
+			ProjectID:         proposal.ProjectID,
+			Content:           proposal.Content,
+			Version:           latest + 1,
+			CreatedAt:         now,
+			AuthorActorID:     proposal.AuthorActorID,
+			ApprovedByActorID: nullActorID(int64(p.DecidedByActorID)),
+			Note:              proposal.Note,
+			ProposalID:        proposal.ID,
+			AutoApproved:      auto,
+		})
+		if err != nil {
+			return err
+		}
+		decision, err := q.SetPromptProposalDecision(
+			ctx,
+			pgdb.SetPromptProposalDecisionParams{
+				Status:           "approved",
+				DecidedAt:        sql.NullInt64{Int64: now, Valid: true},
+				DecidedByActorID: nullActorID(int64(p.DecidedByActorID)),
+				DecisionNote:     p.DecisionNote,
+				AutoApproved:     auto,
+				ID:               p.ID,
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPromptProposalNotPending
+		}
+		if err != nil {
+			return err
+		}
+		outPrompt = fromPgPrompt(promptRow)
+		outProposal = fromPgPromptProposal(decision)
+		return nil
+	})
+	return outPrompt, outProposal, err
 }

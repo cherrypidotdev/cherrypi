@@ -36,6 +36,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/tags"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/agency/internal/templates"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
@@ -66,6 +67,8 @@ type TaskServer struct {
 	Scheduler   *scheduler.Scheduler
 	Attachments *attachments.Service
 	Artifacts   *artifacts.Service
+
+	Templates *templates.Service
 
 	Actors func(ctx context.Context, id ids.ActorID) (ActorInfo, error)
 
@@ -108,6 +111,7 @@ func (s *TaskServer) ListTasks(
 	for i, t := range list {
 		out[i] = toProtoTask(t)
 	}
+	stripProgressItems(out)
 	s.enrichRuntime(ctx, list, out)
 	s.enrichWaitingReasons(ctx, list, out)
 	return &agencyv1.ListTasksResponse{Tasks: out}, nil
@@ -216,22 +220,7 @@ func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *
 }
 
 func (s *TaskServer) enrichAttribution(ctx context.Context, out *agencyv1.Task) {
-	cache := map[ids.ActorID]ActorInfo{}
-	actor := func(raw string) (ActorInfo, bool) {
-		id := actorid.ParseActor(raw)
-		if id == 0 || s.Actors == nil {
-			return ActorInfo{}, false
-		}
-		if info, ok := cache[id]; ok {
-			return info, true
-		}
-		info, err := s.Actors(ctx, id)
-		if err != nil {
-			return ActorInfo{}, false
-		}
-		cache[id] = info
-		return info, true
-	}
+	actor := s.actorResolver(ctx)
 	if info, ok := actor(out.CreatorActorId); ok {
 		out.CreatorName = displayActorName(info)
 		out.CreatorPictureUrl = info.PictureURL
@@ -353,7 +342,7 @@ func (s *TaskServer) CreateTask(
 			)
 		}
 	}
-	t, err := s.Tasks.Create(ctx, tasks.CreateParams{
+	params := tasks.CreateParams{
 		Prompt:          req.Prompt,
 		Name:            req.Name,
 		ProjectID:       req.ProjectId,
@@ -370,7 +359,58 @@ func (s *TaskServer) CreateTask(
 		State:           stateFromProto(req.State),
 		TeamIDs:         int32sToInt64s(req.TeamIds),
 		LeadActorIDs:    actorIDsFromStrings(req.LeadActorIds),
-	})
+	}
+	if req.TemplateId != "" {
+		if s.Templates == nil {
+			return nil, connect.NewError(
+				connect.CodeFailedPrecondition,
+				errors.New("task templates are not available"),
+			)
+		}
+		rendered, err := s.Templates.RenderForProject(
+			ctx,
+			req.ProjectId,
+			req.TemplateId,
+			req.TemplateVersion,
+			req.TemplateArgsJson,
+		)
+		if err != nil {
+			return nil, mapTemplateError(err)
+		}
+		params.Prompt = rendered.Prompt
+		if req.Prompt != "" {
+			if req.TemplatePromptOverride {
+				params.Prompt = req.Prompt
+			} else {
+				params.Prompt = rendered.Prompt + "\n\n" + req.Prompt
+			}
+		}
+		if req.Name == "" {
+			params.Name = rendered.Title
+		}
+		if req.Priority == agencyv1.TaskPriority_TASK_PRIORITY_UNSPECIFIED {
+			params.Priority = rendered.Priority
+		}
+		if req.Size == agencyv1.TaskSize_TASK_SIZE_UNSPECIFIED {
+			params.Size = rendered.Size
+		}
+		if len(req.TagIds) == 0 {
+			params.TagIDs = rendered.TagIDs
+		}
+		if len(req.TeamIds) == 0 {
+			params.TeamIDs = rendered.TeamIDs
+		}
+		if len(req.LeadActorIds) == 0 {
+			params.LeadActorIDs = rendered.LeadActorIDs
+		}
+		params.Template = &tasks.TemplateApplication{
+			TemplateID:      rendered.TemplateID,
+			TemplateName:    rendered.TemplateName,
+			TemplateVersion: rendered.Version,
+			ArgsJSON:        rendered.ArgsJSON,
+		}
+	}
+	t, err := s.Tasks.Create(ctx, params)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -390,6 +430,7 @@ func (s *TaskServer) UpdateTask(
 		actorid.ParseActorPtr(req.SetAssigneeActorId),
 		req.SetPrompt,
 		req.SetPendingPrompt,
+		req.SetModel,
 		nil,
 		nil,
 	); !attrs.Empty() {
@@ -397,7 +438,7 @@ func (s *TaskServer) UpdateTask(
 			return nil, connect.NewError(
 				connect.CodeInvalidArgument,
 				errors.New(
-					"an attribute update must not include the draft prompt or project fields",
+					"an attribute update must not include the task prompt or project fields",
 				),
 			)
 		}
@@ -406,6 +447,18 @@ func (s *TaskServer) UpdateTask(
 			actorid.ParseActor(req.GetSetAssigneeActorId()),
 		); err != nil {
 			return nil, err
+		}
+
+		if attrs.Model != nil {
+			if err := s.requireTaskModelChange(
+				ctx,
+				req.Id,
+				attrs.Model.Provider,
+				attrs.Model.ModelID,
+				attrs.Model.ThinkingLevel,
+			); err != nil {
+				return nil, err
+			}
 		}
 		t, err := s.Tasks.UpdateAttributes(ctx, req.Id, attrs)
 		if err != nil {
@@ -471,6 +524,7 @@ func (s *TaskServer) ListTaskReferences(
 	for i, t := range refs {
 		out[i] = toProtoTask(t)
 	}
+	stripProgressItems(out)
 	s.enrichRuntime(ctx, refs, out)
 	return &agencyv1.ListTaskReferencesResponse{Tasks: out}, nil
 }
@@ -504,28 +558,6 @@ func (s *TaskServer) RemoveTaskReference(
 
 	s.wake()
 	return &agencyv1.RemoveTaskReferenceResponse{Task: toProtoTask(t)}, nil
-}
-
-func (s *TaskServer) PromoteTask(
-	ctx context.Context,
-	req *agencyv1.PromoteTaskRequest,
-) (*agencyv1.PromoteTaskResponse, error) {
-	t, err := s.Tasks.Promote(ctx, req.Id)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.PromoteTaskResponse{Task: toProtoTask(t)}, nil
-}
-
-func (s *TaskServer) DemoteTask(
-	ctx context.Context,
-	req *agencyv1.DemoteTaskRequest,
-) (*agencyv1.DemoteTaskResponse, error) {
-	t, err := s.Tasks.Demote(ctx, req.Id)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.DemoteTaskResponse{Task: toProtoTask(t)}, nil
 }
 
 func (s *TaskServer) DequeueTask(
@@ -807,6 +839,169 @@ func (s *TaskServer) SetTaskFavorite(
 	return &agencyv1.SetTaskFavoriteResponse{Task: out}, nil
 }
 
+func (s *TaskServer) ListTaskComments(
+	ctx context.Context,
+	req *agencyv1.ListTaskCommentsRequest,
+) (*agencyv1.ListTaskCommentsResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, tasks.ErrActorRequired)
+	}
+	list, unread, err := s.Tasks.ListComments(ctx, t.ID, actorID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.ListTaskCommentsResponse{
+		Comments: s.commentsToProto(ctx, t.ID, list),
+		Unread:   int32(unread),
+	}, nil
+}
+
+func (s *TaskServer) AddTaskComment(
+	ctx context.Context,
+	req *agencyv1.AddTaskCommentRequest,
+) (*agencyv1.AddTaskCommentResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, tasks.ErrActorRequired)
+	}
+	if s.Attachments != nil {
+		if max := s.Attachments.MaxPerMessage(); max > 0 && len(req.AttachmentIds) > max {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				fmt.Errorf("at most %d attachments per comment", max),
+			)
+		}
+	}
+	comment, err := s.Tasks.AddComment(ctx, t.ID, actorID, req.Body, req.AttachmentIds)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := s.commentsToProto(ctx, t.ID, []tasks.Comment{comment})
+	return &agencyv1.AddTaskCommentResponse{Comment: out[0]}, nil
+}
+
+func (s *TaskServer) UpdateTaskComment(
+	ctx context.Context,
+	req *agencyv1.UpdateTaskCommentRequest,
+) (*agencyv1.UpdateTaskCommentResponse, error) {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, tasks.ErrActorRequired)
+	}
+	taskID, err := s.Tasks.CommentTaskID(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if _, err := s.visibleTask(ctx, taskID); err != nil {
+		return nil, err
+	}
+	comment, err := s.Tasks.UpdateComment(
+		ctx,
+		req.Id,
+		actorID,
+		auth.IsAdmin(ctx),
+		req.Body,
+	)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := s.commentsToProto(ctx, taskID, []tasks.Comment{comment})
+	return &agencyv1.UpdateTaskCommentResponse{Comment: out[0]}, nil
+}
+
+func (s *TaskServer) DeleteTaskComment(
+	ctx context.Context,
+	req *agencyv1.DeleteTaskCommentRequest,
+) (*agencyv1.DeleteTaskCommentResponse, error) {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, tasks.ErrActorRequired)
+	}
+	taskID, err := s.Tasks.CommentTaskID(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if _, err := s.visibleTask(ctx, taskID); err != nil {
+		return nil, err
+	}
+	if _, err := s.Tasks.DeleteComment(ctx, req.Id, actorID, auth.IsAdmin(ctx)); err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.DeleteTaskCommentResponse{}, nil
+}
+
+func (s *TaskServer) commentsToProto(
+	ctx context.Context,
+	taskID string,
+	list []tasks.Comment,
+) []*agencyv1.TaskComment {
+	var byComment map[int64][]attachments.Attachment
+	if s.Attachments != nil {
+		byComment, _ = s.Attachments.CommentAttachments(ctx, taskID)
+	}
+	actor := s.actorResolver(ctx)
+	out := make([]*agencyv1.TaskComment, len(list))
+	for i, comment := range list {
+		item := &agencyv1.TaskComment{
+			Id:               comment.ID,
+			TaskId:           comment.TaskID,
+			AuthorActorId:    actorid.Format(comment.AuthorActorID),
+			Body:             comment.Body,
+			Edited:           comment.Edited(),
+			Deleted:          comment.Deleted(),
+			DeletedByActorId: actorid.Format(comment.DeletedByID),
+			CreatedAt:        timestamppb.New(comment.CreatedAt),
+			UpdatedAt:        timestamppb.New(comment.UpdatedAt),
+		}
+		if info, ok := actor(item.AuthorActorId); ok {
+			item.AuthorName = displayActorName(info)
+			item.AuthorUsername = info.Username
+			item.AuthorKind = info.Kind
+			item.AuthorPictureUrl = info.PictureURL
+		}
+		if info, ok := actor(item.DeletedByActorId); ok {
+			item.DeletedByName = displayActorName(info)
+			item.DeletedByUsername = info.Username
+		}
+		if comment.Deleted() {
+			item.DeletedAt = timestamppb.New(comment.DeletedAt)
+		}
+		for _, file := range byComment[comment.ID] {
+			item.Attachments = append(item.Attachments, attachments.ToProto(file))
+		}
+		out[i] = item
+	}
+	return out
+}
+
+func (s *TaskServer) actorResolver(ctx context.Context) func(string) (ActorInfo, bool) {
+	cache := map[ids.ActorID]ActorInfo{}
+	return func(raw string) (ActorInfo, bool) {
+		id := actorid.ParseActor(raw)
+		if id == 0 || s.Actors == nil {
+			return ActorInfo{}, false
+		}
+		if info, ok := cache[id]; ok {
+			return info, true
+		}
+		info, err := s.Actors(ctx, id)
+		if err != nil {
+			return ActorInfo{}, false
+		}
+		cache[id] = info
+		return info, true
+	}
+}
+
 func (s *TaskServer) BulkUpdateTask(
 	ctx context.Context,
 	req *agencyv1.BulkUpdateTaskRequest,
@@ -815,6 +1010,7 @@ func (s *TaskServer) BulkUpdateTask(
 		req.SetPriority,
 		req.SetSize,
 		actorid.ParseActorPtr(req.SetAssigneeActorId),
+		nil,
 		nil,
 		nil,
 		req.GetAddTagIds(),
@@ -1079,7 +1275,13 @@ func (s *TaskServer) WatchTask(
 			return err
 		}
 	}
-	return inner.Err()
+	err = inner.Err()
+	if connect.CodeOf(err) == connect.CodeNotFound {
+
+		log.Printf("[task %s] watch lost session %s: %v", t.ID, t.SessionID, err)
+		return nil
+	}
+	return err
 }
 
 func (s *TaskServer) GetTaskHistory(
@@ -1128,6 +1330,11 @@ func (s *TaskServer) GetTaskHistory(
 		Limit:  req.Limit,
 	})
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+
+			log.Printf("[task %s] history of lost session %s: %v", t.ID, t.SessionID, err)
+			return &agencyv1.GetTaskHistoryResponse{}, nil
+		}
 		return nil, err
 	}
 	return &agencyv1.GetTaskHistoryResponse{
@@ -1245,8 +1452,14 @@ func (s *TaskServer) RespondToExtensionUi(
 			})
 		}
 	}
+
+	s.stampQuestionnaireAnswer(ctx, inner)
 	if _, err := conn.Tasks.RespondToExtensionUi(ctx, inner); err != nil {
 		return nil, err
+	}
+
+	if len(req.Questionnaire) > 0 {
+		s.recordQuestionnaireAnswer(ctx, t, req.RequestId, len(req.Questionnaire))
 	}
 
 	if _, err := s.Tasks.ClearInput(ctx, t.ID); err != nil {
@@ -1269,6 +1482,30 @@ func (s *TaskServer) ClearTaskQueue(
 		return nil, err
 	}
 	return &agencyv1.ClearTaskQueueResponse{}, nil
+}
+
+func (s *TaskServer) RestartTaskSession(
+	ctx context.Context,
+	req *agencyv1.RestartTaskSessionRequest,
+) (*agencyv1.RestartTaskSessionResponse, error) {
+	t, conn, err := s.sessionTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireTaskControl(
+		ctx,
+		t,
+		"not allowed to restart this task's session",
+	); err != nil {
+		return nil, err
+	}
+	if _, err := conn.Tasks.RestartTaskSession(
+		ctx,
+		&agentv1.RestartTaskSessionRequest{Id: t.SessionID},
+	); err != nil {
+		return nil, err
+	}
+	return &agencyv1.RestartTaskSessionResponse{}, nil
 }
 
 func (s *TaskServer) enrichNames(ctx context.Context, list []tasks.Task) {
@@ -1316,6 +1553,14 @@ func (s *TaskServer) requireTaskModelSelection(
 	ctx context.Context,
 	t tasks.Task,
 ) error {
+	return s.requireTaskControl(ctx, t, "not allowed to change this task's model")
+}
+
+func (s *TaskServer) requireTaskControl(
+	ctx context.Context,
+	t tasks.Task,
+	message string,
+) error {
 	actorID, ok := auth.ActorID(ctx)
 	if !ok || actorID == 0 {
 		return nil
@@ -1325,10 +1570,7 @@ func (s *TaskServer) requireTaskModelSelection(
 		return mapError(err)
 	}
 	if !allowed {
-		return connect.NewError(
-			connect.CodePermissionDenied,
-			errors.New("not allowed to change this task's model"),
-		)
+		return connect.NewError(connect.CodePermissionDenied, errors.New(message))
 	}
 	return nil
 }
@@ -1586,27 +1828,51 @@ func (s *TaskServer) wake() {
 	}
 }
 
+func mapTemplateError(err error) *connect.Error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, templates.ErrTemplateMissing),
+		errors.Is(err, templates.ErrVersionMissing):
+		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, templates.ErrArchived):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, projects.ErrForbidden),
+		errors.Is(err, projects.ErrNotMember):
+		return connect.NewError(connect.CodePermissionDenied, err)
+	default:
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+}
+
 func mapError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, tasks.ErrNotFound),
+		errors.Is(err, tasks.ErrCommentNotFound),
 		errors.Is(err, projects.ErrProjectMissing),
 		errors.Is(err, tags.ErrTagMissing):
 		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, tasks.ErrCommentForbidden):
+		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, tasks.ErrInvalidPrompt),
+		errors.Is(err, tasks.ErrInvalidModel),
+		errors.Is(err, tasks.ErrModelWithoutAssignee),
 		errors.Is(err, tasks.ErrProjectRequired),
 		errors.Is(err, tasks.ErrSelfReference),
 		errors.Is(err, tasks.ErrReferenceCycle),
 		errors.Is(err, tasks.ErrLeadNotAllowed),
+		errors.Is(err, tasks.ErrCommentBodyRequired),
+		errors.Is(err, tasks.ErrCommentAttachmentNotFound),
 		errors.Is(err, tags.ErrInvalidName):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, tags.ErrTagExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
-	case errors.Is(err, tasks.ErrNotDraft),
+	case errors.Is(err, tasks.ErrNotEditable),
 		errors.Is(err, tasks.ErrWrongState),
 		errors.Is(err, tasks.ErrRunning),
 		errors.Is(err, tasks.ErrFollowUpRequired),
-		errors.Is(err, tasks.ErrPostponedNotDraft),
 		errors.Is(err, tasks.ErrNotMember),
+		errors.Is(err, tasks.ErrAssigneeViewer),
 		errors.Is(err, tasks.ErrProjectHasNoAgents),
 		errors.Is(err, tasks.ErrMergeProjectMismatch),
 		errors.Is(err, tasks.ErrMergeAssigneeConflict),
@@ -1628,8 +1894,6 @@ func mapAgentError(err error) *connect.Error {
 
 func stateFromProto(s agencyv1.TaskState) tasks.State {
 	switch s {
-	case agencyv1.TaskState_TASK_STATE_DRAFT:
-		return tasks.StateDraft
 	case agencyv1.TaskState_TASK_STATE_BACKLOG:
 		return tasks.StateBacklog
 	case agencyv1.TaskState_TASK_STATE_QUEUED:
@@ -1653,8 +1917,6 @@ func stateFromProto(s agencyv1.TaskState) tasks.State {
 
 func stateToProto(s tasks.State) agencyv1.TaskState {
 	switch s {
-	case tasks.StateDraft:
-		return agencyv1.TaskState_TASK_STATE_DRAFT
 	case tasks.StateBacklog:
 		return agencyv1.TaskState_TASK_STATE_BACKLOG
 	case tasks.StateQueued:
@@ -1682,6 +1944,7 @@ func attributesFromProto(
 	setAssignee *ids.ActorID,
 	setPrompt *string,
 	setPendingPrompt *string,
+	setModel *agencyv1.TaskModelOverride,
 	addTagIDs, removeTagIDs []string,
 ) tasks.AttributeSet {
 	var attrs tasks.AttributeSet
@@ -1701,6 +1964,13 @@ func attributesFromProto(
 	}
 	if setPendingPrompt != nil {
 		attrs.PendingPrompt = setPendingPrompt
+	}
+	if setModel != nil {
+		attrs.Model = &tasks.ModelOverride{
+			Provider:      setModel.GetProvider(),
+			ModelID:       setModel.GetModelId(),
+			ThinkingLevel: setModel.GetThinkingLevel(),
+		}
 	}
 	attrs.AddTagIDs = addTagIDs
 	attrs.RemoveTagIDs = removeTagIDs
@@ -1787,9 +2057,11 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		AutoTitle:            t.AutoTitle,
 		Archived:             t.Archived,
 		Blockers:             int32(t.Blockers),
+		Progress:             progressToProto(t.Progress),
 		CreatorActorId:       actorid.Format(t.CreatorActorID),
 		Subscribed:           t.Subscribed,
 		Favorite:             t.Favorite,
+		UnreadComments:       int32(t.UnreadComments),
 		CreatedAt:            timestamppb.New(t.CreatedAt),
 		UpdatedAt:            timestamppb.New(t.UpdatedAt),
 	}
@@ -1831,7 +2103,42 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 	out.StateUpdatedAt = timeOrNil(t.StateUpdatedAt)
 	out.SessionDeletedAt = timeOrNil(t.SessionDeletedAt)
 	out.ArchivedAt = timeOrNil(t.ArchivedAt)
+	if t.Template != nil {
+		out.Template = &agencyv1.TaskTemplateInfo{
+			TemplateId:   t.Template.TemplateID,
+			TemplateName: t.Template.TemplateName,
+			Version:      t.Template.TemplateVersion,
+			ArgsJson:     t.Template.ArgsJSON,
+		}
+	}
 	return out
+}
+
+func progressToProto(p tasks.Progress) *agencyv1.TaskProgress {
+	if p.Total == 0 && p.Summary == "" && p.UpdatedAt.IsZero() {
+		return nil
+	}
+	out := &agencyv1.TaskProgress{
+		Summary:   p.Summary,
+		Done:      int32(p.Done),
+		Total:     int32(p.Total),
+		UpdatedAt: timeOrNil(p.UpdatedAt),
+	}
+	for _, item := range p.Items {
+		out.Items = append(out.Items, &agencyv1.TaskProgressItem{
+			Text:   item.Text,
+			Status: agencyv1.TaskProgressItemStatus(item.Status),
+		})
+	}
+	return out
+}
+
+func stripProgressItems(tasksOut []*agencyv1.Task) {
+	for _, task := range tasksOut {
+		if task.Progress != nil {
+			task.Progress.Items = nil
+		}
+	}
 }
 
 func toProtoReference(ref tasks.Reference) *agencyv1.TaskReference {

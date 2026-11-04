@@ -34,6 +34,11 @@ export interface TeamProject {
   name: string;
   slug: string;
   role: string;
+
+  inherited?: boolean;
+  inherited_from_project_id?: string;
+  inherited_from_project_name?: string;
+  inherited_from_project_slug?: string;
 }
 
 export interface TeamMember {

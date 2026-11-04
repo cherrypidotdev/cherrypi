@@ -21,9 +21,13 @@ import { useUsage, type UsageBucket } from "@/composables/useUsage";
 import { agency } from "@/lib/sdk";
 import {
   DAY_MS,
+  summarizeTaskInsights,
   usageAccent,
   usageRangeBounds,
   utcDayStart,
+  type TaskInsightSample,
+  type UsageInsightDay,
+  type UsageInsights,
   type UsageRange,
   type UsageSummary,
 } from "@/lib/usage";
@@ -55,14 +59,17 @@ export interface UsageTagSeries {
   points: { date: Date; value: number }[];
 }
 
-export interface UsageBreakdownRow {
+export interface UsageBreakdownRow extends UsageInsights {
   id: string;
   name: string;
   accent: string;
-  cost: number;
-  runs: number;
-  tasks: number;
-  tokens: number;
+}
+
+export interface UsageInsightTag {
+  id: string;
+  name: string;
+  color: string;
+  scope: string;
 }
 
 export interface UsageTaskRow {
@@ -90,6 +97,10 @@ export interface UsageAnalyticsOptions {
   projectId: MaybeRefOrGetter<string>;
   range: MaybeRefOrGetter<UsageRange>;
   includeArchived: MaybeRefOrGetter<boolean>;
+
+  insightTagIds?: MaybeRefOrGetter<string[]>;
+
+  model?: MaybeRefOrGetter<string>;
 }
 
 function timestampMs(ts: { seconds: bigint } | undefined): number {
@@ -117,13 +128,14 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
   const projectId = computed(() => toValue(options.projectId));
   const range = computed(() => toValue(options.range));
   const includeArchived = computed(() => toValue(options.includeArchived));
+  const model = computed(() => toValue(options.model ?? ""));
 
   const {
     usage,
     byTask,
     loading: usageLoading,
     error: usageError,
-  } = useUsage(agentId, projectId, range);
+  } = useUsage(agentId, projectId, range, model);
 
   const tasks = ref<Task[]>([]);
   const tasksLoading = ref(true);
@@ -402,42 +414,103 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
     });
   });
 
+  const insightTagIds = computed(() => toValue(options.insightTagIds ?? []));
+
+  const insightTasks = computed(() => {
+    const selected = new Set(insightTagIds.value);
+    if (!selected.size) return completedInRange.value;
+    return completedInRange.value.filter((task) =>
+      task.tags.some((tag) => selected.has(tag.id)),
+    );
+  });
+
+  function insightSample(task: Task): TaskInsightSample {
+    const bucket = task.sessionId
+      ? byTask.value.get(task.sessionId)
+      : undefined;
+    return {
+      queuedAtMs: timestampMs(task.queuedAt),
+      settledAtMs: timestampMs(task.settledAt),
+      inputTokens: bucket?.inputTokens ?? 0,
+      outputTokens: bucket?.outputTokens ?? 0,
+      cost: bucket?.cost ?? 0,
+      activeMs: bucket?.activeMs ?? 0,
+      runs: bucket?.runs ?? 0,
+    };
+  }
+
+  const insights = computed(() =>
+    summarizeTaskInsights(insightTasks.value.map(insightSample)),
+  );
+
+  const insightDaily = computed<UsageInsightDay[]>(() => {
+    const tasksByDay = new Map<number, Task[]>();
+    for (const task of insightTasks.value) {
+      const at = timestampMs(task.settledAt);
+      if (!at) continue;
+      const key = dayKey(at);
+      const group = tasksByDay.get(key);
+      if (group) group.push(task);
+      else tasksByDay.set(key, [task]);
+    }
+
+    return daily.value.map((point) => {
+      const dayTasks = tasksByDay.get(dayKey(point.date.getTime())) ?? [];
+      return {
+        date: point.date,
+        ...summarizeTaskInsights(dayTasks.map(insightSample)),
+      };
+    });
+  });
+
+  const insightTags = computed<UsageInsightTag[]>(() => {
+    const map = new Map<string, Tag>();
+    for (const task of completedInRange.value) {
+      for (const tag of task.tags) map.set(tag.id, tag);
+    }
+
+    const showScope = context.value !== "project";
+    return Array.from(map.values())
+      .map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        color: tag.color,
+        scope: showScope && tag.projectId ? projectName(tag.projectId) : "",
+      }))
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope),
+      );
+  });
+
   const breakdown = computed<UsageBreakdownRow[]>(() => {
+    const byAgent = context.value === "project";
     const groups = new Map<
       string,
-      {
-        id: string;
-        name: string;
-        accent: string;
-        cost: number;
-        runs: number;
-        tasks: number;
-        tokens: number;
-      }
+      { id: string; name: string; accent: string; tasks: Task[] }
     >();
-
-    const byAgent = context.value === "project";
-    for (const row of rows.value) {
-      const id = byAgent ? row.agentId : row.projectId;
-      const name = byAgent ? row.agentName : row.projectName;
+    for (const task of insightTasks.value) {
+      const id = byAgent
+        ? agentIdForActor(task.assigneeActorId)
+        : task.projectId || projectId.value;
+      const name = byAgent ? agentName(id) : projectName(id);
       const group = groups.get(id) ?? {
         id,
         name,
         accent: usageAccent(id || name),
-        cost: 0,
-        runs: 0,
-        tasks: 0,
-        tokens: 0,
+        tasks: [],
       };
-      group.cost += row.cost;
-      group.runs += row.runs;
-      group.tasks += 1;
-      group.tokens += row.inputTokens + row.outputTokens;
+      group.tasks.push(task);
       groups.set(id, group);
     }
     return Array.from(groups.values())
-      .filter((row) => row.cost > 0 || row.runs > 0)
-      .sort((a, b) => b.cost - a.cost);
+      .map((group) => ({
+        id: group.id,
+        name: group.name,
+        accent: group.accent,
+        ...summarizeTaskInsights(group.tasks.map(insightSample)),
+      }))
+      .sort((a, b) => b.cost - a.cost || b.tasks - a.tasks);
   });
 
   const availableAgents = computed(() =>
@@ -451,6 +524,10 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
     projects.value.map((project) => ({ id: project.id, name: project.name })),
   );
 
+  const models = computed(() => usage.value?.models ?? []);
+
+  const availableModels = computed(() => usage.value?.availableModels ?? []);
+
   return {
     usage,
     tasks,
@@ -460,7 +537,12 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
     daily,
     rows,
     tagSeries,
+    insights,
+    insightDaily,
+    insightTags,
     breakdown,
+    models,
+    availableModels,
     availableAgents,
     availableProjects,
     agentName,

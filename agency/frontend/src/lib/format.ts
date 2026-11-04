@@ -23,6 +23,14 @@ export function formatTimestamp(ts: TimestampLike | undefined): string {
   return new Date(Number(ts.seconds) * 1000).toLocaleString();
 }
 
+export function formatClock(ms: number | undefined): string {
+  if (ms === undefined) return "";
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function formatRelativeTimestamp(ts: TimestampLike | undefined): string {
   if (!ts || ts.seconds === 0n) return "—";
   return formatRelativeTime(Number(ts.seconds) * 1000);

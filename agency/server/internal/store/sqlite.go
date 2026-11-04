@@ -35,18 +35,23 @@ const (
 	busyRetryWait = 100 * time.Millisecond
 )
 
-func sqliteDSN(dsn string) string {
+func sqliteDSN(dsn string, foreignKeys bool) string {
 	sep := "?"
 	if strings.ContainsRune(dsn, '?') {
 		sep = "&"
 	}
 
+	flag := "0"
+	if foreignKeys {
+		flag = "1"
+	}
+
 	return dsn + sep + "mode=rwc&_busy_timeout=" + strconv.Itoa(busyTimeoutMs) +
-		"&_journal_mode=WAL&_synchronous=NORMAL"
+		"&_journal_mode=WAL&_synchronous=NORMAL&_pragma=foreign_keys(" + flag + ")"
 }
 
-func openSQLite(dsn string) (*sql.DB, error) {
-	connector, err := sqlite.NewConnector(sqliteDSN(dsn))
+func openSQLite(dsn string, foreignKeys bool) (*sql.DB, error) {
+	connector, err := sqlite.NewConnector(sqliteDSN(dsn, foreignKeys))
 	if err != nil {
 		return nil, err
 	}

@@ -36,17 +36,29 @@ type Config struct {
 	Output io.Writer
 
 	Sink Sink
+
+	File string
+
+	FileMaxBytes int64
+
+	FileKeep int
 }
 
 const localKey = "_local"
 
-// standard library `log` package through it, so every line reaches stdout and
+// standard library `log` package through it, so every line reaches stdout, the
 
 func Setup(cfg Config) *slog.Logger {
 	out := cfg.Output
 	if out == nil {
 		out = os.Stdout
 	}
+
+	file, fileErr := openFileSink(cfg.File, cfg.FileMaxBytes, cfg.FileKeep)
+	if file != nil {
+		out = io.MultiWriter(out, file)
+	}
+
 	opts := &slog.HandlerOptions{Level: ParseLevel(cfg.Level)}
 
 	var base slog.Handler
@@ -66,6 +78,12 @@ func Setup(cfg Config) *slog.Logger {
 
 	log.SetOutput(&logWriter{logger: logger})
 	log.SetFlags(0)
+
+	if fileErr != nil {
+		logger.Warn("log file unavailable", "path", cfg.File, "error", fileErr)
+	} else if file != nil {
+		logger.Info("log file", "path", file.Path())
+	}
 
 	return logger
 }

@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           v-for="model in modelOptions"
           :key="`${model.provider}/${model.id}`"
           :value="`${model.provider}/${model.id}`"
-        ) {{ model.name || model.id }}
+        ) {{ modelLabel(model) }}
   Select(:model-value="thinkingChoice" @update:model-value="onThinkingChange")
     SelectTrigger(
       size="sm"
@@ -230,15 +230,21 @@ const modelChoice = computed(() =>
 const thinkingChoice = computed(
   () => props.selection.thinkingLevel || defaultThinkingLevel.value,
 );
+
+function modelLabel(model: TaskModel): string {
+  const name = model.name || model.id;
+  return model.provider ? `${model.provider}/${name}` : name;
+}
+
 const modelDisplayLabel = computed(() => {
   if (props.selection.modelProvider) {
-    return (
-      selectedModel.value?.name ||
-      props.selection.modelName ||
-      props.selection.modelId
-    );
+    const model = selectedModel.value;
+    if (model) return modelLabel(model);
+
+    const name = props.selection.modelName || props.selection.modelId;
+    return `${props.selection.modelProvider}/${name}`;
   }
-  return selectedModel.value?.name || "Model";
+  return selectedModel.value ? modelLabel(selectedModel.value) : "Model";
 });
 const thinkingDisplayLabel = computed(
   () =>

@@ -1010,3 +1010,22 @@ func nullTime(value sql.NullInt64) *time.Time {
 	t := time.UnixMilli(value.Int64)
 	return &t
 }
+
+func (s *Service) LogPrompt(
+	ctx context.Context,
+	teamID int64,
+	kind, field, oldValue, newValue, message string,
+	data any,
+) {
+	s.writeLog(
+		ctx,
+		teamID,
+		audit.ActorID(ctx),
+		kind,
+		field,
+		oldValue,
+		newValue,
+		message,
+		data,
+	)
+}

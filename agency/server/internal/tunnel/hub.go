@@ -28,6 +28,7 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	agencyauth "cherrypi.vladfaust.com/agency/internal/auth"
+	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
 	agentv1connect "cherrypi.vladfaust.com/shared/gen/buf/agent/v1/agentv1connect"
 	tunnelv1 "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1"
 	sharedtunnel "cherrypi.vladfaust.com/shared/tunnel"
@@ -65,6 +66,7 @@ type Connection struct {
 	Dashboard agentv1connect.DashboardServiceClient
 	Terminals agentv1connect.TerminalServiceClient
 	Desktops  agentv1connect.DesktopServiceClient
+	Health    agentv1connect.HealthServiceClient
 }
 
 func (c *Connection) HTTPClient() *http.Client { return c.httpClient }
@@ -214,7 +216,18 @@ func newConnection(id ids.AgentID, session *yamux.Session) *Connection {
 			client,
 			"http://agent/api/grpc",
 			opts...),
+		Health: agentv1connect.NewHealthServiceClient(
+			client,
+			"http://agent/api/grpc",
+			opts...),
 	}
+}
+
+func (c *Connection) SetHealthInterval(ctx context.Context, seconds *int64) error {
+	_, err := c.Health.SetHealthInterval(ctx,
+		&agentv1.SetHealthIntervalRequest{IntervalSeconds: seconds},
+	)
+	return err
 }
 
 type userForward struct{}

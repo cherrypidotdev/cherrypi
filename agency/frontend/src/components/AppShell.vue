@@ -76,6 +76,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           span All projects
       .mt-2.border-t.pt-2
         SidebarSection(
+          :icon="GlobeIcon"
+          title="Sites"
+          :to="{ name: 'sites' }"
+          :active="route.name === 'sites' || route.name === 'site'"
+          :open="isSectionOpen('sites')"
+          :collapsed="collapsed"
+          :count="sidebarSites.length"
+          @toggle="toggleSection('sites')"
+        )
+          p.text-muted-foreground.px-3.py-1.text-xs(
+            v-if="!sidebarSites.length && !collapsed"
+          )
+            | No agency-wide sites
+          RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
+            v-for="site in sidebarSites"
+            :key="site.id"
+            :to="{ name: 'site', params: { id: site.id } }"
+            :title="collapsed ? site.title || site.id : undefined"
+            :class="[route.name === 'site' && route.params.id === site.id ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : '']"
+          )
+            GlobeIcon.size-4.shrink-0
+            span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'")
+              | {{ site.title || site.id }}
+          RouterLink.text-muted-foreground.flex.items-center.gap-2.rounded-md.px-3.py-2.text-xs.font-medium(
+            v-if="!collapsed"
+            :to="{ name: 'sites' }"
+          )
+            span All sites
+      .mt-2.border-t.pt-2
+        SidebarSection(
           :icon="BotIcon"
           title="Agents"
           :to="{ name: 'agents' }"
@@ -300,10 +330,17 @@ import {
 } from "@/composables/useRealtime";
 import { useSettings } from "@/composables/useSettings";
 import { useSidebar } from "@/composables/useSidebar";
+import { useSites } from "@/composables/useSites";
+import { useTheme } from "@/composables/useTheme";
 import { useUsers } from "@/composables/useUsers";
 import { currentAccount, type AccountActor } from "@/lib/account";
-import { applyFavicon, armAttentionPermission } from "@/lib/attention";
+import {
+  applyFavicon,
+  armAttentionAudio,
+  armAttentionPermission,
+} from "@/lib/attention";
 import { ATTENTION_EVENTS } from "@/lib/attentionEvents";
+import { bindAttentionNavigation } from "@/lib/attentionToast";
 import type { Team } from "@/lib/team";
 import { currentUser } from "@/lib/user";
 import { AgentStatus, type Agent } from "@cherrypi/sdk";
@@ -311,6 +348,7 @@ import {
   BookOpenIcon,
   BotIcon,
   FolderIcon,
+  GlobeIcon,
   InboxIcon,
   MoonIcon,
   PanelLeftCloseIcon,
@@ -322,7 +360,6 @@ import {
   UserIcon,
   UsersIcon,
 } from "@lucide/vue";
-import { useDark, useToggle } from "@vueuse/core";
 import { toSvg } from "jdenticon";
 import {
   computed,
@@ -332,13 +369,15 @@ import {
   watch,
   watchEffect,
 } from "vue";
-import { RouterLink, RouterView, useRoute } from "vue-router";
+import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 // vite.config.ts.
 const appVersion = __APP_VERSION__;
 
-const isDark = useDark();
-const toggleDark = useToggle(isDark);
+const { isDark, toggleDark } = useTheme();
+
+const router = useRouter();
+bindAttentionNavigation((to) => void router.push(to));
 
 const { settings, loadSettings } = useSettings();
 const { collapsed, toggle, isSectionOpen, toggleSection } = useSidebar();
@@ -346,6 +385,8 @@ const { collapsed, toggle, isSectionOpen, toggleSection } = useSidebar();
 const newTaskOpen = ref(false);
 const { agents, loadAgents } = useAgents();
 const { users, loadUsers } = useUsers();
+
+const { sites: sidebarSites, load: loadSites } = useSites();
 const {
   teams,
   ownedAgentActorIds,
@@ -464,9 +505,12 @@ watchEffect(() => {
 onMounted(async () => {
   void loadSettings();
   void loadAgents();
+  void loadSites({ agencyWideOnly: true });
   void loadDirectory();
   startNotifications();
   startRealtime();
+
+  armAttentionAudio();
 
   if (
     ATTENTION_EVENTS.some((event) => attentionPreference(event.kind).browser)
@@ -496,6 +540,10 @@ onBeforeUnmount(() => {
 useRealtime(["agents"], () => {
   void loadAgents(true);
   void loadDirectory(true);
+});
+
+useRealtime(["sites"], () => {
+  void loadSites({ agencyWideOnly: true });
 });
 
 function avatar(item: Agent): string {

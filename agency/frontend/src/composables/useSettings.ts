@@ -22,18 +22,25 @@ const settings = ref<AgencySettings | undefined>();
 const loading = ref(false);
 const error = ref("");
 
+let inFlight: Promise<void> | null = null;
+
 async function loadSettings(force = false) {
+  if (inFlight) return inFlight;
   if (settings.value && !force) return;
   loading.value = true;
-  try {
-    settings.value = await agency.getSettings();
-    applyPrimaryColor(settings.value.primaryColor);
-    error.value = "";
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
+  inFlight = (async () => {
+    try {
+      settings.value = await agency.getSettings();
+      applyPrimaryColor(settings.value.primaryColor);
+      error.value = "";
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      loading.value = false;
+      inFlight = null;
+    }
+  })();
+  return inFlight;
 }
 
 async function saveSettings(

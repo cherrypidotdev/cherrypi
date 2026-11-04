@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { soundNotesFor } from "@/lib/attentionEvents";
+import { soundSet, soundVolume } from "@/composables/useSoundPreferences";
+import { plainNotificationText } from "@/lib/notificationText";
+import { closeContext, ensureReady } from "@/lib/sounds/context";
+import { playSound, stopSound } from "@/lib/sounds/play";
 import type { AttentionNotification } from "@cherrypi/sdk";
 
 export const DEFAULT_FAVICON = "/favicon.png";
@@ -125,42 +128,26 @@ export function applyFavicon(count: number, iconUrl?: string) {
   }
 }
 
-let audioContext: AudioContext | null = null;
-
-const NOTE_SECONDS = 0.16;
-const NOTE_SPACING = 0.14;
+let audioUnlockHandler: (() => void) | null = null;
 
 export function playAttentionSound(kind = "") {
-  try {
-    const Ctor = window.AudioContext;
-    if (!Ctor) return;
+  void playSound(soundSet.value, kind, soundVolume.value);
+}
 
-    audioContext ??= new Ctor();
-    const ctx = audioContext;
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
+export function armAttentionAudio() {
+  if (audioUnlockHandler) return;
+  if (typeof window === "undefined" || !window.AudioContext) return;
 
-    const start = ctx.currentTime;
-    soundNotesFor(kind).forEach((frequency, index) => {
-      const at = start + index * NOTE_SPACING;
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
+  const handler = () => {
+    window.removeEventListener("pointerdown", handler, true);
+    window.removeEventListener("keydown", handler, true);
+    audioUnlockHandler = null;
+    void ensureReady().catch(() => {});
+  };
 
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(frequency, at);
-
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(0.18, at + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + NOTE_SECONDS + 0.1);
-
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscillator.start(at);
-      oscillator.stop(at + NOTE_SECONDS + 0.11);
-    });
-  } catch {}
+  audioUnlockHandler = handler;
+  window.addEventListener("pointerdown", handler, true);
+  window.addEventListener("keydown", handler, true);
 }
 
 const liveNotifications = new Set<Notification>();
@@ -171,7 +158,7 @@ let permissionHandler: ((event: Event) => void) | null = null;
 function display(n: AttentionNotification) {
   try {
     const notification = new Notification(n.title, {
-      body: n.body,
+      body: plainNotificationText(n.body),
       icon: currentIcon,
 
       tag: `cherrypi-${n.id}-${n.createdAt}`,
@@ -214,7 +201,13 @@ export function resetAttention() {
   }
   pendingNotifications = [];
   liveNotifications.clear();
-  audioContext = null;
+  if (audioUnlockHandler) {
+    window.removeEventListener("pointerdown", audioUnlockHandler, true);
+    window.removeEventListener("keydown", audioUnlockHandler, true);
+    audioUnlockHandler = null;
+  }
+  stopSound();
+  closeContext();
   faviconImage = null;
   faviconImageReady = false;
   faviconImageSrc = "";

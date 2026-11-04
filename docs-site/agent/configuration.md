@@ -29,6 +29,9 @@ working directory (loaded automatically). Flags override the environment.
 | `CHERRYPI_AGENT_TUNNEL_TRANSPORT` | `auto` | `auto`, `http2` or `websocket`. Diagnostic only. |
 | `CHERRYPI_LOG_FORMAT` | `text` | `text` or `json` per-line logs. |
 | `CHERRYPI_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
+| `CHERRYPI_LOG_FILE` | `$CHERRYPI_DIR/logs/agent.log` | Durable copy of the process log; empty disables it. |
+| `CHERRYPI_LOG_FILE_MAX_MB` | `8` | Size at which the log file rotates. |
+| `CHERRYPI_LOG_FILES` | `3` | Rotated log files kept (`agent.log.1` …). |
 | `PI_BIN` | `pi` | Pi executable. |
 | `PI_ARGS` | — | Extra space-separated arguments passed to Pi after `--mode rpc --session-id`. |
 | `PI_SESSION_DIR` | Pi's default | Override Pi's session storage. |
@@ -36,6 +39,11 @@ working directory (loaded automatically). Flags override the environment.
 | `DISPLAY` | — | X display for the desktop bridge. |
 | `XAUTHORITY` | — | X authority file. |
 | `SHELL_BIN` | `$SHELL`, then `/bin/bash` | Shell used for root terminals. |
+| `CHERRYPI_HEALTH_INTERVAL` | `1m` | Host-health sampling interval. `0s` disables sampling. |
+| `CHERRYPI_HEALTH_HOST_PROC` | `/host/proc` when present, else `/proc` | Host `/proc` mount used for CPU, memory, load and network. |
+| `CHERRYPI_HEALTH_HOST_SYS` | `/host/sys` when present, else `/sys` | Host `/sys` mount. |
+| `CHERRYPI_HEALTH_HOST_ROOT` | `/host/root` when present, else `/` | Host root; the default disk target. |
+| `CHERRYPI_HEALTH_DISKS` | host root + `$CHERRYPI_DIR` | Extra filesystem targets, comma-separated `label=/path` or bare paths. |
 
 ## Tokens
 
@@ -84,6 +92,42 @@ The image already installs the Pi extensions CherryPi expects. If you run the
 binary yourself, install a compatible Pi version and the extensions listed in
 the release notes.
 
+Pi reads `models.json` once, when its process starts. The agency therefore keeps
+offering the catalog a warm process reported until that process restarts:
+
+- **Reset models** in **Agents → Tasks**, next to the model default, re-probes
+  the agent and shows an edited `models.json` in that dropdown (the task composer
+  picks it up the next time it opens).
+- **Restart Pi session** in a task's details drawer drops the task's warm Pi
+  process, so its next read reloads `models.json`. It is disabled while a run is
+  in flight or a questionnaire waits for an answer, because restarting would drop
+  that work.
+
+## Health sampling
+
+The agent reports host CPU, load, memory, swap, disk, network, uptime and NVIDIA
+GPU readings every minute. To report the machine instead of the container, mount
+the host paths read-only:
+
+```yaml
+volumes:
+  - /proc:/host/proc:ro
+  - /sys:/host/sys:ro
+  - /:/host/root:ro
+```
+
+The agent auto-detects these mounts and marks the sample `host`; without them it
+marks it `container`. The agent page's **Health** tab shows the data and keeps
+30 days of history in the agency. See
+[Using agents](/using/agents#health).
+
+`CHERRYPI_HEALTH_INTERVAL` is the **local default**. An agent owner can override
+it per agent in **Settings → General → Health sampling**; the agency stores the
+value and pushes it over the tunnel when the agent connects and whenever it
+changes, so no restart is needed. Accepted values are 10 seconds to 24 hours
+(presets, a custom duration, or off); clearing the setting returns the agent to
+this environment variable.
+
 ## Logging
 
 Logs go to stdout, and a mirror of non-local records is sent to the agency for
@@ -93,6 +137,17 @@ the **Logs** tab on the agent page.
 CHERRYPI_LOG_FORMAT=json
 CHERRYPI_LOG_LEVEL=debug
 ```
+
+The mirror needs a live tunnel, so every line is also appended to
+`$CHERRYPI_DIR/logs/agent.log` (rotated by size). Read that file when the
+agency's copy has a gap — after a tunnel outage or an agent restart, which is
+exactly when the log matters. `docker exec <container> tail -f
+/root/.cherrypi/logs/agent.log` is the usual entry point.
+
+Task history sync is logged with its reason: a failed push names the agency's
+answer and the backoff, and a session that gives up warns
+`task history left unsynced` with the number of entries the agency never
+received.
 
 Pi's own stderr stays local and reaches the agency as task console output.
 

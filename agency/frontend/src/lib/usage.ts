@@ -26,6 +26,81 @@ export interface UsageSummary {
   allTimeCompleted: number;
 }
 
+export interface UsageInsights {
+  tasks: number;
+
+  ttcSamples: number;
+
+  ttcMs: number;
+
+  activeMs: number;
+
+  rounds: number;
+
+  tokens: number;
+
+  cost: number;
+}
+
+export interface UsageInsightDay extends UsageInsights {
+  date: Date;
+}
+
+export interface TaskInsightSample {
+  queuedAtMs: number;
+
+  settledAtMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cost?: number;
+  activeMs?: number;
+  runs?: number;
+}
+
+export function taskTtcMs(
+  queuedAtMs: number,
+  settledAtMs: number,
+): number | null {
+  if (!queuedAtMs || !settledAtMs || settledAtMs < queuedAtMs) return null;
+  return settledAtMs - queuedAtMs;
+}
+
+export function summarizeTaskInsights(
+  samples: TaskInsightSample[],
+): UsageInsights {
+  let ttcTotal = 0;
+  let ttcSamples = 0;
+  let tokens = 0;
+  let cost = 0;
+  let activeMs = 0;
+  let runs = 0;
+
+  for (const sample of samples) {
+    const ttc = taskTtcMs(sample.queuedAtMs, sample.settledAtMs);
+    if (ttc !== null) {
+      ttcTotal += ttc;
+      ttcSamples++;
+    }
+    tokens += (sample.inputTokens ?? 0) + (sample.outputTokens ?? 0);
+    cost += sample.cost ?? 0;
+    activeMs += sample.activeMs ?? 0;
+    runs += sample.runs ?? 0;
+  }
+
+  const tasks = samples.length;
+  const average = (total: number) => (tasks ? total / tasks : 0);
+
+  return {
+    tasks,
+    ttcSamples,
+    ttcMs: ttcSamples ? ttcTotal / ttcSamples : 0,
+    activeMs: average(activeMs),
+    rounds: average(runs),
+    tokens: average(tokens),
+    cost: average(cost),
+  };
+}
+
 export interface UsageQuery {
   agentId?: string;
   projectId?: string;

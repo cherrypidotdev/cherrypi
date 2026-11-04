@@ -790,6 +790,24 @@ func (s *SqliteStore) ListProjectTeamMembershipsForTeam(
 	return fromSqliteListProjectTeamMembershipsForTeamRowSlice(rows), nil
 }
 
+func (s *SqliteStore) ListInheritedProjectTeams(
+	ctx context.Context,
+	projectID string,
+) ([]ListInheritedProjectTeamsRow, error) {
+	rows, err := s.q.ListInheritedProjectTeams(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListInheritedProjectTeamsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListProjectTeamIDsWithAccess(
+	ctx context.Context,
+	projectID string,
+) ([]int64, error) {
+	return s.q.ListProjectTeamIDsWithAccess(ctx, projectID)
+}
+
 func (s *SqliteStore) CountProjectsOwnedByTeam(ctx context.Context, teamID int64) (int64, error) {
 	return s.q.CountProjectsOwnedByTeam(ctx, teamID)
 }
@@ -1123,11 +1141,19 @@ func (s *SqliteStore) ListRunningTasks(ctx context.Context) ([]Task, error) {
 	return fromSqliteTaskSlice(rows), nil
 }
 
-func (s *SqliteStore) UpdateDraftTask(
+func (s *SqliteStore) ListSessionTasks(ctx context.Context) ([]Task, error) {
+	rows, err := s.q.ListSessionTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
+}
+
+func (s *SqliteStore) UpdateBacklogTask(
 	ctx context.Context,
-	p UpdateDraftTaskParams,
+	p UpdateBacklogTaskParams,
 ) (Task, error) {
-	row, err := s.q.UpdateDraftTask(ctx, sqlitedb.UpdateDraftTaskParams(p))
+	row, err := s.q.UpdateBacklogTask(ctx, sqlitedb.UpdateBacklogTaskParams(p))
 	if err != nil {
 		return Task{}, err
 	}
@@ -1148,6 +1174,13 @@ func (s *SqliteStore) SetTaskPrompt(
 	return s.q.SetTaskPrompt(ctx, sqlitedb.SetTaskPromptParams(p))
 }
 
+func (s *SqliteStore) SetTaskModel(
+	ctx context.Context,
+	p SetTaskModelParams,
+) (int64, error) {
+	return s.q.SetTaskModel(ctx, sqlitedb.SetTaskModelParams(p))
+}
+
 func (s *SqliteStore) SetTaskPendingPrompt(
 	ctx context.Context,
 	p SetTaskPendingPromptParams,
@@ -1162,6 +1195,29 @@ func (s *SqliteStore) TaskIDBySession(
 	return s.q.TaskIDBySession(ctx, sqlitedb.TaskIDBySessionParams(p))
 }
 
+func (s *SqliteStore) GetTaskProgress(
+	ctx context.Context,
+	taskID string,
+) (TaskPlan, error) {
+	row, err := s.q.GetTaskProgress(ctx, taskID)
+	if err != nil {
+		return TaskPlan{}, err
+	}
+	items, err := s.q.ListTaskProgressItemsByTask(ctx, taskID)
+	if err != nil {
+		return TaskPlan{}, err
+	}
+	out := TaskPlan{Summary: row.Summary, UpdatedAt: row.UpdatedAt}
+	for _, item := range items {
+		out.Items = append(out.Items, TaskPlanItem{
+			Position: item.Position,
+			Text:     item.Text,
+			Status:   ProgressItemStatus(item.Status),
+		})
+	}
+	return out, nil
+}
+
 func (s *SqliteStore) SessionAgentID(
 	ctx context.Context,
 	sessionID string,
@@ -1172,6 +1228,35 @@ func (s *SqliteStore) SessionAgentID(
 
 func (s *SqliteStore) SetTaskError(ctx context.Context, p SetTaskErrorParams) (int64, error) {
 	return s.q.SetTaskError(ctx, sqlitedb.SetTaskErrorParams(p))
+}
+
+func (s *SqliteStore) SetTaskProgress(
+	ctx context.Context,
+	p SetTaskPlanParams,
+) error {
+	return s.tx(ctx, func(q *sqlitedb.Queries) error {
+		if err := q.UpsertTaskProgress(ctx, sqlitedb.UpsertTaskProgressParams{
+			TaskID:    p.TaskID,
+			Summary:   p.Summary,
+			UpdatedAt: p.UpdatedAt,
+		}); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgressItems(ctx, p.TaskID); err != nil {
+			return err
+		}
+		for _, item := range p.Items {
+			if err := q.InsertTaskProgressItem(ctx, sqlitedb.InsertTaskProgressItemParams{
+				TaskID:   p.TaskID,
+				Position: item.Position,
+				Text:     item.Text,
+				Status:   int64(item.Status),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *SqliteStore) SetTaskSession(
@@ -1346,6 +1431,33 @@ func (s *SqliteStore) ListTaskLinksByTask(
 	return fromSqliteListTaskLinksByTaskRowSlice(rows), nil
 }
 
+func (s *SqliteStore) ListTaskProgress(
+	ctx context.Context,
+) (map[string]TaskPlan, error) {
+	summaries, err := s.q.ListTaskProgress(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.q.ListTaskProgressItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]TaskPlan, len(summaries))
+	for _, row := range summaries {
+		out[row.TaskID] = TaskPlan{Summary: row.Summary, UpdatedAt: row.UpdatedAt}
+	}
+	for _, item := range items {
+		progress := out[item.TaskID]
+		progress.Items = append(progress.Items, TaskPlanItem{
+			Position: item.Position,
+			Text:     item.Text,
+			Status:   ProgressItemStatus(item.Status),
+		})
+		out[item.TaskID] = progress
+	}
+	return out, nil
+}
+
 func (s *SqliteStore) DeleteTaskLinks(ctx context.Context, taskID string) error {
 	return s.q.DeleteTaskLinks(ctx, taskID)
 }
@@ -1356,6 +1468,24 @@ func (s *SqliteStore) InsertTaskLink(ctx context.Context, p InsertTaskLinkParams
 
 func (s *SqliteStore) InsertTaskLog(ctx context.Context, p InsertTaskLogParams) error {
 	return s.q.InsertTaskLog(ctx, sqlitedb.InsertTaskLogParams(p))
+}
+
+func (s *SqliteStore) RecordQuestionnaireResponse(
+	ctx context.Context,
+	p RecordQuestionnaireResponseParams,
+) error {
+	return s.q.RecordQuestionnaireResponse(ctx, sqlitedb.RecordQuestionnaireResponseParams(p))
+}
+
+func (s *SqliteStore) ListQuestionnaireResponses(
+	ctx context.Context,
+	taskID string,
+) ([]ListQuestionnaireResponsesRow, error) {
+	rows, err := s.q.ListQuestionnaireResponses(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListQuestionnaireResponsesRowSlice(rows), nil
 }
 
 func (s *SqliteStore) ListTaskLogsByTask(
@@ -1766,12 +1896,16 @@ func (s *SqliteStore) ListAgentUsage(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
 	sinceMs sql.NullInt64,
 	untilMs sql.NullInt64,
 ) ([]ListAgentUsageRow, error) {
 	rows, err := s.q.ListAgentUsage(ctx, sqlitedb.ListAgentUsageParams(ListAgentUsageParams{
 		AgentID:   agentID,
 		ProjectID: projectID,
+		Provider:  provider,
+		Model:     model,
 		SinceMs:   sinceMs,
 		UntilMs:   untilMs,
 	}))
@@ -1793,6 +1927,8 @@ func (s *SqliteStore) ListAgentUsageByDay(
 	ctx context.Context,
 	agentID sql.NullInt64,
 	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
 	sinceMs sql.NullInt64,
 	untilMs sql.NullInt64,
 ) ([]ListAgentUsageByDayRow, error) {
@@ -1801,6 +1937,8 @@ func (s *SqliteStore) ListAgentUsageByDay(
 		sqlitedb.ListAgentUsageByDayParams(ListAgentUsageByDayParams{
 			AgentID:   agentID,
 			ProjectID: projectID,
+			Provider:  provider,
+			Model:     model,
 			SinceMs:   sinceMs,
 			UntilMs:   untilMs,
 		}),
@@ -1809,6 +1947,47 @@ func (s *SqliteStore) ListAgentUsageByDay(
 		return nil, err
 	}
 	return fromSqliteListAgentUsageByDayRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentUsageByModel(
+	ctx context.Context,
+	agentID sql.NullInt64,
+	projectID sql.NullString,
+	provider sql.NullString,
+	model sql.NullString,
+	sinceMs sql.NullInt64,
+	untilMs sql.NullInt64,
+) ([]ListAgentUsageByModelRow, error) {
+	rows, err := s.q.ListAgentUsageByModel(
+		ctx,
+		sqlitedb.ListAgentUsageByModelParams(ListAgentUsageByModelParams{
+			AgentID:   agentID,
+			ProjectID: projectID,
+			Provider:  provider,
+			Model:     model,
+			SinceMs:   sinceMs,
+			UntilMs:   untilMs,
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentUsageByModelRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentUsageModels(
+	ctx context.Context,
+	agentID sql.NullInt64,
+	projectID sql.NullString,
+) ([]ListAgentUsageModelsRow, error) {
+	rows, err := s.q.ListAgentUsageModels(ctx, sqlitedb.ListAgentUsageModelsParams{
+		AgentID:   agentID,
+		ProjectID: projectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentUsageModelsRowSlice(rows), nil
 }
 
 func (s *SqliteStore) CreateAttachment(
@@ -2563,4 +2742,373 @@ func (s *SqliteStore) ListTeamLogs(
 		return nil, err
 	}
 	return fromSqliteListTeamLogsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) CreateSite(
+	ctx context.Context,
+	p CreateSiteParams,
+) (Site, error) {
+	row, err := s.q.CreateSite(ctx, sqlitedb.CreateSiteParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromSqliteSite(row), nil
+}
+
+func (s *SqliteStore) GetSite(
+	ctx context.Context,
+	id string,
+) (Site, error) {
+	row, err := s.q.GetSite(ctx, id)
+	if err != nil {
+		return Site{}, err
+	}
+	return fromSqliteSite(row), nil
+}
+
+func (s *SqliteStore) ListSites(
+	ctx context.Context,
+) ([]Site, error) {
+	rows, err := s.q.ListSites(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteSiteSlice(rows), nil
+}
+
+func (s *SqliteStore) ListSitesByOriginTask(
+	ctx context.Context,
+	originTaskID string,
+) ([]Site, error) {
+	rows, err := s.q.ListSitesByOriginTask(ctx, originTaskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteSiteSlice(rows), nil
+}
+
+func (s *SqliteStore) UpdateSiteSettings(
+	ctx context.Context,
+	p UpdateSiteSettingsParams,
+) (Site, error) {
+	row, err := s.q.UpdateSiteSettings(ctx, sqlitedb.UpdateSiteSettingsParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromSqliteSite(row), nil
+}
+
+func (s *SqliteStore) UpdateSiteContent(
+	ctx context.Context,
+	p UpdateSiteContentParams,
+) (Site, error) {
+	row, err := s.q.UpdateSiteContent(ctx, sqlitedb.UpdateSiteContentParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromSqliteSite(row), nil
+}
+
+func (s *SqliteStore) DeleteSite(
+	ctx context.Context,
+	id string,
+) error {
+	return s.q.DeleteSite(ctx, id)
+}
+
+func (s *SqliteStore) UpdateSite(
+	ctx context.Context,
+	p UpdateSiteParams,
+) (Site, error) {
+	row, err := s.q.UpdateSite(ctx, sqlitedb.UpdateSiteParams(p))
+	if err != nil {
+		return Site{}, err
+	}
+	return fromSqliteSite(row), nil
+}
+
+func (s *SqliteStore) SiteIDByAttachment(
+	ctx context.Context,
+	attachmentID int64,
+) (string, error) {
+	return s.q.SiteIDByAttachment(ctx, attachmentID)
+}
+
+func (s *SqliteStore) CreateTaskComment(
+	ctx context.Context,
+	p CreateTaskCommentParams,
+) (TaskComment, error) {
+	row, err := s.q.CreateTaskComment(ctx, sqlitedb.CreateTaskCommentParams(p))
+	if err != nil {
+		return TaskComment{}, err
+	}
+	return fromSqliteTaskComment(row), nil
+}
+
+func (s *SqliteStore) GetTaskComment(ctx context.Context, id int64) (TaskComment, error) {
+	row, err := s.q.GetTaskComment(ctx, id)
+	if err != nil {
+		return TaskComment{}, err
+	}
+	return fromSqliteTaskComment(row), nil
+}
+
+func (s *SqliteStore) GetTaskCommentTaskID(ctx context.Context, id int64) (string, error) {
+	return s.q.GetTaskCommentTaskID(ctx, id)
+}
+
+func (s *SqliteStore) UpdateTaskCommentBody(
+	ctx context.Context,
+	p UpdateTaskCommentBodyParams,
+) error {
+	return s.q.UpdateTaskCommentBody(ctx, sqlitedb.UpdateTaskCommentBodyParams(p))
+}
+
+func (s *SqliteStore) SoftDeleteTaskComment(
+	ctx context.Context,
+	p SoftDeleteTaskCommentParams,
+) error {
+	return s.q.SoftDeleteTaskComment(ctx, sqlitedb.SoftDeleteTaskCommentParams(p))
+}
+
+func (s *SqliteStore) ListTaskComments(
+	ctx context.Context,
+	taskID string,
+) ([]TaskComment, error) {
+	rows, err := s.q.ListTaskComments(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskCommentSlice(rows), nil
+}
+
+func (s *SqliteStore) LinkTaskCommentAttachment(
+	ctx context.Context,
+	p LinkTaskCommentAttachmentParams,
+) error {
+	return s.q.LinkTaskCommentAttachment(ctx, sqlitedb.LinkTaskCommentAttachmentParams(p))
+}
+
+func (s *SqliteStore) DeleteTaskCommentAttachments(ctx context.Context, commentID int64) error {
+	return s.q.DeleteTaskCommentAttachments(ctx, commentID)
+}
+
+func (s *SqliteStore) DeleteTaskCommentAttachmentsByAttachment(
+	ctx context.Context,
+	attachmentID int64,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByAttachment(ctx, attachmentID)
+}
+
+func (s *SqliteStore) ListTaskCommentAttachments(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskCommentAttachmentsRow, error) {
+	rows, err := s.q.ListTaskCommentAttachments(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListTaskCommentAttachmentsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) GetTaskCommentRead(
+	ctx context.Context,
+	p GetTaskCommentReadParams,
+) (int64, error) {
+	return s.q.GetTaskCommentRead(ctx, sqlitedb.GetTaskCommentReadParams(p))
+}
+
+func (s *SqliteStore) UpsertTaskCommentRead(
+	ctx context.Context,
+	p UpsertTaskCommentReadParams,
+) error {
+	return s.q.UpsertTaskCommentRead(ctx, sqlitedb.UpsertTaskCommentReadParams(p))
+}
+
+func (s *SqliteStore) CountUnreadTaskComments(
+	ctx context.Context,
+	p CountUnreadTaskCommentsParams,
+) (int64, error) {
+	return s.q.CountUnreadTaskComments(ctx, sqlitedb.CountUnreadTaskCommentsParams(p))
+}
+
+func (s *SqliteStore) ListUnreadTaskCommentCounts(
+	ctx context.Context,
+	actorID ids.ActorID,
+) ([]ListUnreadTaskCommentCountsRow, error) {
+	rows, err := s.q.ListUnreadTaskCommentCounts(ctx, int64(actorID))
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListUnreadTaskCommentCountsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) DeleteTaskCommentAttachmentsByTask(
+	ctx context.Context,
+	taskID string,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByTask(ctx, taskID)
+}
+
+func (s *SqliteStore) DeleteTaskComments(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskComments(ctx, taskID)
+}
+
+func (s *SqliteStore) DeleteTaskCommentReads(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskCommentReads(ctx, taskID)
+}
+
+func (s *SqliteStore) DeleteTaskCommentAttachmentsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentAttachmentsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentAttachmentsByProjectAgent(
+		ctx,
+		sqlitedb.DeleteTaskCommentAttachmentsByProjectAgentParams(p),
+	)
+}
+
+func (s *SqliteStore) DeleteTaskCommentsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentsByProjectAgent(
+		ctx,
+		sqlitedb.DeleteTaskCommentsByProjectAgentParams(p),
+	)
+}
+
+func (s *SqliteStore) DeleteTaskCommentReadsByProjectAgent(
+	ctx context.Context,
+	p DeleteTaskCommentReadsByProjectAgentParams,
+) error {
+	return s.q.DeleteTaskCommentReadsByProjectAgent(
+		ctx,
+		sqlitedb.DeleteTaskCommentReadsByProjectAgentParams(p),
+	)
+}
+
+func (s *SqliteStore) DeleteTaskCommentReadsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteTaskCommentReadsByActor(ctx, int64(actorID))
+}
+
+func (s *SqliteStore) RefreshUnreadTaskCommentNotification(
+	ctx context.Context,
+	p RefreshUnreadTaskCommentNotificationParams,
+) (Notification, error) {
+	row, err := s.q.RefreshUnreadTaskCommentNotification(
+		ctx,
+		sqlitedb.RefreshUnreadTaskCommentNotificationParams(p),
+	)
+	if err != nil {
+		return Notification{}, err
+	}
+	return fromSqliteNotification(row), nil
+}
+
+func (s *SqliteStore) GetPromptProposal(
+	ctx context.Context,
+	id int64,
+) (PromptProposal, error) {
+	row, err := s.q.GetPromptProposal(ctx, id)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromSqlitePromptProposal(row), nil
+}
+
+func (s *SqliteStore) InsertPromptProposal(
+	ctx context.Context,
+	p InsertPromptProposalParams,
+) (PromptProposal, error) {
+	row, err := s.q.InsertPromptProposal(ctx, sqlitedb.InsertPromptProposalParams(p))
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromSqlitePromptProposal(row), nil
+}
+
+func (s *SqliteStore) ListPromptProposalsByTarget(
+	ctx context.Context,
+	p ListPromptProposalsByTargetParams,
+) ([]PromptProposal, error) {
+	rows, err := s.q.ListPromptProposalsByTarget(
+		ctx,
+		sqlitedb.ListPromptProposalsByTargetParams(p),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqlitePromptProposalSlice(rows), nil
+}
+
+func (s *SqliteStore) ListPromptProposalsByAuthor(
+	ctx context.Context,
+	p ListPromptProposalsByAuthorParams,
+) ([]PromptProposal, error) {
+	rows, err := s.q.ListPromptProposalsByAuthor(
+		ctx,
+		sqlitedb.ListPromptProposalsByAuthorParams(p),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqlitePromptProposalSlice(rows), nil
+}
+
+func (s *SqliteStore) ListPromptVersions(
+	ctx context.Context,
+	p ListPromptVersionsParams,
+) ([]Prompt, error) {
+	rows, err := s.q.ListPromptVersions(ctx, sqlitedb.ListPromptVersionsParams(p))
+	if err != nil {
+		return nil, err
+	}
+	return fromSqlitePromptSlice(rows), nil
+}
+
+func (s *SqliteStore) SetPromptProposalDecision(
+	ctx context.Context,
+	p SetPromptProposalDecisionParams,
+) (PromptProposal, error) {
+	row, err := s.q.SetPromptProposalDecision(
+		ctx,
+		sqlitedb.SetPromptProposalDecisionParams(p),
+	)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromSqlitePromptProposal(row), nil
+}
+
+func (s *SqliteStore) WithdrawPromptProposal(
+	ctx context.Context,
+	p WithdrawPromptProposalParams,
+) (PromptProposal, error) {
+	row, err := s.q.WithdrawPromptProposal(
+		ctx,
+		sqlitedb.WithdrawPromptProposalParams(p),
+	)
+	if err != nil {
+		return PromptProposal{}, err
+	}
+	return fromSqlitePromptProposal(row), nil
+}
+
+func (s *SqliteStore) SetPromptAutoApprove(
+	ctx context.Context,
+	id ids.AgentID,
+	enabled bool,
+) error {
+	value := int64(0)
+	if enabled {
+		value = 1
+	}
+	return s.q.UpdateAgentPromptAutoApprove(
+		ctx,
+		sqlitedb.UpdateAgentPromptAutoApproveParams{PromptAutoApprove: value, ID: int64(id)},
+	)
 }

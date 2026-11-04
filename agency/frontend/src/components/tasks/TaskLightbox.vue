@@ -22,14 +22,14 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
     class="h-[100dvh] bg-black/95 sm:max-w-none"
     :show-close-button="false"
   )
-    DialogTitle.sr-only Task attachments
-    DialogDescription.sr-only Browse every file attached to this task.
+    DialogTitle.sr-only Task files
+    DialogDescription.sr-only Browse every file attached to or produced by this task.
 
     header.flex.shrink-0.items-center.gap-3.px-4.py-3(class="bg-black/40")
       .flex.min-w-0.flex-col
-        span.truncate.text-sm.font-medium {{ active?.filename ?? "Task attachments" }}
+        span.truncate.text-sm.font-medium {{ active?.filename ?? "Task files" }}
         span.text-xs(v-if="active" class="text-white/60")
-          | {{ activeIndex + 1 }} of {{ attachments.length }}
+          | {{ active.source }} · {{ activeIndex + 1 }} of {{ items.length }}
       .ml-auto.flex.shrink-0.items-center.gap-1
         Button.text-white(
           v-if="active"
@@ -55,12 +55,12 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
 
     .relative.flex.min-h-0.flex-1.items-center.justify-center.overflow-hidden.p-4
       Button.absolute.left-3.z-10.text-white(
-        v-if="attachments.length > 1"
+        v-if="items.length > 1"
         type="button"
         variant="ghost"
         size="icon-lg"
-        title="Previous attachment"
-        aria-label="Previous attachment"
+        title="Previous item"
+        aria-label="Previous item"
         class="hover:bg-white/10 hover:text-white"
         @click="move(-1)"
       )
@@ -68,7 +68,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
 
       template(v-if="active")
         img.max-h-full.max-w-full.rounded-md.object-contain.select-none(
-          v-if="isRenderable(active)"
+          v-if="active.image"
           :src="active.url"
           draggable="false"
           :alt="active.filename"
@@ -93,12 +93,12 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
             span Open file
 
       Button.absolute.right-3.z-10.text-white(
-        v-if="attachments.length > 1"
+        v-if="items.length > 1"
         type="button"
         variant="ghost"
         size="icon-lg"
-        title="Next attachment"
-        aria-label="Next attachment"
+        title="Next item"
+        aria-label="Next item"
         class="hover:bg-white/10 hover:text-white"
         @click="move(1)"
       )
@@ -107,26 +107,26 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       p.absolute.right-4.bottom-2.left-4.truncate.text-center.text-xs(
         v-if="active"
         class="text-white/60"
-      ) {{ active?.filename }}
+      ) {{ active?.source }} · {{ active?.filename }}
 
     .flex.shrink-0.justify-center.gap-2.overflow-x-auto.px-4.py-3(
-      v-if="attachments.length > 1"
+      v-if="items.length > 1"
       class="bg-black/40"
     )
       button.size-14.shrink-0.cursor-pointer.overflow-hidden.rounded-md.border-2.transition-colors(
-        v-for="(attachment, index) in attachments"
-        :key="attachment.id.toString()"
+        v-for="(item, index) in items"
+        :key="item.key"
         type="button"
         :class="index === activeIndex ? 'border-white' : 'border-transparent hover:border-white/40'"
-        :title="attachment.filename"
-        :aria-label="attachment.filename"
+        :title="`${item.source} · ${item.filename}`"
+        :aria-label="item.filename"
         @click="activeIndex = index"
       )
         img.size-full.object-cover(
-          v-if="isRenderable(attachment)"
-          :src="attachment.url"
+          v-if="item.image"
+          :src="item.url"
           draggable="false"
-          :alt="attachment.filename"
+          :alt="item.filename"
         )
         span.flex.size-full.items-center.justify-center(v-else class="text-white/60")
           FileIcon.size-6
@@ -140,8 +140,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { isImageAttachment } from "@/lib/attachments";
-import type { Attachment } from "@cherrypi/sdk";
+import type { LightboxItem } from "@/lib/lightbox";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -155,7 +154,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean;
 
-    attachments: Attachment[];
+    items: LightboxItem[];
 
     startIndex?: number;
   }>(),
@@ -164,24 +163,19 @@ const props = withDefaults(
 const emit = defineEmits<{ "update:open": [open: boolean] }>();
 
 const activeIndex = ref(0);
-const active = computed<Attachment | undefined>(
-  () => props.attachments[activeIndex.value],
+const active = computed<LightboxItem | undefined>(
+  () => props.items[activeIndex.value],
 );
 
-function isRenderable(attachment: Attachment): boolean {
-  return isImageAttachment(attachment);
-}
-
 function clampIndex(index: number): number {
-  if (!props.attachments.length) return 0;
-  return Math.min(Math.max(index, 0), props.attachments.length - 1);
+  if (!props.items.length) return 0;
+  return Math.min(Math.max(index, 0), props.items.length - 1);
 }
 
 function move(delta: number) {
-  if (props.attachments.length < 2) return;
+  if (props.items.length < 2) return;
   activeIndex.value =
-    (activeIndex.value + delta + props.attachments.length) %
-    props.attachments.length;
+    (activeIndex.value + delta + props.items.length) % props.items.length;
 }
 
 function close() {
@@ -200,7 +194,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 watch(
-  () => [props.open, props.startIndex, props.attachments.length] as const,
+  () => [props.open, props.startIndex, props.items.length] as const,
   ([open, startIndex]) => {
     if (open) activeIndex.value = clampIndex(startIndex);
     else activeIndex.value = clampIndex(activeIndex.value);

@@ -21,33 +21,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   Card
     CardHeader
       CardTitle Task tags
+      CardAction
+        Button(size="sm" @click="createOpen = true")
+          PlusIcon(data-icon="inline-start")
+          span Add tag
       CardDescription
         | Labels for this project's tasks, used for organization and scheduling
         | limits. A default tag is pre-selected in the task composer; it can
         | still be removed for any one task.
     CardContent.flex.flex-col.gap-4
-      form.flex.flex-wrap.items-end.gap-3(@submit.prevent="create")
-        Field.w-40
-          FieldLabel(for="tag-name") Name
-          Input#tag-name(v-model="name" placeholder="bug")
-        Field.w-40
-          FieldLabel(for="tag-description") Description
-          Input#tag-description(v-model="description" placeholder="Optional")
-        Field.w-24
-          FieldLabel(for="tag-color") Color
-          .flex.items-center.gap-2
-            input#tag-color.border-input.size-8.cursor-pointer.rounded-md.border.bg-transparent(
-              type="color"
-              :value="color || '#a1a1aa'"
-              @input="onPickColor"
-            )
-        Button(type="submit" :disabled="creating || !name.trim()")
-          Spinner(v-if="creating" data-icon="inline-start")
-          PlusIcon(v-else data-icon="inline-start")
-          span Add tag
-
-      p.text-destructive.text-sm(v-if="error || loadError")
-        | {{ error || loadError }}
+      p.text-destructive.text-sm(v-if="loadError")
+        | {{ loadError }}
 
       Table
         TableHeader
@@ -86,7 +70,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   ArchiveIcon(data-icon="inline-start")
                   span Archive
           TableRow(v-if="!active.length")
-            TableCell.text-muted-foreground(:colspan="6") No tags yet.
+            TableCell.text-muted-foreground(:colspan="6")
+              | No tags yet. Add one to organize this project's tasks.
 
   Card(v-if="archived.length")
     CardHeader
@@ -115,55 +100,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   ArchiveRestoreIcon(data-icon="inline-start")
                   span Restore
 
-  Dialog(v-model:open="editingOpen")
-    DialogContent
-      DialogHeader
-        DialogTitle Edit tag
-      .flex.flex-col.gap-3
-        Field
-          FieldLabel(for="edit-tag-name") Name
-          Input#edit-tag-name(v-model="editName" placeholder="bug")
-        Field
-          FieldLabel(for="edit-tag-description") Description
-          Input#edit-tag-description(v-model="editDescription")
-        Field
-          FieldLabel(for="edit-tag-color") Color
-          .flex.items-center.gap-2
-            input#edit-tag-color.border-input.size-8.cursor-pointer.rounded-md.border.bg-transparent(
-              type="color"
-              :value="editColor || '#a1a1aa'"
-              @input="onEditColor"
-            )
-            Input.max-w-32.font-mono.text-sm(v-model="editColor")
-      DialogFooter
-        DialogClose
-          Button(variant="ghost") Cancel
-        Button(@click="saveEdit" :disabled="savingEdit || !editName.trim()")
-          Spinner(v-if="savingEdit" data-icon="inline-start")
-          CheckIcon(v-else data-icon="inline-start")
-          span Save
+TagEditorDialog(
+  v-model:open="createOpen"
+  :project-id="projectId"
+  @saved="refresh"
+)
+TagEditorDialog(
+  v-model:open="editingOpen"
+  :project-id="projectId"
+  :tag="editingTag"
+  @saved="refresh"
+)
 </template>
 
 <script setup lang="ts">
+import TagEditorDialog from "@/components/tags/TagEditorDialog.vue";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -180,7 +140,6 @@ import type { Tag } from "@cherrypi/sdk";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  CheckIcon,
   PencilIcon,
   PlusIcon,
 } from "@lucide/vue";
@@ -193,83 +152,20 @@ const {
   active,
   archived,
   error: loadError,
-  createTag,
+  refresh,
   updateTag,
   archiveTag,
   restoreTag,
 } = useTags(() => props.projectId);
 
-const creating = ref(false);
-const name = ref("");
-const description = ref("");
-const color = ref("");
-const error = ref("");
-
+const createOpen = ref(false);
 const editingOpen = ref(false);
-const editId = ref("");
-const editName = ref("");
-const editDescription = ref("");
-const editColor = ref("");
-const savingEdit = ref(false);
+const editingTag = ref<Tag | null>(null);
 const busy = ref("");
 
-function onPickColor(event: Event) {
-  color.value = (event.target as HTMLInputElement).value;
-}
-
-function onEditColor(event: Event) {
-  editColor.value = (event.target as HTMLInputElement).value;
-}
-
-async function create() {
-  if (!name.value.trim()) return;
-  creating.value = true;
-  error.value = "";
-  try {
-    await withProgress(() =>
-      createTag({
-        name: name.value.trim(),
-        description: description.value.trim(),
-        color: color.value,
-      }),
-    );
-    name.value = "";
-    description.value = "";
-    color.value = "";
-    toast.success("Tag created");
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    creating.value = false;
-  }
-}
-
 function openEdit(tag: Tag) {
-  editId.value = tag.id;
-  editName.value = tag.name;
-  editDescription.value = tag.description;
-  editColor.value = tag.color;
+  editingTag.value = tag;
   editingOpen.value = true;
-}
-
-async function saveEdit() {
-  if (!editName.value.trim()) return;
-  savingEdit.value = true;
-  try {
-    await withProgress(() =>
-      updateTag(editId.value, {
-        name: editName.value.trim(),
-        description: editDescription.value.trim(),
-        color: editColor.value,
-      }),
-    );
-    editingOpen.value = false;
-    toast.success("Tag updated");
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    savingEdit.value = false;
-  }
 }
 
 async function setDefault(tag: Tag, value: boolean) {

@@ -23,26 +23,52 @@ import (
 
 func fromSqlitePrompt(v sqlitedb.Prompt) Prompt {
 	return Prompt{
-		ID:        v.ID,
-		Scope:     v.Scope,
-		AgentID:   v.AgentID,
-		TeamID:    v.TeamID,
-		ProjectID: v.ProjectID,
-		Content:   v.Content,
-		Version:   v.Version,
-		CreatedAt: v.CreatedAt,
+		ID:                v.ID,
+		Scope:             v.Scope,
+		AgentID:           v.AgentID,
+		TeamID:            v.TeamID,
+		ProjectID:         v.ProjectID,
+		Content:           v.Content,
+		Version:           v.Version,
+		CreatedAt:         v.CreatedAt,
+		AuthorActorID:     v.AuthorActorID,
+		ApprovedByActorID: v.ApprovedByActorID,
+		Note:              v.Note,
+		ProposalID:        v.ProposalID,
+		AutoApproved:      v.AutoApproved,
 	}
+}
+
+func fromSqlitePromptSlice(vs []sqlitedb.Prompt) []Prompt {
+	out := make([]Prompt, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, fromSqlitePrompt(v))
+	}
+	return out
 }
 
 func fromPgPrompt(v pgdb.Prompt) Prompt {
 	return Prompt{
-		ID:        v.ID,
-		Scope:     v.Scope,
-		AgentID:   v.AgentID,
-		TeamID:    v.TeamID,
-		ProjectID: v.ProjectID,
-		Content:   v.Content,
-		Version:   v.Version,
-		CreatedAt: v.CreatedAt,
+		ID:                v.ID,
+		Scope:             v.Scope,
+		AgentID:           v.AgentID,
+		TeamID:            v.TeamID,
+		ProjectID:         v.ProjectID,
+		Content:           v.Content,
+		Version:           v.Version,
+		CreatedAt:         v.CreatedAt,
+		AuthorActorID:     v.AuthorActorID,
+		ApprovedByActorID: v.ApprovedByActorID,
+		Note:              v.Note,
+		ProposalID:        v.ProposalID,
+		AutoApproved:      v.AutoApproved,
 	}
+}
+
+func fromPgPromptSlice(vs []pgdb.Prompt) []Prompt {
+	out := make([]Prompt, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, fromPgPrompt(v))
+	}
+	return out
 }

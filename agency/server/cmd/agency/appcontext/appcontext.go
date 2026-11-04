@@ -23,6 +23,8 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,22 +35,28 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	agencyevents "cherrypi.vladfaust.com/agency/internal/events"
+	"cherrypi.vladfaust.com/agency/internal/health"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/promptaccess"
+	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/realtime"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/settings"
+	"cherrypi.vladfaust.com/agency/internal/sites"
 	"cherrypi.vladfaust.com/agency/internal/storage"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"cherrypi.vladfaust.com/agency/internal/tags"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/teams"
+	"cherrypi.vladfaust.com/agency/internal/templates"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	"cherrypi.vladfaust.com/agency/internal/webhook"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
+	"connectrpc.com/connect"
 )
 
 type AppContext struct {
@@ -60,9 +68,11 @@ type AppContext struct {
 	Settings      *settings.Service
 	Projects      *projects.Service
 	Prompts       *prompts.Service
+	PromptFlow    *promptflow.Service
 	Tasks         *tasks.Service
 	Attachments   *attachments.Service
 	Artifacts     *artifacts.Service
+	Sites         *sites.Service
 	Tags          *tags.Service
 	Limits        *limits.Service
 	Scheduler     *scheduler.Scheduler
@@ -70,7 +80,9 @@ type AppContext struct {
 	Notifications *notifications.Service
 	Webhooks      *webhook.Notifier
 	AgentLogs     *agentlogs.Service
+	Health        *health.Service
 	Teams         *teams.Service
+	Templates     *templates.Service
 	Audit         *audit.Service
 
 	Realtime *realtime.Bus
@@ -122,6 +134,107 @@ func taskTransitionNotifier(
 			Body:     taskTransitionBody(task),
 		})
 	}
+}
+
+func commentNotifier(
+	notificationsSvc *notifications.Service,
+	tasksSvc *tasks.Service,
+	agentsReg *agents.Registry,
+) func(context.Context, string, tasks.Comment) {
+	return func(ctx context.Context, taskID string, comment tasks.Comment) {
+		task, err := tasksSvc.Get(ctx, taskID)
+		if err != nil {
+			return
+		}
+		recipients, err := tasksSvc.Recipients(ctx, taskID)
+		if err != nil {
+			return
+		}
+		mentioned := make(map[ids.ActorID]bool, len(comment.MentionedActorIDs))
+		for _, actorID := range comment.MentionedActorIDs {
+			mentioned[actorID] = true
+		}
+		filtered := make([]ids.ActorID, 0, len(recipients))
+		for _, recipient := range recipients {
+
+			if recipient != comment.AuthorActorID && !mentioned[recipient] {
+				filtered = append(filtered, recipient)
+			}
+		}
+		if len(filtered) == 0 {
+			return
+		}
+
+		agent, _ := agentsReg.GetByActor(ctx, task.AssigneeActorID)
+		sender, _ := tasksSvc.Sender(ctx, comment.AuthorActorID)
+		author := sender.Name
+		if author == "" {
+			author = sender.Username
+		}
+		body := commentExcerpt(comment.Body)
+		if author != "" {
+			body = author + ": " + body
+		}
+		_ = notificationsSvc.CreateForTask(ctx, taskID, filtered, notifications.Notification{
+			AgentID:  agent.ID,
+			Kind:     "task_comment",
+			Severity: "info",
+			Title:    "New comment on " + taskTransitionBody(task),
+			Body:     body,
+		})
+	}
+}
+
+func mentionNotifier(
+	notificationsSvc *notifications.Service,
+	tasksSvc *tasks.Service,
+	agentsReg *agents.Registry,
+) func(context.Context, string, tasks.Comment) {
+	return func(ctx context.Context, taskID string, comment tasks.Comment) {
+		if len(comment.MentionedActorIDs) == 0 {
+			return
+		}
+		task, err := tasksSvc.Get(ctx, taskID)
+		if err != nil {
+			return
+		}
+		agent, _ := agentsReg.GetByActor(ctx, task.AssigneeActorID)
+		sender, _ := tasksSvc.Sender(ctx, comment.AuthorActorID)
+		author := sender.Name
+		if author == "" {
+			author = sender.Username
+		}
+		body := commentExcerpt(comment.Body)
+		if author != "" {
+			body = author + ": " + body
+		}
+		_ = notificationsSvc.CreateForTask(
+			ctx,
+			taskID,
+			comment.MentionedActorIDs,
+			notifications.Notification{
+				AgentID:  agent.ID,
+				Kind:     "task_mention",
+				Severity: "info",
+				Title:    "You were mentioned on " + taskTransitionBody(task),
+				Body:     body,
+			},
+		)
+	}
+}
+
+// commentImage matches Markdown image syntax. An inbox line is a text preview,
+
+var commentImage = regexp.MustCompile(`!\[([^\]\n]*)\]\([^)]+\)`)
+
+func commentExcerpt(body string) string {
+	const limit = 140
+	body = commentImage.ReplaceAllString(body, "$1")
+	text := strings.Join(strings.Fields(body), " ")
+	if len(text) <= limit {
+		return text
+	}
+	return strings.TrimSpace(text[:limit]) + "…"
 }
 
 // taskTransitionBody renders a task's name, falling back to the first line of
@@ -236,6 +349,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	projectsSvc := projects.New(st)
 	projectsSvc.TeamOwners = teamsSvc
+	templatesSvc := templates.New(st, projectsSvc)
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute)
@@ -260,6 +374,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	teamsSvc.Notifier = notificationsSvc
 	notifier := webhook.NewNotifier(st)
 	agentLogsSvc := agentlogs.New(st)
+	healthSvc := health.New(st)
 	hub := tunnel.NewHub(agentRegistry)
 	realtimeBus := realtime.New()
 
@@ -274,6 +389,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	tasksSvc.OnChange = func(context.Context, string) {
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
 	}
+	tasksSvc.OnComment = commentNotifier(notificationsSvc, tasksSvc, agentRegistry)
+	tasksSvc.OnMention = mentionNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	limitsSvc := limits.New(st)
 	sched := scheduler.New(
 		tasksSvc,
@@ -286,6 +403,25 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	sched.Attachments = attachmentsSvc
 
 	artifactsSvc := artifacts.New(st)
+	sitesSvc := sites.New(
+		st,
+		attachmentsSvc,
+		accountsSvc,
+		agentRegistry,
+		tasksSvc,
+		realtimeBus,
+		sites.Config{
+			CacheDir: filepath.Join(config.Dir, "sites"),
+			MaxBytes: sites.DefaultMaxBytes,
+		},
+	)
+	if config.SitesInsecureHTTP {
+		log.Print(
+			"WARNING: CHERRYPI_SITES_INSECURE_HTTP is enabled: raw site content " +
+				"will be served without authentication over plain HTTP. " +
+				"Use HTTPS for any non-local deployment.",
+		)
+	}
 
 	consumer := &agencyevents.Consumer{
 		Store:         st,
@@ -294,11 +430,14 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Tasks:         tasksSvc,
 		Artifacts:     artifactsSvc,
 		Logs:          agentLogsSvc,
+		Health:        healthSvc,
 		Realtime:      realtimeBus,
 		OnTaskFailed:  sched.Wake,
 	}
 	hub.OnConnect = func(ctx context.Context, conn *tunnel.Connection) {
 		go consumer.Run(ctx, conn)
+
+		go pushHealthInterval(ctx, agentRegistry, conn)
 
 		sched.Wake()
 		// The agent's own connect line races the tunnel subscribe, so the
@@ -319,17 +458,32 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	go sched.Run(context.Background())
 
 	return &AppContext{
-		Config:        config,
-		Store:         st,
-		Storage:       objectStore,
-		Accounts:      accountsSvc,
-		Agents:        agentRegistry,
-		Settings:      settings.New(st),
-		Projects:      projectsSvc,
-		Prompts:       promptsSvc,
+		Config:   config,
+		Store:    st,
+		Storage:  objectStore,
+		Accounts: accountsSvc,
+		Agents:   agentRegistry,
+		Settings: settings.New(st),
+		Projects: projectsSvc,
+		Prompts:  promptsSvc,
+		PromptFlow: &promptflow.Service{
+			Prompts: promptsSvc,
+			Access: &promptaccess.Authorizer{
+				Agents:   agentRegistry,
+				Projects: projectsSvc,
+				Teams:    teamsSvc,
+			},
+			Notifications: notificationsSvc,
+			Audit:         auditSvc,
+			Projects:      projectsSvc,
+			Teams:         teamsSvc,
+			Agents:        agentRegistry,
+			Accounts:      accountsSvc,
+		},
 		Tasks:         tasksSvc,
 		Attachments:   attachmentsSvc,
 		Artifacts:     artifactsSvc,
+		Sites:         sitesSvc,
 		Tags:          tagsSvc,
 		Limits:        limitsSvc,
 		Scheduler:     sched,
@@ -337,7 +491,9 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Notifications: notificationsSvc,
 		Webhooks:      notifier,
 		AgentLogs:     agentLogsSvc,
+		Health:        healthSvc,
 		Teams:         teamsSvc,
+		Templates:     templatesSvc,
 		Audit:         auditSvc,
 		Realtime:      realtimeBus,
 		ProcessLogs:   processLog,
@@ -351,4 +507,24 @@ func logAgentEvent(svc *agentlogs.Service, agentID ids.AgentID, level int, messa
 		Level:   level,
 		Message: message,
 	})
+}
+
+func pushHealthInterval(
+	ctx context.Context,
+	reg *agents.Registry,
+	conn *tunnel.Connection,
+) {
+	settings, err := reg.HealthSettings(ctx, conn.ID)
+	if err != nil {
+		log.Printf("Read health interval for agent %d: %v", conn.ID, err)
+		return
+	}
+	pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := conn.SetHealthInterval(pushCtx, settings.Seconds()); err != nil {
+		if connect.CodeOf(err) == connect.CodeUnimplemented {
+			return
+		}
+		log.Printf("Push health interval to agent %d: %v", conn.ID, err)
+	}
 }

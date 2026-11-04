@@ -51,6 +51,13 @@ service AgentService {
 
   
   
+  
+  
+  rpc GetAgentHealthSettings(GetAgentHealthSettingsRequest) returns (GetAgentHealthSettingsResponse);
+  rpc UpdateAgentHealthSettings(UpdateAgentHealthSettingsRequest) returns (UpdateAgentHealthSettingsResponse);
+
+  
+  
   rpc ListAgentLogs(ListAgentLogsRequest) returns (ListAgentLogsResponse);
 
   
@@ -123,6 +130,10 @@ message Agent {
   
   
   string role = 15;
+  
+  
+  
+  bool prompt_auto_approve = 16;
 }
 
 message ListAgentsRequest {}
@@ -161,6 +172,9 @@ message UpdateAgentRequest {
   string id = 1;
   string display_name = 2;
   string description = 3;
+  
+  
+  optional bool prompt_auto_approve = 4;
 }
 
 message UpdateAgentResponse {
@@ -296,6 +310,31 @@ message UpdateAgentTaskLimitsRequest {
 
 message UpdateAgentTaskLimitsResponse {
   AgentTaskLimits limits = 1;
+}
+
+
+
+
+
+message AgentHealthSettings {
+  optional int64 interval_seconds = 1;
+}
+
+message GetAgentHealthSettingsRequest {
+  string agent_id = 1;
+}
+
+message GetAgentHealthSettingsResponse {
+  AgentHealthSettings settings = 1;
+}
+
+message UpdateAgentHealthSettingsRequest {
+  string agent_id = 1;
+  AgentHealthSettings settings = 2;
+}
+
+message UpdateAgentHealthSettingsResponse {
+  AgentHealthSettings settings = 1;
 }
 
 

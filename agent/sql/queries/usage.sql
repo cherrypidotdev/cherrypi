@@ -15,8 +15,8 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 -- name: InsertUsage :exec
-INSERT INTO usage (session_id, model, input_tokens, output_tokens, cost, active_ms, at)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO usage (session_id, provider, model, input_tokens, output_tokens, cost, active_ms, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SumUsageBySession :one
 SELECT

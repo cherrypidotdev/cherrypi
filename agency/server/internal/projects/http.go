@@ -365,6 +365,13 @@ func (h *Handler) access(
 		writeServiceError(w, err)
 		return
 	}
+	inherited, err := h.Service.InheritedTeams(
+		ctx, projectID, identity.ActorID, identity.IsAdmin(),
+	)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
 	invitations, err := h.Service.Invitations(ctx, projectID, identity.ActorID, identity.IsAdmin())
 	if err != nil {
 		writeServiceError(w, err)
@@ -381,6 +388,7 @@ func (h *Handler) access(
 		"role":              role,
 		"members":           membersJSON(members),
 		"teams":             teamsJSON(teams),
+		"inherited_teams":   teamsJSON(inherited),
 		"invitations":       invitationsJSON(invitations),
 		"can_delete":        identity.IsAdmin() || !gov.ProjectDeletionAdminOnly,
 		"can_manage_access": role == RoleOwner,
@@ -501,7 +509,7 @@ func (h *Handler) teams(
 		if !decodeJSON(w, r, &in) {
 			return
 		}
-		invitation, err := h.Service.InviteTeam(
+		result, err := h.Service.InviteTeam(
 			r.Context(), projectID, in.TeamID, in.Role, in.Note,
 			identity.ActorID, identity.IsAdmin(),
 		)
@@ -509,7 +517,13 @@ func (h *Handler) teams(
 			writeServiceError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitationJSON(invitation)})
+		if result.Team != nil {
+			writeJSON(w, http.StatusCreated, map[string]any{"team": teamJSON(*result.Team)})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"invitation": invitationJSON(*result.Invitation),
+		})
 	default:
 		methodNotAllowed(w)
 	}
@@ -749,7 +763,7 @@ func teamsJSON(teams []TeamLink) []map[string]any {
 }
 
 func teamJSON(t TeamLink) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"team_id":          t.TeamID,
 		"team_name":        t.TeamName,
 		"team_description": t.TeamDescription,
@@ -758,6 +772,13 @@ func teamJSON(t TeamLink) map[string]any {
 		"created_at":       formatTime(t.CreatedAt),
 		"updated_at":       formatTime(t.UpdatedAt),
 	}
+	if t.InheritedRole != "" {
+		out["inherited_role"] = t.InheritedRole
+		out["inherited_from_project_id"] = t.InheritedFromProjectID
+		out["inherited_from_project_name"] = t.InheritedFromProjectName
+		out["inherited_from_project_slug"] = t.InheritedFromProjectSlug
+	}
+	return out
 }
 
 func invitationsJSON(invitations []TeamInvitation) []map[string]any {
@@ -832,6 +853,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrNotTeamOwner):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrInvalidRole),
+		errors.Is(err, ErrRoleBelowInherited),
 		errors.Is(err, ErrInvalidName),
 		errors.Is(err, ErrInvalidPrefix):
 		writeError(w, http.StatusBadRequest, err.Error())

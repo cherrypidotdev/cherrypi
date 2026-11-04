@@ -34,8 +34,10 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/agency/internal/templates"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
 )
 
@@ -53,6 +55,10 @@ type Handler struct {
 	Logs *agentlogs.Service
 
 	ProcessLogs *processlog.Log
+
+	PromptFlow *promptflow.Service
+
+	Templates *templates.Service
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +81,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.taskByID(w, r)
 	case path == Prefix+"/projects":
 		h.listProjects(w, r)
+	case path == promptsPath:
+		h.getPrompt(w, r)
+	case path == promptVersionsPath:
+		h.listPromptVersions(w, r)
+	case path == promptProposalsPath:
+		switch r.Method {
+		case http.MethodGet:
+			h.listPromptProposals(w, r)
+		case http.MethodPost:
+			h.createPromptProposal(w, r)
+		default:
+			methodNotAllowed(w)
+		}
+	case strings.HasPrefix(path, promptProposalsIDPre):
+		h.withdrawPromptProposal(w, r)
 	case path == Prefix+"/agency":
 		h.agencyMeta(w, r)
 	case path == Prefix+"/agency/logs":
@@ -409,6 +430,10 @@ type createTaskInput struct {
 
 	State string `json:"state"`
 	Draft bool   `json:"draft"`
+
+	TemplateID      string          `json:"template_id"`
+	TemplateVersion int64           `json:"template_version"`
+	TemplateArgs    json.RawMessage `json:"template_args"`
 }
 
 func (h *Handler) resolveAssignee(
@@ -479,10 +504,10 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := taskActorContext(r)
 	state, ok := agentCreateState(input.State, input.Draft)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "state must be draft or backlog")
+		writeError(w, http.StatusBadRequest, "state must be backlog")
 		return
 	}
-	task, err := h.Tasks.Create(ctx, tasks.CreateParams{
+	params := tasks.CreateParams{
 		Prompt:          input.Prompt,
 		Name:            input.Name,
 		ProjectID:       projectID,
@@ -492,12 +517,72 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		Priority:        priority,
 		Size:            input.Size,
 		State:           state,
-	})
+	}
+	if strings.TrimSpace(input.TemplateID) != "" {
+		if h.Templates == nil {
+			writeError(w, http.StatusFailedDependency, "task templates are not available")
+			return
+		}
+		argsJSON := strings.TrimSpace(string(input.TemplateArgs))
+		if argsJSON == "" || argsJSON == "null" {
+			argsJSON = "{}"
+		}
+		rendered, err := h.Templates.RenderForProject(
+			ctx,
+			projectID,
+			strings.TrimSpace(input.TemplateID),
+			input.TemplateVersion,
+			argsJSON,
+		)
+		if err != nil {
+			writeTemplateError(w, err)
+			return
+		}
+		if input.Prompt != "" {
+			params.Prompt = rendered.Prompt + "\n\n" + input.Prompt
+		} else {
+			params.Prompt = rendered.Prompt
+		}
+		if params.Name == "" {
+			params.Name = rendered.Title
+		}
+		if input.Priority == nil {
+			params.Priority = rendered.Priority
+		}
+		if params.Size == "" {
+			params.Size = rendered.Size
+		}
+		if len(params.TagIDs) == 0 {
+			params.TagIDs = rendered.TagIDs
+		}
+		params.Template = &tasks.TemplateApplication{
+			TemplateID:      rendered.TemplateID,
+			TemplateName:    rendered.TemplateName,
+			TemplateVersion: rendered.Version,
+			ArgsJSON:        rendered.ArgsJSON,
+		}
+	}
+	task, err := h.Tasks.Create(ctx, params)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"task": toTaskJSON(task)})
+}
+
+func writeTemplateError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, templates.ErrTemplateMissing),
+		errors.Is(err, templates.ErrVersionMissing):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, templates.ErrArchived):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, projects.ErrForbidden),
+		errors.Is(err, projects.ErrNotMember):
+		writeError(w, http.StatusForbidden, err.Error())
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
+	}
 }
 
 func taskActorContext(r *http.Request) context.Context {
@@ -510,13 +595,11 @@ func taskActorContext(r *http.Request) context.Context {
 
 func agentCreateState(raw string, draft bool) (tasks.State, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "draft":
-		return tasks.StateDraft, true
-	case "backlog":
+	case "backlog", "draft":
 		return tasks.StateBacklog, true
 	case "":
 		if draft {
-			return tasks.StateDraft, true
+			return tasks.StateBacklog, true
 		}
 		return "", false
 	default:
@@ -739,6 +822,15 @@ type taskJSON struct {
 	ReferencedBy []referenceJSON `json:"referenced_by"`
 	Links        []linkJSON      `json:"links"`
 	CreatedAt    string          `json:"created_at"`
+
+	Template *templateJSON `json:"template,omitempty"`
+}
+
+type templateJSON struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version int64  `json:"version"`
+	Args    any    `json:"args"`
 }
 
 type referenceJSON struct {
@@ -809,6 +901,21 @@ func toTaskJSON(t tasks.Task) taskJSON {
 	}
 	if !t.CreatedAt.IsZero() {
 		out.CreatedAt = t.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if t.Template != nil {
+		args := any(map[string]any{})
+		if t.Template.ArgsJSON != "" {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(t.Template.ArgsJSON), &parsed); err == nil {
+				args = parsed
+			}
+		}
+		out.Template = &templateJSON{
+			ID:      t.Template.TemplateID,
+			Name:    t.Template.TemplateName,
+			Version: t.Template.TemplateVersion,
+			Args:    args,
+		}
 	}
 	return out
 }

@@ -18,6 +18,7 @@ export type TaskColumnKey =
   | "state"
   | "project"
   | "title"
+  | "progress"
   | "links"
   | "tags"
   | "references"
@@ -60,6 +61,14 @@ export const TASK_COLUMNS: TaskColumn[] = [
     skeleton: "w-20",
   },
   { key: "title", label: "Title", sortKey: "task", skeleton: "w-48" },
+  {
+    key: "progress",
+    label: "Progress",
+    widthClass: "w-32",
+    sortKey: "progress",
+    hint: "The agent's reported plan: completed steps out of total",
+    skeleton: "w-16",
+  },
   { key: "links", label: "Links", widthClass: "w-28", skeleton: "w-12" },
   { key: "tags", label: "Tags", widthClass: "w-40", skeleton: "w-24" },
   {

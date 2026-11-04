@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsList
       TabsTrigger(value="general") General
       TabsTrigger(value="tasks") Tasks
+      TabsTrigger(value="templates") Templates
       TabsTrigger(value="access") Access
       TabsTrigger(value="danger") Danger zone
 
@@ -112,16 +113,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.flex-col.gap-2(v-if="hierarchy.parent_options.length")
                 span.text-sm.font-medium Attach to a parent project
                 .flex.flex-wrap.gap-2
-                  Select(v-model="newParentId")
-                    SelectTrigger.w-64
-                      SelectValue(placeholder="Choose a parent")
-                    SelectContent
-                      SelectGroup
-                        SelectItem(
-                          v-for="option in hierarchy.parent_options"
-                          :key="option.project.id"
-                          :value="option.project.id"
-                        ) {{ option.project.name }}
+                  Combobox.w-64(
+                    v-model="newParentId"
+                    placeholder="Choose a parent"
+                    empty-text="No matching project."
+                    aria-label="Parent project"
+                    :options="parentOptions"
+                  )
                   Button(
                     @click="attachToParent"
                     :disabled="!newParentId || hierarchyBusy"
@@ -155,16 +153,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.flex-col.gap-2(v-if="hierarchy.child_options.length")
                 span.text-sm.font-medium Add a subproject
                 .flex.flex-wrap.gap-2
-                  Select(v-model="newChildId")
-                    SelectTrigger.w-64
-                      SelectValue(placeholder="Choose a project")
-                    SelectContent
-                      SelectGroup
-                        SelectItem(
-                          v-for="option in hierarchy.child_options"
-                          :key="option.project.id"
-                          :value="option.project.id"
-                        ) {{ option.project.name }}
+                  Combobox.w-64(
+                    v-model="newChildId"
+                    placeholder="Choose a project"
+                    empty-text="No matching project."
+                    aria-label="Subproject"
+                    :options="childOptions"
+                  )
                   Button(
                     @click="addChildProject"
                     :disabled="!newChildId || hierarchyBusy"
@@ -228,6 +223,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CardDescription The tags task creators can pick inside this project.
           CardContent
             TagsPanel(:project-id="project?.id ?? ''")
+
+    TabsContent(value="templates")
+      Card
+        CardHeader
+          CardTitle Templates
+          CardDescription
+            | Reusable Jinja prompts saved per project. A task created from a
+            | template records the version and the argument values it used.
+        CardContent
+          TaskTemplatesPanel(:project-id="project?.id ?? ''")
 
     TabsContent(value="access")
       .flex.flex-col.gap-6
@@ -294,10 +299,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     TableCell.text-muted-foreground(:colspan="3")
                       | No direct access.
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
-                Input.w-56(
+                ActorCombobox#new-member-actor.w-56(
                   v-model="newMemberUsername"
-                  placeholder="username"
-                  autocomplete="off"
+                  placeholder="Add an actor…"
+                  kinds="all"
                 )
                 Select(v-model="newMemberRole")
                   SelectTrigger.w-36
@@ -327,7 +332,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     v-for="link in access?.teams ?? []"
                     :key="link.team_id"
                   )
-                    TableCell.font-medium {{ link.team_name }}
+                    TableCell
+                      .flex.flex-col
+                        span.font-medium {{ link.team_name }}
+                        span.text-muted-foreground.text-xs(
+                          v-if="link.inherited_role"
+                        )
+                          | Also inherited as {{ PROJECT_ROLE_LABEL[link.inherited_role] }} from
+                          RouterLink.text-primary.ml-1(
+                            :to="{ name: 'project', params: { slug: link.inherited_from_project_slug }, query: { tab: 'settings', section: 'access' } }"
+                          ) {{ link.inherited_from_project_name }}
                     TableCell.text-muted-foreground {{ link.member_count }}
                     TableCell
                       Select(
@@ -339,7 +353,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                           SelectValue
                         SelectContent
                           SelectItem(
-                            v-for="role in ROLES"
+                            v-for="role in roleOptionsAbove(link.inherited_role)"
                             :key="role"
                             :value="role"
                           ) {{ PROJECT_ROLE_LABEL[role] }}
@@ -357,29 +371,69 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     TableCell.text-muted-foreground(:colspan="4")
                       | No teams attached.
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
-                Select(v-model="newTeamId")
-                  SelectTrigger.w-56
-                    SelectValue(placeholder="Invite a team…")
-                  SelectContent
-                    SelectGroup
-                      SelectItem(
-                        v-for="team in invitableTeams"
-                        :key="team.id"
-                        :value="String(team.id)"
-                      ) {{ team.name }}
+                Combobox.w-56(
+                  v-model="newTeamId"
+                  placeholder="Invite a team…"
+                  empty-text="No matching team."
+                  aria-label="Team to invite"
+                  :options="teamOptions"
+                )
                 Select(v-model="newTeamRole")
                   SelectTrigger.w-36
                     SelectValue
                   SelectContent
-                    SelectItem(v-for="role in ROLES" :key="role" :value="role") {{ PROJECT_ROLE_LABEL[role] }}
+                    SelectItem(
+                      v-for="role in newTeamRoleOptions"
+                      :key="role"
+                      :value="role"
+                    ) {{ PROJECT_ROLE_LABEL[role] }}
                 Button(
                   @click="inviteTeam"
                   :disabled="!newTeamId || accessBusy"
                 )
                   PlusIcon(data-icon="inline-start")
-                  span Invite
+                  span {{ selectedTeamInheritedRole ? "Add" : "Invite" }}
+              p.text-muted-foreground.text-xs(
+                v-if="selectedTeamInheritedRole && !selectedTeamUpgrade"
+              )
+                | This team already has inherited {{ PROJECT_ROLE_LABEL[selectedTeamInheritedRole] }}
+                | access from {{ selectedTeamInheritedFrom }}. Adding it directly
+                | links it without another approval.
+              p.text-muted-foreground.text-xs(v-else-if="selectedTeamUpgrade")
+                | A role above the inherited role needs the team owner's approval.
               p.text-muted-foreground.text-xs(v-if="!invitableTeams.length")
                 | No other teams available to invite.
+
+            template(v-if="(access?.inherited_teams ?? []).length")
+              Separator
+
+              .flex.flex-col.gap-3
+                span.text-sm.font-medium Inherited teams
+                p.text-muted-foreground.text-xs
+                  | These teams reach this project through an ancestor project.
+                  | Their access is read-only here; attach the team explicitly above
+                  | to give it a project-specific role.
+                Table
+                  TableHeader
+                    TableRow
+                      TableHead Team
+                      TableHead Members
+                      TableHead Effective role
+                      TableHead Inherited from
+                  TableBody
+                    TableRow(
+                      v-for="link in access?.inherited_teams ?? []"
+                      :key="link.team_id"
+                    )
+                      TableCell.font-medium {{ link.team_name }}
+                      TableCell.text-muted-foreground {{ link.member_count }}
+                      TableCell
+                        Badge(variant="secondary")
+                          | {{ PROJECT_ROLE_LABEL[link.role] }}
+                      TableCell
+                        RouterLink.text-primary(
+                          :to="{ name: 'project', params: { slug: link.inherited_from_project_slug }, query: { tab: 'settings', section: 'access' } }"
+                        ) {{ link.inherited_from_project_name }}
 
             Separator
 
@@ -441,9 +495,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorCombobox from "@/components/ActorCombobox.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import TagsPanel from "@/components/settings/TagsPanel.vue";
+import TaskTemplatesPanel from "@/components/templates/TaskTemplatesPanel.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -453,6 +509,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Field,
   FieldDescription,
@@ -463,7 +520,6 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -514,7 +570,7 @@ const route = useRoute();
 const router = useRouter();
 const { refresh: refreshProjects } = useProjects();
 
-const TABS = ["general", "tasks", "access", "danger"];
+const TABS = ["general", "tasks", "templates", "access", "danger"];
 const tab = ref(
   typeof props.tab === "string" && TABS.includes(props.tab)
     ? props.tab
@@ -536,6 +592,11 @@ const newMemberRole = ref<ProjectRole>("member");
 const newTeamId = ref("");
 const newTeamRole = ref<ProjectRole>("member");
 const ROLES: ProjectRole[] = ["owner", "member", "viewer"];
+const ROLE_WEIGHT: Record<ProjectRole, number> = {
+  owner: 3,
+  member: 2,
+  viewer: 1,
+};
 const logo = computed(() => toSvg(project.value?.id ?? "project", 48));
 
 const name = ref("");
@@ -555,6 +616,68 @@ const invitableTeams = computed(() => {
       .map((i) => i.team_id),
   );
   return allTeams.value.filter((t) => !linked.has(t.id) && !pending.has(t.id));
+});
+
+const parentOptions = computed<ComboboxOption[]>(() =>
+  (hierarchy.value?.parent_options ?? []).map((option) => ({
+    value: option.project.id,
+    label: option.project.name,
+    description: option.project.prefix
+      ? `#${option.project.prefix}`
+      : undefined,
+  })),
+);
+
+const childOptions = computed<ComboboxOption[]>(() =>
+  (hierarchy.value?.child_options ?? []).map((option) => ({
+    value: option.project.id,
+    label: option.project.name,
+    description: option.project.prefix
+      ? `#${option.project.prefix}`
+      : undefined,
+  })),
+);
+
+const teamOptions = computed<ComboboxOption[]>(() =>
+  invitableTeams.value.map((team) => ({
+    value: String(team.id),
+    label: team.name,
+    description:
+      team.description ||
+      `${team.member_count} ${team.member_count === 1 ? "member" : "members"}`,
+  })),
+);
+
+const selectedTeamInheritedLink = computed(() =>
+  (access.value?.inherited_teams ?? []).find(
+    (link) => String(link.team_id) === newTeamId.value,
+  ),
+);
+const selectedTeamInheritedRole = computed<ProjectRole | undefined>(
+  () => selectedTeamInheritedLink.value?.role,
+);
+const selectedTeamInheritedFrom = computed(
+  () => selectedTeamInheritedLink.value?.inherited_from_project_name ?? "",
+);
+const selectedTeamUpgrade = computed(
+  () =>
+    !!selectedTeamInheritedRole.value &&
+    ROLE_WEIGHT[newTeamRole.value] >
+      ROLE_WEIGHT[selectedTeamInheritedRole.value],
+);
+
+function roleOptionsAbove(inherited?: ProjectRole): ProjectRole[] {
+  if (!inherited) return ROLES;
+  return ROLES.filter((role) => ROLE_WEIGHT[role] >= ROLE_WEIGHT[inherited]);
+}
+const newTeamRoleOptions = computed(() =>
+  roleOptionsAbove(selectedTeamInheritedRole.value),
+);
+watch(newTeamId, () => {
+  const inherited = selectedTeamInheritedRole.value;
+  if (inherited && ROLE_WEIGHT[newTeamRole.value] < ROLE_WEIGHT[inherited]) {
+    newTeamRole.value = inherited;
+  }
 });
 
 const pendingParentInvitations = computed(() =>
@@ -802,13 +925,15 @@ async function inviteTeam() {
   if (!project.value || !newTeamId.value) return;
   accessBusy.value = true;
   try {
-    await projectAccessApi.inviteTeam(
+    const result = await projectAccessApi.inviteTeam(
       project.value.id,
       Number(newTeamId.value),
       newTeamRole.value,
     );
     newTeamId.value = "";
-    toast.success("Team invited; its owner must approve");
+    toast.success(
+      result.team ? "Team attached" : "Team invited; its owner must approve",
+    );
     await loadAccess();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));

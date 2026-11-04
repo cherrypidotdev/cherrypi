@@ -73,6 +73,7 @@ type PATRow struct {
 	CreatedAt     int64
 	LastUsedAt    sql.NullInt64
 	ExpiresAt     sql.NullInt64
+	SiteID        string
 	Kind          string
 	Username      string
 	ActorName     string

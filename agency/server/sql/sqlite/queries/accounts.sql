@@ -257,18 +257,18 @@ DELETE FROM tokens WHERE expires_at < sqlc.arg(now);
 
 -- name: CreatePersonalAccessToken :one
 INSERT INTO personal_access_tokens (
-  actor_id, name, token_hash, prefix, created_at, expires_at
+  actor_id, name, token_hash, prefix, created_at, expires_at, site_id
 )
 VALUES (
   sqlc.arg(actor_id), sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(prefix),
-  sqlc.arg(created_at), sqlc.narg(expires_at)
+  sqlc.arg(created_at), sqlc.narg(expires_at), sqlc.arg(site_id)
 )
 RETURNING *;
 
 -- name: GetPersonalAccessTokenByHash :one
 SELECT
   p.id, p.actor_id, p.name, p.token_hash, p.prefix, p.created_at,
-  p.last_used_at, p.expires_at,
+  p.last_used_at, p.expires_at, p.site_id,
   a.kind, a.username, a.name AS actor_name, a.description,
   a.picture_attachment_id, a.password_hash, a.totp_secret, a.totp_enabled_at,
   u.id AS user_id, u.role, u.status

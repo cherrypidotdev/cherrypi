@@ -243,7 +243,7 @@ function requestKind(ref: TaskReference, kind: unknown) {
   if (next === TaskReferenceKind.SUPERSEDES) {
     if (
       !window.confirm(
-        `Supersede "${taskReferenceTitle(ref)}"? A draft, backlog, queued, or failed task is cancelled.`,
+        `Supersede "${taskReferenceTitle(ref)}"? A backlog, queued, or failed task is cancelled.`,
       )
     ) {
       return;

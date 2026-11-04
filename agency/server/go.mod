@@ -20,6 +20,7 @@ require (
 	github.com/hashicorp/yamux v0.1.2
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
+	github.com/nikolalohinski/gonja/v2 v2.9.1
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rs/cors v1.11.1
 	golang.org/x/crypto v0.57.0
@@ -51,12 +52,18 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 
 	github.com/jackc/puddle/v2 v2.2.2 
+	github.com/json-iterator/go v1.1.12 
 	github.com/mattn/go-isatty v0.0.24 
 	github.com/mfridman/interpolate v0.0.2 
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd 
+	github.com/modern-go/reflect2 v1.0.2 
 	github.com/ncruces/go-strftime v1.0.0 
+	github.com/pkg/errors v0.9.1 
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec 
 	github.com/sethvargo/go-retry v0.4.0 
+	github.com/sirupsen/logrus v1.9.3 
 	go.uber.org/multierr v1.11.0 
+	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa 
 	golang.org/x/mod v0.41.0 
 	golang.org/x/sync v0.23.0 
 	golang.org/x/text v0.42.0 

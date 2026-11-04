@@ -109,14 +109,103 @@ WHERE m.project_id = sqlc.arg(project_id)
 ORDER BY lower(t.name);
 
 -- name: ListProjectTeamMembershipsForTeam :many
+
+
+
+WITH candidates AS (
+  SELECT
+    ptm.project_id AS project_id,
+    CASE ptm.role WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight,
+    0 AS depth,
+    ptm.project_id AS source_project_id
+  FROM project_team_memberships ptm
+  WHERE ptm.team_id = sqlc.arg(team_id)
+  UNION ALL
+  SELECT
+    pa.project_id AS project_id,
+    CASE ptm.role WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight,
+    pa.depth AS depth,
+    ptm.project_id AS source_project_id
+  FROM project_team_memberships ptm
+  JOIN project_ancestors pa ON pa.ancestor_id = ptm.project_id
+  WHERE ptm.team_id = sqlc.arg(team_id)
+),
+best AS (
+  SELECT project_id, MAX(weight) AS weight FROM candidates GROUP BY project_id
+),
+chosen AS (
+  SELECT c.project_id, c.weight, c.depth, c.source_project_id
+  FROM candidates c
+  JOIN best b ON b.project_id = c.project_id AND b.weight = c.weight
+  WHERE c.depth = (
+    SELECT MIN(c2.depth) FROM candidates c2
+    WHERE c2.project_id = c.project_id AND c2.weight = c.weight
+  )
+)
 SELECT
-  m.*,
+  p.id AS project_id,
   p.name AS project_name,
-  p.slug AS project_slug
-FROM project_team_memberships m
-JOIN projects p ON p.id = m.project_id
-WHERE m.team_id = sqlc.arg(team_id)
+  p.slug AS project_slug,
+  CAST(chosen.weight AS INTEGER) AS role_weight,
+  chosen.source_project_id AS source_project_id,
+  source.name AS source_project_name,
+  source.slug AS source_project_slug,
+  CAST(chosen.depth AS INTEGER) AS source_depth
+FROM chosen
+JOIN projects p ON p.id = chosen.project_id
+JOIN projects source ON source.id = chosen.source_project_id
 ORDER BY lower(p.name);
+
+-- name: ListInheritedProjectTeams :many
+
+
+WITH candidates AS (
+  SELECT
+    ptm.team_id AS team_id,
+    CASE ptm.role WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight,
+    pa.depth AS depth,
+    pa.ancestor_id AS source_project_id
+  FROM project_ancestors pa
+  JOIN project_team_memberships ptm ON ptm.project_id = pa.ancestor_id
+  WHERE pa.project_id = sqlc.arg(project_id)
+),
+best AS (
+  SELECT team_id, MAX(weight) AS weight FROM candidates GROUP BY team_id
+),
+chosen AS (
+  SELECT c.team_id, c.weight, c.depth, c.source_project_id
+  FROM candidates c
+  JOIN best b ON b.team_id = c.team_id AND b.weight = c.weight
+  WHERE c.depth = (
+    SELECT MIN(c2.depth) FROM candidates c2
+    WHERE c2.team_id = c.team_id AND c2.weight = c.weight
+  )
+)
+SELECT
+  t.id AS team_id,
+  t.name AS team_name,
+  t.description AS team_description,
+  CAST(chosen.weight AS INTEGER) AS role_weight,
+  chosen.source_project_id AS source_project_id,
+  source.name AS source_project_name,
+  source.slug AS source_project_slug,
+  (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS member_count
+FROM chosen
+JOIN teams t ON t.id = chosen.team_id
+JOIN projects source ON source.id = chosen.source_project_id
+ORDER BY lower(t.name);
+
+-- name: ListProjectTeamIDsWithAccess :many
+
+SELECT DISTINCT team_id FROM (
+  SELECT ptm.team_id FROM project_team_memberships ptm
+  WHERE ptm.project_id = sqlc.arg(project_id)
+  UNION ALL
+  SELECT ptm.team_id FROM project_team_memberships ptm
+  JOIN project_ancestors pa ON pa.ancestor_id = ptm.project_id
+  WHERE pa.project_id = sqlc.arg(project_id)
+) AS project_teams
+ORDER BY team_id;
 
 -- name: CountProjectsOwnedByTeam :one
 SELECT COUNT(*) FROM project_team_memberships
@@ -209,20 +298,18 @@ FROM (
   WHERE ptm.project_id = sqlc.arg(project_id) AND tm.actor_id = sqlc.arg(actor_id)
   UNION ALL
   
-  SELECT 1 AS weight
+  SELECT CASE m.role
+      WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight
   FROM project_ancestors pa
-  WHERE pa.project_id = sqlc.arg(project_id)
-    AND (
-      EXISTS (
-        SELECT 1 FROM project_actor_memberships m
-        WHERE m.project_id = pa.ancestor_id AND m.actor_id = sqlc.arg(actor_id)
-      )
-      OR EXISTS (
-        SELECT 1 FROM project_team_memberships ptm
-        JOIN team_members tm ON tm.team_id = ptm.team_id
-        WHERE ptm.project_id = pa.ancestor_id AND tm.actor_id = sqlc.arg(actor_id)
-      )
-    )
+  JOIN project_actor_memberships m ON m.project_id = pa.ancestor_id
+  WHERE pa.project_id = sqlc.arg(project_id) AND m.actor_id = sqlc.arg(actor_id)
+  UNION ALL
+  SELECT CASE ptm.role
+      WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight
+  FROM project_ancestors pa
+  JOIN project_team_memberships ptm ON ptm.project_id = pa.ancestor_id
+  JOIN team_members tm ON tm.team_id = ptm.team_id
+  WHERE pa.project_id = sqlc.arg(project_id) AND tm.actor_id = sqlc.arg(actor_id)
 ) AS project_roles;
 
 -- name: ListProjectsForActor :many
@@ -242,7 +329,7 @@ readable AS (
   SELECT project_id, weight FROM roots
   UNION ALL
   
-  SELECT pa.project_id, 1 AS weight
+  SELECT pa.project_id, roots.weight
   FROM project_ancestors pa
   JOIN roots ON roots.project_id = pa.ancestor_id
 ),
@@ -273,7 +360,7 @@ roots AS (
 readable AS (
   SELECT project_id, weight FROM roots
   UNION ALL
-  SELECT pa.project_id, 1 AS weight
+  SELECT pa.project_id, roots.weight
   FROM project_ancestors pa
   JOIN roots ON roots.project_id = pa.ancestor_id
 ),
@@ -304,7 +391,7 @@ roots AS (
 readable AS (
   SELECT project_id, weight FROM roots
   UNION ALL
-  SELECT pa.project_id, 1 AS weight
+  SELECT pa.project_id, roots.weight
   FROM project_ancestors pa
   JOIN roots ON roots.project_id = pa.ancestor_id
 ),
@@ -327,9 +414,18 @@ SELECT DISTINCT actor_id FROM (
   SELECT m.actor_id FROM project_actor_memberships m
   WHERE m.project_id = sqlc.arg(project_id)
   UNION ALL
+  SELECT m.actor_id FROM project_actor_memberships m
+  JOIN project_ancestors pa ON pa.ancestor_id = m.project_id
+  WHERE pa.project_id = sqlc.arg(project_id)
+  UNION ALL
   SELECT tm.actor_id FROM project_team_memberships ptm
   JOIN team_members tm ON tm.team_id = ptm.team_id
   WHERE ptm.project_id = sqlc.arg(project_id)
+  UNION ALL
+  SELECT tm.actor_id FROM project_team_memberships ptm
+  JOIN project_ancestors pa ON pa.ancestor_id = ptm.project_id
+  JOIN team_members tm ON tm.team_id = ptm.team_id
+  WHERE pa.project_id = sqlc.arg(project_id)
 ) AS project_members
 ORDER BY actor_id;
 

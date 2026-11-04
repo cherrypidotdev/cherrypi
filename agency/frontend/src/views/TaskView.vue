@@ -54,10 +54,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         span.text-muted-foreground.inline-flex.shrink-0.items-center.gap-1.rounded-full.border.px-2.text-xs(
           v-if="sessionDeleted"
           class="py-0.5"
-          title="The agent's Pi session and workspace were cleaned up; the conversation is stored in the agency and a follow-up starts a new Pi session"
+          title="The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency and a follow-up starts a new Pi session"
         )
           CircleSlashIcon.size-3.shrink-0
-          | Session cleaned up
+          | Session gone
       .flex.shrink-0.items-center.gap-2(v-if="task")
         Button(
           variant="ghost"
@@ -96,770 +96,112 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           MenuIcon.size-4
 
+  Tabs(
+    v-if="taskSites.length"
+    :taskSites="taskSites"
+    :activeTaskTab="activeTaskTab"
+    :detailsOpen="detailsOpen"
+    @selectSiteTab="selectSiteTab"
+    @select-chat="activeTaskTab = 'chat'"
+  )
+
   .flex.min-h-0.flex-1(:class="detailsOpen ? 'mr-80' : ''")
-    .flex.min-w-0.flex-1.flex-col
-      .shrink-0.border-b.px-4.py-2(
-        v-if="task && waitingReason"
-        class="bg-amber-500/10"
-        data-testid="task-waiting-reason"
-      )
-        .mx-auto.flex.max-w-3xl.items-start.gap-3
-          InfoIcon.text-muted-foreground.size-4.shrink-0(class="mt-0.5")
-          p.text-sm.font-medium.break-words
-            template(v-if="waitingBlockers.length")
-              span Waiting for tasks to become completed:&#32;
-              template(
-                v-for="(blocker, index) in waitingBlockers"
-                :key="blocker.id"
-              )
-                RouterLink.font-semibold.underline.underline-offset-2(
-                  class="hover:text-foreground/80"
-                  :to="{ name: 'task', params: { id: blocker.id } }"
-                ) {{ blocker.id }}
-                template(v-if="index < waitingBlockers.length - 1")
-                  span ,&#32;
-            span(v-else) {{ waitingReason }}
-
-      .shrink-0.border-b.px-4.py-2(
-        v-if="task && task.state === TaskState.FAILED"
-        class="bg-destructive/10"
-      )
-        .mx-auto.flex.max-w-3xl.items-start.gap-3
-          TriangleAlertIcon.text-destructive.size-4.shrink-0(class="mt-0.5")
-          .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
-            p.text-destructive.text-sm.font-medium The task failed.
-            p.text-muted-foreground.text-xs.break-words {{ task.error || "No error details." }}
-          Button.shrink-0(
-            v-if="!sessionDeleted"
-            variant="outline"
-            size="sm"
-            @click="reopen(true)"
-          )
-            PlayIcon(data-icon="inline-start")
-            span Re-queue
-
-      TaskPrompt.flex-1.overflow-hidden(
-        v-if="task && showPrompt"
-        :hint="promptHint"
-        :task="task"
-        :editable="canEditPrompt"
-        @saved="onDraftSaved"
-        @changed="onAttachmentUploaded"
-        @remove="removeAttachment"
-        @open-attachment="openAttachment"
-      )
-      .flex.flex-1.items-center.justify-center.p-6(
-        v-else-if="task && !isStarted && !canFollowUp"
-      )
-        p.text-muted-foreground.max-w-md.text-center.text-sm
-          | This task has no console yet. Its Pi session starts when the scheduler
-          | finds an eligible agent with a free slot.
-      .relative.flex.min-h-0.flex-1.flex-col.overflow-hidden(
-        v-else-if="task"
-        @dragenter.prevent="onDragEnter"
-        @dragover.prevent
-        @dragleave.prevent="onDragLeave"
-        @drop.prevent="onDrop"
-        @paste="onPaste"
-        data-testid="console-dropzone"
-      )
-        .border-primary.pointer-events-none.absolute.inset-2.z-20.flex.items-center.justify-center.rounded-lg.border-2.border-dashed(
-          v-if="draggingFiles && canFollowUp"
-          class="bg-background/80"
-        )
-          .flex.flex-col.items-center.gap-1.text-sm.font-medium
-            PaperclipIcon.size-5
-            span Drop files to attach
-        TaskConsole.min-h-0.flex-1(
-          :key="task.sessionId"
-          :id="id"
-          :busy="busy"
-          :waiting-for-input="task?.runtime?.waitingForInput"
-          :attachments="task?.attachments ?? []"
-          :actor-pictures="actorPictures"
-          :agent-id="task.assigneeActorId && !sessionDeleted ? agentIdForActor(task.assigneeActorId) : ''"
-          :model-config="config"
-          :model-selection="modelSelection"
-          :model-disabled="saving.model || !config"
-          @queue="onQueue"
-          @open-attachment="openAttachment"
-          @model-change="onModelSelectionChange"
-        )
-        .shrink-0.px-4.pt-3.pb-3(v-if="showPendingPrompt")
-          .mx-auto.w-full.max-w-3xl
-            TaskPrompt(
-              field="pendingPrompt"
-              compact
-              :hint="pendingPromptHint"
-              :task="task"
-              :editable="canEditPrompt"
-              :text="task.pendingPrompt"
-              @saved="onPendingPromptSaved"
-            )
-        .shrink-0.border-t.px-4.pt-3(v-if="taskQueue.length")
-          .mx-auto.flex.max-w-3xl.flex-col.gap-1
-            .flex.items-center.gap-2
-              p.text-muted-foreground.text-xs
-                | Queued steering — injected between blocks
-              Button.ml-auto(
-                variant="outline"
-                size="sm"
-                @click="clearQueue"
-                :disabled="clearingQueue"
-              )
-                Spinner(v-if="clearingQueue" data-icon="inline-start")
-                Trash2Icon(v-else data-icon="inline-start")
-                span Clear queue
-            .flex.flex-col.items-end.gap-1(
-              v-for="item in taskQueue"
-              :key="item.id"
-              data-testid="steering-message"
-            )
-              MessageSender(
-                v-if="item.sender"
-                :sender="item.sender"
-                :picture="pictureFor(item.sender)"
-              )
-              .rounded-lg.border.border-dashed.px-3.py-2(
-                class="bg-muted/60 max-w-[80%]"
-              )
-                .text-sm.break-words.whitespace-pre-wrap(v-if="!item.text")
-                MarkdownText.prose.prose-sm.max-w-none(
-                  v-else
-                  class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
-                  :text="item.text"
-                )
-              AttachmentChips(
-                v-if="item.attachmentIds.length"
-                :attachments="queueAttachments(item.attachmentIds)"
-                @open="openAttachment"
-              )
-        form.relative.shrink-0.border-t.p-4(
-          ref="composer"
-          :class="canFollowUp ? '' : 'opacity-50'"
-          @submit.prevent="send"
-        )
-          .absolute.inset-x-0.-top-1.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
-            v-if="canFollowUp && tab === 'write'"
-            title="Drag to resize the composer"
-            @pointerdown="startResize"
-            data-testid="composer-resize-handle"
-          )
-            .bg-border.h-1.w-10.rounded-full.transition-opacity(
-              :class="resizing ? 'opacity-100' : 'opacity-40 hover:opacity-100'"
-            )
-          .mx-auto.flex.max-w-3xl.flex-col.gap-2
-            p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
-              v-if="sessionDeleted"
-              data-testid="session-cleaned-up-hint"
-            )
-              CircleSlashIcon.size-3.shrink-0(class="mt-0.5")
-              span
-                | The agent's Pi session and workspace were cleaned up. Sending a
-                | message replays the stored conversation in a new Pi session.
-            .flex.flex-col.gap-2
-              .flex.flex-wrap.items-center.gap-2
-                WritePreviewTabs(v-model="tab" test-id="composer-tab")
-                .ml-auto.flex.flex-wrap.items-center.gap-2
-                  TaskModelPicker(
-                    v-if="task.assigneeActorId && !sessionDeleted"
-                    :agent-id="agentIdForActor(task.assigneeActorId)"
-                    :config="config"
-                    :selection="modelSelection"
-                    :use-defaults="false"
-                    @change="onModelSelectionChange"
-                    :disabled="saving.model || !config"
-                  )
-                  Button.shrink-0(
-                    v-if="steer"
-                    type="button"
-                    variant="outline"
-                    title="Stop the agent"
-                    @click="stop"
-                    :disabled="stopping"
-                  )
-                    Spinner(v-if="stopping" data-icon="inline-start")
-                    SquareIcon(v-else data-icon="inline-start")
-                    span Stop
-                  Button.shrink-0(
-                    type="submit"
-                    :title="steer ? 'Steer: injected between the run\u2019s blocks' : 'Send prompt'"
-                    :disabled="!canFollowUp || !prompt.trim() || sending"
-                  )
-                    SendIcon(data-icon="inline-start")
-                    span {{ steer ? "Steer" : "Send" }}
-              MarkdownEditor(
-                v-if="tab === 'write'"
-                ref="promptInput"
-                v-model="prompt"
-                placeholder="Send a follow-up prompt…"
-                submit-on-enter
-                references
-                test-id="composer-editor"
-                aria-label="Follow-up prompt"
-                title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
-                :reference-project-id="task?.projectId ?? ''"
-                :reference-task-id="task?.id ?? ''"
-                :fill="textareaHeight !== null"
-                :style="textareaStyle"
-                height="3.5rem"
-                @submit="onEnter"
-                :disabled="!canFollowUp"
-              )
-              .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
-                v-else
-                data-testid="composer-preview"
-              )
-                MarkdownText.prose.prose-sm.max-w-none(
-                  class="prose-p:my-1 prose-pre:my-2"
-                  :style="inheritProse"
-                  :text="prompt"
-                )
-              .flex.flex-col.gap-1(v-if="canFollowUp")
-                .flex.items-center.gap-2
-                  AttachmentUploadButton(
-                    label="Attach"
-                    :task-id="task.id"
-                    @uploaded="onStagedUploaded"
-                  )
-                  Button(
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    title="Draw a sketch"
-                    @click="openNewSketch"
-                  )
-                    PencilIcon(data-icon="inline-start")
-                    span Sketch
-                  span.text-muted-foreground.text-xs(
-                    v-if="!stagedAttachments.length"
-                  ) Paste, drop, or pick files to send with this prompt
-                AttachmentList(
-                  v-if="stagedAttachments.length"
-                  removable
-                  sketchable
-                  :attachments="stagedAttachments"
-                  @remove="removeStaged"
-                  @sketch="openSketch"
-                  @open="openAttachment"
-                )
-              p.text-muted-foreground.text-xs(v-if="isPostponed")
-                | Sending a follow-up queues this task immediately.
-              .flex.min-h-7.items-center.gap-2(v-if="contextWindow")
-                ContextMeter.ml-auto(
-                  :tokens="taskUsage?.contextTokens ?? 0"
-                  :window="contextWindow"
-                )
-
-    aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.flex-col.border-l(
-      v-if="detailsOpen"
+    Console(
+      :active="activeTaskTab === 'chat'"
+      :id="id"
+      :task="task"
+      :task-usage="taskUsage"
+      :config="config"
+      :model-selection="modelSelection"
+      :saving="saving"
+      :can-follow-up="canFollowUp"
+      :can-compose="canCompose"
+      :prompt="prompt"
+      :tab="tab"
+      :staged-attachments="stagedAttachments"
+      :dragging-files="draggingFiles"
+      :task-queue="taskQueue"
+      :clearing-queue="clearingQueue"
+      :sending="sending"
+      :stopping="stopping"
+      @update:prompt="prompt = $event"
+      @update:tab="tab = $event"
+      @send="send"
+      @enter="onEnter"
+      @stop="stop"
+      @reopen="reopen"
+      @remove-attachment="removeAttachment"
+      @attachment-uploaded="onAttachmentUploaded"
+      @draft-saved="onPromptSaved"
+      @pending-prompt-saved="onPendingPromptSaved"
+      @open-attachment="openAttachment"
+      @open-image="openInlineImage"
+      @open-new-sketch="openNewSketch"
+      @open-sketch="openSketch"
+      @model-change="onModelSelectionChange"
+      @staged-uploaded="onStagedUploaded"
+      @remove-staged="removeStaged"
+      @drag-enter="onDragEnter"
+      @drag-leave="onDragLeave"
+      @drop="onDrop"
+      @paste="onPaste"
+      @queue="onQueue"
+      @clear-queue="clearQueue"
+      @open-plan="openPlan"
+      @remind-plan="remindPlan"
     )
-      .flex.h-11.shrink-0.items-center.gap-1.border-b.px-4
-        button.rounded-md.px-2.py-1.text-xs.font-medium(
-          v-for="option in DETAILS_TABS"
-          :key="option.value"
-          type="button"
-          :class="detailsTab === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'"
-          @click="detailsTab = option.value"
-        ) {{ option.label }}
-      .flex.flex-1.flex-col.gap-4.overflow-y-auto.p-4(v-if="task")
-        .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Assignee
 
-            Select(
-              v-if="canEditAssignee"
-              :model-value="assigneeChoice"
-              @update:model-value="onAssigneeChange"
-              :disabled="saving.assignee"
-            )
-              SelectTrigger.w-full(size="sm" title="Change assignee")
-                SelectValue(placeholder="Unassigned")
-              SelectContent
-                SelectGroup
-                  SelectItem(:value="AUTO") Auto-assign
-                  SelectItem(
-                    v-for="item in assigneeOptions"
-                    :key="item.id"
-                    :value="item.id"
-                  ) {{ item.displayName || item.username }}
-            template(v-else)
-              .flex.items-center.gap-2(v-if="task.assigneeActorId")
-                RouterLink.flex.items-center.gap-2(
-                  v-if="usernameFor(task.assigneeActorId)"
-                  class="hover:underline"
-                  :to="{ name: 'agent', params: { username: usernameFor(task.assigneeActorId) } }"
-                )
-                  span.size-5.shrink-0(
-                    :innerHTML="agentAvatar(task.assigneeActorId)"
-                  )
-                  span.text-sm {{ agentName(task.assigneeActorId) }}
-                template(v-else)
-                  span.size-5.shrink-0(
-                    :innerHTML="agentAvatar(task.assigneeActorId)"
-                  )
-                  span.text-sm {{ agentName(task.assigneeActorId) }}
-                PinIcon.text-muted-foreground.size-3.shrink-0(
-                  v-if="task.assigneePinned"
-                  title="Pinned to this agent"
-                  aria-label="Pinned to this agent"
-                )
-              span.text-muted-foreground.text-sm(v-else) Unassigned
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Status
-            .flex.items-center.gap-2
-              span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
-                class="gap-1.5 py-0.5"
-                :class="taskStateClassFor(task)"
-              )
-                component.size-3.shrink-0(:is="taskStateIcon(task.state)")
-                | {{ taskStateLabelFor(task) }}
-              span.text-muted-foreground.text-xs(v-if="isActive") holds the agent's slot
+    SiteVue(
+      v-for="site in visitedSites"
+      :key="site.id"
+      v-show="activeSite?.id === site.id"
+      :site="site"
+      @open-full="openFullSite(site)"
+      @open-new="openSiteNewTab(site)"
+    )
 
-        .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Priority
-            Select(
-              :model-value="priorityChoice"
-              @update:model-value="onPriorityChange"
-              :disabled="saving.priority"
-            )
-              SelectTrigger.w-full(size="sm" title="Change priority")
-                SelectValue
-              SelectContent
-                SelectGroup
-                  SelectItem(
-                    v-for="option in PRIORITIES"
-                    :key="option.value"
-                    :value="option.value"
-                  ) {{ option.label }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Size
-            Select(
-              :model-value="sizeChoice"
-              @update:model-value="onSizeChange"
-              :disabled="saving.size"
-            )
-              SelectTrigger.w-full(size="sm" title="Change size")
-                SelectValue
-              SelectContent
-                SelectGroup
-                  SelectItem(
-                    v-for="option in SIZES"
-                    :key="option.value"
-                    :value="option.value"
-                  ) {{ option.label }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Project
-
-            Select(
-              v-if="isDraft"
-              :model-value="projectChoice"
-              @update:model-value="onProjectChange"
-              :disabled="saving.project"
-            )
-              SelectTrigger.w-full(size="sm" title="Change project")
-                SelectValue(placeholder="Select project")
-              SelectContent
-                SelectGroup
-                  SelectItem(
-                    v-for="project in projectOptions"
-                    :key="project.id"
-                    :value="project.id"
-                  ) {{ project.name }}
-            template(v-else)
-              RouterLink.text-sm(
-                v-if="task.projectId && projectSlug(task.projectId)"
-                class="hover:underline"
-                :to="{ name: 'project', params: { slug: projectSlug(task.projectId) } }"
-              ) {{ projectName(task.projectId) }}
-              span.text-muted-foreground.text-sm(v-else) No project
-
-        .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Task id
-            span.font-mono.text-xs.break-all(:title="task.id") {{ task.id }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Created
-            span.text-xs {{ formatTimestamp(task.createdAt) }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Creator
-            .flex.items-center.gap-2(
-              v-if="task.creatorName || task.creatorActorId"
-            )
-              ActorAvatar(
-                :src="task.creatorPictureUrl"
-                :name="task.creatorName"
-                :username="task.creatorActorId"
-                :size="20"
-              )
-              span.text-sm(v-if="task.creatorName") {{ task.creatorName }}
-              span.font-mono.text-xs(v-else) {{ task.creatorActorId }}
-            span.text-muted-foreground.text-sm(v-else) —
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Owning teams
-            .flex.flex-wrap.items-center.gap-1
-              span.rounded-full.border.px-2.text-xs(
-                v-for="team in task.teams"
-                :key="team.id"
-                class="py-0.5"
-              ) {{ team.name || `Team ${team.id}` }}
-              DropdownMenu
-                DropdownMenuTrigger(as-child)
-                  Button(
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Edit owning teams"
-                    :disabled="saving.teams"
-                  )
-                    PlusIcon.size-3
-                DropdownMenuContent.w-56(align="start")
-                  DropdownMenuLabel Owning teams
-                  DropdownMenuSeparator
-                  p.text-muted-foreground.px-2.py-1.text-xs(
-                    v-if="!projectTeams.length"
-                  )
-                    | No teams in this project
-                  DropdownMenuCheckboxItem(
-                    v-for="team in projectTeams"
-                    :key="team.team_id"
-                    :model-value="teamIds.includes(team.team_id)"
-                    @update:model-value="toggleTaskTeam(team.team_id)"
-                    @select.prevent
-                  ) {{ team.team_name }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Leads
-            .flex.flex-wrap.items-center.gap-1
-              span.inline-flex.items-center.gap-1.rounded-full.border.pr-2.pl-1.text-xs(
-                v-for="lead in task.leads"
-                :key="lead.actorId"
-                class="py-0.5"
-              )
-                ActorAvatar(
-                  :src="lead.pictureUrl"
-                  :name="lead.name"
-                  :username="lead.username"
-                  :size="16"
-                )
-                span {{ lead.name || lead.username || lead.actorId }}
-              DropdownMenu
-                DropdownMenuTrigger(as-child)
-                  Button(
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Edit leads"
-                    :disabled="saving.leads"
-                  )
-                    PlusIcon.size-3
-                DropdownMenuContent.w-56(align="start")
-                  DropdownMenuLabel Leads
-                  DropdownMenuSeparator
-                  p.text-muted-foreground.px-2.py-1.text-xs(
-                    v-if="!leadCandidates.length"
-                  )
-                    | No members to pick
-                  DropdownMenuCheckboxItem(
-                    v-for="candidate in leadCandidates"
-                    :key="candidate.actor_id"
-                    :model-value="leadIds.includes(candidate.actor_id)"
-                    @update:model-value="toggleTaskLead(candidate.actor_id)"
-                    @select.prevent
-                  )
-                    ActorAvatar(
-                      :src="candidate.picture_url"
-                      :name="candidate.name"
-                      :username="candidate.username"
-                      :size="18"
-                    )
-                    span {{ candidate.name || candidate.username }}
-          .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Notifications
-            Button(
-              type="button"
-              variant="outline"
-              size="sm"
-              @click="toggleSubscription"
-              :disabled="saving.subscription"
-            ) {{ task.subscribed ? "Unsubscribe" : "Subscribe" }}
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-          span.text-muted-foreground.text-xs Tags
-          .flex.flex-wrap.items-center.gap-1
-            span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
-              v-for="tag in task.tags"
-              :key="tag.id"
-              class="py-0.5"
-              :style="tagStyle(tag.color)"
-            )
-              span.rounded-full.bg-current(class="size-1.5")
-              | {{ tag.name }}
-              button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
-                type="button"
-                class="p-0.5 hover:opacity-100"
-                title="Remove tag"
-                @click="toggleTag(tag)"
-                :disabled="saving.tags"
-              )
-                XIcon.size-3
-            span.text-muted-foreground.text-sm(v-if="!task.tags.length") —
-            DropdownMenu(v-if="unattachedTags.length")
-              DropdownMenuTrigger(as-child)
-                Button(
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  title="Add tag"
-                  :disabled="saving.tags"
-                )
-                  PlusIcon.size-3
-              DropdownMenuContent.w-48(align="start")
-                DropdownMenuLabel Add tag
-                DropdownMenuSeparator
-                DropdownMenuItem(
-                  v-for="tag in unattachedTags"
-                  :key="tag.id"
-                  @click="toggleTag(tag)"
-                )
-                  span.size-2.shrink-0.rounded-full(
-                    :style="{ backgroundColor: tagColor(tag.color) }"
-                  )
-                  span {{ tag.name }}
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-          span.text-muted-foreground.text-xs Attachments
-          p.text-muted-foreground.text-xs(v-if="canFollowUp")
-            | Attach files to a message below.
-          AttachmentList(
-            :attachments="task.attachments"
-            @open="openAttachment"
-          )
-
-        TaskReferences(
-          v-if="detailsTab === 'general'"
-          :task="task"
-          @updated="onReferenceChange"
-        )
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-          .flex.items-center.justify-between
-            span.text-muted-foreground.text-xs Links
-            Button(
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              title="Edit links"
-              aria-label="Edit links"
-              @click="linksDialogOpen = true"
-              data-test="edit-links"
-            )
-              PencilIcon.size-3
-          .flex.flex-col.gap-1(v-if="task.links.length")
-            a.flex.items-center.gap-2.rounded-md.border.px-2.py-1.text-xs(
-              v-for="link in task.links"
-              :key="link.url"
-              rel="noopener noreferrer"
-              class="hover:bg-muted/50"
-              :href="link.url"
-              :title="link.url"
-              target="_blank"
-            )
-              ExternalLinkIcon.size-3.shrink-0
-              .flex.min-w-0.flex-col
-                span.font-medium {{ link.label || link.url }}
-                span.text-muted-foreground.truncate(v-if="link.label") {{ link.url }}
-          span.text-muted-foreground.text-sm(v-else) —
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-          span.text-muted-foreground.text-xs Usage
-          span.text-muted-foreground.text-sm(
-            v-if="!isStarted || sessionDeleted"
-          ) —
-          .flex.flex-col.gap-1.text-xs(v-else)
-            .flex.items-baseline.justify-between.gap-3
-              span.text-muted-foreground Token usage
-              Skeleton.h-3.w-24(v-if="!taskUsage")
-              span.font-medium.tabular-nums(v-else)
-                | {{ formatTokens(taskUsage.inputTokens) }} in ·
-                | {{ formatTokens(taskUsage.outputTokens) }} out
-            .flex.items-baseline.justify-between.gap-3
-              span.text-muted-foreground Total cost
-              Skeleton.h-3.w-16(v-if="!taskUsage")
-              span.font-medium.tabular-nums(v-else) {{ formatCost(taskUsage.cost) }}
-            .flex.items-baseline.justify-between.gap-3
-              span.text-muted-foreground Total run time
-              Skeleton.h-3.w-16(v-if="!taskUsage")
-              span.font-medium.tabular-nums(v-else) {{ formatDuration(taskUsage.activeMs) }}
-            .flex.items-baseline.justify-between.gap-3
-              span.text-muted-foreground Workspace size
-              Skeleton.h-3.w-16(v-if="taskDiskLoading")
-              span.font-medium.tabular-nums(
-                v-else-if="taskDiskBytes !== undefined"
-              ) {{ formatBytes(taskDiskBytes) }}
-              span.font-medium.tabular-nums(v-else) —
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'artifacts'")
-          span.text-muted-foreground.text-xs Artifacts
-          TaskArtifacts(:artifacts="task.artifacts")
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'logs'")
-          span.text-muted-foreground.text-xs Activity
-          TaskLogs(:logs="task.logs")
-
-        .flex.flex-col.gap-1(v-if="detailsTab === 'prompts'")
-          Disclosure(v-slot="{ open }")
-            DisclosureButton.group.flex.w-full.items-center.gap-1.text-left
-              ChevronRightIcon.size-3.shrink-0.transition-transform(
-                :class="open ? 'rotate-90' : ''"
-              )
-              span.text-muted-foreground.text-xs System Prompt
-            DisclosurePanel.mt-2.flex.flex-col.gap-1
-              p.text-muted-foreground.text-xs(v-if="!systemPrompt.length") —
-              template(v-for="section in systemPrompt" :key="section.scope")
-                Disclosure.overflow-hidden.rounded-md.border(
-                  as="div"
-                  v-slot="{ open: sectionOpen }"
-                )
-                  DisclosureButton.flex.w-full.items-center.gap-1.px-2.text-left(
-                    class="hover:bg-muted/60 py-1.5"
-                  )
-                    ChevronRightIcon.size-3.shrink-0.transition-transform(
-                      :class="sectionOpen ? 'rotate-90' : ''"
-                    )
-                    span.text-xs {{ sectionLabel(section) }}
-                  DisclosurePanel.border-t.px-2.py-2
-                    pre.text-muted-foreground.font-sans.text-xs.break-words.whitespace-pre-wrap(
-                      v-if="section.content"
-                    ) {{ section.content }}
-                    span.text-muted-foreground.text-xs.italic(v-else) No prompt set.
-              p.text-muted-foreground.text-xs.italic(
-                v-if="systemPromptPreview"
-              )
-                | Showing the latest versions; the task pins them when it starts.
-
-        .bg-border.h-px(v-if="detailsTab === 'general'")
-        .flex.flex-col.gap-2(v-if="detailsTab === 'general'")
-          template(v-if="task.archived")
-            Button(variant="outline" @click="unarchive" :disabled="actionBusy")
-              ArchiveRestoreIcon(data-icon="inline-start")
-              span Unarchive
-            Button(
-              v-if="task.sessionId && !task.sessionDeletedAt"
-              variant="outline"
-              @click="cleanupSession"
-              :disabled="actionBusy"
-            )
-              EraserIcon(data-icon="inline-start")
-              span Clean up session
-            Button.text-destructive(
-              variant="outline"
-              @click="remove"
-              :disabled="actionBusy"
-            )
-              Trash2Icon(data-icon="inline-start")
-              span Delete
-          template(v-else)
-            Button(v-if="isDraft" @click="queue" :disabled="actionBusy")
-              PlayIcon(data-icon="inline-start")
-              span Queue task
-            Button(
-              v-if="isDraft"
-              variant="outline"
-              @click="promote"
-              :disabled="actionBusy"
-            )
-              InboxIcon(data-icon="inline-start")
-              span Move to Backlog
-            Button(
-              v-if="isBacklog && !isPostponed"
-              @click="queue"
-              :disabled="actionBusy"
-            )
-              PlayIcon(data-icon="inline-start")
-              span Queue task
-            Button(
-              v-if="isBacklog && !isPostponed"
-              variant="outline"
-              @click="demote"
-              :disabled="actionBusy"
-            )
-              Undo2Icon(data-icon="inline-start")
-              span Back to Draft
-            Button(
-              v-if="isRunning && task.runtime?.runInProgress"
-              variant="outline"
-              @click="stop"
-              :disabled="stopping"
-            )
-              SquareIcon(data-icon="inline-start")
-              span Stop run
-            Button(
-              v-if="isQueued"
-              variant="outline"
-              @click="dequeue"
-              :disabled="actionBusy"
-            )
-              Undo2Icon(data-icon="inline-start")
-              span Back to Backlog
-            Button(
-              v-if="canMoveToBacklog"
-              variant="outline"
-              @click="reopen(false)"
-              :disabled="actionBusy"
-            )
-              InboxIcon(data-icon="inline-start")
-              span Move to Backlog
-            Button(
-              v-if="canRework"
-              @click="reopen(true)"
-              :disabled="actionBusy"
-            )
-              PlayIcon(data-icon="inline-start")
-              span Re-queue
-            Button(
-              v-if="canCloseOut"
-              variant="outline"
-              :title="isRunning || isInput ? 'Stop the run or let it settle before closing out' : 'Close out task'"
-              @click="closeOut"
-              :disabled="actionBusy || isRunning || isInput"
-            )
-              CheckIcon(data-icon="inline-start")
-              span Close out
-            Button(
-              v-if="canChangeOutcome"
-              variant="outline"
-              title="Switch between completed and cancelled"
-              @click="closeOut"
-              :disabled="actionBusy"
-            )
-              ArrowLeftRightIcon(data-icon="inline-start")
-              span Change outcome
-            Button(
-              v-if="canArchive"
-              variant="outline"
-              @click="archive"
-              :disabled="actionBusy"
-            )
-              ArchiveIcon(data-icon="inline-start")
-              span Archive
-            Button.text-destructive(
-              variant="outline"
-              @click="remove"
-              :disabled="actionBusy"
-            )
-              Trash2Icon(data-icon="inline-start")
-              span Delete
-            p.text-muted-foreground.text-xs(v-if="isBacklog && isPostponed")
-              | This task already ran. Send a follow-up to queue it again, or
-              | close it out. It cannot return to Draft.
-            p.text-muted-foreground.text-xs(v-else-if="isBacklog")
-              | You can edit the prompt in Backlog. Move the task back to Draft
-              | to change its project.
-            p.text-muted-foreground.text-xs(v-if="isDraft")
-              | Queue starts the task; Move to Backlog parks it without queuing.
-            p.text-muted-foreground.text-xs(v-if="!isDraft && !isBacklog")
-              | Send a follow-up to run the task again, or close it out.
+    TaskDetails(
+      v-model:tab="detailsTab"
+      :open="detailsOpen"
+      :task="task"
+      :saving="saving"
+      :assignee-options="assigneeOptions"
+      :project-options="projectOptions"
+      :project-teams="projectTeams"
+      :lead-candidates="leadCandidates"
+      :unattached-tags="unattachedTags"
+      :task-usage="taskUsage"
+      :task-disk-bytes="taskDiskBytes"
+      :task-disk-loading="taskDiskLoading"
+      :system-prompt="systemPrompt"
+      :action-busy="actionBusy"
+      :stopping="stopping"
+      :can-compose="canCompose"
+      @assignee-change="onAssigneeChange"
+      @priority-change="onPriorityChange"
+      @size-change="onSizeChange"
+      @project-change="onProjectChange"
+      @toggle-team="toggleTaskTeam"
+      @toggle-lead="toggleTaskLead"
+      @toggle-tag="toggleTag"
+      @toggle-subscription="toggleSubscription"
+      @reference-change="onReferenceChange"
+      @open-attachment="openAttachment"
+      @remind-plan="remindPlan"
+      @open-media="openLightboxItem"
+      @comments-read="onCommentsRead"
+      @edit-links="linksDialogOpen = true"
+      @queue="queue"
+      @dequeue="dequeue"
+      @stop="stop"
+      @reopen="reopen"
+      @close-out="closeOut"
+      @archive="archive"
+      @unarchive="unarchive"
+      @cleanup-session="cleanupSession"
+      @restart-session="restartSession"
+      @delete="remove"
+    )
 
   CloseOutTaskDialog(
     v-model:open="closeOutDialogOpen"
@@ -893,55 +235,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @save="onSketchSave"
   )
 
-  AttachmentLightbox(
+  TaskLightbox(
     v-model:open="lightboxOpen"
-    :attachments="lightboxAttachments"
+    :items="lightboxEntries"
     :start-index="lightboxIndex"
   )
 </template>
 
 <script setup lang="ts">
-import ActorAvatar from "@/components/ActorAvatar.vue";
-import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
-import AttachmentLightbox from "@/components/attachments/AttachmentLightbox.vue";
-import AttachmentList from "@/components/attachments/AttachmentList.vue";
-import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
 import BackButton from "@/components/BackButton.vue";
-import MarkdownEditor from "@/components/MarkdownEditor.vue";
-import MarkdownText from "@/components/MarkdownText.vue";
-import MessageSender from "@/components/MessageSender.vue";
 import ArchiveTaskDialog from "@/components/tasks/ArchiveTaskDialog.vue";
 import CloseOutTaskDialog from "@/components/tasks/CloseOutTaskDialog.vue";
-import ContextMeter from "@/components/tasks/ContextMeter.vue";
-import TaskArtifacts from "@/components/tasks/TaskArtifacts.vue";
-import TaskConsole from "@/components/tasks/TaskConsole.vue";
+import TaskLightbox from "@/components/tasks/TaskLightbox.vue";
 import TaskLinksDialog from "@/components/tasks/TaskLinksDialog.vue";
-import TaskLogs from "@/components/tasks/TaskLogs.vue";
-import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
-import TaskPrompt from "@/components/tasks/TaskPrompt.vue";
-import TaskReferences from "@/components/tasks/TaskReferences.vue";
-import WritePreviewTabs from "@/components/tasks/WritePreviewTabs.vue";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
+import Console from "@/views/TaskView/Console.vue";
+import SiteVue from "@/views/TaskView/Site.vue";
+import { default as Tabs } from "@/views/TaskView/Tabs.vue";
+import TaskDetails from "@/views/TaskView/TaskDetails.vue";
 
 import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
@@ -952,6 +265,7 @@ import { setPageTitle } from "@/composables/usePageTitle";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import { useRealtime } from "@/composables/useRealtime";
+import { useSites } from "@/composables/useSites";
 import {
   useSketchEditor,
   type SketchSavePayload,
@@ -962,15 +276,17 @@ import { accountApi, type UserPreferences } from "@/lib/account";
 import { queuedMessageParts, type UserMessageParts } from "@/lib/console";
 import { chatDraftKey } from "@/lib/draft";
 import {
-  formatBytes,
-  formatCost,
-  formatDuration,
-  formatTimestamp,
-  formatTokens,
-} from "@/lib/format";
+  attachmentItem,
+  buildTaskLightboxItems,
+  inlineImageItem,
+  withLightboxItem,
+  type InlineImage,
+  type LightboxItem,
+} from "@/lib/lightbox";
 import { sortProjectsByName } from "@/lib/project";
 import {
   projectAccessApi,
+  projectTeamsWithInherited,
   type LeadCandidate,
   type ProjectTeamLink,
 } from "@/lib/projectAccess";
@@ -985,10 +301,6 @@ import {
 } from "@/lib/sketches";
 import {
   EMPTY_TASK_MODEL_SELECTION,
-  TASK_SIZES,
-  tagColor,
-  tagStyle,
-  taskIncompleteBlockers,
   taskName,
   taskNameClass,
   taskPriorityClass,
@@ -999,17 +311,16 @@ import {
   taskStateIcon,
   taskStateLabelFor,
   taskTitlePending,
-  taskWaitingReason,
   type TaskModelSelection,
 } from "@/lib/task";
 import { deleteConfirmation } from "@/lib/taskActions";
 import {
-  PromptScope,
   TaskPriority,
   TaskSize,
   TaskState,
   type Attachment,
   type Project,
+  type Site,
   type SystemPromptSection,
   type Tag,
   type Task,
@@ -1018,86 +329,109 @@ import {
   type TaskLinkInput,
   type TaskUsage,
 } from "@cherrypi/sdk";
-import { Disclosure, DisclosureButton, DisclosurePanel } from "@headlessui/vue";
-import {
-  ArchiveIcon,
-  ArchiveRestoreIcon,
-  ArrowLeftRightIcon,
-  CheckIcon,
-  ChevronRightIcon,
-  CircleSlashIcon,
-  EraserIcon,
-  ExternalLinkIcon,
-  InboxIcon,
-  InfoIcon,
-  MenuIcon,
-  PaperclipIcon,
-  PencilIcon,
-  PinIcon,
-  PlayIcon,
-  PlusIcon,
-  SendIcon,
-  SquareIcon,
-  StarIcon,
-  Trash2Icon,
-  TriangleAlertIcon,
-  Undo2Icon,
-  XIcon,
-} from "@lucide/vue";
-import { toSvg } from "jdenticon";
+import { CircleSlashIcon, MenuIcon, PencilIcon, StarIcon } from "@lucide/vue";
 import {
   computed,
   defineAsyncComponent,
   nextTick,
-  onBeforeUnmount,
   onMounted,
   reactive,
   ref,
   watch,
 } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{ id: string }>();
-
-const inheritProse = {
-  "--tw-prose-body": "currentColor",
-  "--tw-prose-headings": "currentColor",
-  "--tw-prose-lead": "currentColor",
-  "--tw-prose-links": "currentColor",
-  "--tw-prose-bold": "currentColor",
-  "--tw-prose-counters": "currentColor",
-  "--tw-prose-bullets": "currentColor",
-  "--tw-prose-hr": "currentColor",
-  "--tw-prose-quotes": "currentColor",
-  "--tw-prose-quote-borders": "currentColor",
-  "--tw-prose-captions": "currentColor",
-  "--tw-prose-code": "currentColor",
-  "--tw-prose-pre-code": "currentColor",
-  "--tw-prose-pre-bg": "transparent",
-  "--tw-prose-th-borders": "currentColor",
-  "--tw-prose-td-borders": "currentColor",
-};
 
 const SketchDialog = defineAsyncComponent(
   () => import("@/components/sketches/SketchDialog.vue"),
 );
 
 const router = useRouter();
-const { agents, loadAgents, usernameFor, actorIdFor, agentIdForActor } =
-  useAgents();
-const { actorPictures, loadActorPictures, pictureFor } = useActorPictures();
+const route = useRoute();
+const { agents, loadAgents, actorIdFor, agentIdForActor } = useAgents();
+const { loadActorPictures } = useActorPictures();
 const { active: allProjects, loadProjects } = useProjects();
+const { sites: taskSites, load: loadTaskSites } = useSites();
+
+const activeTaskTab = ref("chat");
+
+const SITE_TAB_PREFIX = "site:";
+const activeSite = computed<Site | undefined>(() => {
+  if (!activeTaskTab.value.startsWith(SITE_TAB_PREFIX)) return undefined;
+  const id = activeTaskTab.value.slice(SITE_TAB_PREFIX.length);
+  return taskSites.value.find((site) => site.id === id);
+});
+
+const visitedSiteIds = ref<string[]>([]);
+const visitedSites = computed(() =>
+  taskSites.value.filter((site) => visitedSiteIds.value.includes(site.id)),
+);
+
+function selectSiteTab(site: Site) {
+  if (!visitedSiteIds.value.includes(site.id)) {
+    visitedSiteIds.value = [...visitedSiteIds.value, site.id];
+  }
+  activeTaskTab.value = SITE_TAB_PREFIX + site.id;
+}
+
+async function loadSites() {
+  await loadTaskSites({ originTaskId: props.id });
+  visitedSiteIds.value = visitedSiteIds.value.filter((id) =>
+    taskSites.value.some((site) => site.id === id),
+  );
+  const current = activeSite.value;
+  if (current && !visitedSiteIds.value.includes(current.id)) {
+    visitedSiteIds.value = [...visitedSiteIds.value, current.id];
+  }
+  if (activeTaskTab.value !== "chat" && !activeSite.value) {
+    activeTaskTab.value = "chat";
+  }
+}
+
+function openSiteNewTab(site: Site) {
+  window.open(site.url, "_blank", "noopener");
+}
+
+function openFullSite(site: Site) {
+  void router.push({ name: "site", params: { id: site.id } });
+}
 
 const task = ref<Task | undefined>();
 
 const { active: activeTags } = useTags(() => task.value?.projectId ?? "");
 
-const { open: detailsOpen, toggle: toggleDetails } = useTaskDetails();
+const {
+  open: detailsOpen,
+  toggle: toggleDetails,
+  setOpen: setDetailsOpen,
+} = useTaskDetails();
+
+const detailsTab = ref("general");
+
+function openPlan() {
+  detailsTab.value = "plan";
+  if (!detailsOpen.value) toggleDetails();
+}
+
+const deepLinkedTab = ref("");
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (typeof tab !== "string" || !tab || tab === deepLinkedTab.value) return;
+    deepLinkedTab.value = tab;
+    detailsTab.value = tab;
+    setDetailsOpen(true);
+  },
+  { immediate: true },
+);
 
 const lightboxOpen = ref(false);
-const lightboxAttachments = ref<Attachment[]>([]);
+const lightboxEntries = ref<LightboxItem[]>([]);
 const lightboxIndex = ref(0);
+
+const inlineLightboxItems = ref<LightboxItem[]>([]);
 const taskUsage = ref<TaskUsage | undefined>();
 
 const taskDiskBytes = ref<bigint | undefined>();
@@ -1112,15 +446,6 @@ const systemPrompt = ref<SystemPromptSection[]>([]);
 const prompt = useDraft(() => chatDraftKey(props.id));
 
 const tab = ref<"write" | "preview">("write");
-
-const composer = ref<HTMLElement | null>(null);
-const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
-const textareaHeight = ref<number | null>(null);
-const textareaStyle = computed(() =>
-  textareaHeight.value === null
-    ? undefined
-    : { height: `${textareaHeight.value}px` },
-);
 
 const stagedAttachments = ref<Attachment[]>([]);
 
@@ -1174,69 +499,17 @@ const titleEditing = ref(false);
 const titleDraft = ref("");
 const titleInput = ref<{ $el?: HTMLInputElement } | undefined>();
 
-const DETAILS_TABS = [
-  { value: "general", label: "General" },
-  { value: "artifacts", label: "Artifacts" },
-  { value: "prompts", label: "Prompts" },
-  { value: "logs", label: "Logs" },
-];
-const detailsTab = ref("general");
-
-const PRIORITIES = [
-  { value: TaskPriority.LOW, label: "Low" },
-  { value: TaskPriority.NORMAL, label: "Normal" },
-  { value: TaskPriority.HIGH, label: "High" },
-  { value: TaskPriority.CRITICAL, label: "Critical" },
-];
-
 const AUTO = "__auto__";
-
-const SIZES = TASK_SIZES;
 
 let generation = 0;
 
 let configGeneration = 0;
 
-const isDraft = computed(() => task.value?.state === TaskState.DRAFT);
 const isBacklog = computed(() => task.value?.state === TaskState.BACKLOG);
 
 const hasStarted = computed(() => Boolean(task.value?.startedAt));
 const isPostponed = computed(() => isBacklog.value && hasStarted.value);
-
-const canEditPrompt = computed(
-  () => isDraft.value || (isBacklog.value && !hasStarted.value),
-);
-const isQueued = computed(() => task.value?.state === TaskState.QUEUED);
-
-const isResting = computed(() => {
-  const state = task.value?.state;
-  return (
-    state === TaskState.SETTLED ||
-    state === TaskState.FAILED ||
-    state === TaskState.COMPLETED ||
-    state === TaskState.CANCELLED
-  );
-});
-const isRunning = computed(() => task.value?.state === TaskState.RUNNING);
 const isInput = computed(() => task.value?.state === TaskState.INPUT);
-
-const waitingReason = computed(() =>
-  task.value ? taskWaitingReason(task.value) : "",
-);
-
-const waitingBlockers = computed(() =>
-  task.value ? taskIncompleteBlockers(task.value) : [],
-);
-
-const assigneeChoice = computed(() => {
-  const actorId = task.value?.assigneeActorId;
-  return actorId ? agentIdForActor(actorId) : AUTO;
-});
-const priorityChoice = computed(
-  () => task.value?.priority || TaskPriority.NORMAL,
-);
-const sizeChoice = computed(() => task.value?.size || TaskSize.MEDIUM);
-const projectChoice = computed(() => task.value?.projectId ?? "");
 
 const projectTeams = ref<ProjectTeamLink[]>([]);
 const leadCandidates = ref<LeadCandidate[]>([]);
@@ -1246,7 +519,6 @@ const teamIds = computed(() =>
 const leadIds = computed(() =>
   (task.value?.leads ?? []).map((lead) => lead.actorId),
 );
-const canEditAssignee = computed(() => !isRunning.value && !isInput.value);
 const assigneeOptions = computed(() => {
   const members = new Set(projectMembers.value);
   if (!members.size) return agents.value;
@@ -1262,21 +534,13 @@ const unattachedTags = computed(() => {
   return activeTags.value.filter((tag) => !attached.has(tag.id));
 });
 
-const isActive = computed(() => {
-  const state = task.value?.state;
-  return (
-    state === TaskState.RUNNING ||
-    state === TaskState.INPUT ||
-    state === TaskState.SETTLED ||
-    state === TaskState.FAILED
-  );
-});
-
 const sessionDeleted = computed(() => Boolean(task.value?.sessionDeletedAt));
 
 const canFollowUp = computed(
   () => !!task.value && (acceptsPrompt(task.value.state) || isPostponed.value),
 );
+
+const canCompose = computed(() => canFollowUp.value || isInput.value);
 
 function acceptsPrompt(state: TaskState): boolean {
   return (
@@ -1288,84 +552,8 @@ function acceptsPrompt(state: TaskState): boolean {
   );
 }
 
-const canMoveToBacklog = computed(() => {
-  const state = task.value?.state;
-  return (
-    state === TaskState.SETTLED ||
-    state === TaskState.COMPLETED ||
-    state === TaskState.CANCELLED
-  );
-});
-
-const canRework = computed(
-  () => task.value?.state === TaskState.FAILED && !sessionDeleted.value,
-);
-
-const canCloseOut = computed(() => {
-  const state = task.value?.state;
-  return (
-    !!state &&
-    state !== TaskState.RUNNING &&
-    state !== TaskState.INPUT &&
-    state !== TaskState.COMPLETED &&
-    state !== TaskState.CANCELLED
-  );
-});
-
-const isClosedOut = computed(() => {
-  const state = task.value?.state;
-  return state === TaskState.COMPLETED || state === TaskState.CANCELLED;
-});
-const canChangeOutcome = isClosedOut;
-const canArchive = isClosedOut;
-const isStarted = computed(() => Boolean(task.value?.sessionId));
-
-const showPrompt = computed(() => !isStarted.value && !isPostponed.value);
-const promptHint = computed(() => {
-  if (isPostponed.value) return "Started · follow up below to queue it again";
-  if (isBacklog.value) return "Backlog · click to edit";
-  if (waitingReason.value) return waitingReason.value;
-  return "";
-});
-
-const showPendingPrompt = computed(
-  () => !!task.value?.pendingPrompt && isStarted.value,
-);
-const pendingPromptHint = computed(() => {
-  if (isDraft.value) return "Unsent follow-up · click to edit";
-  if (isBacklog.value) return "Backlog · not queued yet";
-  if (waitingReason.value) return waitingReason.value;
-  if (isResting.value)
-    return "Undelivered follow-up · the next run delivers it";
-  return "";
-});
-const busy = computed(() => !task.value || task.value.runtime?.runInProgress);
-
-const steer = computed(() => task.value?.runtime?.runInProgress === true);
-
-const contextWindow = computed(() =>
-  Number(taskUsage.value?.contextWindow ?? 0),
-);
-
-const systemPromptPreview = computed(
-  () => systemPrompt.value.length > 0 && !systemPrompt.value[0]?.pinned,
-);
-
-const PROMPT_SCOPE_LABELS: Record<number, string> = {
-  [PromptScope.ORG]: "Organization Prompt",
-  [PromptScope.AGENT]: "Agent Prompt",
-  [PromptScope.PROJECT]: "Project Prompt",
-  [PromptScope.AGENT_PROJECT]: "Agent-Project prompt",
-  [PromptScope.TEAM]: "Team Prompt",
-  [PromptScope.TEAM_PROJECT]: "Team-Project prompt",
-  [PromptScope.BUILTIN]: "Built-in guidance",
-};
-
-function sectionLabel(section: SystemPromptSection): string {
-  const base = PROMPT_SCOPE_LABELS[section.scope] ?? "Prompt";
-  const owner = section.owner ? ` (${section.owner})` : "";
-  const version = section.version > 0 ? `Version ${section.version}` : "Unset";
-  return `${base}${owner} -- ${version}`;
+function hasLiveConfig(state: TaskState): boolean {
+  return acceptsPrompt(state) || state === TaskState.INPUT;
 }
 
 async function loadSystemPrompt() {
@@ -1648,17 +836,6 @@ const backFallback = computed<BackFallback>(() => {
   return { to: { name: "agency-tasks" }, label: "Tasks" };
 });
 
-function agentName(id: string): string {
-  const item = agents.value.find(
-    (item) => item.id === id || item.actorId === id,
-  );
-  return item?.displayName || item?.username || id.slice(0, 8);
-}
-
-function agentAvatar(id: string): string {
-  return toSvg(id, 20);
-}
-
 async function loadUsage(sessionId: string) {
   if (!sessionId) {
     taskUsage.value = undefined;
@@ -1778,7 +955,7 @@ async function load() {
       if (!next.sessionDeletedAt) {
         void loadUsage(next.sessionId);
         void loadDiskUsage(next.sessionId);
-        if (acceptsPrompt(next.state) && !saving.model) {
+        if (hasLiveConfig(next.state) && !saving.model) {
           void loadConfig();
         }
       }
@@ -1789,7 +966,7 @@ async function load() {
   }
 }
 
-function onDraftSaved(next: Task) {
+function onPromptSaved(next: Task) {
   task.value = next;
 }
 
@@ -1827,28 +1004,6 @@ async function queue() {
   actionBusy.value = true;
   try {
     task.value = await withProgress(() => agent.queueTask(props.id));
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    actionBusy.value = false;
-  }
-}
-
-async function promote() {
-  actionBusy.value = true;
-  try {
-    task.value = await withProgress(() => agent.promoteTask(props.id));
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    actionBusy.value = false;
-  }
-}
-
-async function demote() {
-  actionBusy.value = true;
-  try {
-    task.value = await withProgress(() => agent.demoteTask(props.id));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -1924,6 +1079,20 @@ async function cleanupSession() {
   }
 }
 
+async function restartSession() {
+  actionBusy.value = true;
+  try {
+    await withProgress(() => agent.restartTaskSession(props.id));
+    config.value = undefined;
+    await loadConfig();
+    toast.success("Pi session restarted");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    actionBusy.value = false;
+  }
+}
+
 function closeOut() {
   closeOutDialogOpen.value = true;
 }
@@ -1959,8 +1128,25 @@ async function stop() {
   }
 }
 
+const PLAN_REMINDER_PROMPT =
+  "You have not published a plan for this task. Publish it now with " +
+  "`reportTaskProgress` (3–8 ordered items, each `pending`), then carry on " +
+  "with the work immediately in the same turn: a plan update is bookkeeping, " +
+  "never a stopping point. Keep the plan current afterwards — mark an item " +
+  "`in_progress` when you begin it and `done` when it lands.";
+
+async function remindPlan() {
+  try {
+    await withProgress(() => agent.addToTask(props.id, PLAN_REMINDER_PROMPT));
+    toast.success("Reminded the agent to publish a plan");
+    await load();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function send() {
-  if (!prompt.value.trim()) return;
+  if (!canFollowUp.value || !prompt.value.trim()) return;
   sending.value = true;
   try {
     const attachmentIds = stagedAttachments.value
@@ -1981,37 +1167,6 @@ async function send() {
   }
 }
 
-const MIN_TEXTAREA_HEIGHT = 48;
-const resizing = ref(false);
-let resizeStartY = 0;
-let resizeStartHeight = 0;
-
-function startResize(event: PointerEvent) {
-  if (event.button !== 0 || !canFollowUp.value) return;
-  const el = promptInput.value?.$el;
-  if (!el) return;
-  event.preventDefault();
-  resizing.value = true;
-  resizeStartY = event.clientY;
-  resizeStartHeight = el.offsetHeight;
-  window.addEventListener("pointermove", onResizeMove);
-  window.addEventListener("pointerup", stopResize, { once: true });
-}
-
-function onResizeMove(event: PointerEvent) {
-  const column = composer.value?.parentElement;
-  const max = column
-    ? Math.max(MIN_TEXTAREA_HEIGHT, column.clientHeight - 120)
-    : 480;
-  const next = resizeStartHeight + (resizeStartY - event.clientY);
-  textareaHeight.value = Math.min(Math.max(next, MIN_TEXTAREA_HEIGHT), max);
-}
-
-function stopResize() {
-  resizing.value = false;
-  window.removeEventListener("pointermove", onResizeMove);
-}
-
 async function onAttachmentUploaded() {
   await load();
 }
@@ -2025,7 +1180,7 @@ function hasFiles(event: DragEvent): boolean {
 }
 
 function onDragEnter(event: DragEvent) {
-  if (canFollowUp.value && hasFiles(event)) {
+  if (canCompose.value && hasFiles(event)) {
     dragDepth += 1;
     draggingFiles.value = true;
   }
@@ -2039,12 +1194,12 @@ function onDragLeave() {
 async function onDrop(event: DragEvent) {
   dragDepth = 0;
   draggingFiles.value = false;
-  if (!canFollowUp.value) return;
+  if (!canCompose.value) return;
   await stageUploads(event.dataTransfer?.files ?? []);
 }
 
 async function onPaste(event: ClipboardEvent) {
-  if (!canFollowUp.value) return;
+  if (!canCompose.value) return;
   const files: File[] = [];
   for (const item of event.clipboardData?.items ?? []) {
     if (item.kind !== "file") continue;
@@ -2086,26 +1241,39 @@ function knownAttachments(): Attachment[] {
   return [...stagedAttachments.value, ...(task.value?.attachments ?? [])];
 }
 
-function lightboxItems(): Attachment[] {
-  const seen = new Set<string>();
-  return knownAttachments().filter((attachment) => {
-    const id = attachment.id.toString();
-    if (isSketchScene(attachment) || seen.has(id)) return false;
-    seen.add(id);
-    return true;
+function taskLightboxItems(): LightboxItem[] {
+  const items = buildTaskLightboxItems({
+    attachments: task.value?.attachments ?? [],
+    stagedAttachments: stagedAttachments.value,
+    artifacts: task.value?.artifacts ?? [],
   });
+  for (const item of inlineLightboxItems.value) {
+    if (!items.some((known) => known.url === item.url)) items.push(item);
+  }
+  return items;
+}
+
+function openLightboxItem(item: LightboxItem) {
+  const gallery = withLightboxItem(taskLightboxItems(), item);
+  lightboxEntries.value = gallery.items;
+  lightboxIndex.value = gallery.index;
+  lightboxOpen.value = true;
+}
+
+function onCommentsRead() {
+  if (task.value) task.value.unreadComments = 0;
 }
 
 function openAttachment(attachment: Attachment) {
-  const items = lightboxItems();
-  let index = items.findIndex((item) => item.id === attachment.id);
-  if (index === -1) {
-    items.push(attachment);
-    index = items.length - 1;
+  openLightboxItem(attachmentItem(attachment));
+}
+
+function openInlineImage(image: InlineImage) {
+  const item = inlineImageItem(image);
+  if (!inlineLightboxItems.value.some((known) => known.key === item.key)) {
+    inlineLightboxItems.value = [...inlineLightboxItems.value, item];
   }
-  lightboxAttachments.value = items;
-  lightboxIndex.value = index;
-  lightboxOpen.value = true;
+  openLightboxItem(item);
 }
 
 function replaceKnownAttachment(updated: Attachment) {
@@ -2147,7 +1315,7 @@ async function persistSketch({ png, snapshot, target }: SketchSavePayload) {
       filename: sketchSceneFilename(uploadedImage.id),
       taskId: task.value.id,
     });
-    if (canFollowUp.value) {
+    if (canCompose.value) {
       stagedAttachments.value = [
         ...stagedAttachments.value,
         uploadedImage,
@@ -2166,17 +1334,6 @@ function onQueue(steering: string[]) {
   }));
 }
 
-function queueAttachments(ids: string[]): Attachment[] {
-  const byId = new Map(
-    [...stagedAttachments.value, ...(task.value?.attachments ?? [])].map(
-      (attachment) => [String(attachment.id), attachment],
-    ),
-  );
-  return ids
-    .map((id) => byId.get(id))
-    .filter((attachment): attachment is Attachment => attachment !== undefined);
-}
-
 async function clearQueue() {
   clearingQueue.value = true;
   try {
@@ -2189,6 +1346,7 @@ async function clearQueue() {
 }
 
 function onEnter() {
+  if (!canFollowUp.value) return;
   void send();
 }
 
@@ -2222,7 +1380,7 @@ watch(
     if (!id) return;
     try {
       const access = await projectAccessApi.access(id);
-      projectTeams.value = access.teams;
+      projectTeams.value = projectTeamsWithInherited(access);
     } catch {}
     try {
       leadCandidates.value = await projectAccessApi.leadCandidates(id);
@@ -2236,6 +1394,7 @@ onMounted(() => {
   void loadActorPictures();
   void loadProjects();
   void load();
+  void loadSites();
   void accountApi
     .getPreferences()
     .then((prefs) => {
@@ -2244,7 +1403,10 @@ onMounted(() => {
     .catch(() => {});
 });
 
-useRealtime(["tasks", "usage"], () => void load());
+useRealtime(["tasks", "usage", "sites"], () => {
+  void load();
+  void loadSites();
+});
 
 watch(
   () => (task.value ? taskName(task.value) : "Task"),
@@ -2256,6 +1418,8 @@ watch(
   () => props.id,
   () => {
     task.value = undefined;
+    activeTaskTab.value = "chat";
+    visitedSiteIds.value = [];
     config.value = undefined;
     modelSelection.value = { ...EMPTY_TASK_MODEL_SELECTION };
     configGeneration += 1;
@@ -2264,6 +1428,7 @@ watch(
     taskDiskLoading.value = false;
     diskKey = "";
     void load();
+    void loadSites();
     void loadSystemPrompt();
   },
 );
@@ -2272,8 +1437,4 @@ watch(
   () => `${task.value?.state ?? ""}\u0000${task.value?.sessionId ?? ""}`,
   () => void loadSystemPrompt(),
 );
-
-onBeforeUnmount(() => {
-  window.removeEventListener("pointermove", onResizeMove);
-});
 </script>

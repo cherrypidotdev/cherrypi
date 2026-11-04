@@ -23,6 +23,8 @@ features:
     details: The agency owns the UI, accounts, projects and scheduling. Lightweight agents dial out over a tunnel, so they need no inbound port.
   - title: Tasks that outlive a machine
     details: Prompts, session history, attachments and artifacts live in the agency. Reassign a task to another agent and continue where it stopped.
+  - title: Sites from tasks
+    details: An agent publishes a static site as a zip; the task gains a Site tab, and the site can ask visitors to sign in through an agency consent modal.
   - title: Built for real work
     details: Root terminals, browser desktops, per-agent concurrency limits, usage accounting and an inbox for everything that needs attention.
   - title: Self-hosted and open source

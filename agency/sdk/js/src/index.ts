@@ -20,9 +20,11 @@ export {
   readCookie,
   CSRF_COOKIE,
   CSRF_HEADER,
+  type AddTaskCommentInput,
   type AddToTaskOptions,
   type AgentTaskLimitsInput,
   type AgentDefaultsInput,
+  type AgentHealthSettingsInput,
   type AttachmentReplaceInput,
   type AttachmentUploadInput,
   type AttentionEvent,
@@ -31,12 +33,15 @@ export {
   type BulkUpdateTaskResult,
   type CallOptions,
   type CreateTaskInput,
+  type CreateTaskTemplateInput,
   type CreateTagInput,
   type ExtensionUiResponse,
   type GetTaskHistoryOptions,
   type GetTaskHistoryResult,
   type GetDesktopResult,
+  type ListSitesFilter,
   type ListTagsFilter,
+  type ListTaskCommentsResult,
   type ListTasksFilter,
   type ProjectLimitInput,
   type ProjectTagLimitInput,
@@ -53,9 +58,16 @@ export {
   type TagLimitInput,
   type TaskAttributeInput,
   type TaskLinkInput,
+  type TaskModelInput,
+  type TaskTemplateArgInput,
+  type TaskTemplateArgOptionInput,
+  type TaskTemplateContentInput,
+  type TaskTemplateValidationResult,
   type TaskReferenceInput,
+  type RenderTaskTemplateInput,
   type UpdateTagInput,
   type UpdateTaskInput,
+  type UpdateTaskTemplateInput,
   type WatchTaskOptions,
 } from "./common.js";
 
@@ -64,11 +76,13 @@ export {
   AgentStatus,
   AgentVersionStatus,
   AgencyWebhookEvent,
+  UNKNOWN_USAGE_MODEL,
   type AgencyClientOptions,
   type AgencyNotification,
   type AgencySettings,
   type AgencySettingsInput,
   type AgencyUsageResponse,
+  type AgencyUsageModel,
   type GetUsageOptions,
   type AgencyWebhook,
   type AgentTaskUsage,
@@ -78,24 +92,38 @@ export {
   type CreateAgentInput,
   type AgentProjectPrompt,
   type CreateProjectInput,
+  type CreatePromptProposalInput,
+  type ListPromptProposalsFilter,
+  type ListPromptVersionsOptions,
   type Prompt,
+  type PromptAccess,
+  type PromptActor,
+  type PromptProposal,
+  type PromptProposalDecision,
+  PromptProposalStatus,
   type PromptTarget,
+  type PromptWithAccess,
   type Project,
   type ProjectAgent,
   type AgentProjectMembership,
   type ProjectAgentPermissionsInput,
+  type Site,
   type UpdateProjectInput,
+  type UpdateSiteInput,
   type SystemPromptSection,
   PromptScope,
 } from "./agency.js";
 
 export * from "./gen/buf/agency/v1/task_pb.js";
 
+export * from "./gen/buf/agency/v1/task_templates_pb.js";
+
 export * from "./gen/buf/agency/v1/attachments_pb.js";
 
 export * from "./gen/buf/agency/v1/artifacts_pb.js";
 export {
   AgentDefaultsSchema,
+  AgentHealthSettingsSchema,
   AgentTaskLimitsSchema,
   ProjectLimitSchema,
   ProjectTagLimitSchema,
@@ -103,12 +131,25 @@ export {
 } from "./gen/buf/agency/v1/agents_pb.js";
 export type {
   AgentDefaults,
+  AgentHealthSettings,
   AgentTaskLimits,
   AgentToken,
   ProjectLimit,
   ProjectTagLimit,
   TagLimit,
 } from "./gen/buf/agency/v1/agents_pb.js";
+
+export type {
+  AgentDiskUsage,
+  AgentGpuUsage,
+  AgentHealthSample,
+  AgentMemory,
+  AgentNetworkUsage,
+  GetAgentHealthHistoryRequest,
+  GetAgentHealthHistoryResponse,
+  GetAgentHealthRequest,
+  GetAgentHealthResponse,
+} from "./gen/buf/agency/v1/dashboard_pb.js";
 
 export * from "./gen/buf/agent/v1/dashboard_pb.js";
 export {

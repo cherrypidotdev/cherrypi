@@ -18,44 +18,29 @@ export interface AttentionEventOption {
   kind: string;
 
   label: string;
-
-  notes: number[];
 }
 
 export const ATTENTION_EVENTS: AttentionEventOption[] = [
-  { kind: "task_started", label: "Task started", notes: [659.25, 987.77] },
+  { kind: "task_started", label: "Task started" },
+  { kind: "input_requested", label: "Task needs input" },
+  { kind: "task_finished", label: "Task settled" },
+  { kind: "failed", label: "Task failed" },
+  { kind: "task_completed", label: "Task completed" },
+  { kind: "task_cancelled", label: "Task cancelled" },
+  { kind: "team_invitation", label: "Team invitation" },
+  { kind: "task_comment", label: "New task comment" },
 
-  { kind: "input_requested", label: "Task needs input", notes: [880, 1174.66] },
-
-  { kind: "task_finished", label: "Task settled", notes: [987.77, 783.99] },
-
-  { kind: "failed", label: "Task failed", notes: [311.13, 233.08] },
-
-  {
-    kind: "task_completed",
-    label: "Task completed",
-    notes: [523.25, 659.25, 783.99],
-  },
-
-  { kind: "task_cancelled", label: "Task cancelled", notes: [392, 311.13] },
-
-  { kind: "team_invitation", label: "Team invitation", notes: [587.33, 880] },
+  { kind: "prompt_proposal_created", label: "Prompt proposal" },
+  { kind: "task_mention", label: "You were mentioned" },
 ];
 
-export const DEFAULT_SOUND_NOTES = [880, 1174.66];
-
-export function soundNotesFor(kind: string): number[] {
-  return (
-    ATTENTION_EVENTS.find((event) => event.kind === kind)?.notes ??
-    DEFAULT_SOUND_NOTES
-  );
-}
-
-export type AttentionChannel = "sound" | "browser";
+export type AttentionChannel = "sound" | "browser" | "toast";
 
 export interface AttentionPreference {
   sound: boolean;
   browser: boolean;
+
+  toast: boolean;
 }
 
 export type AttentionPreferences = Record<string, AttentionPreference>;
@@ -70,7 +55,7 @@ export function defaultAttentionPreferences(): AttentionPreferences {
   const out: AttentionPreferences = {};
   for (const event of ATTENTION_EVENTS) {
     const enabled = ENABLED_BY_DEFAULT.has(event.kind);
-    out[event.kind] = { sound: enabled, browser: enabled };
+    out[event.kind] = { sound: enabled, browser: enabled, toast: enabled };
   }
   return out;
 }

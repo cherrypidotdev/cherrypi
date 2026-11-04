@@ -24,6 +24,8 @@ export interface AttachmentOwner {
   taskId?: string;
   agentId?: string;
   projectId?: string;
+
+  commentAttachment?: boolean;
 }
 
 export function useAttachmentUpload(owner: () => AttachmentOwner) {

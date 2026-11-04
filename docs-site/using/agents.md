@@ -30,6 +30,7 @@ pass `--token pat_…`). There is no username/password tunnel credential.
 | Tab | What it shows |
 | --- | --- |
 | **Overview** | Identity, presence, host stats, current tasks and recent activity. |
+| **Health** | Live CPU, memory, disk, network and GPU health with history. |
 | **Usage** | Token and cost accounting for tasks run on this agent. |
 | **Terminals** | Root PTYs on the agent machine. Owners can open terminals; others can observe shared ones. |
 | **RDP** | The agent's X display, if `DISPLAY` is configured. |
@@ -39,6 +40,35 @@ pass `--token pat_…`). There is no username/password tunnel credential.
 The **Logs** tab is the first place to look when an agent is offline or a task
 failed to start. It contains the startup version, tunnel connect/disconnect
 lines, task lifecycle and errors.
+
+## Health
+
+The **Health** tab shows the host readings the agent pushes every minute:
+
+- CPU (overall and per-core), load average, memory and swap;
+- each configured filesystem's used and free space;
+- per-interface network throughput;
+- NVIDIA GPU utilization, VRAM, temperature and power, when available;
+- host uptime, kernel and the agent process's own memory/CPU.
+
+The latest sample updates live, and the chart appends it so the line slides
+instead of being redrawn. The chart can show 5m, 15m, 1h, 6h, 24h, 7d or 30d of persisted
+history; samples are kept for 30 days. The 5m and 15m windows make live
+updates visibly slide (a one-minute sample is a large fraction of the width);
+longer windows update in place without the whole chart being redrawn. Threshold colours are visual only, with
+no inbox entries or webhooks.
+
+The sampling cadence is configurable per agent: an owner opens **Settings →
+General → Health sampling** and picks a preset, a custom duration or **Off**.
+The agency stores it and pushes it over the tunnel, so it applies without
+restarting the agent; **Agent default** restores `CHERRYPI_HEALTH_INTERVAL`.
+
+By default the agent reads its container's `/proc`, so the numbers describe the
+container. Mount the host's `/proc`, `/sys` and `/` at `/host/proc`,
+`/host/sys` and `/host/root` (the bundled `compose.health.yaml` does this) to
+report the whole machine. The card labels the scope as **host** or
+**container**. Disk targets are the host root and `CHERRYPI_DIR`, plus any
+`CHERRYPI_HEALTH_DISKS` entries.
 
 ## Ownership and roles
 

@@ -35,6 +35,14 @@ service DashboardService {
   
   
   rpc GetTaskDiskUsage(GetTaskDiskUsageRequest) returns (GetTaskDiskUsageResponse);
+  
+  
+  
+  rpc GetAgentHealth(GetAgentHealthRequest) returns (GetAgentHealthResponse);
+  
+  
+  rpc GetAgentHealthHistory(GetAgentHealthHistoryRequest)
+      returns (GetAgentHealthHistoryResponse);
 }
 
 message GetUsageRequest {
@@ -49,6 +57,12 @@ message GetUsageRequest {
   int64 since_ms = 3;
   
   int64 until_ms = 4;
+  
+  
+  
+  
+  
+  string model = 5;
 }
 
 
@@ -61,6 +75,16 @@ message GetUsageResponse {
   repeated AgentTaskUsage tasks = 4;
   
   repeated UsageDay days = 5;
+  
+  
+  
+  repeated UsageModel models = 6;
+  
+  
+  
+  
+  
+  repeated string available_models = 7;
 }
 
 
@@ -76,6 +100,23 @@ message AgentTaskUsage {
   
   
   int64 runs = 7;
+}
+
+
+
+message UsageModel {
+  
+  string model = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  double cost = 4;
+  
+  int64 runs = 5;
+  
+  int64 tasks = 6;
+  
+  
+  string provider = 7;
 }
 
 
@@ -122,4 +163,103 @@ message GetTaskDiskUsageRequest {
 
 message GetTaskDiskUsageResponse {
   agent.v1.GetTaskDiskUsageResponse usage = 1;
+}
+
+
+
+message GetAgentHealthRequest {
+  string agent_id = 1;
+}
+
+message GetAgentHealthResponse {
+  
+  AgentHealthSample sample = 1;
+}
+
+message GetAgentHealthHistoryRequest {
+  string agent_id = 1;
+  
+  int64 since_ms = 2;
+  
+  int64 until_ms = 3;
+  
+  
+  int32 max_points = 4;
+}
+
+message GetAgentHealthHistoryResponse {
+  repeated AgentHealthSample samples = 1;
+}
+
+
+
+
+message AgentHealthSample {
+  
+  int64 sampled_at = 1;
+  
+  
+  string scope = 2;
+  string hostname = 3;
+  string os = 4;
+  string platform = 5;
+  string kernel_version = 6;
+  string kernel_arch = 7;
+  double cpu_percent = 8;
+  repeated double cpu_cores = 9;
+  double load1 = 10;
+  double load5 = 11;
+  double load15 = 12;
+  AgentMemory memory = 13;
+  AgentMemory swap = 14;
+  repeated AgentDiskUsage disks = 15;
+  repeated AgentNetworkUsage networks = 16;
+  repeated AgentGpuUsage gpus = 17;
+  
+  int64 uptime_seconds = 18;
+  
+  int64 boot_time = 19;
+  int64 process_count = 20;
+  
+  int64 agent_rss_bytes = 21;
+  double agent_cpu_percent = 22;
+  
+  int64 go_heap_bytes = 23;
+}
+
+message AgentMemory {
+  int64 total_bytes = 1;
+  int64 used_bytes = 2;
+  int64 available_bytes = 3;
+  double used_percent = 4;
+}
+
+message AgentDiskUsage {
+  
+  string label = 1;
+  
+  string path = 2;
+  int64 total_bytes = 3;
+  int64 used_bytes = 4;
+  int64 free_bytes = 5;
+  double used_percent = 6;
+}
+
+message AgentNetworkUsage {
+  string interface = 1;
+  int64 rx_bytes = 2;
+  int64 tx_bytes = 3;
+  
+  double rx_bytes_per_second = 4;
+  double tx_bytes_per_second = 5;
+}
+
+message AgentGpuUsage {
+  int32 index = 1;
+  string name = 2;
+  double utilization_percent = 3;
+  int64 memory_total_bytes = 4;
+  int64 memory_used_bytes = 5;
+  double temperature_celsius = 6;
+  double power_watts = 7;
 }

@@ -18,17 +18,25 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"cherrypi.vladfaust.com/agent/cmd/agent/appcontext"
 	dashboardgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/desktop"
+	healthgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/health"
 	settingsgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/settings"
 	taskgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/task"
 	terminalgrpc "cherrypi.vladfaust.com/agent/cmd/agent/grpc/terminal"
+	agenthealth "cherrypi.vladfaust.com/agent/internal/health"
 	"cherrypi.vladfaust.com/shared/gen/buf/agent/v1/agentv1connect"
 )
 
-func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+func serveGrpc(
+	mux *http.ServeMux,
+	appCtx *appcontext.AppContext,
+	sampler *agenthealth.Sampler,
+	defaultHealthInterval time.Duration,
+) {
 	taskService := &taskgrpc.TaskServer{
 		Tasks: appCtx.Sessions,
 	}
@@ -61,5 +69,13 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	settingsService := &settingsgrpc.SettingsServer{Store: appCtx.Store}
 
 	path, handler = agentv1connect.NewSettingsServiceHandler(settingsService)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
+	healthService := &healthgrpc.HealthServer{
+		Sampler: sampler,
+		Default: defaultHealthInterval,
+	}
+
+	path, handler = agentv1connect.NewHealthServiceHandler(healthService)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 }

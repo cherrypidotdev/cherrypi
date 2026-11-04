@@ -58,6 +58,8 @@ type Config struct {
 
 	AttachmentMaxPerMessage int
 
+	SitesInsecureHTTP bool
+
 	LogFiles int
 }
 
@@ -155,6 +157,8 @@ func ParseConfig() Config {
 	}
 
 	parseS3Config(&cfg)
+
+	cfg.SitesInsecureHTTP = parseEnvBool("CHERRYPI_SITES_INSECURE_HTTP")
 
 	cfg.AttachmentMaxBytes = parseEnvInt64("CHERRYPI_ATTACHMENT_MAX_BYTES", 25*1024*1024)
 	cfg.AttachmentMaxPerMessage = int(

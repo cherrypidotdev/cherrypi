@@ -19,6 +19,7 @@ export { default as DropdownMenu } from "./DropdownMenu.vue";
 export { DropdownMenuPortal } from "reka-ui";
 export { default as DropdownMenuCheckboxItem } from "./DropdownMenuCheckboxItem.vue";
 export { default as DropdownMenuContent } from "./DropdownMenuContent.vue";
+export { default as DropdownMenuFilter } from "./DropdownMenuFilter.vue";
 export { default as DropdownMenuGroup } from "./DropdownMenuGroup.vue";
 export { default as DropdownMenuItem } from "./DropdownMenuItem.vue";
 export { default as DropdownMenuLabel } from "./DropdownMenuLabel.vue";

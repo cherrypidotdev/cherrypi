@@ -17,14 +17,16 @@
 package taskhistory
 
 import (
-	"cherrypi.vladfaust.com/agency/internal/agents"
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"cherrypi.vladfaust.com/agency/internal/agents"
+	"cherrypi.vladfaust.com/agency/internal/ids"
 
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
@@ -68,15 +70,21 @@ func (h *Handler) resolve(
 	seq int64,
 ) (tasks.Task, bool) {
 	if strings.TrimSpace(projectID) == "" || seq <= 0 {
+		log.Printf("[task-history] reject agent=%d: project_id and seq are required", agentID)
 		writeError(w, http.StatusBadRequest, "project_id and seq are required")
 		return tasks.Task{}, false
 	}
 	task, err := h.Tasks.GetByProjectSeq(r.Context(), projectID, seq)
 	if err != nil {
+		log.Printf(
+			"[task-history] reject agent=%d project=%s seq=%d: task not found (%v)",
+			agentID, projectID, seq, err,
+		)
 		writeError(w, http.StatusNotFound, "task not found")
 		return tasks.Task{}, false
 	}
 	if task.AssigneeActorID == 0 {
+		log.Printf("[task-history] reject agent=%d task=%s: task has no assignee", agentID, task.ID)
 		writeError(w, http.StatusForbidden, "task is not assigned to this agent")
 		return tasks.Task{}, false
 	}
@@ -84,6 +92,13 @@ func (h *Handler) resolve(
 	caller, err := h.Agents.Get(r.Context(), agentID)
 	if err != nil ||
 		(caller.ActorID != task.AssigneeActorID && task.SessionAgentID != agentID) {
+		log.Printf(
+			"[task-history] reject agent=%d task=%s: not the task's agent (assignee=%d session_agent=%d)",
+			agentID,
+			task.ID,
+			task.AssigneeActorID,
+			task.SessionAgentID,
+		)
 		writeError(w, http.StatusForbidden, "task is not assigned to this agent")
 		return tasks.Task{}, false
 	}
@@ -100,6 +115,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, agentID ids.AgentI
 
 	tip, count, err := h.Tasks.SessionHistoryTip(r.Context(), task.ID)
 	if err != nil {
+		log.Printf("[task-history] fetch task=%s agent=%d: tip: %v", task.ID, agentID, err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,6 +124,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, agentID ids.AgentI
 	if query.Get("meta") != "1" {
 		list, err := h.Tasks.SessionHistory(r.Context(), task.ID)
 		if err != nil {
+			log.Printf("[task-history] fetch task=%s agent=%d: %v", task.ID, agentID, err)
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -121,6 +138,10 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, agentID ids.AgentI
 			}
 		}
 	}
+	log.Printf(
+		"[task-history] fetch task=%s agent=%d entries=%d tip=%s meta=%t",
+		task.ID, agentID, count, tip, query.Get("meta") == "1",
+	)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":      entries,
@@ -161,14 +182,23 @@ func (h *Handler) post(w http.ResponseWriter, r *http.Request, agentID ids.Agent
 
 	appended, err := h.Tasks.AppendSessionHistory(r.Context(), task.ID, entries)
 	if err != nil {
+		log.Printf(
+			"[task-history] push task=%s agent=%d entries=%d: append: %v",
+			task.ID, agentID, len(entries), err,
+		)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	tip, count, err := h.Tasks.SessionHistoryTip(r.Context(), task.ID)
 	if err != nil {
+		log.Printf("[task-history] push task=%s agent=%d: tip: %v", task.ID, agentID, err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	log.Printf(
+		"[task-history] push task=%s agent=%d received=%d appended=%d tip=%s count=%d",
+		task.ID, agentID, len(input.Entries), appended, tip, count,
+	)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"appended":     appended,
 		"tip_entry_id": tip,

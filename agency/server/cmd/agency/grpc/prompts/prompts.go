@@ -21,11 +21,14 @@ import (
 	"errors"
 	"fmt"
 
+	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/actorid"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/promptaccess"
+	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/settings"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
@@ -35,76 +38,88 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var errTeamPromptOwner = errors.New("team owner or administrator required")
-
 type PromptServer struct {
+	Flow     *promptflow.Service
 	Prompts  *prompts.Service
 	Projects *projects.Service
 	Agents   *agents.Registry
 	Tasks    *tasks.Service
 	Settings *settings.Service
 	Teams    *teams.Service
+	Accounts *accounts.Service
 }
 
 func (s *PromptServer) GetPrompt(
 	ctx context.Context,
 	req *agencyv1.GetPromptRequest,
 ) (*agencyv1.GetPromptResponse, error) {
-	scope, err := fromProtoScope(req.Scope)
+	identity, err := requireIdentity(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, err
 	}
-	var p prompts.Prompt
-	if scope.TeamScoped() {
-		if err := s.authorizeTeamPrompt(ctx, scope, req.TeamId, false); err != nil {
-			return nil, err
-		}
-		p, err = s.Prompts.GetForTeam(ctx, scope, req.TeamId, req.ProjectId)
-	} else {
-		p, err = s.Prompts.Get(ctx, scope, actorid.ParseAgent(req.AgentId), req.ProjectId)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	if err != nil {
+		return nil, err
 	}
+	if err := s.validateTargets(ctx, target); err != nil {
+		return nil, err
+	}
+	p, access, err := s.Flow.Get(ctx, identity, target)
 	if err != nil {
 		return nil, promptError(err)
 	}
-	return &agencyv1.GetPromptResponse{Prompt: toProto(p)}, nil
+	return &agencyv1.GetPromptResponse{
+		Prompt:     s.promptToProto(ctx, p),
+		CanEdit:    access.CanEdit,
+		CanPropose: access.CanPropose,
+		CanApprove: access.CanApprove,
+	}, nil
 }
 
 func (s *PromptServer) SetPrompt(
 	ctx context.Context,
 	req *agencyv1.SetPromptRequest,
 ) (*agencyv1.SetPromptResponse, error) {
-	scope, err := fromProtoScope(req.Scope)
+	identity, err := requireIdentity(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if err := s.validateTargets(
-		ctx,
-		scope,
-		actorid.ParseAgent(req.AgentId),
-		req.TeamId,
-		req.ProjectId,
-	); err != nil {
 		return nil, err
 	}
-	var p prompts.Prompt
-	if scope.TeamScoped() {
-		if err := s.authorizeTeamPrompt(ctx, scope, req.TeamId, true); err != nil {
-			return nil, err
-		}
-		p, err = s.Prompts.SetForTeam(ctx, scope, req.TeamId, req.ProjectId, req.Content)
-	} else {
-		p, err = s.Prompts.Set(
-			ctx,
-			scope,
-			actorid.ParseAgent(req.AgentId),
-			req.ProjectId,
-			req.Content,
-		)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	if err != nil {
+		return nil, err
 	}
+	if err := s.validateTargets(ctx, target); err != nil {
+		return nil, err
+	}
+	p, err := s.Flow.Set(ctx, identity, target, req.Content, req.Note)
 	if err != nil {
 		return nil, promptError(err)
 	}
-	return &agencyv1.SetPromptResponse{Prompt: toProto(p)}, nil
+	return &agencyv1.SetPromptResponse{Prompt: s.promptToProto(ctx, p)}, nil
+}
+
+func (s *PromptServer) ListPromptVersions(
+	ctx context.Context,
+	req *agencyv1.ListPromptVersionsRequest,
+) (*agencyv1.ListPromptVersionsResponse, error) {
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	if err != nil {
+		return nil, err
+	}
+	versions, err := s.Flow.ListVersions(
+		ctx,
+		target,
+		int(req.Limit),
+		req.BeforeVersion,
+	)
+	if err != nil {
+		return nil, promptError(err)
+	}
+	out := make([]*agencyv1.Prompt, len(versions))
+	for i, p := range versions {
+		out[i] = s.promptToProto(ctx, p)
+	}
+	return &agencyv1.ListPromptVersionsResponse{Versions: out}, nil
 }
 
 func (s *PromptServer) ListAgentProjectPrompts(
@@ -129,10 +144,116 @@ func (s *PromptServer) ListAgentProjectPrompts(
 		}
 		out[i] = &agencyv1.AgentProjectPrompt{
 			Project: projectToProto(project),
-			Prompt:  toProto(p),
+			Prompt:  s.promptToProto(ctx, p),
 		}
 	}
 	return &agencyv1.ListAgentProjectPromptsResponse{Prompts: out}, nil
+}
+
+func (s *PromptServer) CreatePromptProposal(
+	ctx context.Context,
+	req *agencyv1.CreatePromptProposalRequest,
+) (*agencyv1.CreatePromptProposalResponse, error) {
+	identity, err := requireIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateTargets(ctx, target); err != nil {
+		return nil, err
+	}
+	proposal, err := s.Flow.CreateProposal(
+		ctx,
+		identity,
+		target,
+		req.Content,
+		req.Note,
+	)
+	if err != nil {
+		return nil, promptError(err)
+	}
+	return &agencyv1.CreatePromptProposalResponse{
+		Proposal: s.proposalToProto(ctx, proposal),
+	}, nil
+}
+
+func (s *PromptServer) ListPromptProposals(
+	ctx context.Context,
+	req *agencyv1.ListPromptProposalsRequest,
+) (*agencyv1.ListPromptProposalsResponse, error) {
+	identity, err := requireIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := promptflow.ProposalQuery{
+		Status: fromProtoProposalStatus(req.Status),
+		Mine:   req.Mine,
+		Limit:  int(req.Limit),
+		Before: req.BeforeId,
+	}
+	if !req.Mine {
+		target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+		if err != nil {
+			return nil, err
+		}
+		query.Target = target
+	}
+	list, err := s.Flow.ListProposals(ctx, identity, query)
+	if err != nil {
+		return nil, promptError(err)
+	}
+	out := make([]*agencyv1.PromptProposal, len(list))
+	for i, p := range list {
+		out[i] = s.proposalToProto(ctx, p)
+	}
+	return &agencyv1.ListPromptProposalsResponse{Proposals: out}, nil
+}
+
+func (s *PromptServer) DecidePromptProposal(
+	ctx context.Context,
+	req *agencyv1.DecidePromptProposalRequest,
+) (*agencyv1.DecidePromptProposalResponse, error) {
+	identity, err := requireIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prompt, proposal, err := s.Flow.DecideProposal(
+		ctx,
+		identity,
+		req.Id,
+		req.Approve,
+		req.Note,
+	)
+	if err != nil {
+		return nil, promptError(err)
+	}
+	out := &agencyv1.DecidePromptProposalResponse{
+		Proposal: s.proposalToProto(ctx, proposal),
+	}
+	if prompt.ID != 0 {
+		out.Prompt = s.promptToProto(ctx, prompt)
+	}
+	return out, nil
+}
+
+func (s *PromptServer) WithdrawPromptProposal(
+	ctx context.Context,
+	req *agencyv1.WithdrawPromptProposalRequest,
+) (*agencyv1.WithdrawPromptProposalResponse, error) {
+	identity, err := requireIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	proposal, err := s.Flow.WithdrawProposal(ctx, identity, req.Id, req.Note)
+	if err != nil {
+		return nil, promptError(err)
+	}
+	return &agencyv1.WithdrawPromptProposalResponse{
+		Proposal: s.proposalToProto(ctx, proposal),
+	}, nil
 }
 
 func (s *PromptServer) GetTaskSystemPrompt(
@@ -288,6 +409,137 @@ func (s *PromptServer) projectName(ctx context.Context, id string) string {
 	return p.Name
 }
 
+func (s *PromptServer) validateTargets(ctx context.Context, target promptaccess.Target) error {
+	if target.Scope == prompts.ScopeAgent || target.Scope == prompts.ScopeAgentProject {
+		if _, err := s.Agents.Get(ctx, target.AgentID); err != nil {
+			if errors.Is(err, agents.ErrAgentMissing) {
+				return connect.NewError(connect.CodeNotFound, err)
+			}
+			return connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	if target.Scope == prompts.ScopeProject ||
+		target.Scope == prompts.ScopeAgentProject ||
+		target.Scope == prompts.ScopeTeamProject {
+		if _, err := s.Projects.Get(ctx, target.ProjectID); err != nil {
+			return connect.NewError(connect.CodeNotFound, err)
+		}
+	}
+	if target.Scope.TeamScoped() {
+		if s.Teams == nil {
+			return connect.NewError(connect.CodeUnavailable, errors.New("teams unavailable"))
+		}
+		if _, err := s.Teams.Name(ctx, target.TeamID); err != nil {
+			if errors.Is(err, teams.ErrTeamNotFound) {
+				return connect.NewError(connect.CodeNotFound, err)
+			}
+			return connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return nil
+}
+
+func requireIdentity(ctx context.Context) (auth.Identity, error) {
+	identity, ok := auth.IdentityFrom(ctx)
+	if !ok {
+		return auth.Identity{}, connect.NewError(
+			connect.CodeUnauthenticated,
+			errors.New("not authenticated"),
+		)
+	}
+	return identity, nil
+}
+
+func targetFromProto(
+	scope agencyv1.PromptScope,
+	agentID string, teamID int64, projectID string,
+) (promptaccess.Target, error) {
+	s, err := fromProtoScope(scope)
+	if err != nil {
+		return promptaccess.Target{}, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return promptaccess.Target{
+		Scope:     s,
+		AgentID:   actorid.ParseAgent(agentID),
+		TeamID:    teamID,
+		ProjectID: projectID,
+	}, nil
+}
+
+func (s *PromptServer) promptToProto(ctx context.Context, p prompts.Prompt) *agencyv1.Prompt {
+	out := &agencyv1.Prompt{
+		Id:           p.ID,
+		Content:      p.Content,
+		Version:      p.Version,
+		Author:       s.actorToProto(ctx, p.AuthorActorID),
+		ApprovedBy:   s.actorToProto(ctx, p.ApprovedByActorID),
+		Note:         p.Note,
+		ProposalId:   p.ProposalID,
+		AutoApproved: p.AutoApproved,
+	}
+	if !p.UpdatedAt.IsZero() {
+		out.UpdatedAt = timestamppb.New(p.UpdatedAt)
+	}
+	return out
+}
+
+func (s *PromptServer) proposalToProto(
+	ctx context.Context,
+	p prompts.Proposal,
+) *agencyv1.PromptProposal {
+	out := &agencyv1.PromptProposal{
+		Id:            p.ID,
+		Scope:         scopeToProto(p.Scope),
+		AgentId:       actorid.Format(p.AgentID),
+		ProjectId:     p.ProjectID,
+		TeamId:        p.TeamID,
+		Content:       p.Content,
+		BaseVersion:   p.BaseVersion,
+		Author:        s.actorToProto(ctx, p.AuthorActorID),
+		Note:          p.Note,
+		Status:        toProtoProposalStatus(p.Status),
+		DecidedBy:     s.actorToProto(ctx, p.DecidedByActorID),
+		DecisionNote:  p.DecisionNote,
+		Stale:         p.Stale,
+		AutoApproved:  p.AutoApproved,
+		LatestVersion: p.LatestVersion,
+		IsMine:        callerActorID(ctx) == p.AuthorActorID,
+	}
+	if !p.CreatedAt.IsZero() {
+		out.CreatedAt = timestamppb.New(p.CreatedAt)
+	}
+	if !p.DecidedAt.IsZero() {
+		out.DecidedAt = timestamppb.New(p.DecidedAt)
+	}
+	return out
+}
+
+func (s *PromptServer) actorToProto(
+	ctx context.Context,
+	id ids.ActorID,
+) *agencyv1.PromptActor {
+	if id == 0 {
+		return nil
+	}
+	out := &agencyv1.PromptActor{ActorId: actorid.Format(id)}
+	if s.Accounts == nil {
+		return out
+	}
+	actor, err := s.Accounts.GetActor(ctx, id)
+	if err != nil {
+		return out
+	}
+	out.Username = actor.Username
+	out.Name = actor.Name
+	out.Kind = actor.Kind
+	return out
+}
+
+func callerActorID(ctx context.Context) ids.ActorID {
+	id, _ := auth.ActorID(ctx)
+	return id
+}
+
 func scopeToProto(scope prompts.Scope) agencyv1.PromptScope {
 	switch scope {
 	case prompts.ScopeOrg:
@@ -305,72 +557,6 @@ func scopeToProto(scope prompts.Scope) agencyv1.PromptScope {
 	default:
 		return agencyv1.PromptScope_PROMPT_SCOPE_UNSPECIFIED
 	}
-}
-
-func (s *PromptServer) validateTargets(
-	ctx context.Context,
-	scope prompts.Scope,
-	agentID ids.AgentID,
-	teamID int64, projectID string,
-) error {
-	if scope == prompts.ScopeAgent || scope == prompts.ScopeAgentProject {
-		if _, err := s.Agents.Get(ctx, agentID); err != nil {
-			if errors.Is(err, agents.ErrAgentMissing) {
-				return connect.NewError(connect.CodeNotFound, err)
-			}
-			return connect.NewError(connect.CodeInternal, err)
-		}
-	}
-	if scope == prompts.ScopeProject || scope == prompts.ScopeAgentProject ||
-		scope == prompts.ScopeTeamProject {
-		if _, err := s.Projects.Get(ctx, projectID); err != nil {
-			if errors.Is(err, projects.ErrProjectMissing) {
-				return connect.NewError(connect.CodeNotFound, err)
-			}
-			return connect.NewError(connect.CodeInternal, err)
-		}
-	}
-	if scope.TeamScoped() {
-		if s.Teams == nil {
-			return connect.NewError(connect.CodeUnavailable, errors.New("teams unavailable"))
-		}
-		if _, err := s.Teams.Name(ctx, teamID); err != nil {
-			if errors.Is(err, teams.ErrTeamNotFound) {
-				return connect.NewError(connect.CodeNotFound, err)
-			}
-			return connect.NewError(connect.CodeInternal, err)
-		}
-	}
-	return nil
-}
-
-func (s *PromptServer) authorizeTeamPrompt(
-	ctx context.Context,
-	scope prompts.Scope,
-	teamID int64,
-	write bool,
-) error {
-	if !scope.TeamScoped() {
-		return nil
-	}
-	identity, ok := auth.IdentityFrom(ctx)
-	if !ok {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("not authenticated"))
-	}
-	if s.Teams == nil {
-		return connect.NewError(connect.CodeUnavailable, errors.New("teams unavailable"))
-	}
-	team, err := s.Teams.Get(ctx, teamID, identity.ActorID, identity.IsAdmin())
-	if err != nil {
-		if errors.Is(err, teams.ErrTeamNotFound) {
-			return connect.NewError(connect.CodeNotFound, err)
-		}
-		return connect.NewError(connect.CodePermissionDenied, err)
-	}
-	if write && !identity.IsAdmin() && team.Role != teams.RoleOwner {
-		return connect.NewError(connect.CodePermissionDenied, errTeamPromptOwner)
-	}
-	return nil
 }
 
 func fromProtoScope(scope agencyv1.PromptScope) (prompts.Scope, error) {
@@ -392,6 +578,38 @@ func fromProtoScope(scope agencyv1.PromptScope) (prompts.Scope, error) {
 	}
 }
 
+func toProtoProposalStatus(status prompts.ProposalStatus) agencyv1.PromptProposalStatus {
+	switch status {
+	case prompts.ProposalPending:
+		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_PENDING
+	case prompts.ProposalApproved:
+		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_APPROVED
+	case prompts.ProposalRejected:
+		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_REJECTED
+	case prompts.ProposalWithdrawn:
+		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_WITHDRAWN
+	default:
+		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_UNSPECIFIED
+	}
+}
+
+func fromProtoProposalStatus(
+	status agencyv1.PromptProposalStatus,
+) prompts.ProposalStatus {
+	switch status {
+	case agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_PENDING:
+		return prompts.ProposalPending
+	case agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_APPROVED:
+		return prompts.ProposalApproved
+	case agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_REJECTED:
+		return prompts.ProposalRejected
+	case agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_WITHDRAWN:
+		return prompts.ProposalWithdrawn
+	default:
+		return ""
+	}
+}
+
 func projectToProto(p projects.Project) *agencyv1.Project {
 	out := &agencyv1.Project{
 		Id:          p.ID,
@@ -407,19 +625,20 @@ func projectToProto(p projects.Project) *agencyv1.Project {
 	return out
 }
 
-func toProto(p prompts.Prompt) *agencyv1.Prompt {
-	out := &agencyv1.Prompt{Content: p.Content, Version: p.Version}
-	if !p.UpdatedAt.IsZero() {
-		out.UpdatedAt = timestamppb.New(p.UpdatedAt)
-	}
-	return out
-}
-
 func promptError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, prompts.ErrInvalidScope),
 		errors.Is(err, prompts.ErrInvalidTarget):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, prompts.ErrNoChange):
+		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, prompts.ErrProposalNotFound):
+		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, prompts.ErrProposalNotPending),
+		errors.Is(err, prompts.ErrProposalStale):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, promptflow.ErrForbidden):
+		return connect.NewError(connect.CodePermissionDenied, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

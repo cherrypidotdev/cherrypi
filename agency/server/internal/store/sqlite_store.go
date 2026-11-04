@@ -19,9 +19,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
+	"strings"
+	"time"
 
 	sqlitedb "cherrypi.vladfaust.com/agency/internal/gen/sqlite"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -35,20 +38,73 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dsn string) (Store, error) {
+	return newSqliteStore(dsn, true)
+}
+
+func newSqliteStore(dsn string, foreignKeys bool) (Store, error) {
 	log.Printf("Using agency SQLite database at %s", dsn)
 
-	db, err := openSQLite(dsn)
+	migrationDB, err := openSQLite(dsn, false)
 	if err != nil {
 		return nil, fmt.Errorf("connect to agency SQLite: %w", err)
 	}
 
-	if err := migrateSqlite(db); err != nil {
-		_ = db.Close()
+	if err := migrateSqlite(migrationDB); err != nil {
+		_ = migrationDB.Close()
 
 		return nil, fmt.Errorf("migrate agency SQLite: %w", err)
 	}
 
+	if err := checkSqliteForeignKeys(migrationDB); err != nil {
+		_ = migrationDB.Close()
+
+		return nil, fmt.Errorf("validate agency SQLite foreign keys: %w", err)
+	}
+
+	if err := migrationDB.Close(); err != nil {
+		return nil, fmt.Errorf("close agency SQLite migration connection: %w", err)
+	}
+
+	db, err := openSQLite(dsn, foreignKeys)
+	if err != nil {
+		return nil, fmt.Errorf("connect to agency SQLite: %w", err)
+	}
+
 	return &SqliteStore{db: db, q: sqlitedb.New(db)}, nil
+}
+
+func checkSqliteForeignKeys(db *sql.DB) error {
+	rows, err := db.QueryContext(context.Background(), "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var violations []string
+
+	for rows.Next() {
+		var table, parent string
+		var rowid sql.NullInt64
+		var fkID int64
+		if err := rows.Scan(&table, &rowid, &parent, &fkID); err != nil {
+			return err
+		}
+
+		violations = append(violations, fmt.Sprintf("%s row %v -> %s", table, rowid.Int64, parent))
+		if len(violations) == 5 {
+			break
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(violations) > 0 {
+		return fmt.Errorf("foreign key violations: %s", strings.Join(violations, "; "))
+	}
+
+	return nil
 }
 
 // migrateSqlite applies the SQLite migration tree. A goose provider is used
@@ -108,6 +164,9 @@ func (s *SqliteStore) deleteActorChildren(
 		return err
 	}
 	if err := q.DeleteTaskFavoritesByActor(ctx, actorID); err != nil {
+		return err
+	}
+	if err := q.DeleteTaskCommentReadsByActor(ctx, actorID); err != nil {
 		return err
 	}
 	return q.DeleteAgentOwnerEdgesByActor(ctx, actorID)
@@ -302,6 +361,7 @@ func (s *SqliteStore) GetPersonalAccessTokenByHash(
 		CreatedAt:     row.CreatedAt,
 		LastUsedAt:    row.LastUsedAt,
 		ExpiresAt:     row.ExpiresAt,
+		SiteID:        row.SiteID,
 		Kind:          row.Kind,
 		Username:      row.Username,
 		ActorName:     row.ActorName,
@@ -499,7 +559,8 @@ func (s *SqliteStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, e
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *SqliteStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error) {
@@ -508,7 +569,8 @@ func (s *SqliteStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) 
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *SqliteStore) GetAgentByUsername(ctx context.Context, username string) (AgentRow, error) {
@@ -517,7 +579,8 @@ func (s *SqliteStore) GetAgentByUsername(ctx context.Context, username string) (
 		return AgentRow{}, err
 	}
 	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt), nil
+		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+		row.PromptAutoApprove != 0), nil
 }
 
 func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
@@ -528,7 +591,8 @@ func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
 		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt)
+			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
+			row.PromptAutoApprove != 0)
 	}
 	return out, nil
 }
@@ -628,6 +692,22 @@ func (s *SqliteStore) DeleteTasksByProjectAgent(
 		); err != nil {
 			return err
 		}
+		if err := q.DeleteTaskProgressItemsByProjectAgent(
+			ctx,
+			sqlitedb.DeleteTaskProgressItemsByProjectAgentParams(
+				DeleteTaskProgressItemsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgressByProjectAgent(
+			ctx,
+			sqlitedb.DeleteTaskProgressByProjectAgentParams(
+				DeleteTaskProgressByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
 		if err := q.ClearTaskNotificationsByProjectAgent(
 			ctx,
 			sqlitedb.ClearTaskNotificationsByProjectAgentParams(
@@ -676,6 +756,30 @@ func (s *SqliteStore) DeleteTasksByProjectAgent(
 			ctx,
 			sqlitedb.DeleteTaskMessagesByProjectAgentParams(
 				DeleteTaskMessagesByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByProjectAgent(
+			ctx,
+			sqlitedb.DeleteTaskCommentAttachmentsByProjectAgentParams(
+				DeleteTaskCommentAttachmentsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentsByProjectAgent(
+			ctx,
+			sqlitedb.DeleteTaskCommentsByProjectAgentParams(
+				DeleteTaskCommentsByProjectAgentParams(p),
+			),
+		); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentReadsByProjectAgent(
+			ctx,
+			sqlitedb.DeleteTaskCommentReadsByProjectAgentParams(
+				DeleteTaskCommentReadsByProjectAgentParams(p),
 			),
 		); err != nil {
 			return err
@@ -750,6 +854,12 @@ func (s *SqliteStore) DeleteTask(ctx context.Context, id string) error {
 		if err := q.DeleteTaskLinks(ctx, id); err != nil {
 			return err
 		}
+		if err := q.DeleteTaskProgressItems(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskProgress(ctx, id); err != nil {
+			return err
+		}
 		if err := q.ClearTaskNotifications(ctx, id); err != nil {
 			return err
 		}
@@ -772,6 +882,15 @@ func (s *SqliteStore) DeleteTask(ctx context.Context, id string) error {
 			return err
 		}
 		if err := q.DeleteTaskMessages(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByTask(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskComments(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentReads(ctx, id); err != nil {
 			return err
 		}
 		if err := q.DeleteTaskAttachments(ctx, id); err != nil {
@@ -825,6 +944,9 @@ func (s *SqliteStore) DeleteAttachment(ctx context.Context, id int64) error {
 			return err
 		}
 		if err := q.DeleteAttachmentMessageLinks(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskCommentAttachmentsByAttachment(ctx, id); err != nil {
 			return err
 		}
 		if err := q.DeleteArtifactPartsByAttachment(ctx, attachmentID); err != nil {
@@ -940,7 +1062,7 @@ func (s *SqliteStore) RegisterAgent(
 			}
 		}
 		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
-			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{})
+			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{}, false)
 		return nil
 	})
 	return out, err
@@ -951,16 +1073,6 @@ func (s *SqliteStore) TransitionTask(
 	p TransitionTaskParams,
 ) (int64, error) {
 	switch p.Event {
-	case TaskPromote:
-		return s.q.PromoteTask(ctx, sqlitedb.PromoteTaskParams(PromoteTaskParams{
-			UpdatedAt: p.UpdatedAt,
-			ID:        p.ID,
-		}))
-	case TaskDemote:
-		return s.q.DemoteTask(ctx, sqlitedb.DemoteTaskParams(DemoteTaskParams{
-			UpdatedAt: p.UpdatedAt,
-			ID:        p.ID,
-		}))
 	case TaskQueue:
 		return s.q.QueueTask(ctx, sqlitedb.QueueTaskParams(QueueTaskParams{
 			QueuedAt:  p.QueuedAt,
@@ -1071,4 +1183,90 @@ func (s *SqliteStore) TransitionTask(
 	default:
 		return 0, fmt.Errorf("unknown task event %q", p.Event)
 	}
+}
+
+func (s *SqliteStore) ApprovePromptProposal(
+	ctx context.Context,
+	p ApprovePromptProposalParams,
+) (Prompt, PromptProposal, error) {
+	var outPrompt Prompt
+	var outProposal PromptProposal
+	err := s.tx(ctx, func(q *sqlitedb.Queries) error {
+		proposal, err := q.GetPromptProposal(ctx, p.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPromptProposalNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if proposal.Status != "pending" {
+			return ErrPromptProposalNotPending
+		}
+		latest, err := q.LatestPromptVersion(ctx, sqlitedb.LatestPromptVersionParams{
+			Scope:     proposal.Scope,
+			AgentID:   sql.NullInt64{Int64: proposal.AgentID.Int64, Valid: true},
+			TeamID:    sql.NullInt64{Int64: proposal.TeamID.Int64, Valid: true},
+			ProjectID: sql.NullString{String: proposal.ProjectID.String, Valid: true},
+		})
+		if err != nil {
+			return err
+		}
+		if latest != proposal.BaseVersion {
+			return ErrPromptProposalStale
+		}
+		now := p.Now
+		if now == 0 {
+			now = time.Now().UnixMilli()
+		}
+		auto := int64(0)
+		if p.AutoApproved {
+			auto = 1
+		}
+		promptRow, err := q.InsertPrompt(ctx, sqlitedb.InsertPromptParams{
+			Scope:             proposal.Scope,
+			AgentID:           proposal.AgentID,
+			TeamID:            proposal.TeamID,
+			ProjectID:         proposal.ProjectID,
+			Content:           proposal.Content,
+			Version:           latest + 1,
+			CreatedAt:         now,
+			AuthorActorID:     proposal.AuthorActorID,
+			ApprovedByActorID: nullActorID(int64(p.DecidedByActorID)),
+			Note:              proposal.Note,
+			ProposalID:        proposal.ID,
+			AutoApproved:      auto,
+		})
+		if err != nil {
+			return err
+		}
+		decision, err := q.SetPromptProposalDecision(
+			ctx,
+			sqlitedb.SetPromptProposalDecisionParams{
+				Status:           "approved",
+				DecidedAt:        sql.NullInt64{Int64: now, Valid: true},
+				DecidedByActorID: nullActorID(int64(p.DecidedByActorID)),
+				DecisionNote:     p.DecisionNote,
+				AutoApproved:     auto,
+				ID:               p.ID,
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPromptProposalNotPending
+		}
+		if err != nil {
+			return err
+		}
+		outPrompt = fromSqlitePrompt(promptRow)
+		outProposal = fromSqlitePromptProposal(decision)
+		return nil
+	})
+	return outPrompt, outProposal, err
+}
+
+func NewSqliteStoreForTest(t interface{ Fatalf(string, ...any) }, dsn string) Store {
+	st, err := NewSqliteStore(dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return st
 }

@@ -18,27 +18,66 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-2
+  .flex.flex-wrap.items-center.justify-between.gap-2
+    span.text-muted-foreground.text-xs Version {{ version }}
+    .flex.items-center.gap-2
+      Button(
+        type="button"
+        variant="outline"
+        size="sm"
+        @click="historyOpen = true"
+        :disabled="loading"
+      )
+        HistoryIcon(data-icon="inline-start")
+        span History
+      Button(
+        v-if="canEdit"
+        type="button"
+        @click="saveClick"
+        :disabled="saving || loading"
+      )
+        Spinner(v-if="saving" data-icon="inline-start")
+        CheckIcon(v-else data-icon="inline-start")
+        span Save
   Textarea.field-sizing-fixed.resize-y(
     v-model="content"
     :placeholder="placeholder"
-    :disabled="loading"
+    :disabled="loading || !canEdit"
   )
+  Input(v-if="canEdit" v-model="note" placeholder="Change note (optional)")
+  p.text-muted-foreground.text-xs(v-if="!canEdit && !loading")
+    | Only this scope's owners may edit the prompt directly.
   p.text-destructive.text-sm(v-if="error") {{ error }}
-  .flex.items-center.justify-end.gap-2
-    span.text-muted-foreground.text-xs Version {{ version }}
-    Button(type="button" @click="saveClick" :disabled="saving || loading")
-      Spinner(v-if="saving" data-icon="inline-start")
-      CheckIcon(v-else data-icon="inline-start")
-      span Save
+  PromptProposals(
+    v-if="!loading && supportsProposals"
+    :scope="scope"
+    :target="target"
+    :current-content="content"
+    :current-version="version"
+    :can-edit="canEdit"
+    :can-propose="canPropose"
+    :can-approve="canApprove"
+    @changed="load"
+  )
+  PromptHistoryDialog(
+    v-model:open="historyOpen"
+    :scope="scope"
+    :target="target"
+    :current-version="version"
+  )
 </template>
 
 <script setup lang="ts">
+import PromptHistoryDialog from "@/components/PromptHistoryDialog.vue";
+import PromptProposals from "@/components/PromptProposals.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { usePrompt } from "@/composables/usePrompt";
-import { PromptScope } from "@cherrypi/sdk";
-import { CheckIcon } from "@lucide/vue";
+import { PromptScope, type PromptTarget } from "@cherrypi/sdk";
+import { CheckIcon, HistoryIcon } from "@lucide/vue";
+import { computed, ref } from "vue";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -49,17 +88,36 @@ const props = defineProps<{
   placeholder?: string;
 }>();
 
-const { content, version, loading, saving, error, save } = usePrompt(
-  props.scope,
-  () => ({
-    agentId: props.agentId ?? "",
-    teamId: props.teamId ?? "",
-    projectId: props.projectId ?? "",
-  }),
+const target = computed<PromptTarget>(() => ({
+  agentId: props.agentId ?? "",
+  teamId: props.teamId ?? "",
+  projectId: props.projectId ?? "",
+}));
+
+const {
+  content,
+  version,
+  loading,
+  saving,
+  error,
+  canEdit,
+  canPropose,
+  canApprove,
+  load,
+  save,
+} = usePrompt(props.scope, () => target.value);
+
+const note = ref("");
+const historyOpen = ref(false);
+const supportsProposals = computed(() =>
+  [PromptScope.AGENT, PromptScope.AGENT_PROJECT, PromptScope.PROJECT].includes(
+    props.scope,
+  ),
 );
 
 async function saveClick() {
-  if (await save()) {
+  if (await save(note.value)) {
+    note.value = "";
     toast.success("Prompt saved");
   }
 }

@@ -60,6 +60,7 @@ const sidebarEn: DefaultTheme.SidebarItem[] = [
       { text: "Tasks", link: "/using/tasks" },
       { text: "Agents", link: "/using/agents" },
       { text: "Attachments & artifacts", link: "/using/artifacts" },
+      { text: "Sites", link: "/using/sites" },
       { text: "Terminals", link: "/using/terminals" },
     ],
   },
@@ -113,6 +114,7 @@ const sidebarRu: DefaultTheme.SidebarItem[] = [
       { text: "Задачи", link: "/ru/using/tasks" },
       { text: "Агенты", link: "/ru/using/agents" },
       { text: "Вложения и артефакты", link: "/ru/using/artifacts" },
+      { text: "Сайты", link: "/ru/using/sites" },
       { text: "Терминалы", link: "/ru/using/terminals" },
     ],
   },
@@ -155,6 +157,7 @@ const navEn: DefaultTheme.NavItem[] = [
       { text: "Tasks", link: "/using/tasks" },
       { text: "Agents", link: "/using/agents" },
       { text: "Artifacts", link: "/using/artifacts" },
+      { text: "Sites", link: "/using/sites" },
     ],
   },
   {
@@ -189,6 +192,7 @@ const navRu: DefaultTheme.NavItem[] = [
       { text: "Задачи", link: "/ru/using/tasks" },
       { text: "Агенты", link: "/ru/using/agents" },
       { text: "Артефакты", link: "/ru/using/artifacts" },
+      { text: "Сайты", link: "/ru/using/sites" },
     ],
   },
   {

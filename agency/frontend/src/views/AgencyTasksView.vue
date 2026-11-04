@@ -27,16 +27,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     AgencyViewTabs
 
   .flex.flex-wrap.items-center.gap-2
-    Select(v-model="filterProject")
-      SelectTrigger.w-44(title="Filter by project")
-        SelectValue(placeholder="All projects")
-      SelectContent
-        SelectItem(:value="ALL") All projects
-        SelectItem(
-          v-for="project in projectOptions"
-          :key="project.id"
-          :value="project.id"
-        ) {{ project.name }}
+    Combobox.w-44(
+      v-model="filterProject"
+      placeholder="All projects"
+      empty-text="No matching project."
+      title="Filter by project"
+      aria-label="Filter by project"
+      :options="projectFilterOptions"
+    )
     Select(v-model="filterAgent")
       SelectTrigger.w-44(title="Filter by agent")
         SelectValue(placeholder="All agents")
@@ -63,6 +61,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import AgencyViewTabs from "@/components/AgencyViewTabs.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -84,6 +83,14 @@ const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
 const projectOptions = computed(() => sortProjectsByName(projects.value));
 
 const ALL = "__all__";
+const projectFilterOptions = computed<ComboboxOption[]>(() => [
+  { value: ALL, label: "All projects" },
+  ...projectOptions.value.map((project) => ({
+    value: project.id,
+    label: project.name,
+    description: project.prefix ? `#${project.prefix}` : undefined,
+  })),
+]);
 const filterAgent = ref(ALL);
 const filterProject = ref(ALL);
 

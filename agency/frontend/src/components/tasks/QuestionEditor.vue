@@ -18,48 +18,44 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-3
-  MarkdownText.text-sm.font-medium(:text="question.question")
+  MarkdownText.prose.prose-sm.max-w-none(
+    class="prose-p:my-1 prose-pre:my-2"
+    :style="INHERIT_PROSE"
+    :allow-html="false"
+    :text="question.question"
+  )
   .flex.flex-col.gap-2
-    .overflow-hidden.rounded-md.border.transition-colors(
+    button.w-full.rounded-md.border.p-2.text-left.transition-colors(
       v-for="(option, optionIndex) in question.options"
       :key="optionIndex"
-      :class="cardClass(isSelected(optionIndex), option.recommended === true)"
+      type="button"
+      :class="[cardClass(isSelected(optionIndex), option.recommended === true), rowClass()]"
+      @click="onToggle(optionIndex)"
+      @keydown.space="onSpace($event, () => onToggle(optionIndex))"
+      :disabled="disabled"
       data-test="option-card"
     )
-      button.w-full.p-2.text-left.transition-colors(
-        type="button"
-        :class="rowClass()"
-        @click="onToggle(optionIndex)"
-        @keydown.space="onSpace($event, () => onToggle(optionIndex))"
-        :disabled="disabled"
-        data-test="option-row"
-      )
-        .flex.items-start.gap-2
-          span.flex.size-4.shrink-0.items-center.justify-center.border(
-            class="mt-0.5"
-            :class="indicatorClass(isSelected(optionIndex))"
-          )
-            CheckIcon(v-if="isSelected(optionIndex)" class="size-2.5")
-          .flex.min-w-0.flex-col(class="gap-0.5")
-            .flex.items-center(class="gap-1.5")
-              MarkdownText.text-sm.font-medium(
-                inline
-                :text="option.label"
-                data-test="option-label"
-              )
-              span.text-primary.rounded-full.font-medium(
-                v-if="option.recommended"
-                class="bg-primary/10 px-1.5 py-0.5 text-[10px]"
-                data-test="recommended"
-              ) Recommended
-            p.text-muted-foreground.text-xs(v-if="option.description")
-              MarkdownText(inline :text="option.description")
-      .border-t.px-2.py-2(v-if="option.preview" data-test="option-preview")
-        MarkdownText.prose.prose-sm.max-w-none(
-          class="prose-p:my-1 prose-pre:my-2"
-          :style="INHERIT_PROSE"
-          :text="option.preview"
+      .flex.items-start.gap-2
+        span.flex.size-4.shrink-0.items-center.justify-center.border(
+          class="mt-0.5"
+          :class="indicatorClass(isSelected(optionIndex))"
         )
+          CheckIcon(v-if="isSelected(optionIndex)" class="size-2.5")
+        .flex.min-w-0.flex-col(class="gap-0.5")
+          .flex.items-center(class="gap-1.5")
+            MarkdownText.text-sm.font-medium(
+              inline
+              :allow-html="false"
+              :text="option.label"
+              data-test="option-label"
+            )
+            span.text-primary.rounded-full.font-medium(
+              v-if="option.recommended"
+              class="bg-primary/10 px-1.5 py-0.5 text-[10px]"
+              data-test="recommended"
+            ) Recommended
+          p.text-muted-foreground.text-xs(v-if="option.description")
+            MarkdownText(inline :allow-html="false" :text="option.description")
 
     button.w-full.rounded-md.border.p-2.text-left.transition-colors(
       v-if="!readonly || answer.customSelected"

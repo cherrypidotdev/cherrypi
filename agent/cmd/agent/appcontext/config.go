@@ -20,7 +20,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+
+	agenthealth "cherrypi.vladfaust.com/agent/internal/health"
 )
 
 type Config struct {
@@ -57,6 +61,20 @@ type Config struct {
 	LogFormat string
 
 	LogLevel string
+
+	LogFile string
+
+	LogFileMaxBytes int64
+
+	LogFiles int
+
+	HealthInterval time.Duration
+
+	HealthHostProc string
+	HealthHostSys  string
+	HealthHostRoot string
+
+	HealthDisks []agenthealth.DiskTarget
 }
 
 func cherryPiDir() string {
@@ -101,6 +119,26 @@ func ParseConfig() Config {
 
 	cfg.LogFormat = os.Getenv("CHERRYPI_LOG_FORMAT")
 	cfg.LogLevel = os.Getenv("CHERRYPI_LOG_LEVEL")
+	cfg.LogFile = os.Getenv("CHERRYPI_LOG_FILE")
+	if cfg.LogFile == "" {
+		cfg.LogFile = filepath.Join(cfg.Dir, "logs", "agent.log")
+	}
+	cfg.LogFileMaxBytes = 8 << 20
+	if raw := strings.TrimSpace(os.Getenv("CHERRYPI_LOG_FILE_MAX_MB")); raw != "" {
+		if mb, err := strconv.Atoi(raw); err == nil && mb > 0 {
+			cfg.LogFileMaxBytes = int64(mb) << 20
+		} else {
+			log.Printf("Ignoring CHERRYPI_LOG_FILE_MAX_MB=%q: expected a positive integer", raw)
+		}
+	}
+	cfg.LogFiles = 3
+	if raw := strings.TrimSpace(os.Getenv("CHERRYPI_LOG_FILES")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			cfg.LogFiles = n
+		} else {
+			log.Printf("Ignoring CHERRYPI_LOG_FILES=%q: expected a non-negative integer", raw)
+		}
+	}
 
 	cfg.AgencyURL = os.Getenv("CHERRYPI_AGENCY_URL")
 	cfg.TunnelTransport = strings.ToLower(
@@ -119,5 +157,88 @@ func ParseConfig() Config {
 		cfg.AgentTokenFile = filepath.Join(cfg.Dir, "agent.token")
 	}
 
+	cfg.HealthInterval = parseHealthInterval(os.Getenv("CHERRYPI_HEALTH_INTERVAL"))
+	cfg.HealthHostProc = hostPath("CHERRYPI_HEALTH_HOST_PROC", "/host/proc", "/proc")
+	cfg.HealthHostSys = hostPath("CHERRYPI_HEALTH_HOST_SYS", "/host/sys", "/sys")
+	cfg.HealthHostRoot = hostPath("CHERRYPI_HEALTH_HOST_ROOT", "/host/root", "/")
+	cfg.HealthDisks = parseHealthDisks(os.Getenv("CHERRYPI_HEALTH_DISKS"))
+	cfg.HealthDisks = append(
+		defaultHealthDisks(cfg.HealthHostRoot, cfg.Dir),
+		cfg.HealthDisks...,
+	)
+	cfg.HealthDisks = dedupeHealthDisks(cfg.HealthDisks)
+
 	return cfg
+}
+
+const DefaultHealthInterval = time.Minute
+
+func parseHealthInterval(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return DefaultHealthInterval
+	}
+	interval, err := time.ParseDuration(raw)
+	if err != nil || interval < 0 {
+		log.Printf("Ignoring CHERRYPI_HEALTH_INTERVAL=%q: expected a duration", raw)
+		return DefaultHealthInterval
+	}
+	return interval
+}
+
+func hostPath(env, host, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(env)); value != "" {
+		return value
+	}
+	if info, err := os.Stat(host); err == nil && info.IsDir() {
+		return host
+	}
+	return fallback
+}
+
+func defaultHealthDisks(hostRoot, dir string) []agenthealth.DiskTarget {
+	rootLabel := "Root"
+	if hostRoot != "/" {
+		rootLabel = "Host root"
+	}
+	disks := []agenthealth.DiskTarget{{Label: rootLabel, Path: hostRoot}}
+	if dir != "" && dir != hostRoot {
+		disks = append(disks, agenthealth.DiskTarget{Label: "CherryPi data", Path: dir})
+	}
+	return disks
+}
+
+func parseHealthDisks(raw string) []agenthealth.DiskTarget {
+	var disks []agenthealth.DiskTarget
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		label, path := "", item
+		if before, after, ok := strings.Cut(item, "="); ok {
+			label, path = strings.TrimSpace(before), strings.TrimSpace(after)
+		}
+		if path == "" {
+			continue
+		}
+		if label == "" {
+			label = path
+		}
+		disks = append(disks, agenthealth.DiskTarget{Label: label, Path: path})
+	}
+	return disks
+}
+
+func dedupeHealthDisks(disks []agenthealth.DiskTarget) []agenthealth.DiskTarget {
+	seen := map[string]struct{}{}
+	out := disks[:0]
+	for _, disk := range disks {
+		if _, ok := seen[disk.Path]; ok {
+			continue
+		}
+		seen[disk.Path] = struct{}{}
+		out = append(out, disk)
+	}
+	return out
 }

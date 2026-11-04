@@ -22,18 +22,28 @@ import (
 )
 
 type Message struct {
+	Seq     uint64         `json:"seq"`
 	Kind    string         `json:"kind"`
 	At      time.Time      `json:"at"`
 	Payload map[string]any `json:"payload"`
 }
 
-const backlogLimit = 256
+const LogKind = "log"
+
+const (
+	backlogLimit = 256
+
+	logReplayLimit = 2048
+)
 
 type Hub struct {
 	mu   sync.Mutex
+	seq  uint64
 	subs map[chan Message]struct{}
 
 	backlog []Message
+
+	logs []Message
 }
 
 func New() *Hub {
@@ -45,10 +55,19 @@ func (h *Hub) Publish(kind string, payload map[string]any) {
 		payload = map[string]any{}
 	}
 
-	msg := Message{Kind: kind, At: time.Now(), Payload: payload}
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	h.seq++
+	msg := Message{Seq: h.seq, Kind: kind, At: time.Now(), Payload: payload}
+
+	if kind == LogKind {
+		h.logs = append(h.logs, msg)
+		if len(h.logs) > logReplayLimit {
+			h.logs = h.logs[len(h.logs)-logReplayLimit:]
+		}
+	}
+
 	if len(h.subs) == 0 {
 		h.backlog = append(h.backlog, msg)
 		if len(h.backlog) > backlogLimit {
@@ -65,18 +84,33 @@ func (h *Hub) Publish(kind string, payload map[string]any) {
 	}
 }
 
-func (h *Hub) Subscribe() (<-chan Message, func()) {
-	ch := make(chan Message, backlogLimit+64)
+func (h *Hub) Subscribe(since uint64) (<-chan Message, func()) {
+	ch := make(chan Message, backlogLimit+logReplayLimit+64)
 
 	h.mu.Lock()
-	if len(h.subs) == 0 {
+	last := since
+	if since == 0 {
 		for _, msg := range h.backlog {
 			select {
 			case ch <- msg:
 			default:
 			}
+			if msg.Seq > last {
+				last = msg.Seq
+			}
 		}
 		h.backlog = nil
+	} else {
+		for _, msg := range h.logs {
+			if msg.Seq <= last {
+				continue
+			}
+			select {
+			case ch <- msg:
+			default:
+			}
+			last = msg.Seq
+		}
 	}
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()

@@ -47,20 +47,38 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             ) {{ option.name }}
       label.flex.flex-col.gap-1(v-if="context !== 'project'")
         span.text-2xs.text-muted-foreground.font-semibold Project
-        Select(v-model="projectScope")
-          SelectTrigger.w-44(title="Filter by project")
-            SelectValue(placeholder="All projects")
+        Combobox.w-44(
+          v-model="projectScope"
+          placeholder="All projects"
+          empty-text="No matching project."
+          title="Filter by project"
+          aria-label="Filter by project"
+          :options="projectScopeOptions"
+        )
+      label.flex.flex-col.gap-1
+        span.text-2xs.text-muted-foreground.font-semibold Model
+        Select(v-model="modelScope")
+          SelectTrigger.w-44(title="Filter by model")
+            SelectValue(placeholder="All models")
           SelectContent
-            SelectItem(:value="ALL") All projects
+            SelectItem(:value="ALL") All models
             SelectItem(
-              v-for="option in availableProjects"
-              :key="option.id"
-              :value="option.id"
-            ) {{ option.name }}
+              v-for="option in modelScopeOptions"
+              :key="option.value"
+              :value="option.value"
+            ) {{ option.label }}
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
 
   UsageKpis(:summary="summary" :daily="daily" :range="range")
+
+  UsageInsights(
+    v-model:tag-ids="insightTagIds"
+    :insights="insights"
+    :daily="insightDaily"
+    :range="range"
+    :tags="insightTags"
+  )
 
   .grid.grid-cols-1.gap-4(class="lg:grid-cols-12")
     .min-w-0(class="lg:col-span-8")
@@ -71,7 +89,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :range-label="rangeLabel"
         :completed="summary.completed"
       )
-    .min-w-0(class="lg:col-span-6")
+    .min-w-0(class="lg:col-span-5")
       UsageTagChart(
         :series="tagSeries"
         :completed="summary.completed"
@@ -79,7 +97,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :include-archived="includeArchived"
         @update:include-archived="includeArchived = $event"
       )
-    .min-w-0(class="lg:col-span-6")
+    .min-w-0(class="lg:col-span-7")
       UsageBreakdown(
         :rows="breakdown"
         :title="breakdownTitle"
@@ -87,10 +105,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :unit="breakdownUnit"
       )
     .min-w-0(class="lg:col-span-12")
+      UsageModelTable(:rows="models" :subtitle="modelSubtitle")
+    .min-w-0(class="lg:col-span-12")
       UsageTasksTable(:context="context" :rows="rows")
 </template>
 
 <script setup lang="ts">
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -99,7 +120,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import UsageBreakdown from "@/components/usage/UsageBreakdown.vue";
+import UsageInsights from "@/components/usage/UsageInsights.vue";
 import UsageKpis from "@/components/usage/UsageKpis.vue";
+import UsageModelTable from "@/components/usage/UsageModelTable.vue";
 import UsageRunsChart from "@/components/usage/UsageRunsChart.vue";
 import UsageTagChart from "@/components/usage/UsageTagChart.vue";
 import UsageTasksTable from "@/components/usage/UsageTasksTable.vue";
@@ -113,7 +136,8 @@ import {
   usageRangeLabel,
   type UsageRange,
 } from "@/lib/usage";
-import { computed, ref } from "vue";
+import { UNKNOWN_USAGE_MODEL } from "@cherrypi/sdk";
+import { computed, ref, watch } from "vue";
 
 const props = defineProps<{
   context: UsageContext;
@@ -124,8 +148,10 @@ const props = defineProps<{
 const ALL = "__all__";
 const agentScope = ref(ALL);
 const projectScope = ref(ALL);
+const modelScope = ref(ALL);
 const range = ref<UsageRange>("30");
 const includeArchived = ref(true);
+const insightTagIds = ref<string[]>([]);
 
 const effectiveAgentId = computed(() =>
   props.context === "agent"
@@ -142,12 +168,25 @@ const effectiveProjectId = computed(() =>
       : projectScope.value,
 );
 
+const effectiveModel = computed(() =>
+  modelScope.value === ALL ? "" : modelScope.value,
+);
+
+watch([effectiveAgentId, effectiveProjectId], () => {
+  modelScope.value = ALL;
+});
+
 const {
   summary,
   daily,
   rows,
   tagSeries,
+  insights,
+  insightDaily,
+  insightTags,
   breakdown,
+  models,
+  availableModels,
   availableAgents,
   availableProjects,
   error,
@@ -157,29 +196,66 @@ const {
   projectId: effectiveProjectId,
   range,
   includeArchived,
+  insightTagIds,
+  model: effectiveModel,
 });
 
 const rangeLabel = computed(() => usageRangeLabel(range.value));
+const projectScopeOptions = computed<ComboboxOption[]>(() => [
+  { value: ALL, label: "All projects" },
+  ...availableProjects.value.map((option) => ({
+    value: option.id,
+    label: option.name,
+  })),
+]);
+
+const modelScopeOptions = computed(() => {
+  const seen = new Set<string>();
+  const options: { value: string; label: string }[] = [];
+  for (const model of availableModels.value) {
+    const value = model || UNKNOWN_USAGE_MODEL;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    options.push({ value, label: model || "Unknown" });
+  }
+
+  if (modelScope.value !== ALL && !seen.has(modelScope.value)) {
+    options.push({
+      value: modelScope.value,
+      label:
+        modelScope.value === UNKNOWN_USAGE_MODEL ? "Unknown" : modelScope.value,
+    });
+  }
+  return options;
+});
 const subtitle = computed(() => {
   if (props.context === "project") {
-    return "All agents working in this project. The range applies to every chart and breakdown below.";
+    return "All agents working in this project. The range and model filter apply to every chart and breakdown below.";
   }
   if (props.context === "agent") {
-    return "Everything this agent worked on. Filter by project or time; the charts reuse the project components.";
+    return "Everything this agent worked on. Filter by project, model or time; the charts reuse the project components.";
   }
-  return "Every agent and project in the agency. Filter by either scope or time; the charts reuse the project components.";
+  return "Every agent and project in the agency. Filter by scope, model or time; the charts reuse the project components.";
 });
 
 const breakdownTitle = computed(() =>
   props.context === "project" ? "By agent" : "By project",
 );
-const breakdownSubtitle = computed(() => {
-  if (props.context === "project")
-    return "Cost and response rounds in this range.";
-  if (props.context === "agent") return "Where this agent spent its usage.";
-  return "Where the agency spent its usage in this range.";
-});
+const breakdownSubtitle = computed(() =>
+  props.context === "project"
+    ? "Average per completed task, by agent. Follows the insights tag filter."
+    : "Average per completed task, by project. Follows the insights tag filter.",
+);
 const breakdownUnit = computed(() =>
   props.context === "project" ? "agents" : "projects",
 );
+const modelSubtitle = computed(() => {
+  if (props.context === "project") {
+    return "Cost and tokens per model used in this project. The model filter narrows the cards above, not this table.";
+  }
+  if (props.context === "agent") {
+    return "Cost and tokens per model this agent used. The model filter narrows the cards above, not this table.";
+  }
+  return "Cost and tokens per model across the agency. The model filter narrows the cards above, not this table.";
+});
 </script>

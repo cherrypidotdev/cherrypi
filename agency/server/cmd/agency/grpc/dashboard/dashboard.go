@@ -17,13 +17,16 @@
 package dashboardgrpc
 
 import (
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/ids"
+
 	"cherrypi.vladfaust.com/agency/internal/actorid"
+	agenthealth "cherrypi.vladfaust.com/agency/internal/health"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
@@ -40,8 +43,9 @@ type Hub interface {
 }
 
 type DashboardServer struct {
-	Hub   Hub
-	Store store.Store
+	Hub    Hub
+	Store  store.Store
+	Health *agenthealth.Service
 }
 
 func (s *DashboardServer) client(
@@ -85,11 +89,14 @@ func (s *DashboardServer) GetUsage(
 ) (*agencyv1.GetUsageResponse, error) {
 	sinceMs := sql.NullInt64{Int64: req.SinceMs, Valid: req.SinceMs != 0}
 	untilMs := sql.NullInt64{Int64: req.UntilMs, Valid: req.UntilMs != 0}
-	rows, err := s.Store.ListAgentUsage(ctx,
-		sql.NullInt64{Int64: int64(actorid.ParseAgent(req.AgentId)), Valid: req.AgentId != ""},
-		sql.NullString{String: req.ProjectId, Valid: req.ProjectId != ""},
-		sinceMs,
-		untilMs,
+	agentArg := sql.NullInt64{
+		Int64: int64(actorid.ParseAgent(req.AgentId)),
+		Valid: req.AgentId != "",
+	}
+	projectArg := sql.NullString{String: req.ProjectId, Valid: req.ProjectId != ""}
+	providerArg, modelArg := usageModelFilter(req.Model)
+	rows, err := s.Store.ListAgentUsage(
+		ctx, agentArg, projectArg, providerArg, modelArg, sinceMs, untilMs,
 	)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -113,11 +120,8 @@ func (s *DashboardServer) GetUsage(
 		resp.Cost += row.Cost
 	}
 
-	days, err := s.Store.ListAgentUsageByDay(ctx,
-		sql.NullInt64{Int64: int64(actorid.ParseAgent(req.AgentId)), Valid: req.AgentId != ""},
-		sql.NullString{String: req.ProjectId, Valid: req.ProjectId != ""},
-		sinceMs,
-		untilMs,
+	days, err := s.Store.ListAgentUsageByDay(
+		ctx, agentArg, projectArg, providerArg, modelArg, sinceMs, untilMs,
 	)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -132,13 +136,68 @@ func (s *DashboardServer) GetUsage(
 		})
 	}
 
-	s.overlayLiveUsage(ctx, req, resp, index)
+	byModel, err := s.Store.ListAgentUsageByModel(
+		ctx, agentArg, projectArg, sql.NullString{}, sql.NullString{}, sinceMs, untilMs,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	for _, row := range byModel {
+		resp.Models = append(resp.Models, &agencyv1.UsageModel{
+			Provider:     row.Provider,
+			Model:        row.Model,
+			InputTokens:  row.InputTokens,
+			OutputTokens: row.OutputTokens,
+			Cost:         row.Cost,
+			Runs:         row.Runs,
+			Tasks:        row.Tasks,
+		})
+	}
+
+	available, err := s.Store.ListAgentUsageModels(ctx, agentArg, projectArg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	for _, row := range available {
+		resp.AvailableModels = append(
+			resp.AvailableModels,
+			usageModelLabel(row.Provider, row.Model),
+		)
+	}
+
+	if req.Model == "" {
+		s.overlayLiveUsage(ctx, req, resp, index)
+	}
 
 	return resp, nil
 }
 
 func usageKey(agentID ids.AgentID, sessionID string) string {
 	return actorid.Format(agentID) + "\x00" + sessionID
+}
+
+const unknownUsageModel = "__unknown__"
+
+func usageModelFilter(model string) (sql.NullString, sql.NullString) {
+	switch model {
+	case "":
+		return sql.NullString{}, sql.NullString{}
+	case unknownUsageModel:
+		return sql.NullString{}, sql.NullString{Valid: true}
+	}
+
+	if provider, id, ok := strings.Cut(model, "/"); ok && provider != "" && id != "" {
+		return sql.NullString{String: provider, Valid: true},
+			sql.NullString{String: id, Valid: true}
+	}
+	return sql.NullString{}, sql.NullString{String: model, Valid: true}
+}
+
+func usageModelLabel(provider, model string) string {
+	if provider == "" {
+		return model
+	}
+	return provider + "/" + model
 }
 
 func (s *DashboardServer) overlayLiveUsage(
@@ -314,4 +373,78 @@ func (s *DashboardServer) GetTaskDiskUsage(
 		return nil, err
 	}
 	return &agencyv1.GetTaskDiskUsageResponse{Usage: res}, nil
+}
+
+func (s *DashboardServer) GetAgentHealth(
+	ctx context.Context,
+	req *agencyv1.GetAgentHealthRequest,
+) (*agencyv1.GetAgentHealthResponse, error) {
+	agentID, err := s.healthAgent(ctx, req.AgentId)
+	if err != nil {
+		return nil, err
+	}
+
+	sample, err := s.Health.Latest(ctx, agentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &agencyv1.GetAgentHealthResponse{}, nil
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &agencyv1.GetAgentHealthResponse{Sample: sample.Proto()}, nil
+}
+
+func (s *DashboardServer) GetAgentHealthHistory(
+	ctx context.Context,
+	req *agencyv1.GetAgentHealthHistoryRequest,
+) (*agencyv1.GetAgentHealthHistoryResponse, error) {
+	agentID, err := s.healthAgent(ctx, req.AgentId)
+	if err != nil {
+		return nil, err
+	}
+
+	samples, err := s.Health.History(
+		ctx,
+		agentID,
+		req.SinceMs,
+		req.UntilMs,
+		int(req.MaxPoints),
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	resp := &agencyv1.GetAgentHealthHistoryResponse{
+		Samples: make([]*agencyv1.AgentHealthSample, len(samples)),
+	}
+	for i, sample := range samples {
+		resp.Samples[i] = sample.Proto()
+	}
+	return resp, nil
+}
+
+func (s *DashboardServer) healthAgent(
+	ctx context.Context,
+	rawID string,
+) (ids.AgentID, error) {
+	agentID := actorid.ParseAgent(rawID)
+	if agentID == 0 {
+		return 0, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("agent_id is required"),
+		)
+	}
+	if s.Health == nil {
+		return 0, connect.NewError(
+			connect.CodeUnimplemented,
+			errors.New("agent health is not configured"),
+		)
+	}
+	if _, err := s.Store.GetAgent(ctx, agentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, connect.NewError(connect.CodeNotFound, errors.New("agent not found"))
+		}
+		return 0, connect.NewError(connect.CodeInternal, err)
+	}
+	return agentID, nil
 }

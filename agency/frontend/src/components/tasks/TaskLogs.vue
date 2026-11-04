@@ -251,11 +251,13 @@ import {
   LinkIcon,
   LockIcon,
   MessageSquareIcon,
+  MessagesSquareIcon,
   PencilIcon,
   PlusIcon,
   RulerIcon,
   SettingsIcon,
   TagIcon,
+  UnplugIcon,
   UserIcon,
   UsersIcon,
   type LucideIcon,
@@ -282,8 +284,10 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   project: FolderIcon,
   model: CpuIcon,
   session: DatabaseZapIcon,
+  session_lost: UnplugIcon,
   teams: UsersIcon,
   leads: CrownIcon,
+  comment: MessagesSquareIcon,
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -300,12 +304,14 @@ const KIND_LABELS: Record<string, string> = {
   project: "Project",
   model: "Model",
   session: "Session",
+  session_lost: "Session lost",
   teams: "Owning teams",
   leads: "Leads",
+  comment: "Comment",
 };
 
 const STATE_VALUES: Record<string, TaskState> = {
-  draft: TaskState.DRAFT,
+  draft: TaskState.BACKLOG,
   backlog: TaskState.BACKLOG,
   queued: TaskState.QUEUED,
   running: TaskState.RUNNING,

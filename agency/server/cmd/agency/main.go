@@ -41,6 +41,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/sites"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/teams"
 	connectcors "connectrpc.com/cors"
@@ -83,6 +84,7 @@ func main() {
 	serveAgentOwners(mux, appCtx)
 	serveEvents(mux, appCtx)
 	serveAttachments(mux, appCtx)
+	serveSites(mux, appCtx)
 	serveAgentTools(mux, appCtx)
 	serveTaskHistory(mux, appCtx)
 	serveTerminals(mux, appCtx)
@@ -104,7 +106,8 @@ func main() {
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: connectcors.AllowedMethods(),
-		AllowedHeaders: connectcors.AllowedHeaders(),
+
+		AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization", "X-CSRF-Token"),
 		ExposedHeaders: connectcors.ExposedHeaders(),
 		MaxAge:         7200,
 	}).Handler(withAuth(appCtx.Accounts, mux))
@@ -228,10 +231,14 @@ func (a teamProjects) TeamProjects(
 	out := make([]teams.TeamProjectLink, len(list))
 	for i, project := range list {
 		out[i] = teams.TeamProjectLink{
-			ProjectID:   project.ProjectID,
-			ProjectName: project.ProjectName,
-			ProjectSlug: project.ProjectSlug,
-			Role:        project.Role,
+			ProjectID:                project.ProjectID,
+			ProjectName:              project.ProjectName,
+			ProjectSlug:              project.ProjectSlug,
+			Role:                     project.Role,
+			Inherited:                project.Inherited,
+			InheritedFromProjectID:   project.InheritedFromProjectID,
+			InheritedFromProjectName: project.InheritedFromProjectName,
+			InheritedFromProjectSlug: project.InheritedFromProjectSlug,
 		}
 	}
 	return out, nil
@@ -252,6 +259,20 @@ func serveAttachments(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle(attachments.UploadPath+"/", handler)
 }
 
+func serveSites(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	handler := &sites.Handler{
+		Service:           appCtx.Sites,
+		Accounts:          appCtx.Accounts,
+		AllowInsecureHTTP: appCtx.Config.SitesInsecureHTTP,
+	}
+	mux.Handle(sites.Prefix, handler)
+	mux.Handle(sites.Prefix+"/", handler)
+	content := http.HandlerFunc(handler.ServeContent)
+	mux.Handle("GET /sites/{siteID}/content/", content)
+	mux.Handle("GET /sites/{siteID}/content", content)
+	mux.Handle("GET /sites/{siteID}/bridge.js", content)
+}
+
 func serveTerminals(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/agents/", appCtx.Hub.WSHandler())
 }
@@ -266,6 +287,8 @@ func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			Agents:      appCtx.Agents,
 			Logs:        appCtx.AgentLogs,
 			ProcessLogs: appCtx.ProcessLogs,
+			PromptFlow:  appCtx.PromptFlow,
+			Templates:   appCtx.Templates,
 		},
 	)
 	mux.Handle(agenttools.Prefix, handler)

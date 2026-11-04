@@ -134,6 +134,8 @@ type PAT struct {
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
 	ExpiresAt  *time.Time
+
+	SiteID string
 }
 
 type Service struct {

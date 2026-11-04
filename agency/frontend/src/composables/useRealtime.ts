@@ -20,7 +20,7 @@ import { onBeforeUnmount } from "vue";
 
 interface Listener {
   kinds: Set<RealtimeKind>;
-  run: () => void;
+  run: (kind: RealtimeKind) => void;
   timer: number | undefined;
 }
 
@@ -37,15 +37,15 @@ let retryDelay = BASE_RETRY_MS;
 function notify(kind: RealtimeKind) {
   for (const listener of listeners) {
     if (kind !== "sync" && !listener.kinds.has(kind)) continue;
-    schedule(listener);
+    schedule(listener, kind);
   }
 }
 
-function schedule(listener: Listener) {
+function schedule(listener: Listener, kind: RealtimeKind) {
   if (listener.timer !== undefined) return;
   listener.timer = window.setTimeout(() => {
     listener.timer = undefined;
-    listener.run();
+    listener.run(kind);
   }, DEBOUNCE_MS);
 }
 
@@ -101,7 +101,10 @@ export function stopRealtime() {
   controller = undefined;
 }
 
-export function useRealtime(kinds: RealtimeKind[], run: () => void) {
+export function useRealtime(
+  kinds: RealtimeKind[],
+  run: (kind: RealtimeKind) => void,
+) {
   const listener: Listener = {
     kinds: new Set(kinds),
     run,

@@ -56,10 +56,10 @@ Card
     form.flex.items-end.gap-2(@submit.prevent="add")
       Field.flex-1
         FieldLabel(for="new-owner") Add owner
-        Input#new-owner(
+        ActorCombobox#new-owner(
           v-model="newOwner"
-          placeholder="username"
-          autocomplete="off"
+          placeholder="Search users…"
+          kinds="users"
         )
       Button(type="submit" :disabled="adding || !newOwner.trim()")
         Spinner(v-if="adding" data-icon="inline-start")
@@ -69,6 +69,7 @@ Card
 </template>
 
 <script setup lang="ts">
+import ActorCombobox from "@/components/ActorCombobox.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,7 +80,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,

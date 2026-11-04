@@ -24,10 +24,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/artifacts"
+	"cherrypi.vladfaust.com/agency/internal/health"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
 	"cherrypi.vladfaust.com/agency/internal/realtime"
 	"cherrypi.vladfaust.com/agency/internal/store"
@@ -35,9 +38,11 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	"cherrypi.vladfaust.com/agency/internal/webhook"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
+	sharedhealth "cherrypi.vladfaust.com/shared/health"
 )
 
 type Message struct {
+	Seq     uint64         `json:"seq"`
 	Kind    string         `json:"kind"`
 	At      time.Time      `json:"at"`
 	Payload map[string]any `json:"payload"`
@@ -52,11 +57,16 @@ type Consumer struct {
 
 	Logs *agentlogs.Service
 
+	Health *health.Service
+
 	OnTaskFailed func()
 
 	Artifacts *artifacts.Service
 
 	Realtime *realtime.Bus
+
+	seqMu   sync.Mutex
+	lastSeq map[ids.AgentID]uint64
 }
 
 func (c *Consumer) Run(ctx context.Context, conn *tunnel.Connection) {
@@ -73,8 +83,31 @@ func (c *Consumer) Run(ctx context.Context, conn *tunnel.Connection) {
 	}
 }
 
+func (c *Consumer) seq(agentID ids.AgentID) uint64 {
+	c.seqMu.Lock()
+	defer c.seqMu.Unlock()
+	return c.lastSeq[agentID]
+}
+
+func (c *Consumer) setSeq(agentID ids.AgentID, seq uint64) {
+	if seq == 0 {
+		return
+	}
+	c.seqMu.Lock()
+	defer c.seqMu.Unlock()
+	if c.lastSeq == nil {
+		c.lastSeq = map[ids.AgentID]uint64{}
+	}
+	c.lastSeq[agentID] = seq
+}
+
 func (c *Consumer) consume(ctx context.Context, conn *tunnel.Connection) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://agent/api/rest/events", nil)
+	endpoint := "http://agent/api/rest/events"
+	since := c.seq(conn.ID)
+	if since > 0 {
+		endpoint += "?since=" + strconv.FormatUint(since, 10)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return err
 	}
@@ -88,13 +121,16 @@ func (c *Consumer) consume(ctx context.Context, conn *tunnel.Connection) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("events stream: status %d", resp.StatusCode)
 	}
+	log.Printf("[events %d] stream opened (resume from seq %d)", conn.ID, since)
 
 	dec := json.NewDecoder(resp.Body)
 	for {
 		var msg Message
 		if err := dec.Decode(&msg); err != nil {
+			log.Printf("[events %d] stream closed at seq %d: %v", conn.ID, c.seq(conn.ID), err)
 			return err
 		}
+		c.setSeq(conn.ID, msg.Seq)
 		c.dispatch(ctx, conn.ID, msg)
 	}
 }
@@ -107,10 +143,15 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 		c.insertLog(ctx, agentID, msg)
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_AGENT_LOGS)
 
+	case "health":
+		c.insertHealth(ctx, agentID, msg)
+		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_HEALTH)
+
 	case "usage":
 		_ = c.Store.InsertAgentUsage(ctx, store.InsertAgentUsageParams{
 			AgentID:      sql.NullInt64{Int64: int64(agentID), Valid: true},
 			SessionID:    sessionID,
+			Provider:     stringValue(msg.Payload["provider"]),
 			Model:        stringValue(msg.Payload["model"]),
 			InputTokens:  int64Value(msg.Payload["input_tokens"]),
 			OutputTokens: int64Value(msg.Payload["output_tokens"]),
@@ -142,6 +183,21 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				linksValue(msg.Payload["links"]),
 			); err != nil {
 				log.Printf("[events %d] set task links %s: %v", agentID, sessionID, err)
+			}
+		}
+		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+
+	case "task_progress":
+
+		if c.Tasks != nil {
+			if err := c.Tasks.SetProgressBySession(
+				ctx,
+				agentID,
+				sessionID,
+				stringValue(msg.Payload["summary"]),
+				progressItemsValue(msg.Payload["todos"]),
+			); err != nil {
+				log.Printf("[events %d] set task progress %s: %v", agentID, sessionID, err)
 			}
 		}
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
@@ -185,6 +241,24 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+	}
+}
+
+func (c *Consumer) insertHealth(ctx context.Context, agentID ids.AgentID, msg Message) {
+	if c.Health == nil {
+		return
+	}
+	raw, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return
+	}
+	var sample sharedhealth.Sample
+	if err := json.Unmarshal(raw, &sample); err != nil {
+		log.Printf("[events %d] decode health: %v", agentID, err)
+		return
+	}
+	if err := c.Health.Insert(ctx, agentID, sample); err != nil {
+		log.Printf("[events %d] insert health: %v", agentID, err)
 	}
 }
 
@@ -263,6 +337,33 @@ func linksValue(v any) []tasks.Link {
 		})
 	}
 	return out
+}
+
+func progressItemsValue(v any) []tasks.ProgressItem {
+	items, _ := v.([]any)
+	out := make([]tasks.ProgressItem, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, tasks.ProgressItem{
+			Text:   stringValue(m["text"]),
+			Status: progressStatusValue(stringValue(m["status"])),
+		})
+	}
+	return out
+}
+
+func progressStatusValue(status string) tasks.ProgressItemStatus {
+	switch status {
+	case "in_progress":
+		return tasks.ProgressItemInProgress
+	case "done":
+		return tasks.ProgressItemDone
+	default:
+		return tasks.ProgressItemPending
+	}
 }
 
 func replaceValue(v any) bool {

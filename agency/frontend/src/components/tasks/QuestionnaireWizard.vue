@@ -21,6 +21,12 @@ Card.border-primary
   CardHeader
     CardTitle.text-sm
       | {{ readonly ? readonlyTitle : "Need your input" }}
+    p.text-muted-foreground.flex.items-center.gap-1.text-xs(
+      v-if="readonly && answeredBy"
+      data-test="questionnaire-answered-by"
+    )
+      UserRoundIcon.size-3
+      span Answered by {{ answeredByLabel(answeredBy) }}
     CardDescription(v-if="readonly && unavailable")
       | This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text.
     CardDescription(v-else-if="readonly && cancelled") The questionnaire was declined.
@@ -54,7 +60,11 @@ Card.border-primary
             :value="String(index + 1)"
           )
             span.truncate
-              MarkdownText(inline :text="label(question, index)")
+              MarkdownText(
+                inline
+                :allow-html="false"
+                :text="label(question, index)"
+              )
             CheckIcon.size-3(v-if="answered(index)" data-test="tab-answered")
             HourglassIcon.size-3.opacity-50(v-else data-test="tab-unanswered")
 
@@ -89,29 +99,68 @@ Card.border-primary
 
     p.text-destructive.mt-2.text-xs(v-if="multiple && errors") {{ errors }}
 
-  CardFooter.flex-wrap.justify-between.border-t(v-if="!readonly")
-    Button(
-      variant="ghost"
-      size="sm"
-      @click="emit('decline')"
-      :disabled="submitting"
+    .mt-3.border-t.pt-3(
+      v-if="readonly && finalNote.trim()"
+      data-test="final-note-review"
     )
-      XIcon(data-icon="inline-start")
-      span Decline
-    .flex.items-center.gap-2
-      TaskModelPicker(
-        v-if="agentId"
-        :agent-id="agentId"
-        :config="modelConfig"
-        :selection="modelSelection"
-        :use-defaults="false"
-        @change="emit('modelChange', $event)"
-        :disabled="modelDisabled || submitting"
+      p.text-muted-foreground.text-xs Final note
+      MarkdownText.prose.prose-sm.max-w-none(
+        class="prose-p:my-1 prose-pre:my-2"
+        :style="INHERIT_PROSE"
+        :allow-html="false"
+        :text="finalNote"
       )
-      Button(@click="submit" :disabled="disabled || remaining > 0")
-        Spinner(v-if="submitting" data-icon="inline-start")
-        SendIcon(v-else data-icon="inline-start")
-        span {{ submitting ? "Submitting…" : "Submit answers" }}
+
+  CardFooter.flex-col.items-stretch.gap-3.border-t(v-if="!readonly")
+    .w-full
+      button.flex.w-full.items-center.gap-2.rounded-md.text-left(
+        type="button"
+        aria-controls="questionnaire-final-note"
+        :aria-expanded="finalNoteOpen"
+        @click="finalNoteOpen = !finalNoteOpen"
+        data-test="final-note-toggle"
+      )
+        ChevronRightIcon.size-3.shrink-0.transition-transform(
+          aria-hidden="true"
+          :class="{ 'rotate-90': finalNoteOpen }"
+        )
+        span.text-sm.font-medium Final note (optional)
+        span.text-muted-foreground.text-xs(
+          v-if="finalNote.trim() && !finalNoteOpen"
+        ) · added
+      .flex.flex-col.gap-1.pt-2(v-if="finalNoteOpen")
+        label.text-muted-foreground.text-xs(for="questionnaire-final-note") A note about the questionnaire as a whole
+        Textarea#questionnaire-final-note(
+          placeholder="Anything not tied to a single answer…"
+          rows="2"
+          :model-value="finalNote"
+          @update:model-value="(value) => (finalNote = String(value))"
+          :disabled="submitting"
+          data-test="final-note"
+        )
+    .flex.flex-wrap.items-center.justify-between.gap-2
+      Button(
+        variant="ghost"
+        size="sm"
+        @click="emit('decline')"
+        :disabled="submitting"
+      )
+        XIcon(data-icon="inline-start")
+        span Decline
+      .flex.items-center.gap-2
+        TaskModelPicker(
+          v-if="agentId"
+          :agent-id="agentId"
+          :config="modelConfig"
+          :selection="modelSelection"
+          :use-defaults="false"
+          @change="emit('modelChange', $event)"
+          :disabled="modelDisabled || submitting"
+        )
+        Button(@click="submit" :disabled="disabled || remaining > 0")
+          Spinner(v-if="submitting" data-icon="inline-start")
+          SendIcon(v-else data-icon="inline-start")
+          span {{ submitting ? "Submitting…" : "Submit answers" }}
 </template>
 
 <script setup lang="ts">
@@ -128,10 +177,14 @@ import {
 } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { INHERIT_PROSE } from "@/lib/markdown";
 import {
+  answeredByLabel,
   emptyAnswer,
   isAnswered,
   type QuestionnaireAnswer,
+  type QuestionnaireAnsweredBy,
   type QuestionnaireQuestion,
 } from "@/lib/questionnaire";
 import {
@@ -139,7 +192,13 @@ import {
   type TaskModelSelection,
 } from "@/lib/task";
 import type { TaskConfig } from "@cherrypi/sdk";
-import { CheckIcon, HourglassIcon, SendIcon, XIcon } from "@lucide/vue";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  HourglassIcon,
+  SendIcon,
+  XIcon,
+} from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
 import QuestionEditor from "./QuestionEditor.vue";
 
@@ -155,7 +214,11 @@ const props = withDefaults(
 
     reviewAnswers?: QuestionnaireAnswer[];
 
+    reviewFinalNote?: string;
+
     cancelled?: boolean;
+
+    answeredBy?: QuestionnaireAnsweredBy;
 
     unavailable?: boolean;
 
@@ -169,13 +232,14 @@ const props = withDefaults(
   }>(),
   {
     agentId: "",
+    answeredBy: undefined,
     modelConfig: undefined,
     modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
     modelDisabled: false,
   },
 );
 const emit = defineEmits<{
-  submit: [answers: QuestionnaireAnswer[]];
+  submit: [answers: QuestionnaireAnswer[], finalNote: string];
   decline: [];
   modelChange: [selection: TaskModelSelection];
 }>();
@@ -205,7 +269,12 @@ function toAnswer(value: unknown): QuestionnaireAnswer {
   };
 }
 
-function loadDraft(): QuestionnaireAnswer[] | null {
+interface WizardDraft {
+  answers: QuestionnaireAnswer[];
+  finalNote: string;
+}
+
+function loadDraft(): WizardDraft | null {
   const key = draftKey();
   if (!key) {
     return null;
@@ -216,10 +285,23 @@ function loadDraft(): QuestionnaireAnswer[] | null {
       return null;
     }
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length !== props.questions.length) {
+
+    const answersRaw = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { answers?: unknown } | null)?.answers;
+    if (
+      !Array.isArray(answersRaw) ||
+      answersRaw.length !== props.questions.length
+    ) {
       return null;
     }
-    return parsed.map(toAnswer);
+    const storedNote = Array.isArray(parsed)
+      ? ""
+      : (parsed as { finalNote?: unknown }).finalNote;
+    return {
+      answers: answersRaw.map(toAnswer),
+      finalNote: typeof storedNote === "string" ? storedNote : "",
+    };
   } catch {
     return null;
   }
@@ -235,19 +317,21 @@ function clearDraft() {
   } catch {}
 }
 
-function initialAnswers(): QuestionnaireAnswer[] {
-  if (props.readonly) {
-    return (
-      props.reviewAnswers?.map((answer) => ({
+const initialDraft = props.readonly ? null : loadDraft();
+const answers = ref<QuestionnaireAnswer[]>(
+  props.readonly
+    ? (props.reviewAnswers?.map((answer) => ({
         ...answer,
         selected: [...answer.selected],
-      })) ?? props.questions.map(() => emptyAnswer())
-    );
-  }
-  return loadDraft() ?? props.questions.map(() => emptyAnswer());
-}
-
-const answers = ref<QuestionnaireAnswer[]>(initialAnswers());
+      })) ?? props.questions.map(() => emptyAnswer()))
+    : (initialDraft?.answers ?? props.questions.map(() => emptyAnswer())),
+);
+const finalNote = ref(
+  props.readonly
+    ? (props.reviewFinalNote ?? "")
+    : (initialDraft?.finalNote ?? ""),
+);
+const finalNoteOpen = ref(finalNote.value.trim().length > 0);
 const active = ref("1");
 const tabStrip = ref<HTMLElement | null>(null);
 const multiple = computed(() => props.questions.length > 1);
@@ -274,24 +358,34 @@ watch(
       return;
     }
     questionsSignature = signature;
-    answers.value = loadDraft() ?? props.questions.map(() => emptyAnswer());
+    const draft = loadDraft();
+    answers.value = draft?.answers ?? props.questions.map(() => emptyAnswer());
+    finalNote.value = draft?.finalNote ?? "";
+    finalNoteOpen.value = finalNote.value.trim().length > 0;
     focusUnanswered();
   },
 );
 
-watch(
-  answers,
-  (value) => {
-    const key = draftKey();
-    if (props.readonly || !key || props.submitting) {
-      return;
-    }
-    try {
-      sessionStorage.setItem(key, JSON.stringify(value));
-    } catch {}
-  },
-  { deep: true },
-);
+function saveDraft() {
+  const key = draftKey();
+  if (props.readonly || !key || props.submitting) {
+    return;
+  }
+  try {
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({ answers: answers.value, finalNote: finalNote.value }),
+    );
+  } catch {}
+}
+watch(answers, saveDraft, { deep: true });
+watch(finalNote, saveDraft);
+
+watch(finalNote, (value) => {
+  if (value.trim().length > 0) {
+    finalNoteOpen.value = true;
+  }
+});
 watch(
   () => props.submitting,
   (submitting) => {
@@ -381,6 +475,7 @@ function submit() {
         notes: answer.customSelected ? "" : text,
       };
     }),
+    finalNote.value.trim(),
   );
 }
 

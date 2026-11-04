@@ -16,10 +16,12 @@
 
 import {
   TaskPriority,
+  TaskProgressItemStatus,
   TaskReferenceKind,
   TaskSize,
   TaskState,
   type Task,
+  type TaskProgress,
   type TaskReference,
 } from "@cherrypi/sdk";
 import {
@@ -33,7 +35,6 @@ import {
   LinkIcon,
   LockIcon,
   MessageSquareIcon,
-  PencilIcon,
   PlayIcon,
   TimerIcon,
   type LucideIcon,
@@ -53,7 +54,6 @@ export const EMPTY_TASK_MODEL_SELECTION: TaskModelSelection = {
 };
 
 const TASK_STATE_ICONS: Record<string, LucideIcon> = {
-  [TaskState.DRAFT]: PencilIcon,
   [TaskState.BACKLOG]: InboxIcon,
   [TaskState.QUEUED]: TimerIcon,
   [TaskState.RUNNING]: PlayIcon,
@@ -135,8 +135,6 @@ export function taskReferenceTitle(
 
 export function taskStateLabel(state: TaskState): string {
   switch (state) {
-    case TaskState.DRAFT:
-      return "Draft";
     case TaskState.BACKLOG:
       return "Backlog";
     case TaskState.QUEUED:
@@ -204,8 +202,6 @@ export function taskWaitingReason(
 
 export function taskStateClass(state: TaskState): string {
   switch (state) {
-    case TaskState.DRAFT:
-      return "border-zinc-600/50 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300";
     case TaskState.BACKLOG:
       return "border-indigo-500/35 bg-indigo-500/12 text-indigo-600 dark:text-indigo-400";
     case TaskState.QUEUED:
@@ -229,8 +225,6 @@ export function taskStateClass(state: TaskState): string {
 
 export function taskStateTextClass(state: TaskState): string {
   switch (state) {
-    case TaskState.DRAFT:
-      return "text-zinc-600 dark:text-zinc-300";
     case TaskState.BACKLOG:
       return "text-indigo-600 dark:text-indigo-400";
     case TaskState.QUEUED:
@@ -436,7 +430,6 @@ export const TASK_STATE_TABS: {
   state?: TaskState;
 }[] = [
   { key: "all", label: "All" },
-  { key: "draft", label: "Draft", state: TaskState.DRAFT },
   { key: "backlog", label: "Backlog", state: TaskState.BACKLOG },
   { key: "queued", label: "Queued", state: TaskState.QUEUED },
   { key: "failed", label: "Failed", state: TaskState.FAILED },
@@ -454,7 +447,6 @@ export const TASK_STATE_RANK: Record<number, number> = {
   [TaskState.RUNNING]: 3,
   [TaskState.QUEUED]: 4,
   [TaskState.BACKLOG]: 5,
-  [TaskState.DRAFT]: 6,
   [TaskState.COMPLETED]: 7,
   [TaskState.CANCELLED]: 8,
 };
@@ -471,4 +463,76 @@ export function tagStyle(color?: string): Record<string, string> {
     borderColor: `${value}66`,
     backgroundColor: `${value}1a`,
   };
+}
+
+export function taskProgressHasPlan(
+  progress: TaskProgress | undefined,
+): boolean {
+  return Boolean(progress && progress.total > 0);
+}
+
+export function taskPlanExpected(size: TaskSize | undefined): boolean {
+  return (size ?? TaskSize.UNSPECIFIED) !== TaskSize.SMALL;
+}
+
+export function taskPlanApplies(state: TaskState | undefined): boolean {
+  return (
+    state === TaskState.RUNNING ||
+    state === TaskState.INPUT ||
+    state === TaskState.SETTLED ||
+    state === TaskState.FAILED
+  );
+}
+
+export type TaskPlanFlag = "reported" | "missing" | "hint" | "idle";
+
+export function taskPlanFlag(
+  progress: TaskProgress | undefined,
+  size: TaskSize | undefined,
+  state: TaskState | undefined,
+): TaskPlanFlag {
+  if (taskProgressHasPlan(progress)) return "reported";
+  if (!taskPlanApplies(state)) return "idle";
+  return taskPlanExpected(size) ? "missing" : "hint";
+}
+
+export function taskProgressPercent(
+  progress: TaskProgress | undefined,
+): number {
+  if (!progress || progress.total <= 0) return 0;
+  return Math.round((progress.done / progress.total) * 100);
+}
+
+export function taskProgressCount(progress: TaskProgress | undefined): string {
+  if (!progress || progress.total <= 0) return "—";
+  return `${progress.done}/${progress.total}`;
+}
+
+export function taskProgressInProgress(
+  progress: TaskProgress | undefined,
+): boolean {
+  return Boolean(
+    progress?.items.some(
+      (item) => item.status === TaskProgressItemStatus.IN_PROGRESS,
+    ),
+  );
+}
+
+export function taskProgressCurrent(
+  progress: TaskProgress | undefined,
+): string {
+  if (!progress) return "";
+  const active = progress.items.find(
+    (item) => item.status === TaskProgressItemStatus.IN_PROGRESS,
+  );
+  if (active) return active.text;
+  if (progress.summary) return progress.summary;
+  if (progress.total > 0 && progress.done === progress.total) {
+    return "All steps complete";
+  }
+  return (
+    progress.items.find(
+      (item) => item.status === TaskProgressItemStatus.PENDING,
+    )?.text ?? ""
+  );
 }

@@ -235,7 +235,8 @@ func newTaskHistoryFetcher(
 	}
 
 	base := strings.TrimRight(config.AgencyURL, "/")
-	client := &http.Client{}
+
+	client := &http.Client{Timeout: 60 * time.Second}
 
 	return func(
 		ctx context.Context,
@@ -255,14 +256,8 @@ func newTaskHistoryFetcher(
 			return nil, err
 		}
 		defer func() { _ = res.Body.Close() }()
-		if res.StatusCode == http.StatusNotFound {
-			return nil, session.ErrTaskHistoryNotFound
-		}
-		if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
-			return nil, session.ErrTaskHistoryUnauthorized
-		}
 		if res.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("task history fetch: %s", res.Status)
+			return nil, taskHistoryStatusError(res)
 		}
 
 		var payload struct {
@@ -275,6 +270,18 @@ func newTaskHistoryFetcher(
 	}
 }
 
+func taskHistoryStatusError(res *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		message = res.Status
+	}
+	return &session.TaskHistoryStatusError{
+		Status:  res.StatusCode,
+		Message: message,
+	}
+}
+
 func newTaskHistoryPusher(
 	config Config,
 ) func(context.Context, string, int64, []session.SessionEntry) error {
@@ -283,7 +290,8 @@ func newTaskHistoryPusher(
 	}
 
 	base := strings.TrimRight(config.AgencyURL, "/")
-	client := &http.Client{}
+
+	client := &http.Client{Timeout: 60 * time.Second}
 
 	return func(
 		ctx context.Context,
@@ -316,14 +324,8 @@ func newTaskHistoryPusher(
 			return err
 		}
 		defer func() { _ = res.Body.Close() }()
-		if res.StatusCode == http.StatusNotFound {
-			return session.ErrTaskHistoryNotFound
-		}
-		if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
-			return session.ErrTaskHistoryUnauthorized
-		}
 		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("task history push: %s", res.Status)
+			return taskHistoryStatusError(res)
 		}
 		return nil
 	}

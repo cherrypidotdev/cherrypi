@@ -41,6 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Tabs(v-model="tab")
         TabsList
           TabsTrigger(value="overview") Overview
+          TabsTrigger(value="health") Health
           TabsTrigger(value="usage") Usage
           TabsTrigger(value="concurrency") Concurrency
           TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") Terminals
@@ -117,6 +118,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :agent-id="currentAgentId"
         )
 
+        HealthOverview(v-if="currentAgentId" :agent-id="currentAgentId")
+
         ExpressTaskForm(:agent-id="currentAgentId")
 
         TasksList(
@@ -124,6 +127,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           hide-assignee
           :agent-id="currentAgentId"
         )
+
+    TabsContent.flex-1.overflow-auto(value="health")
+      .p-6
+        HealthPanel(v-if="currentAgentId" :agent-id="currentAgentId")
 
     TabsContent.flex-1.overflow-auto(value="usage")
       .p-6
@@ -156,6 +163,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import BackButton from "@/components/BackButton.vue";
 import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
+import HealthOverview from "@/components/health/HealthOverview.vue";
+import HealthPanel from "@/components/health/HealthPanel.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -196,6 +205,7 @@ const showConcurrencyKpi = computed(
 
 const TABS = [
   "overview",
+  "health",
   "usage",
   "concurrency",
   "terminals",

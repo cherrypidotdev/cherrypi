@@ -94,6 +94,8 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	case "artifact":
 
+	case "comment":
+
 	case "agency_logo", "agency_favicon":
 
 	default:
@@ -125,6 +127,8 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		attachment, err = h.Service.UploadTaskAttachment(ctx, ownerID, file, actor)
 	case "artifact":
 		attachment, err = h.Service.UploadArtifactFile(ctx, file, actor)
+	case "comment":
+		attachment, err = h.Service.UploadCommentAttachment(ctx, file, actor)
 	case "agent_picture":
 		actorID, convErr := strconv.ParseInt(ownerID, 10, 64)
 		if convErr != nil {

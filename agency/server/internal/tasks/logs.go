@@ -56,9 +56,15 @@ const (
 	LogModel      = "model"
 	LogSession    = "session"
 
+	LogSessionLost = "session_lost"
+
 	LogTeams = "teams"
 
 	LogLeads = "leads"
+
+	LogComment = "comment"
+
+	LogQuestionnaire = "questionnaire"
 )
 
 type actorContextKey struct{}
@@ -249,6 +255,14 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 	}
 
 	if before.State != after.State {
+
+		// operator line a task's state up with the agent's own log, which the
+
+		log.Printf(
+			"[task %s] state %s -> %s agent=%d session=%q error=%q",
+			id, before.State, after.State, after.AssigneeActorID,
+			after.SessionID, after.Error,
+		)
 		s.recordLog(
 			ctx, actor, at, id, LogState, "state",
 			stateLabel(before.State), stateLabel(after.State),
@@ -444,8 +458,6 @@ func (s *Service) projectLabel(ctx context.Context, id string) string {
 
 func stateLabel(state State) string {
 	switch state {
-	case StateDraft:
-		return "Draft"
 	case StateBacklog:
 		return "Backlog"
 	case StateQueued:

@@ -129,6 +129,11 @@ format_sdk:
 format_docs:
 	npx prettier --write docs-site
 
+
+
+format_dev:
+	@if [ -d dev ]; then npx prettier --write dev; fi
+
 format_shared:
 	cd shared && go fmt ./...
 
@@ -143,11 +148,11 @@ format_golines:
 	  echo "golangci-lint not found; skipping golines (see TESTING.md#linting)"; \
 	fi
 
-format: format_root format_frontend format_docs format_backend format_agency format_sdk format_shared format_golines
+format: format_root format_frontend format_docs format_dev format_backend format_agency format_sdk format_shared format_golines
 
 
 
-format_check: format_check_root format_check_frontend format_check_docs format_check_backend format_check_agency format_check_sdk format_check_shared
+format_check: format_check_root format_check_frontend format_check_docs format_check_dev format_check_backend format_check_agency format_check_sdk format_check_shared
 
 format_check_root:
 	npx prettier --check "*"
@@ -174,6 +179,9 @@ format_check_sdk:
 
 format_check_docs:
 	npx prettier --check docs-site
+
+format_check_dev:
+	@if [ -d dev ]; then npx prettier --check dev; fi
 
 format_check_shared:
 	@unformatted="$$(cd shared && gofmt -l .)"; \

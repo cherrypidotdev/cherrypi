@@ -17,83 +17,78 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.flex-col.gap-3(v-if="artifacts.length")
+.flex.flex-col.gap-3(v-if="view.length")
   .flex.flex-col.gap-2.rounded-md.border.p-3(
-    v-for="artifact in artifacts"
-    :key="artifact.artifactId"
+    v-for="entry in view"
+    :key="entry.artifact.artifactId"
   )
     .flex.items-start.justify-between.gap-2
       .flex.min-w-0.flex-col(class="gap-0.5")
-        span.truncate.text-sm.font-medium {{ artifact.name || artifact.artifactId }}
+        span.truncate.text-sm.font-medium {{ entry.artifact.name || entry.artifact.artifactId }}
         span.text-muted-foreground.text-xs.break-words(
-          v-if="artifact.description"
-        ) {{ artifact.description }}
+          v-if="entry.artifact.description"
+        ) {{ entry.artifact.description }}
       span.text-muted-foreground.inline-flex.shrink-0.items-center.gap-1.text-xs(
-        v-if="artifact.streaming"
+        v-if="entry.artifact.streaming"
         title="The agent is still adding parts"
       )
         Spinner.size-3
         | streaming
-    .flex.flex-col.gap-2(v-if="artifact.parts.length")
-      template(v-for="(part, index) in artifact.parts" :key="index")
+    .flex.flex-col.gap-2(v-if="entry.parts.length")
+      template(v-for="(partView, index) in entry.parts" :key="index")
         p.text-xs.break-words.whitespace-pre-wrap(
-          v-if="part.content.case === 'text'"
-        ) {{ part.content.value }}
+          v-if="partView.part.content.case === 'text'"
+        ) {{ partView.part.content.value }}
         pre.text-muted-foreground.font-mono.text-xs.break-words.whitespace-pre-wrap(
-          v-else-if="part.content.case === 'dataJson'"
-        ) {{ formatData(part.content.value) }}
-        template(v-else-if="part.content.case === 'file'")
-          img.max-h-48.w-full.rounded-md.border.object-contain(
-            v-if="isImage(part)"
-            :src="part.content.value.url"
-            :alt="part.filename || artifact.name"
+          v-else-if="partView.part.content.case === 'dataJson'"
+        ) {{ formatData(partView.part.content.value) }}
+        template(v-else-if="partView.item")
+          button.group.relative.block.w-full.cursor-zoom-in.overflow-hidden.rounded-md.border(
+            v-if="partView.item.image"
+            type="button"
+            :title="`Preview ${partView.item.filename}`"
+            :aria-label="`Preview ${partView.item.filename}`"
+            @click="emit('open', partView.item)"
           )
-          a.flex.items-center.gap-2.text-xs(
+            img.max-h-48.w-full.object-contain(
+              :src="partView.item.url"
+              :alt="partView.item.filename"
+            )
+            span.pointer-events-none.absolute.top-2.right-2.flex.size-6.items-center.justify-center.rounded-md.text-white.opacity-0.transition-opacity(
+              class="bg-black/60 group-hover:opacity-100"
+            )
+              Maximize2Icon(class="size-3.5")
+          button.flex.w-full.items-center.gap-2.rounded-md.text-left.text-xs(
             v-else
+            type="button"
             class="hover:underline"
-            rel="noopener noreferrer"
-            :href="part.content.value.url"
-            :title="part.content.value.url"
-            target="_blank"
+            :title="`Preview ${partView.item.filename}`"
+            @click="emit('open', partView.item)"
           )
             FileIcon.size-3.shrink-0
-            span.truncate {{ part.filename || part.content.value.url }}
+            span.truncate {{ partView.item.filename }}
     span.text-muted-foreground.text-xs(v-else) No parts.
 span.text-muted-foreground.text-sm(v-else)
   | No artifacts yet. The agent publishes its outputs here.
 </template>
 
 <script setup lang="ts">
-import { Spinner } from "@/components/ui/spinner";
-import { isImageMediaType } from "@/lib/attachments";
-import type { Artifact, ArtifactPart } from "@cherrypi/sdk";
-import { FileIcon } from "@lucide/vue";
+import { artifactPartItem, type LightboxItem } from "@/lib/lightbox";
+import type { Artifact } from "@cherrypi/sdk";
+import { computed } from "vue";
 
-defineProps<{ artifacts: Artifact[] }>();
+const props = defineProps<{ artifacts: Artifact[] }>();
+const emit = defineEmits<{ open: [item: LightboxItem] }>();
 
-function isImage(part: ArtifactPart): boolean {
-  return (
-    part.content.case === "file" &&
-    isImageMediaType(part.mediaType || guessMediaType(part.filename))
-  );
-}
-
-function guessMediaType(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  switch (ext) {
-    case "png":
-      return "image/png";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    default:
-      return "";
-  }
-}
+const view = computed(() =>
+  props.artifacts.map((artifact) => ({
+    artifact,
+    parts: artifact.parts.map((part, index) => ({
+      part,
+      item: artifactPartItem(artifact, part, index),
+    })),
+  })),
+);
 
 function formatData(value: string): string {
   try {

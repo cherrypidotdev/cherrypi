@@ -60,6 +60,12 @@ region and fails the boot with an actionable error.
 | `CHERRYPI_ATTACHMENT_MAX_BYTES` | `26214400` (25 MiB) | Maximum size of one uploaded file. |
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Maximum attachments per message. |
 
+## Sites
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CHERRYPI_SITES_INSECURE_HTTP` | off | Serve raw site content without any credential on plain HTTP when the host is not localhost. Only needed for direct unauthenticated access (the normal viewer uses short-lived URL grants); makes the static bytes public by URL. Never enable on an Internet-facing deployment. |
+
 ## Development only
 
 Ignored by release builds.

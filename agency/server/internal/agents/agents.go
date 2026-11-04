@@ -82,9 +82,11 @@ type Agent struct {
 	ProtocolVersion string
 	VersionStatus   VersionStatus
 	RemoteAddr      string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastSeenAt      time.Time
+
+	PromptAutoApprove bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	LastSeenAt        time.Time
 }
 
 type presenceInfo struct {
@@ -211,6 +213,33 @@ func (r *Registry) SetRole(
 	return r.Get(ctx, id)
 }
 
+func (r *Registry) SetPromptAutoApprove(
+	ctx context.Context,
+	id ids.AgentID,
+	enabled bool,
+) (Agent, error) {
+	row, err := r.store.GetAgent(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrAgentMissing
+	}
+	if err != nil {
+		return Agent{}, err
+	}
+	if row.PromptAutoApprove == enabled {
+		return r.toAgent(row), nil
+	}
+	if err := r.store.SetPromptAutoApprove(ctx, id, enabled); err != nil {
+		return Agent{}, err
+	}
+	value := "disabled"
+	if enabled {
+		value = "enabled"
+	}
+	r.logAgent(ctx, row.ActorID, audit.KindDefaults, "prompt_auto_approve", "", value,
+		"Set self-prompt auto-approve to "+value, nil)
+	return r.Get(ctx, id)
+}
+
 func (r *Registry) Update(
 	ctx context.Context,
 	id ids.AgentID,
@@ -248,6 +277,9 @@ func (r *Registry) Delete(ctx context.Context, id ids.AgentID) error {
 	}
 
 	if err := r.store.DeleteAgentLogs(ctx, id); err != nil {
+		return err
+	}
+	if err := r.store.DeleteAgentHealthSamples(ctx, id); err != nil {
 		return err
 	}
 	if err := r.store.DeleteAgentDomainLogs(ctx, int64(agent.ActorID)); err != nil {
@@ -313,15 +345,16 @@ func versionStatus(p presenceInfo) VersionStatus {
 
 func (r *Registry) toAgent(row store.AgentRow) Agent {
 	a := Agent{
-		ID:          row.ID,
-		ActorID:     row.ActorID,
-		Username:    row.Username,
-		DisplayName: row.Name,
-		Description: row.Description,
-		Role:        row.Role,
-		Status:      StatusOffline,
-		CreatedAt:   time.UnixMilli(row.CreatedAt),
-		UpdatedAt:   time.UnixMilli(row.UpdatedAt),
+		ID:                row.ID,
+		ActorID:           row.ActorID,
+		Username:          row.Username,
+		DisplayName:       row.Name,
+		Description:       row.Description,
+		Role:              row.Role,
+		Status:            StatusOffline,
+		PromptAutoApprove: row.PromptAutoApprove,
+		CreatedAt:         time.UnixMilli(row.CreatedAt),
+		UpdatedAt:         time.UnixMilli(row.UpdatedAt),
 	}
 	if row.LastSeenAt.Valid {
 		a.LastSeenAt = time.UnixMilli(row.LastSeenAt.Int64)

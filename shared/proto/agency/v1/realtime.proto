@@ -59,4 +59,8 @@ enum RealtimeKind {
   REALTIME_KIND_AGENT_LOGS = 5;
   
   REALTIME_KIND_AGENTS = 6;
+  
+  REALTIME_KIND_SITES = 7;
+  
+  REALTIME_KIND_HEALTH = 8;
 }

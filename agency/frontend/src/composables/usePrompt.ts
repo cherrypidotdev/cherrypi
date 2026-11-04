@@ -27,6 +27,9 @@ export function usePrompt(
   const loading = ref(true);
   const saving = ref(false);
   const error = ref("");
+  const canEdit = ref(true);
+  const canPropose = ref(false);
+  const canApprove = ref(false);
 
   let readID = 0;
 
@@ -34,10 +37,13 @@ export function usePrompt(
     const id = ++readID;
     loading.value = true;
     try {
-      const prompt = await agency.getPrompt(scope, getTarget());
+      const result = await agency.getPromptWithAccess(scope, getTarget());
       if (id !== readID) return;
-      content.value = prompt.content;
-      version.value = prompt.version;
+      content.value = result.prompt.content;
+      version.value = result.prompt.version;
+      canEdit.value = result.canEdit;
+      canPropose.value = result.canPropose;
+      canApprove.value = result.canApprove;
       error.value = "";
     } catch (err) {
       if (id !== readID) return;
@@ -56,10 +62,15 @@ export function usePrompt(
     { immediate: true },
   );
 
-  async function save(): Promise<boolean> {
+  async function save(note = ""): Promise<boolean> {
     saving.value = true;
     try {
-      const prompt = await agency.setPrompt(scope, content.value, getTarget());
+      const prompt = await agency.setPrompt(
+        scope,
+        content.value,
+        getTarget(),
+        note,
+      );
       version.value = prompt.version;
       error.value = "";
       return true;
@@ -71,5 +82,16 @@ export function usePrompt(
     }
   }
 
-  return { content, version, loading, saving, error, load, save };
+  return {
+    content,
+    version,
+    loading,
+    saving,
+    error,
+    canEdit,
+    canPropose,
+    canApprove,
+    load,
+    save,
+  };
 }

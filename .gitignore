@@ -24,5 +24,9 @@ agency_home/
 /agency/server/cmd/agency/docsdist/*
 !/agency/server/cmd/agency/docsdist/.gitkeep
 
+dev/*/node_modules
+dev/*/dist
+dev/*/*.zip
+
 /agency/server/agency
 /agent/agent
