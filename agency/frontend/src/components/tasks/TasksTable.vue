@@ -145,6 +145,13 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
                 CircleSlashIcon.size-3
             span.text-muted-foreground.font-mono.text-xs(:title="task.id")
               | {{ shortTaskId(task.id) }}
+            span.text-muted-foreground.inline-flex.shrink-0.items-center.text-xs(
+              v-if="task.parentTaskId"
+              class="gap-0.5"
+              title="Sub-task"
+              data-testid="task-subtask-badge"
+            )
+              GitBranchIcon.size-3
         TableCell(v-else-if="column.key === 'progress'")
           .flex.flex-col.gap-1(v-if="taskProgressHasPlan(task.progress)")
             .flex.items-center(class="gap-1.5")
@@ -202,9 +209,15 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
             )
               span.rounded-full.bg-current(class="size-1.5")
               | {{ tag.name }}
+              LockIcon.size-3.shrink-0.text-amber-500(
+                v-if="tag.isRequired"
+                title="Only runs on agents that declare this tag"
+              )
             span.text-muted-foreground.text-xs(v-if="task.tags.length > 3")
               | +{{ task.tags.length - 3 }}
           span.text-muted-foreground.text-xs(v-else) —
+        TableCell(v-else-if="column.key === 'badges'")
+          TaskBadges(:badges="task.badges" :limit="2")
         TableCell(v-else-if="column.key === 'references'")
           .flex.flex-wrap.items-center.gap-1(v-if="task.references.length")
             RouterLink.inline-flex.max-w-full.min-w-0.items-center.gap-1.rounded-full.border.px-2.text-xs.transition-colors(
@@ -273,6 +286,7 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
 
 <script setup lang="ts">
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
+import TaskBadges from "@/components/tasks/TaskBadges.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -328,6 +342,7 @@ import {
   CircleSlashIcon,
   EraserIcon,
   ExternalLinkIcon,
+  GitBranchIcon,
   HardDriveDownloadIcon,
   InfoIcon,
   LockIcon,
@@ -483,6 +498,19 @@ interface RowAction {
 }
 
 function rowActions(task: Task): RowAction[] {
+  const actions = rowActionsFor(task);
+
+  if (task.canCloseOut) return actions;
+  return actions.filter(
+    (action) =>
+      action.key !== "complete" &&
+      action.key !== "cancel" &&
+      action.key !== "archive" &&
+      action.key !== "unarchive",
+  );
+}
+
+function rowActionsFor(task: Task): RowAction[] {
   if (task.archived) {
     const actions: RowAction[] = [
       { key: "unarchive", title: "Unarchive", icon: ArchiveRestoreIcon },
@@ -503,6 +531,13 @@ function rowActions(task: Task): RowAction[] {
         : [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
     case TaskState.QUEUED:
       return [{ key: "dequeue", title: "Move to Backlog", icon: Undo2Icon }];
+
+    case TaskState.WAITING:
+      return [
+        { key: "dequeue", title: "Move to Backlog", icon: Undo2Icon },
+        { key: "complete", title: "Complete", icon: CheckIcon },
+        { key: "cancel", title: "Cancel", icon: BanIcon },
+      ];
 
     case TaskState.FAILED:
       return [

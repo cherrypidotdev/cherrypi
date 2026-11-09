@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/limits"
+	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
@@ -50,6 +52,8 @@ type Scheduler struct {
 	Agents   *agents.Registry
 
 	Attachments *attachments.Service
+
+	Plugins *pluginhost.Service
 
 	Interval time.Duration
 
@@ -198,6 +202,84 @@ func (s *Scheduler) Wake() {
 	}
 }
 
+func (s *Scheduler) FollowUp(
+	ctx context.Context,
+	t tasks.Task,
+	prompt string,
+	actorID ids.ActorID,
+) error {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return errors.New("the message is empty")
+	}
+	switch t.State {
+	case tasks.StateSettled, tasks.StateFailed,
+		tasks.StateCompleted, tasks.StateCancelled:
+		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, prompt, actorID); err != nil {
+			return err
+		}
+		s.Wake()
+		return nil
+	case tasks.StateQueued, tasks.StateWaiting:
+		if err := s.Tasks.AppendPendingPrompt(ctx, t.ID, prompt, actorID); err != nil {
+			return err
+		}
+		s.Wake()
+		return nil
+	case tasks.StateInput:
+
+		return s.Tasks.AppendPendingPrompt(ctx, t.ID, prompt, actorID)
+	case tasks.StateRunning:
+		if t.SessionID == "" || s.AddToTask == nil {
+			return errors.New("the task has no warm session to steer")
+		}
+		return s.AddToTask(
+			ctx, t.SessionAgentID, t.SessionID, prompt,
+			taskRef(t), s.sender(ctx, actorID), nil,
+		)
+	default:
+		return fmt.Errorf(
+			"a task in state %q does not accept a follow-up", t.State,
+		)
+	}
+}
+
+func (s *Scheduler) DeliverPendingPrompt(ctx context.Context, t tasks.Task) {
+	if strings.TrimSpace(t.PendingPrompt) == "" {
+		return
+	}
+	if t.SessionID == "" || s.AddToTask == nil {
+		return
+	}
+	err := s.AddToTask(
+		ctx, t.SessionAgentID, t.SessionID, t.PendingPrompt,
+		taskRef(t), s.sender(ctx, t.PendingPromptActorID),
+		s.pendingAttachments(ctx, t),
+	)
+	if err != nil {
+		log.Printf("[scheduler] deliver pending prompt %s: %v", t.ID, err)
+		return
+	}
+	s.clearDeliveredPrompt(ctx, t.ID, t.PendingPrompt)
+}
+
+func (s *Scheduler) clearDeliveredPrompt(
+	ctx context.Context,
+	taskID, prompt string,
+) {
+	if err := s.Tasks.ClearPendingPrompt(ctx, taskID); err != nil {
+		log.Printf("[scheduler] clear pending prompt %s: %v", taskID, err)
+		if err := s.Tasks.MarkPendingPromptDelivered(
+			ctx, taskID, prompt,
+		); err != nil {
+			log.Printf(
+				"[scheduler] mark pending prompt delivered %s: %v",
+				taskID, err,
+			)
+		}
+	}
+}
+
 func (s *Scheduler) Drain(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -208,13 +290,14 @@ func (s *Scheduler) Drain(ctx context.Context) {
 		return
 	}
 
+	view := s.newFitView()
 	for _, task := range queued {
 		if ctx.Err() != nil {
 			return
 		}
-		agent, ok := s.pickAgent(ctx, task)
+		agent, ok := s.pickAgent(ctx, task, view)
 		if !ok {
-			s.noteWaiting(ctx, task)
+			s.noteWaiting(ctx, task, view)
 			continue
 		}
 		s.start(ctx, task, agent)
@@ -233,8 +316,12 @@ func (s *Scheduler) Drain(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) noteWaiting(ctx context.Context, task tasks.Task) {
-	reason := s.waitingReason(ctx, task)
+func (s *Scheduler) noteWaiting(
+	ctx context.Context,
+	task tasks.Task,
+	view *fitView,
+) {
+	reason := s.waitingReason(ctx, task, view)
 	if reason == "" {
 		return
 	}
@@ -320,10 +407,15 @@ func (s *Scheduler) Reconcile(ctx context.Context) {
 					}
 				}
 			default:
-				if _, err := s.Tasks.Settle(ctx, task.ID); err != nil {
+				if settled, err := s.Tasks.Settle(ctx, task.ID); err != nil {
 					log.Printf("[scheduler] settle %s: %v", task.ID, err)
-				} else {
-					logReconciled(task, task.State, tasks.StateSettled, "run finished")
+				} else if settled {
+
+					state := tasks.StateSettled
+					if after, err := s.Tasks.Get(ctx, task.ID); err == nil {
+						state = after.State
+					}
+					logReconciled(task, task.State, state, "run finished")
 				}
 			}
 		}
@@ -369,55 +461,95 @@ const (
 
 	agentViewer
 
+	agentUnqualified
+
 	agentFull
+
+	agentReserved
 
 	agentUnknown
 )
+
+type agentCheck struct {
+	verdict agentVerdict
+	class   string
+	missing []tasks.Tag
+}
 
 func (s *Scheduler) checkAgent(
 	ctx context.Context,
 	task tasks.Task,
 	agent agents.Agent,
-) (agentVerdict, error) {
-	if s.Connected == nil || !s.Connected(agent.ID) {
-		return agentOffline, nil
-	}
+	view *fitView,
+) (agentCheck, error) {
 	member, canPrompt, err := s.Tasks.CanRunTask(ctx, task.ProjectID, agent.ID)
 	if err != nil {
-		return agentUnknown, err
+		return agentCheck{verdict: agentUnknown}, err
 	}
 	if !member {
-		return agentForeign, nil
+		return agentCheck{verdict: agentForeign}, nil
 	}
 
 	if !canPrompt {
-		return agentViewer, nil
+		return agentCheck{verdict: agentViewer}, nil
 	}
-	lim, err := s.Limits.Get(ctx, agent.ID)
+	lim, err := view.agentLimits(ctx, agent.ID)
 	if err != nil {
-		return agentUnknown, err
+		return agentCheck{verdict: agentUnknown}, err
+	}
+
+	if missing := tasks.MissingTagDeclarations(
+		lim,
+		task.ProjectID,
+		task.Tags,
+	); len(missing) > 0 {
+		return agentCheck{verdict: agentUnqualified, missing: missing}, nil
+	}
+	if s.Connected == nil || !s.Connected(agent.ID) {
+		return agentCheck{verdict: agentOffline}, nil
 	}
 	counts, err := s.Tasks.RunningCounts(ctx, agent.ID)
 	if err != nil {
-		return agentUnknown, err
+		return agentCheck{verdict: agentUnknown}, err
 	}
-	if tasks.Fits(lim, counts, task.ProjectID, task.Tags) {
-		return agentReady, nil
+	if !tasks.Fits(lim, counts, task.ProjectID, task.Tags) {
+		return agentCheck{verdict: agentFull}, nil
 	}
-	return agentFull, nil
+
+	blocked, class, err := view.agentBlocks(ctx, agent.ID, lim.MaxConcurrent, task.Tags)
+	if err != nil {
+		return agentCheck{verdict: agentUnknown}, err
+	}
+	if blocked {
+		return agentCheck{verdict: agentReserved, class: class}, nil
+	}
+	if task.ProjectID != "" {
+		blocked, class, err = view.projectBlocks(ctx, task.ProjectID, task.Tags)
+		if err != nil {
+			return agentCheck{verdict: agentUnknown}, err
+		}
+		if blocked {
+			return agentCheck{verdict: agentReserved, class: class}, nil
+		}
+	}
+	return agentCheck{verdict: agentReady}, nil
 }
 
-func (s *Scheduler) pickAgent(ctx context.Context, task tasks.Task) (agents.Agent, bool) {
+func (s *Scheduler) pickAgent(
+	ctx context.Context,
+	task tasks.Task,
+	view *fitView,
+) (agents.Agent, bool) {
 	candidates := s.candidates(ctx, task)
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
 
 	for _, agent := range candidates {
-		verdict, err := s.checkAgent(ctx, task, agent)
+		check, err := s.checkAgent(ctx, task, agent, view)
 		if err != nil {
 			log.Printf("[scheduler] check agent %d for %s: %v", agent.ID, task.ID, err)
 			continue
 		}
-		if verdict == agentReady {
+		if check.verdict == agentReady {
 			return agent, true
 		}
 	}
@@ -425,18 +557,49 @@ func (s *Scheduler) pickAgent(ctx context.Context, task tasks.Task) (agents.Agen
 }
 
 func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
-	if task.State != tasks.StateQueued {
+	if task.State != tasks.StateQueued && task.State != tasks.StateWaiting {
 		return ""
 	}
-	return s.waitingReason(ctx, task)
+	return s.waitingReason(ctx, task, s.newFitView())
 }
 
-func (s *Scheduler) waitingReason(ctx context.Context, task tasks.Task) string {
+func (s *Scheduler) waitingReason(
+	ctx context.Context,
+	task tasks.Task,
+	view *fitView,
+) string {
+	reasons := make([]string, 0, 3)
+
+	if len(task.Holds) > 0 {
+		holds := make([]string, 0, len(task.Holds))
+		for _, hold := range task.Holds {
+			holds = append(holds, "Waiting for "+hold.Summary())
+		}
+		reasons = append(reasons, strings.Join(holds, "; "))
+	}
 	if blockers := tasks.IncompleteBlockerIDs(task.References); len(blockers) > 0 {
 		sort.SliceStable(blockers, func(i, j int) bool {
 			return taskIDLess(blockers[i], blockers[j])
 		})
-		return "Waiting for tasks to become completed: " + strings.Join(blockers, ", ")
+		reasons = append(
+			reasons,
+			"Waiting for tasks to become completed: "+strings.Join(blockers, ", "),
+		)
+	}
+	if children, err := s.Tasks.IncompleteChildIDs(ctx, task.ID); err == nil && len(children) > 0 {
+		sort.SliceStable(children, func(i, j int) bool {
+			return taskIDLess(children[i], children[j])
+		})
+		reasons = append(
+			reasons,
+			"Waiting for sub-tasks to finish: "+strings.Join(children, ", "),
+		)
+	}
+	if len(reasons) > 0 {
+		return strings.Join(reasons, "; ")
+	}
+	if task.State == tasks.StateWaiting {
+		return "Waiting for the scheduler"
 	}
 
 	candidates := s.candidates(ctx, task)
@@ -445,26 +608,52 @@ func (s *Scheduler) waitingReason(ctx context.Context, task tasks.Task) string {
 		return "Waiting for an eligible agent"
 	}
 
-	full, foreign, viewer, unknown := false, false, false, false
+	full, foreign, viewer, unknown, reserved := false, false, false, false, ""
+	offline := false
+	missingTags := map[string]string{}
 	for _, agent := range candidates {
-		verdict, err := s.checkAgent(ctx, task, agent)
+		check, err := s.checkAgent(ctx, task, agent, view)
 		if err != nil {
 			unknown = true
 			continue
 		}
-		switch verdict {
+		switch check.verdict {
 		case agentReady:
 			return "Waiting for the scheduler"
 		case agentFull:
 			full = true
+		case agentReserved:
+			if reserved == "" {
+				reserved = check.class
+			}
+		case agentUnqualified:
+			for _, tag := range check.missing {
+				missingTags[tag.ID] = tag.Name
+			}
 		case agentForeign:
 			foreign = true
 		case agentViewer:
 			viewer = true
+		case agentOffline:
+			offline = true
 		}
+	}
+	if reserved != "" {
+		return "Waiting for a slot reserved for #" + reserved
 	}
 	if full {
 		return "Waiting for free agent slot"
+	}
+	if offline {
+		return "Waiting for an agent to connect"
+	}
+	if len(missingTags) > 0 {
+		names := make([]string, 0, len(missingTags))
+		for _, name := range missingTags {
+			names = append(names, "#"+name)
+		}
+		sort.Strings(names)
+		return "Waiting for an agent with required tags: " + strings.Join(names, ", ")
 	}
 	if viewer {
 		return "Waiting for an agent with member access"
@@ -845,6 +1034,39 @@ func (s *Scheduler) taskModel(
 	return provider, modelID, thinkingLevel
 }
 
+func (s *Scheduler) pluginTools(ctx context.Context, task tasks.Task) []*agentv1.PluginTool {
+	if s.Plugins == nil {
+		return nil
+	}
+	var out []*agentv1.PluginTool
+	seen := map[string]bool{}
+	if row, ok := s.Plugins.TaskPlugin(ctx, task.ID); ok {
+		for _, tool := range row.Tools {
+			if seen[tool.Name] {
+				continue
+			}
+			seen[tool.Name] = true
+			out = append(out, &agentv1.PluginTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: string(tool.InputSchema),
+			})
+		}
+	}
+	for _, projectTool := range s.Plugins.ProjectTools(ctx, task.ProjectID) {
+		if seen[projectTool.Tool.Name] {
+			continue
+		}
+		seen[projectTool.Tool.Name] = true
+		out = append(out, &agentv1.PluginTool{
+			Name:        projectTool.Tool.Name,
+			Description: projectTool.Tool.Description,
+			InputSchema: string(projectTool.Tool.InputSchema),
+		})
+	}
+	return out
+}
+
 func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Agent) {
 	now := time.Now().UnixMilli()
 
@@ -887,9 +1109,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			s.pendingAttachments(ctx, task),
 		)
 		if err == nil {
-			if err := s.Tasks.ClearPendingPrompt(ctx, task.ID); err != nil {
-				log.Printf("[scheduler] clear pending prompt %s: %v", task.ID, err)
-			}
+			s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)
 			return
 		}
 		if !s.sessionGone(ctx, task, err) {
@@ -947,6 +1167,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 		TaskId:             task.ID,
 		Ref:                taskRef(task),
 		Sender:             s.sender(ctx, promptActorID),
+		Tools:              s.pluginTools(ctx, task),
 	})
 	if err != nil {
 		log.Printf("[scheduler] start %s on %d: %v", task.ID, agent.ID, err)
@@ -958,8 +1179,6 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	}
 	log.Printf("[scheduler] started %s on agent %d session=%s", task.ID, agent.ID, sessionID)
 	if task.PendingPrompt != "" {
-		if err := s.Tasks.ClearPendingPrompt(ctx, task.ID); err != nil {
-			log.Printf("[scheduler] clear pending prompt %s: %v", task.ID, err)
-		}
+		s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)
 	}
 }

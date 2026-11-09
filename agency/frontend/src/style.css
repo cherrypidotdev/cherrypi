@@ -118,9 +118,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --d-card-p: 1rem;
 }
 
-:root {
+:root,
+.light {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -242,6 +244,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .cm-md-comment {
   color: var(--syntax-mark);
   font-style: italic;
+}
+
+.prose :where(code):not(pre > code) {
+  background-color: color-mix(in oklab, currentColor 12%, transparent);
+  border-color: color-mix(in oklab, currentColor 20%, transparent);
 }
 
 .ref-chip {
@@ -417,6 +424,86 @@ html.sketch-editor-active body {
 
 body > .mermaidTooltip:empty {
   display: none;
+}
+
+.mermaid-diagram {
+  padding: 0;
+  background: none;
+}
+
+.mermaid-diagram > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.mermaid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  width: fit-content;
+  margin-top: 0.25rem;
+  margin-left: auto;
+  padding: 0.125rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--background);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.mermaid-diagram:hover .mermaid-toolbar,
+.mermaid-diagram:focus-within .mermaid-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mermaid-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: calc(var(--radius-md) - 4px);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.mermaid-tool:hover {
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+
+.mermaid-tool:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.mermaid-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+  background-color: transparent;
+}
+
+.mermaid-tool > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.mermaid-always .mermaid-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mermaid-always .mermaid-diagram {
+  width: 100%;
+}
+
+.mermaid-always .mermaid-diagram > svg {
+  width: 100%;
+  max-height: 100%;
 }
 
 .Toastify__toast-container {

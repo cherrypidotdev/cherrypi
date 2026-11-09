@@ -38,6 +38,8 @@ const (
 
 	ActorAgent Actor = "agent"
 
+	ActorPlugin Actor = "plugin"
+
 	ActorSystem Actor = "system"
 )
 
@@ -65,6 +67,12 @@ const (
 	LogComment = "comment"
 
 	LogQuestionnaire = "questionnaire"
+
+	LogParent = "parent"
+
+	LogPlugin = "plugin"
+
+	LogHold = "hold"
 )
 
 type actorContextKey struct{}
@@ -169,6 +177,17 @@ func (s *Service) recordLog(
 		return
 	}
 	s.changed(ctx, taskID)
+}
+
+func (s *Service) AppendLog(
+	ctx context.Context,
+	taskID, kind, field, oldValue, newValue, message string,
+	data any,
+) {
+	s.recordLog(
+		ctx, actorFrom(ctx), time.Now().UnixMilli(),
+		taskID, kind, field, oldValue, newValue, message, data,
+	)
 }
 
 func marshalData(data any) string {
@@ -414,9 +433,10 @@ func referenceChange(oldID, oldName, newID, newName string) map[string]any {
 }
 
 type logTag struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Color      string `json:"color"`
+	IsRequired bool   `json:"isRequired,omitempty"`
 }
 
 type logReference struct {
@@ -537,12 +557,18 @@ func diffTags(before, after []Tag) (added, removed []logTag) {
 	}
 	for _, tag := range after {
 		if !beforeIDs[tag.ID] {
-			added = append(added, logTag{ID: tag.ID, Name: tag.Name, Color: tag.Color})
+			added = append(added, logTag{
+				ID: tag.ID, Name: tag.Name, Color: tag.Color,
+				IsRequired: tag.Required,
+			})
 		}
 	}
 	for _, tag := range before {
 		if !afterIDs[tag.ID] {
-			removed = append(removed, logTag{ID: tag.ID, Name: tag.Name, Color: tag.Color})
+			removed = append(removed, logTag{
+				ID: tag.ID, Name: tag.Name, Color: tag.Color,
+				IsRequired: tag.Required,
+			})
 		}
 	}
 	sort.Slice(added, func(i, j int) bool { return added[i].Name < added[j].Name })
@@ -633,10 +659,14 @@ func referenceLabel(id, name, kind string) string {
 		label = id + " " + name
 	}
 	switch kind {
-	case "blocking":
-		label += " (blocking)"
+	case "blocking", "blocked_by":
+		label += " (blocked by)"
+	case "blocks":
+		label += " (blocks)"
 	case "supersedes":
 		label += " (supersedes)"
+	case "superseded_by":
+		label += " (superseded by)"
 	}
 	return label
 }
@@ -668,6 +698,37 @@ func referenceMessage(added, removed, changed []logReference) string {
 	return changeMessage(
 		addRemove,
 		joinNamed("Blocking changed: ", referenceNames(changed)),
+	)
+}
+
+func (s *Service) logIncomingReference(
+	ctx context.Context,
+	viewID string,
+	ref Reference,
+	kind ReferenceKind,
+	added bool,
+) {
+	entry := logReference{
+		ID:    ref.ID,
+		Name:  ref.Name,
+		State: string(ref.State),
+		Kind:  string(perspectiveKind(kind, true)),
+	}
+	addedRefs := []logReference{}
+	removedRefs := []logReference{}
+	if added {
+		addedRefs = append(addedRefs, entry)
+	} else {
+		removedRefs = append(removedRefs, entry)
+	}
+	s.recordLog(
+		ctx, actorFrom(ctx), time.Now().UnixMilli(), viewID,
+		LogReferences, "references", "", "",
+		referenceMessage(addedRefs, removedRefs, nil),
+		map[string]any{
+			"added": addedRefs, "removed": removedRefs,
+			"changed": []logReference{},
+		},
 	)
 }
 

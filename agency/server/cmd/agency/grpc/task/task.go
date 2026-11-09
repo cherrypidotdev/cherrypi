@@ -31,6 +31,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/artifacts"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	"cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/tags"
@@ -73,6 +74,8 @@ type TaskServer struct {
 	Actors func(ctx context.Context, id ids.ActorID) (ActorInfo, error)
 
 	TeamName func(ctx context.Context, id int64) (string, error)
+
+	Plugins *plugins.Service
 }
 
 func (s *TaskServer) ListTasks(
@@ -93,6 +96,7 @@ func (s *TaskServer) ListTasks(
 		Size:               sizeFromProto(req.Size),
 		Priority:           priority,
 		Archived:           req.Archived,
+		ParentTaskID:       req.ParentTaskId,
 		ReferenceProjectID: req.ReferenceProjectId,
 		Limit:              int64(req.Limit),
 		Offset:             int64(req.Offset),
@@ -110,10 +114,12 @@ func (s *TaskServer) ListTasks(
 	out := make([]*agencyv1.Task, len(list))
 	for i, t := range list {
 		out[i] = toProtoTask(t)
+		out[i].CanCloseOut = s.canCloseOut(ctx, t)
 	}
 	stripProgressItems(out)
 	s.enrichRuntime(ctx, list, out)
 	s.enrichWaitingReasons(ctx, list, out)
+	s.enrichBadges(ctx, out)
 	return &agencyv1.ListTasksResponse{Tasks: out}, nil
 }
 
@@ -146,6 +152,7 @@ func (s *TaskServer) GetTask(
 	s.enrichNames(ctx, list)
 	t = list[0]
 	out := toProtoTask(t)
+	out.CanCloseOut = s.canCloseOut(ctx, t)
 	if at, ok := s.runtime(ctx, t); ok {
 		rt := &agencyv1.TaskRuntime{
 			RunInProgress:   at.GetRunInProgress(),
@@ -158,6 +165,7 @@ func (s *TaskServer) GetTask(
 			out.State = state
 			if refreshed, err := s.Tasks.Get(ctx, t.ID); err == nil {
 				out = toProtoTask(refreshed)
+				out.CanCloseOut = s.canCloseOut(ctx, refreshed)
 				out.Runtime = rt
 			}
 		}
@@ -165,7 +173,42 @@ func (s *TaskServer) GetTask(
 	s.enrichWaitingReasons(ctx, list, []*agencyv1.Task{out})
 	s.enrichAttachments(ctx, out.Id, out)
 	s.enrichAttribution(ctx, out)
+	s.enrichBadges(ctx, []*agencyv1.Task{out})
 	return &agencyv1.GetTaskResponse{Task: out}, nil
+}
+
+func (s *TaskServer) enrichBadges(ctx context.Context, tasks []*agencyv1.Task) {
+	if s.Plugins == nil || len(tasks) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if task != nil && task.Id != "" {
+			ids = append(ids, task.Id)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	byTask := s.Plugins.TaskBadgesFor(ctx, ids)
+	for _, task := range tasks {
+		badges := byTask[task.Id]
+		if len(badges) == 0 {
+			continue
+		}
+		task.Badges = make([]*agencyv1.TaskBadge, len(badges))
+		for i, badge := range badges {
+			task.Badges[i] = &agencyv1.TaskBadge{
+				PluginId:   badge.PluginID,
+				PluginName: badge.PluginName,
+				Key:        badge.Key,
+				Label:      badge.Label,
+				Value:      badge.Value,
+				Tone:       badge.Tone,
+				Url:        badge.URL,
+			}
+		}
+	}
 }
 
 func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *agencyv1.Task) {
@@ -359,6 +402,7 @@ func (s *TaskServer) CreateTask(
 		State:           stateFromProto(req.State),
 		TeamIDs:         int32sToInt64s(req.TeamIds),
 		LeadActorIDs:    actorIDsFromStrings(req.LeadActorIds),
+		ParentTaskID:    req.ParentTaskId,
 	}
 	if req.TemplateId != "" {
 		if s.Templates == nil {
@@ -551,7 +595,11 @@ func (s *TaskServer) RemoveTaskReference(
 	ctx context.Context,
 	req *agencyv1.RemoveTaskReferenceRequest,
 ) (*agencyv1.RemoveTaskReferenceResponse, error) {
-	t, err := s.Tasks.RemoveReference(ctx, req.Id, req.ReferencedTaskId)
+	remove := s.Tasks.RemoveReference
+	if req.GetReverse() {
+		remove = s.Tasks.RemoveIncomingReference
+	}
+	t, err := remove(ctx, req.Id, req.ReferencedTaskId)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -575,10 +623,14 @@ func (s *TaskServer) CloseOutTask(
 	ctx context.Context,
 	req *agencyv1.CloseOutTaskRequest,
 ) (*agencyv1.CloseOutTaskResponse, error) {
-	var (
-		t   tasks.Task
-		err error
-	)
+	cur, err := s.Tasks.Get(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if err := s.requireCanCloseOut(ctx, cur); err != nil {
+		return nil, err
+	}
+	var t tasks.Task
 	switch req.Outcome {
 	case agencyv1.TaskState_TASK_STATE_COMPLETED:
 		t, err = s.Tasks.Complete(ctx, req.Id)
@@ -610,6 +662,34 @@ func (s *TaskServer) ReopenTask(
 		s.wake()
 	}
 	return &agencyv1.ReopenTaskResponse{Task: toProtoTask(t)}, nil
+}
+
+func (s *TaskServer) ReleaseTaskHold(
+	ctx context.Context,
+	req *agencyv1.ReleaseTaskHoldRequest,
+) (*agencyv1.ReleaseTaskHoldResponse, error) {
+	cur, err := s.Tasks.Get(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	if err := s.requireCanCloseOut(ctx, cur); err != nil {
+		return nil, err
+	}
+	actorID, _ := auth.ActorID(ctx)
+	t, err := s.Tasks.ReleaseHold(ctx, req.Id, req.Plugin, req.Key, tasks.ReleaseOptions{
+		Mode:    holdReleaseModeFromProto(req.Mode),
+		Prompt:  req.Prompt,
+		ActorID: actorID,
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+
+	if t.State == tasks.StateQueued {
+		s.wake()
+	}
+	return &agencyv1.ReleaseTaskHoldResponse{Task: toProtoTask(t)}, nil
 }
 
 func (s *TaskServer) DeleteTask(
@@ -648,6 +728,13 @@ func (s *TaskServer) ArchiveTask(
 	ctx context.Context,
 	req *agencyv1.ArchiveTaskRequest,
 ) (*agencyv1.ArchiveTaskResponse, error) {
+	cur, err := s.Tasks.Get(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if err := s.requireCanCloseOut(ctx, cur); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.Archive(ctx, req.Id)
 	if err != nil {
 		return nil, mapError(err)
@@ -666,6 +753,13 @@ func (s *TaskServer) UnarchiveTask(
 	ctx context.Context,
 	req *agencyv1.UnarchiveTaskRequest,
 ) (*agencyv1.UnarchiveTaskResponse, error) {
+	cur, err := s.Tasks.Get(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if err := s.requireCanCloseOut(ctx, cur); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.Unarchive(ctx, req.Id)
 	if err != nil {
 		return nil, mapError(err)
@@ -796,6 +890,13 @@ func (s *TaskServer) SetTaskLeads(
 	ctx context.Context,
 	req *agencyv1.SetTaskLeadsRequest,
 ) (*agencyv1.SetTaskLeadsResponse, error) {
+	cur, err := s.Tasks.Get(ctx, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if err := s.requireCanPrompt(ctx, cur); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.SetTaskLeads(ctx, req.Id, actorIDsFromStrings(req.LeadActorIds))
 	if err != nil {
 		return nil, mapError(err)
@@ -1715,11 +1816,14 @@ func (s *TaskServer) enrichWaitingReasons(
 		return
 	}
 	for i := range list {
-		if i >= len(out) ||
-			out[i].GetState() != agencyv1.TaskState_TASK_STATE_QUEUED {
+		if i >= len(out) {
 			continue
 		}
-		out[i].WaitingReason = s.Scheduler.WaitingReason(ctx, list[i])
+		switch out[i].GetState() {
+		case agencyv1.TaskState_TASK_STATE_QUEUED,
+			agencyv1.TaskState_TASK_STATE_WAITING:
+			out[i].WaitingReason = s.Scheduler.WaitingReason(ctx, list[i])
+		}
 	}
 }
 
@@ -1845,10 +1949,50 @@ func mapTemplateError(err error) *connect.Error {
 	}
 }
 
+func (s *TaskServer) canCloseOut(ctx context.Context, t tasks.Task) bool {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return false
+	}
+	allowed, err := s.Tasks.CanCloseOut(ctx, t, actorID, auth.IsAdmin(ctx))
+	return err == nil && allowed
+}
+
+func (s *TaskServer) requireCanCloseOut(ctx context.Context, t tasks.Task) error {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return nil
+	}
+	allowed, err := s.Tasks.CanCloseOut(ctx, t, actorID, auth.IsAdmin(ctx))
+	if err != nil {
+		return mapError(err)
+	}
+	if !allowed {
+		return connect.NewError(connect.CodePermissionDenied, tasks.ErrCannotCloseOut)
+	}
+	return nil
+}
+
+func (s *TaskServer) requireCanPrompt(ctx context.Context, t tasks.Task) error {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return nil
+	}
+	allowed, err := s.Tasks.CanPrompt(ctx, t, actorID, auth.IsAdmin(ctx))
+	if err != nil {
+		return mapError(err)
+	}
+	if !allowed {
+		return connect.NewError(connect.CodePermissionDenied, tasks.ErrCannotPrompt)
+	}
+	return nil
+}
+
 func mapError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, tasks.ErrNotFound),
 		errors.Is(err, tasks.ErrCommentNotFound),
+		errors.Is(err, tasks.ErrHoldNotFound),
 		errors.Is(err, projects.ErrProjectMissing),
 		errors.Is(err, tags.ErrTagMissing):
 		return connect.NewError(connect.CodeNotFound, err)
@@ -1861,6 +2005,7 @@ func mapError(err error) *connect.Error {
 		errors.Is(err, tasks.ErrSelfReference),
 		errors.Is(err, tasks.ErrReferenceCycle),
 		errors.Is(err, tasks.ErrLeadNotAllowed),
+		errors.Is(err, tasks.ErrLeadRequired),
 		errors.Is(err, tasks.ErrCommentBodyRequired),
 		errors.Is(err, tasks.ErrCommentAttachmentNotFound),
 		errors.Is(err, tags.ErrInvalidName):
@@ -1870,9 +2015,12 @@ func mapError(err error) *connect.Error {
 	case errors.Is(err, tasks.ErrNotEditable),
 		errors.Is(err, tasks.ErrWrongState),
 		errors.Is(err, tasks.ErrRunning),
+		errors.Is(err, tasks.ErrPendingPrompt),
 		errors.Is(err, tasks.ErrFollowUpRequired),
+		errors.Is(err, tasks.ErrHeld),
 		errors.Is(err, tasks.ErrNotMember),
 		errors.Is(err, tasks.ErrAssigneeViewer),
+		errors.Is(err, tasks.ErrAssigneeMissingTag),
 		errors.Is(err, tasks.ErrProjectHasNoAgents),
 		errors.Is(err, tasks.ErrMergeProjectMismatch),
 		errors.Is(err, tasks.ErrMergeAssigneeConflict),
@@ -1896,6 +2044,8 @@ func stateFromProto(s agencyv1.TaskState) tasks.State {
 	switch s {
 	case agencyv1.TaskState_TASK_STATE_BACKLOG:
 		return tasks.StateBacklog
+	case agencyv1.TaskState_TASK_STATE_WAITING:
+		return tasks.StateWaiting
 	case agencyv1.TaskState_TASK_STATE_QUEUED:
 		return tasks.StateQueued
 	case agencyv1.TaskState_TASK_STATE_RUNNING:
@@ -1919,6 +2069,8 @@ func stateToProto(s tasks.State) agencyv1.TaskState {
 	switch s {
 	case tasks.StateBacklog:
 		return agencyv1.TaskState_TASK_STATE_BACKLOG
+	case tasks.StateWaiting:
+		return agencyv1.TaskState_TASK_STATE_WAITING
 	case tasks.StateQueued:
 		return agencyv1.TaskState_TASK_STATE_QUEUED
 	case tasks.StateRunning:
@@ -2040,6 +2192,9 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		Name:                 t.Name,
 		Prompt:               t.Prompt,
 		ProjectId:            t.ProjectID,
+		ParentTaskId:         t.ParentTaskID,
+		PendingChildren:      int32(t.PendingChildren),
+		PendingSteering:      t.PendingSteering,
 		AssigneeActorId:      actorid.Format(t.AssigneeActorID),
 		AssigneePinned:       t.AssigneePinned,
 		Priority:             priorityToProto(t.Priority),
@@ -2083,6 +2238,8 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 			Description: tag.Description,
 			Color:       tag.Color,
 			Archived:    tag.Archived,
+
+			IsRequired: tag.Required,
 		})
 	}
 	for _, link := range t.Links {
@@ -2097,10 +2254,23 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 	for _, ref := range t.ReferencedBy {
 		out.ReferencedBy = append(out.ReferencedBy, toProtoReference(ref))
 	}
+	for _, child := range t.ChildTasks {
+		out.ChildTasks = append(out.ChildTasks, toProtoReference(child))
+	}
+	for _, hold := range t.Holds {
+		out.Holds = append(out.Holds, &agencyv1.TaskHold{
+			Plugin:     hold.PluginID,
+			PluginName: hold.PluginName,
+			Key:        hold.Key,
+			Reason:     hold.Reason,
+			CreatedAt:  timeOrNil(hold.CreatedAt),
+		})
+	}
 	out.QueuedAt = timeOrNil(t.QueuedAt)
 	out.StartedAt = timeOrNil(t.StartedAt)
 	out.SettledAt = timeOrNil(t.SettledAt)
 	out.StateUpdatedAt = timeOrNil(t.StateUpdatedAt)
+	out.TtcMs = t.TtcMs
 	out.SessionDeletedAt = timeOrNil(t.SessionDeletedAt)
 	out.ArchivedAt = timeOrNil(t.ArchivedAt)
 	if t.Template != nil {
@@ -2162,12 +2332,29 @@ func referenceInputsFromProto(in []*agencyv1.TaskReferenceInput) []tasks.Referen
 	return out
 }
 
+func holdReleaseModeFromProto(mode agencyv1.TaskHoldReleaseMode) tasks.ReleaseMode {
+	switch mode {
+	case agencyv1.TaskHoldReleaseMode_TASK_HOLD_RELEASE_MODE_QUEUE:
+		return tasks.ReleaseQueue
+	case agencyv1.TaskHoldReleaseMode_TASK_HOLD_RELEASE_MODE_COMPLETE:
+		return tasks.ReleaseComplete
+	default:
+		return tasks.ReleaseSettle
+	}
+}
+
 func referenceKindFromProto(kind agencyv1.TaskReferenceKind) tasks.ReferenceKind {
 	switch kind {
 	case agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKING:
 		return tasks.ReferenceBlocking
+	case agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKED_BY:
+		return tasks.ReferenceBlockedBy
+	case agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKS:
+		return tasks.ReferenceBlocks
 	case agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_SUPERSEDES:
 		return tasks.ReferenceSupersedes
+	case agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_SUPERSEDED_BY:
+		return tasks.ReferenceSupersededBy
 	default:
 		return tasks.ReferenceInformational
 	}
@@ -2175,9 +2362,9 @@ func referenceKindFromProto(kind agencyv1.TaskReferenceKind) tasks.ReferenceKind
 
 func referenceKindToProto(kind tasks.ReferenceKind) agencyv1.TaskReferenceKind {
 	switch kind {
-	case tasks.ReferenceBlocking:
+	case tasks.ReferenceBlocking, tasks.ReferenceBlockedBy, tasks.ReferenceBlocks:
 		return agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKING
-	case tasks.ReferenceSupersedes:
+	case tasks.ReferenceSupersedes, tasks.ReferenceSupersededBy:
 		return agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_SUPERSEDES
 	default:
 		return agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_INFORMATIONAL

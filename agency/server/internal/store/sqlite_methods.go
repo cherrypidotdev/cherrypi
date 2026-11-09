@@ -916,6 +916,17 @@ func (s *SqliteStore) ListAgentProjectMemberships(
 	return fromSqliteListAgentProjectMembershipsRowSlice(rows), nil
 }
 
+func (s *SqliteStore) ListAgentProjectTagReservations(
+	ctx context.Context,
+	agentID ids.AgentID,
+) ([]ListAgentProjectTagReservationsRow, error) {
+	rows, err := s.q.ListAgentProjectTagReservations(ctx, int64(agentID))
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentProjectTagReservationsRowSlice(rows), nil
+}
+
 func (s *SqliteStore) ListProjectMemberActorIDs(
 	ctx context.Context,
 	projectID string,
@@ -936,6 +947,66 @@ func (s *SqliteStore) ListProjectLogs(
 		return nil, err
 	}
 	return fromSqliteListProjectLogsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListProjectTagReservations(
+	ctx context.Context,
+	projectID string,
+) ([]ProjectTagReservation, error) {
+	rows, err := s.q.ListProjectTagReservations(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteProjectTagReservationSlice(rows), nil
+}
+
+func (s *SqliteStore) ReplaceProjectTagReservations(
+	ctx context.Context,
+	projectID string,
+	rows []InsertProjectTagReservationParams,
+) error {
+	return s.tx(ctx, func(q *sqlitedb.Queries) error {
+		if err := q.DeleteProjectTagReservations(ctx, projectID); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if err := q.InsertProjectTagReservation(
+				ctx,
+				sqlitedb.InsertProjectTagReservationParams(row),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *SqliteStore) ListRunningTasksByProject(
+	ctx context.Context,
+	projectID string,
+) ([]Task, error) {
+	rows, err := s.q.ListRunningTasksByProject(
+		ctx,
+		sql.NullString{String: projectID, Valid: projectID != ""},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
+}
+
+func (s *SqliteStore) ListRunningTaskTagsByProject(
+	ctx context.Context,
+	projectID string,
+) ([]ListRunningTaskTagsByProjectRow, error) {
+	rows, err := s.q.ListRunningTaskTagsByProject(
+		ctx,
+		sql.NullString{String: projectID, Valid: projectID != ""},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListRunningTaskTagsByProjectRowSlice(rows), nil
 }
 
 func (s *SqliteStore) TouchAgentSeen(ctx context.Context, id ids.AgentID, at int64) error {
@@ -1308,6 +1379,48 @@ func (s *SqliteStore) RenameTask(
 		return Task{}, err
 	}
 	return fromSqliteTask(row), nil
+}
+
+func (s *SqliteStore) ListTaskChildren(
+	ctx context.Context,
+	parentTaskID string,
+) ([]Task, error) {
+	rows, err := s.q.ListTaskChildren(ctx, sql.NullString{String: parentTaskID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
+}
+
+func (s *SqliteStore) CountIncompleteChildTasks(
+	ctx context.Context,
+	parentTaskID string,
+) (int64, error) {
+	return s.q.CountIncompleteChildTasks(
+		ctx,
+		sql.NullString{String: parentTaskID, Valid: true},
+	)
+}
+
+func (s *SqliteStore) DetachTaskChildren(
+	ctx context.Context,
+	p DetachTaskChildrenParams,
+) error {
+	return s.q.DetachTaskChildren(ctx, sqlitedb.DetachTaskChildrenParams(p))
+}
+
+func (s *SqliteStore) SetTaskPendingSteering(
+	ctx context.Context,
+	p SetTaskPendingSteeringParams,
+) (int64, error) {
+	return s.q.SetTaskPendingSteering(ctx, sqlitedb.SetTaskPendingSteeringParams(p))
+}
+
+func (s *SqliteStore) SetTaskPendingPromptAny(
+	ctx context.Context,
+	p SetTaskPendingPromptAnyParams,
+) (int64, error) {
+	return s.q.SetTaskPendingPromptAny(ctx, sqlitedb.SetTaskPendingPromptAnyParams(p))
 }
 
 func (s *SqliteStore) SetTaskPriority(
@@ -1988,6 +2101,17 @@ func (s *SqliteStore) ListAgentUsageModels(
 		return nil, err
 	}
 	return fromSqliteListAgentUsageModelsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentUsageRuns(
+	ctx context.Context,
+	sessionID string,
+) ([]AgentUsage, error) {
+	rows, err := s.q.ListAgentUsageRuns(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteAgentUsageSlice(rows), nil
 }
 
 func (s *SqliteStore) CreateAttachment(

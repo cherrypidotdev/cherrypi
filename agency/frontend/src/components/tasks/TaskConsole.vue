@@ -78,6 +78,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :style="INHERIT_PROSE"
                 :text="group.item.text"
                 @open-image="emit('openImage', $event)"
+                @open-diagram="emit('openDiagram', $event)"
               )
 
             .d-chat-footer.mt-1.items-center.gap-2
@@ -118,6 +119,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 zoomable
                 :text="group.item.text"
                 @open-image="emit('openImage', $event)"
+                @open-diagram="emit('openDiagram', $event)"
               )
 
             .d-chat-footer.mt-1.items-center.gap-2
@@ -126,6 +128,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :datetime="isoAt(group.item.at)"
                 :title="fullAt(group.item.at)"
               ) {{ clockAt(group.item.at) }}
+              RunUsageLabel(
+                v-if="runUsageByItem.get(group.item.id)"
+                :usage="runUsageByItem.get(group.item.id)"
+              )
               button.text-muted-foreground.rounded-md.p-1(
                 type="button"
                 class="hover:bg-muted hover:text-foreground"
@@ -155,13 +161,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
                 class="group-open:rotate-90"
               )
-              span.activity-title(v-if="group.running") {{ group.title }}
-              span.text-muted-foreground(v-else) {{ group.title }}
-              span.text-muted-foreground(v-if="group.running") running…
-              span.text-muted-foreground · {{ group.items.length }} {{ group.items.length === 1 ? "step" : "steps" }}
-              span.text-muted-foreground(v-if="groupDuration(group)") · {{ groupDuration(group) }}
+              Spinner.size-3.shrink-0(
+                v-if="group.running"
+                data-testid="activity-running"
+              )
+              CheckIcon.size-3.shrink-0.text-emerald-600(
+                v-else
+                class="dark:text-emerald-400"
+                data-testid="activity-done"
+              )
+              span {{ workedLabel(group) }}
+              span.text-muted-foreground(
+                v-if="actionCount(group)"
+                data-testid="activity-actions"
+              ) · {{ actionCount(group) }}
+              span.text-muted-foreground(
+                v-if="waitingLabel(group)"
+                :title="waitingHint(group)"
+                data-testid="activity-waiting"
+              ) · {{ waitingLabel(group) }}
 
             .flex.flex-col.gap-2.px-3.pb-3
+              p.text-muted-foreground.text-xs(v-if="group.title") {{ group.title }}
               template(v-for="child in group.items" :key="child.id")
                 p.text-muted-foreground.text-xs.whitespace-pre-wrap(
                   v-if="child.kind === 'thinking'"
@@ -169,30 +190,58 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   | {{ child.text }}
                   span.ml-1(v-if="childDuration(child)") · {{ childDuration(child) }}
 
-                details.rounded-md.border(v-else class="group/tool")
-                  summary.flex.cursor-pointer.items-center.gap-2.px-2.py-1.text-xs.select-none
-                    ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
-                      class="group-open/tool:rotate-90"
-                    )
-                    span.font-mono {{ child.name }}
-                    span.text-muted-foreground(v-if="isInFlight(child)")
-                      | running…
-                    span.text-muted-foreground(
-                      v-else-if="child.phase !== ToolPhase.FINISHED"
-                      title="The transcript ends before this call recorded a result"
-                    ) no result recorded
-                    span.text-destructive(v-if="child.isError") error
-                    span.text-muted-foreground(v-if="childDuration(child)") · {{ childDuration(child) }}
+                .flex.items-baseline.gap-2.px-2.text-xs(
+                  v-else-if="child.kind === 'wait'"
+                  :class="child.waitKind === ModelWait_Kind.RETRY ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'"
+                  :title="waitHint(child)"
+                  data-testid="activity-wait"
+                )
+                  component.text-muted-foreground.size-3.shrink-0(
+                    :is="waitIcon(child)"
+                  )
+                  span.shrink-0 {{ waitLabel(child) }}
+                  span.flex-1.-translate-y-1.border-b.border-dotted(
+                    class="border-border/70"
+                  )
+                  span.shrink-0.tabular-nums {{ formatDurationPrecise(child.durationMs) }}
 
-                  .flex.flex-col.gap-2.px-2.pb-2
-                    pre.max-w-full.overflow-auto.text-xs.wrap-break-word.whitespace-pre-wrap(
-                      v-if="child.args"
-                    ) {{ pretty(child.args) }}
+                ToolCall(
+                  v-else
+                  :item="child"
+                  :running="isInFlight(child)"
+                  :duration="childDuration(child)"
+                )
 
-                    pre.max-w-full.overflow-auto.text-xs.wrap-break-word.whitespace-pre-wrap(
-                      v-if="child.result"
-                      :class="child.isError ? 'text-destructive' : 'text-muted-foreground'"
-                    ) {{ pretty(child.result) }}
+              ChangedFiles(:files="changesFor(group)")
+
+        .d-chat.d-chat-start(v-else-if="group.kind === 'questionnaire-live'")
+          ChatAvatar(:sender="agentSender" :picture="agentPicture")
+
+          QuestionnaireWizard.w-full(
+            :key="`closed-${wizardKey}`"
+            v-if="questionnaire && questionnaireRetired"
+            readonly
+            cancelled
+            :questions="questionnaire.questions"
+            :submitting="false"
+            data-test="questionnaire-closed"
+          )
+
+          QuestionnaireWizard.w-full(
+            :key="wizardKey"
+            v-else-if="questionnaire"
+            :questions="questionnaire.questions"
+            :submitting="wizardSubmitting"
+            :errors="wizardErrors"
+            :storage-key="wizardStorageKey"
+            :agent-id="agentId"
+            :model-config="modelConfig"
+            :model-selection="modelSelection"
+            :model-disabled="modelDisabled"
+            @submit="submitWizard"
+            @decline="declineWizard"
+            @model-change="emit('modelChange', $event)"
+          )
 
         .d-chat.d-chat-start(v-else :data-item-id="group.id")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
@@ -210,24 +259,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             data-test="questionnaire-review"
           )
 
-      .d-chat.d-chat-start(:key="wizardKey" v-if="questionnaire && showWizard")
+      .d-chat.d-chat-start(
+        v-if="showPending"
+        :title="pendingHint"
+        data-test="pending-activity"
+      )
         ChatAvatar(:sender="agentSender" :picture="agentPicture")
+        .bg-card.flex.w-full.items-center.gap-2.rounded-lg.border.px-3.py-2.text-xs
+          Spinner.text-muted-foreground.size-3.shrink-0
+          span.font-medium {{ pendingTitle }}
+          span.text-muted-foreground(v-if="pendingDetail") · {{ pendingDetail }}
+          span.text-muted-foreground.ml-auto {{ pendingElapsed }}
 
-        QuestionnaireWizard.w-full(
-          :questions="questionnaire.questions"
-          :submitting="wizardSubmitting"
-          :errors="wizardErrors"
-          :storage-key="wizardStorageKey"
-          :agent-id="agentId"
-          :model-config="modelConfig"
-          :model-selection="modelSelection"
-          :model-disabled="modelDisabled"
-          @submit="submitWizard"
-          @decline="declineWizard"
-          @model-change="emit('modelChange', $event)"
-        )
-
-      template(v-if="!showWizard")
+      template(v-if="!showWizard && !questionnaireRetired")
         .d-chat.d-chat-start(v-for="dialog in dialogs" :key="dialog.requestId")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
@@ -237,7 +281,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @respond="(response) => answer(dialog, response)"
           )
 
-      .flex.flex-col.items-center.gap-3.py-10(v-if="!items.length && !error")
+      .flex.flex-col.items-center.gap-3.py-10(
+        v-if="!items.length && !error && !showPending"
+      )
         Spinner.text-muted-foreground.size-5(v-if="busy")
         p.text-muted-foreground.text-sm {{ busy ? "The agent is starting…" : "Waiting for events…" }}
 
@@ -275,9 +321,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
+import ChangedFiles from "@/components/tasks/ChangedFiles.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
 import ExtensionUiPrompt from "@/components/tasks/ExtensionUiPrompt.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
+import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
+import ToolCall from "@/components/tasks/ToolCall.vue";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { pickActivityTitle } from "@/lib/activity";
@@ -287,20 +336,32 @@ import {
   findTool,
   groupElapsed,
   groupItems,
+  groupWaitingMs,
+  isBlankDelta,
   itemElapsed,
   mergeTool,
   newItem,
   pinnedUserIndex,
   prependEvents,
+  runUsageByMessage,
   timestampMs,
+  WAIT_RENDER_MS,
   type ActivityItem,
   type MessageSender as ChatSender,
   type Group,
   type Item,
   type NewItem,
+  type RunUsage,
+  type WaitItem,
 } from "@/lib/console";
-import { formatClock, formatDuration } from "@/lib/format";
-import type { InlineImage } from "@/lib/lightbox";
+import {
+  formatClock,
+  formatDuration,
+  formatDurationPrecise,
+  formatInstant,
+  isoInstant,
+} from "@/lib/format";
+import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import { INHERIT_PROSE } from "@/lib/markdown";
 import {
   multiSelectValue,
@@ -315,9 +376,13 @@ import {
   EMPTY_TASK_MODEL_SELECTION,
   type TaskModelSelection,
 } from "@/lib/task";
+import { groupChangedFiles, type ChangedFile } from "@/lib/toolPresentation";
 import {
+  ModelWait_Kind,
+  PendingActivity_Kind,
   ToolPhase,
   type Agent,
+  type AgentUsageRun,
   type Attachment,
   type ExtensionUiRequest,
   type ExtensionUiResponse,
@@ -327,13 +392,16 @@ import {
 } from "@cherrypi/sdk";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
+  ArchiveIcon,
   ArrowDownIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronUpIcon,
+  ClockIcon,
   CopyIcon,
+  RefreshCwIcon,
 } from "@lucide/vue";
 import {
   computed,
@@ -365,9 +433,15 @@ const props = withDefaults(
 
     modelConfig?: TaskConfig;
 
+    modelName?: string;
+
     modelSelection?: TaskModelSelection;
 
     modelDisabled?: boolean;
+
+    usageRuns?: AgentUsageRun[];
+
+    runOver?: boolean;
   }>(),
   {
     waitingForInput: undefined,
@@ -377,8 +451,11 @@ const props = withDefaults(
     agentId: "",
     agent: undefined,
     modelConfig: undefined,
+    modelName: "",
     modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
     modelDisabled: false,
+    usageRuns: () => [],
+    runOver: false,
   },
 );
 
@@ -416,11 +493,11 @@ function clockAt(at: number | undefined): string {
 }
 
 function fullAt(at: number | undefined): string {
-  return at === undefined ? "" : new Date(at).toLocaleString();
+  return formatInstant(at);
 }
 
 function isoAt(at: number | undefined): string {
-  return at === undefined ? "" : new Date(at).toISOString();
+  return isoInstant(at);
 }
 
 const attachmentsById = computed(() => {
@@ -444,6 +521,8 @@ const emit = defineEmits<{
 
   openImage: [image: InlineImage];
 
+  openDiagram: [diagram: DiagramSource];
+
   modelChange: [selection: TaskModelSelection];
 }>();
 
@@ -457,107 +536,6 @@ function titleFor(id: number): string {
     titles.set(id, title);
   }
   return title;
-}
-
-interface RenderActivity extends Extract<Group, { kind: "activity" }> {
-  running: boolean;
-}
-type RenderGroup =
-  | Extract<Group, { kind: "single" }>
-  | Extract<Group, { kind: "questionnaire" }>
-  | RenderActivity;
-
-const groups = computed<RenderGroup[]>(() => {
-  const raw = groupItems(items.value, titleFor);
-  return raw.map((group, index) => {
-    if (group.kind === "activity") {
-      return { ...group, running: isRunning(group, index === raw.length - 1) };
-    }
-    if (group.kind === "single" && group.item.kind === "user") {
-      return {
-        ...group,
-        item: { ...group.item, sender: resolveSender(group.item.sender) },
-      };
-    }
-    return group;
-  });
-});
-
-const live = computed(
-  () => props.busy === true || props.waitingForInput === true,
-);
-
-function isInFlight(item: ActivityItem): boolean {
-  return (
-    item.kind === "tool" && item.phase !== ToolPhase.FINISHED && live.value
-  );
-}
-
-function isRunning(
-  group: Extract<Group, { kind: "activity" }>,
-  isLast: boolean,
-): boolean {
-  return group.items.some(isInFlight) || (isLast && props.busy === true);
-}
-
-function elapsedLabel(ms: number | undefined): string {
-  return ms !== undefined && ms >= 1000 ? formatDuration(ms) : "";
-}
-
-const clock = ref(Date.now());
-
-const clockNow = computed(() => (live.value ? clock.value : undefined));
-let clockTimer: ReturnType<typeof setInterval> | undefined;
-
-function groupDuration(group: RenderActivity): string {
-  return elapsedLabel(groupElapsed(group.items, clockNow.value));
-}
-
-function childDuration(item: ActivityItem): string {
-  return elapsedLabel(itemElapsed(item, clockNow.value));
-}
-
-const hasRunningTool = computed(() =>
-  groups.value.some(
-    (group) => group.kind === "activity" && group.items.some(isInFlight),
-  ),
-);
-
-watch(
-  hasRunningTool,
-  (running) => {
-    if (running && clockTimer === undefined) {
-      clock.value = Date.now();
-      clockTimer = setInterval(() => {
-        clock.value = Date.now();
-      }, 1000);
-    } else if (!running && clockTimer !== undefined) {
-      clearInterval(clockTimer);
-      clockTimer = undefined;
-    }
-  },
-  { immediate: true },
-);
-
-const openActivities = reactive(new Set<number>());
-
-const dialogs = ref<ExtensionUiRequest[]>([]);
-const resolving = reactive<Record<string, boolean>>({});
-
-const copiedId = ref<number | null>(null);
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-
-async function copyResponse(text: string, id: number) {
-  try {
-    await navigator.clipboard.writeText(text);
-    copiedId.value = id;
-    clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => {
-      copiedId.value = null;
-    }, 1500);
-  } catch {
-    toast.error("Copy failed");
-  }
 }
 
 const questionnaire = computed(() => activeQuestionnaire(items.value));
@@ -577,10 +555,19 @@ const wizardEngaged = ref(false);
 const wizardActive = computed(
   () => questionnaire.value !== null && !wizardDone.value,
 );
+
+const retiredCallId = ref<string | undefined>(undefined);
+const questionnaireRetired = computed(() => {
+  if (props.runOver === true || wizardDeclined.value) return true;
+  const active = questionnaire.value;
+  return active !== null && retiredCallId.value === active.callId;
+});
 const showWizard = computed(
   () =>
     wizardActive.value &&
-    (props.waitingForInput !== false || wizardEngaged.value),
+    !questionnaireRetired.value &&
+    (props.waitingForInput === true ||
+      (props.busy === true && wizardEngaged.value)),
 );
 const wizardQueue: ExtensionUiRequest[] = [];
 const wizardSeen = new Set<string>();
@@ -593,6 +580,33 @@ let wizardQuestionsJSON = "";
 
 const wizardStorageKey = computed(() =>
   questionnaire.value ? `${props.id}:${questionnaire.value.callId}` : "",
+);
+
+async function dismissClosedDialog(request: ExtensionUiRequest) {
+  try {
+    await agent.respondToExtensionUi(props.id, request.requestId, {
+      cancelled: true,
+    });
+  } catch {}
+}
+
+watch(
+  () => props.runOver,
+  (over) => {
+    if (over !== true) return;
+    retiredCallId.value = questionnaire.value?.callId;
+    const pending = [...wizardQueue, ...dialogs.value];
+    wizardQueue.length = 0;
+    dialogs.value = [];
+    wizardAnswers.value = null;
+    wizardFinalNote.value = "";
+    wizardErrors.value = "";
+    wizardAwaitingCustom.value = false;
+    wizardDeclined.value = true;
+    wizardDone.value = false;
+    wizardEngaged.value = false;
+    for (const request of pending) dismissClosedDialog(request);
+  },
 );
 
 watch(
@@ -613,6 +627,10 @@ watch(
 
     wizardCallId = callId;
     wizardQuestionsJSON = signature;
+
+    if (active && props.runOver === true) {
+      retiredCallId.value = active.callId;
+    }
     if (!resumed) {
       wizardKey.value += 1;
       wizardAnswers.value = null;
@@ -636,6 +654,408 @@ watch(
   },
   { flush: "sync" },
 );
+
+interface RenderActivity extends Extract<Group, { kind: "activity" }> {
+  running: boolean;
+}
+
+interface RenderQuestionnaire {
+  id: number;
+  kind: "questionnaire-live";
+}
+type RenderGroup =
+  | Extract<Group, { kind: "single" }>
+  | Extract<Group, { kind: "questionnaire" }>
+  | RenderActivity
+  | RenderQuestionnaire;
+
+const QUESTIONNAIRE_SLOT_ID = -1;
+
+function groupHoldsCall(group: RenderGroup, callId: string): boolean {
+  return (
+    group.kind === "activity" &&
+    group.items.some((item) => item.kind === "tool" && item.callId === callId)
+  );
+}
+
+const groups = computed<RenderGroup[]>(() => {
+  const raw = groupItems(items.value, titleFor);
+  const out: RenderGroup[] = raw.flatMap((group, index): RenderGroup[] => {
+    if (group.kind === "activity") {
+      const items = group.items.filter(
+        (item) => item.kind !== "wait" || item.durationMs >= WAIT_RENDER_MS,
+      );
+      if (!items.length) return [];
+      return [
+        {
+          ...group,
+          items,
+          running: isRunning(group, index === raw.length - 1),
+        },
+      ];
+    }
+    if (group.kind === "single" && group.item.kind === "user") {
+      return [
+        {
+          ...group,
+          item: { ...group.item, sender: resolveSender(group.item.sender) },
+        },
+      ];
+    }
+    return [group];
+  });
+  const callId = questionnaire.value?.callId;
+  if (callId && (showWizard.value || questionnaireRetired.value)) {
+    const slot: RenderQuestionnaire = {
+      id: QUESTIONNAIRE_SLOT_ID,
+      kind: "questionnaire-live",
+    };
+    const index = out.findIndex((group) => groupHoldsCall(group, callId));
+    if (index >= 0) {
+      out.splice(index + 1, 0, slot);
+    } else {
+      out.push(slot);
+    }
+  }
+  return out;
+});
+
+// each run reads as one line without duplicating its numbers across the blocks
+
+const runs = computed<RunUsage[]>(() =>
+  props.usageRuns.map((run) => ({
+    provider: run.provider,
+    model: run.model,
+    inputTokens: Number(run.inputTokens),
+    outputTokens: Number(run.outputTokens),
+    cost: run.cost,
+    activeMs: Number(run.activeMs),
+    thinkingMs: Number(run.thinkingMs),
+    modelWaitMs: Number(run.modelWaitMs),
+    ttftMs: Number(run.ttftMs),
+    at: timestampMs(run.at),
+  })),
+);
+const runUsageByItem = computed(() =>
+  runUsageByMessage(items.value, runs.value),
+);
+
+const live = computed(
+  () => props.busy === true || props.waitingForInput === true,
+);
+
+const waitingForInput = computed(() => props.waitingForInput === true);
+
+const waitStartedAt = ref<number | undefined>(undefined);
+const waitStartedFromMount = ref(false);
+watch(
+  () => props.waitingForInput,
+  (waiting) => {
+    if (waiting === true) {
+      if (waitStartedAt.value === undefined) {
+        waitStartedAt.value = Date.now();
+        waitStartedFromMount.value = true;
+      }
+      return;
+    }
+    waitStartedAt.value = undefined;
+    waitStartedFromMount.value = false;
+  },
+  { immediate: true },
+);
+const waitingCutoff = computed(() => {
+  if (!waitingForInput.value) return undefined;
+  if (!waitStartedFromMount.value) return waitStartedAt.value;
+
+  const last = items.value[items.value.length - 1];
+  return lastItemAt(last) ?? waitStartedAt.value;
+});
+
+function isInFlight(item: ActivityItem): boolean {
+  if (waitingForInput.value) return false;
+  return (
+    item.kind === "tool" && item.phase !== ToolPhase.FINISHED && live.value
+  );
+}
+
+function isRunning(
+  group: Extract<Group, { kind: "activity" }>,
+  isLast: boolean,
+): boolean {
+  return (
+    group.items.some(isInFlight) ||
+    (isLast &&
+      props.busy === true &&
+      props.waitingForInput !== true &&
+      !showPending.value)
+  );
+}
+
+function elapsedLabel(ms: number | undefined): string {
+  return ms !== undefined && ms >= 1000 ? formatDuration(ms) : "";
+}
+
+const clock = ref(Date.now());
+
+const clockNow = computed(() => {
+  if (waitingForInput.value) return waitingCutoff.value;
+  return live.value ? clock.value : undefined;
+});
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+function workedLabel(group: RenderActivity): string {
+  const elapsed = groupElapsed(group.items, clockNow.value);
+  const verb = group.running ? "Working" : "Worked";
+  if (elapsed === undefined) return verb;
+  return `${verb} for ${elapsed >= 1000 ? formatDuration(elapsed) : "<1s"}`;
+}
+
+function actionCount(group: RenderActivity): string {
+  const count = group.items.filter((item) => item.kind !== "wait").length;
+  if (!count) return "";
+  return `${count} ${count === 1 ? "action" : "actions"}`;
+}
+
+function waitingLabel(group: RenderActivity): string {
+  const total = groupWaitingMs(group.items);
+  return total > 0 ? `${formatDuration(total)} waiting` : "";
+}
+
+function waitingHint(group: RenderActivity): string {
+  let requests = 0;
+  let retries = 0;
+  let compactions = 0;
+  for (const item of group.items) {
+    if (item.kind !== "wait") continue;
+    if (item.waitKind === ModelWait_Kind.RETRY) retries++;
+    else if (item.waitKind === ModelWait_Kind.COMPACTION) compactions++;
+    else requests++;
+  }
+  const parts = [
+    `${requests} model request${requests === 1 ? "" : "s"}`,
+    `${retries} retr${retries === 1 ? "y" : "ies"}`,
+    `${compactions} compaction${compactions === 1 ? "" : "s"}`,
+  ];
+  return parts.join(" · ");
+}
+
+function waitLabel(item: WaitItem): string {
+  const model = item.model || props.modelName;
+  const suffix = model ? ` · ${model}` : "";
+  switch (item.waitKind) {
+    case ModelWait_Kind.RETRY: {
+      const error = truncateError(item.error);
+      return `Retry${suffix}${error ? ` · ${error}` : ""}`;
+    }
+    case ModelWait_Kind.COMPACTION:
+      return `Compacted context${item.reason ? ` · ${compactionReason(item.reason)}` : ""}`;
+    default:
+      return item.firstToken
+        ? `First token${suffix}`
+        : `Model request${suffix}`;
+  }
+}
+
+function truncateError(error: string): string {
+  const text = error.trim();
+  if (!text) return "";
+  return text.length > 60 ? `${text.slice(0, 59)}…` : text;
+}
+
+function waitHint(item: WaitItem): string {
+  switch (item.waitKind) {
+    case ModelWait_Kind.RETRY: {
+      const attempt = item.attempt ? `attempt ${item.attempt}` : "";
+      return [attempt, item.error].filter(Boolean).join(" · ");
+    }
+    case ModelWait_Kind.COMPACTION:
+      return compactionReason(item.reason);
+    default:
+      return item.firstToken ? "The run's time to first token" : "";
+  }
+}
+
+function waitIcon(item: WaitItem) {
+  switch (item.waitKind) {
+    case ModelWait_Kind.RETRY:
+      return RefreshCwIcon;
+    case ModelWait_Kind.COMPACTION:
+      return ArchiveIcon;
+    default:
+      return ClockIcon;
+  }
+}
+
+function changesFor(group: RenderActivity): ChangedFile[] {
+  return groupChangedFiles(group.items);
+}
+
+function childDuration(item: ActivityItem): string {
+  return elapsedLabel(itemElapsed(item, clockNow.value));
+}
+
+const hasRunningTool = computed(() =>
+  groups.value.some(
+    (group) => group.kind === "activity" && group.items.some(isInFlight),
+  ),
+);
+
+interface PendingState {
+  kind: PendingActivity_Kind;
+
+  since: number;
+  model: string;
+  error: string;
+  attempt: number;
+  maxAttempts: number;
+  reason: string;
+}
+
+const pending = ref<PendingState | null>(null);
+
+const pendingFromStream = ref(false);
+
+const PENDING_REVEAL_MS = 1000;
+
+const pendingElapsedMs = computed(() =>
+  pending.value ? Math.max(clock.value - pending.value.since, 0) : 0,
+);
+const pendingElapsed = computed(() =>
+  pending.value && pendingElapsedMs.value >= 1000
+    ? formatDuration(pendingElapsedMs.value)
+    : "",
+);
+
+const showPending = computed(
+  () =>
+    pending.value !== null &&
+    props.busy === true &&
+    props.waitingForInput !== true &&
+    pendingElapsedMs.value >= PENDING_REVEAL_MS,
+);
+
+const pendingTitle = computed(() => {
+  switch (pending.value?.kind) {
+    case PendingActivity_Kind.RETRY:
+      return "Retrying the request";
+    case PendingActivity_Kind.COMPACTION:
+      return "Compacting the context";
+    default:
+      return "Waiting for the model";
+  }
+});
+
+const pendingDetail = computed(() => {
+  const state = pending.value;
+  if (!state) return "";
+  switch (state.kind) {
+    case PendingActivity_Kind.RETRY:
+      return state.maxAttempts
+        ? `attempt ${state.attempt} of ${state.maxAttempts}`
+        : "";
+    case PendingActivity_Kind.COMPACTION:
+      return compactionReason(state.reason);
+    default:
+      return state.model || props.modelName;
+  }
+});
+
+function compactionReason(reason: string): string {
+  switch (reason) {
+    case "threshold":
+      return "context full";
+    case "overflow":
+      return "context overflowed";
+    case "manual":
+      return "requested";
+    default:
+      return reason;
+  }
+}
+
+const pendingHint = computed(() => pending.value?.error ?? "");
+
+function clearPending() {
+  pending.value = null;
+}
+
+function lastItemAt(item: Item | undefined): number | undefined {
+  if (!item) return undefined;
+  if (
+    item.kind === "thinking" ||
+    item.kind === "tool" ||
+    item.kind === "wait"
+  ) {
+    return item.endedAt ?? item.startedAt;
+  }
+  return item.at;
+}
+
+function derivePending() {
+  if (pendingFromStream.value || pending.value || props.busy !== true) return;
+  const last = items.value[items.value.length - 1];
+
+  if (!last) return;
+  if (last.kind === "tool" && last.phase !== ToolPhase.FINISHED) return;
+  pending.value = {
+    kind: PendingActivity_Kind.MODEL_REQUEST,
+    since: lastItemAt(last) ?? Date.now(),
+    model: "",
+    error: "",
+    attempt: 0,
+    maxAttempts: 0,
+    reason: "",
+  };
+}
+
+const clockNeeded = computed(
+  () => hasRunningTool.value || pending.value !== null,
+);
+
+watch(
+  clockNeeded,
+  (needed) => {
+    if (needed && clockTimer === undefined) {
+      clock.value = Date.now();
+      clockTimer = setInterval(() => {
+        clock.value = Date.now();
+      }, 1000);
+    } else if (!needed && clockTimer !== undefined) {
+      clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.busy,
+  (busy) => {
+    if (busy !== true) clearPending();
+  },
+);
+
+const openActivities = reactive(new Set<number>());
+
+const dialogs = ref<ExtensionUiRequest[]>([]);
+const resolving = reactive<Record<string, boolean>>({});
+
+const copiedId = ref<number | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copyResponse(text: string, id: number) {
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedId.value = id;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedId.value = null;
+    }, 1500);
+  } catch {
+    toast.error("Copy failed");
+  }
+}
+
 const error = ref("");
 const scroller = ref<HTMLDivElement | null>(null);
 const content = ref<HTMLDivElement | null>(null);
@@ -728,6 +1148,9 @@ function resync() {
   nextBefore.value = "";
   historyLoaded.value = false;
   dialogs.value = [];
+
+  pending.value = null;
+  pendingFromStream.value = false;
   startStream();
   void loadHistory();
 }
@@ -737,6 +1160,34 @@ function push(item: NewItem) {
   if (stickToBottom.value) {
     void scrollToBottom();
   }
+}
+
+function pushWait(item: NewItem) {
+  if (item.kind !== "wait" || item.startedAt === undefined) {
+    push(item);
+    return;
+  }
+
+  const last = items.value[items.value.length - 1];
+  const lastStart =
+    last?.kind === "text"
+      ? last.at
+      : last?.kind === "thinking"
+        ? last.startedAt
+        : undefined;
+  if (
+    last &&
+    (last.kind === "text" || last.kind === "thinking") &&
+    lastStart !== undefined &&
+    lastStart >= item.startedAt
+  ) {
+    items.value.splice(items.value.length - 1, 0, {
+      ...item,
+      id: nextId++,
+    } as Item);
+    return;
+  }
+  push(item);
 }
 
 function appendText(
@@ -752,6 +1203,8 @@ function appendText(
       last.startedAt ??= startedAt;
       last.endedAt = endedAt ?? last.endedAt ?? startedAt;
     }
+  } else if (isBlankDelta(delta)) {
+    return;
   } else if (kind === "thinking") {
     push({
       kind: "thinking",
@@ -896,6 +1349,8 @@ async function loadHistory() {
     for (const event of liveQueue.splice(0)) {
       applyEvent(event);
     }
+
+    derivePending();
     await scrollToBottom();
     if ((scroller.value?.scrollTop ?? 0) < 80) {
       void loadOlder();
@@ -933,11 +1388,16 @@ async function loadOlder() {
 function applyEvent(event: TaskEvent) {
   const payload = event.event;
 
-  if (payload.case !== "text" && payload.case !== "thinking") {
+  if (
+    payload.case !== "text" &&
+    payload.case !== "thinking" &&
+    payload.case !== "modelWait"
+  ) {
     flushDeltas();
   }
   switch (payload.case) {
     case "text":
+      clearPending();
       queueDelta("text", payload.value.delta, timestampMs(event.at));
       break;
     case "userMessage": {
@@ -949,9 +1409,11 @@ function applyEvent(event: TaskEvent) {
       emit("queue", payload.value.steering);
       break;
     case "thinking":
+      clearPending();
       queueDelta("thinking", payload.value.delta, timestampMs(event.at));
       break;
     case "tool": {
+      clearPending();
       const item = newItem(event);
       if (item?.kind !== "tool") break;
       const existing = findTool(items.value, item.callId);
@@ -967,9 +1429,39 @@ function applyEvent(event: TaskEvent) {
       if (item) push(item);
       break;
     }
+    case "modelWait": {
+      const item = newItem(event);
+      if (item?.kind === "wait") pushWait(item);
+      break;
+    }
+    case "runSettled":
+      clearPending();
+      break;
+    case "pendingActivity": {
+      pendingFromStream.value = true;
+      const state = payload.value;
+      if (state.kind === PendingActivity_Kind.UNSPECIFIED) {
+        pending.value = null;
+        break;
+      }
+      pending.value = {
+        kind: state.kind,
+        since: timestampMs(event.at) ?? Date.now(),
+        model: state.model,
+        error: state.error,
+        attempt: state.attempt,
+        maxAttempts: state.maxAttempts,
+        reason: state.reason,
+      };
+      break;
+    }
     case "extensionUi": {
       const request = payload.value;
       if (isDialogMethod(request.method)) {
+        if (props.runOver === true) {
+          dismissClosedDialog(request);
+          break;
+        }
         if (wizardActive.value) {
           enqueueWizardDialog(request);
           void scrollToBottom();
@@ -1231,14 +1723,15 @@ function answerLabel(
 
 function submitWizard(answers: QuestionnaireAnswer[], finalNote: string) {
   wizardErrors.value = "";
+
+  if (wizardQueue.length === 0) {
+    wizardAnswers.value = null;
+    wizardErrors.value =
+      "This questionnaire is no longer waiting for an answer. Send a follow-up to continue the task.";
+    return;
+  }
   wizardAnswers.value = answers;
   wizardFinalNote.value = finalNote;
-
-  const retrying = wizardQueue.length > 0;
-  if (!retrying) {
-    wizardStep.value = 0;
-    wizardAwaitingCustom.value = false;
-  }
   wizardEngaged.value = true;
   void drainWizard();
 }
@@ -1251,14 +1744,6 @@ function declineWizard() {
   const pending = wizardQueue.shift();
   if (pending) {
     void cancelWizardDialog(pending);
-  }
-}
-
-function pretty(json: string): string {
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2);
-  } catch {
-    return json;
   }
 }
 

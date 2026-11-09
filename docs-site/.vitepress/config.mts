@@ -14,7 +14,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { defineConfig, type DefaultTheme } from "vitepress";
+import {
+  defineConfig,
+  type DefaultTheme,
+  type MarkdownOptions,
+} from "vitepress";
+
+// Markdown-It's type is re-exported by VitePress rather than pulled in as a
+
+type MarkdownIt = Parameters<NonNullable<MarkdownOptions["config"]>>[0];
+type FenceRule = NonNullable<MarkdownIt["renderer"]["rules"]["fence"]>;
 
 const configuredBase = (process.env.DOCS_BASE ?? "/docs/").trim();
 const base = configuredBase.endsWith("/")
@@ -69,6 +78,8 @@ const sidebarEn: DefaultTheme.SidebarItem[] = [
     items: [
       { text: "JavaScript SDK", link: "/advanced/sdk" },
       { text: "Connect API", link: "/advanced/api" },
+      { text: "Plugins", link: "/advanced/plugins" },
+      { text: "Testing plugins", link: "/advanced/plugin-testing" },
       { text: "Troubleshooting", link: "/advanced/troubleshooting" },
     ],
   },
@@ -123,6 +134,8 @@ const sidebarRu: DefaultTheme.SidebarItem[] = [
     items: [
       { text: "JavaScript SDK", link: "/ru/advanced/sdk" },
       { text: "Connect API", link: "/ru/advanced/api" },
+      { text: "Плагины", link: "/ru/advanced/plugins" },
+      { text: "Тестирование плагинов", link: "/ru/advanced/plugin-testing" },
       { text: "Решение проблем", link: "/ru/advanced/troubleshooting" },
     ],
   },
@@ -166,6 +179,8 @@ const navEn: DefaultTheme.NavItem[] = [
     items: [
       { text: "JavaScript SDK", link: "/advanced/sdk" },
       { text: "Connect API", link: "/advanced/api" },
+      { text: "Plugins", link: "/advanced/plugins" },
+      { text: "Testing plugins", link: "/advanced/plugin-testing" },
       { text: "Environment reference", link: "/reference/environment" },
       { text: "Troubleshooting", link: "/advanced/troubleshooting" },
     ],
@@ -201,6 +216,8 @@ const navRu: DefaultTheme.NavItem[] = [
     items: [
       { text: "JavaScript SDK", link: "/ru/advanced/sdk" },
       { text: "Connect API", link: "/ru/advanced/api" },
+      { text: "Плагины", link: "/ru/advanced/plugins" },
+      { text: "Тестирование плагинов", link: "/ru/advanced/plugin-testing" },
       { text: "Переменные окружения", link: "/ru/reference/environment" },
       { text: "Решение проблем", link: "/ru/advanced/troubleshooting" },
     ],
@@ -335,6 +352,10 @@ export default defineConfig({
       },
     },
   },
+
+  markdown: {
+    config: (md) => renderMermaid(md),
+  },
   vite: {
     server: {
       port: 5174,
@@ -342,3 +363,22 @@ export default defineConfig({
     },
   },
 });
+
+function renderMermaid(md: MarkdownIt): void {
+  const fence: FenceRule =
+    md.renderer.rules.fence ??
+    ((tokens, index, options, _env, self) =>
+      self.renderToken(tokens, index, options));
+
+  md.renderer.rules.fence = (tokens, index, options, env, self) => {
+    const token = tokens[index]!;
+    const language = token.info.trim().split(/\s+/)[0];
+    if (language !== "mermaid") {
+      return fence(tokens, index, options, env, self);
+    }
+
+    return `<MermaidDiagram code="${encodeURIComponent(
+      token.content.trim(),
+    )}"></MermaidDiagram>\n`;
+  };
+}

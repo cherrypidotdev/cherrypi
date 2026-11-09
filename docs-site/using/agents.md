@@ -90,10 +90,31 @@ are still edited under **Settings → Tasks** (overall and per-tag caps) and
 - concurrent tasks per project;
 - per-tag and per-project-tag overrides.
 
-The **Project → Concurrency** tab shows the same picture across the project's
-member agents, including the per-agent project and tag caps. The scheduler
-drains queued tasks while a slot is free. Defaults are conservative; raise them
-when the host has capacity and your model provider allows the traffic.
+A per-tag cap also **declares** that the agent handles the tag. When a project
+marks a tag required, only agents that declare it can run tasks carrying that
+tag; a `0` cap still declares it (interested, but no free capacity now). The
+Concurrency tab summarizes the tags this agent declares, globally and per
+project. The **Project → Concurrency** tab shows the same picture across the
+project's member agents, including the per-agent project and tag caps. The
+scheduler drains queued tasks while a slot is free. Defaults are conservative;
+raise them when the host has capacity and your model provider allows the
+traffic.
+
+### Reserved slots
+
+A project can keep some of its concurrency for one tag class, so a steady stream
+of long tasks cannot starve it. **Project → Concurrency → Reserved slots** takes
+a tag and a count, for example `#review` and `1`. A task without the tag can then
+only start while the project and every member agent have more than one slot to
+spare, while a task carrying `#review` may use them and any spare general
+capacity. Only a project owner (or an administrator) may change the floors.
+
+With two member agents at five project slots each (ten for the project) and
+three reserved for `#review`, at most seven tasks without `#review` run at once;
+on an agent whose total cap is five, one reserved for `#review` leaves four. A
+tag with no reservation is unaffected, and the class's own ceiling is still its
+per-tag cap. Settled and failed reviews keep holding their slots until they are
+closed out, so close them out to keep the reservation useful.
 
 ## Tokens
 
@@ -106,9 +127,10 @@ CHERRYPI_AGENT_TOKEN=pat_…
 cherrypi-agent --agency-url … --token pat_…
 ```
 
-An explicit token wins over the cached token file. Rotate a token by minting a
-new one and restarting the agent, or by replacing
-`$CHERRYPI_DIR/agent.token` (the bundled Pi tools re-read it).
+An explicit token wins over the cached token file, for the agent and the
+bundled Pi tools alike. Rotate a token by minting a new one and restarting the
+agent, or by replacing `$CHERRYPI_DIR/agent.token` (the bundled Pi tools
+re-read it).
 
 ## Removing an agent
 

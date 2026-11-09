@@ -17,78 +17,85 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.flex-col.gap-2
-  .flex.items-center.gap-2
-    ListTreeIcon.text-muted-foreground(class="size-3.5")
-    span.text-muted-foreground.text-xs References
-  p.text-muted-foreground.text-xs(v-if="!selected.length")
-    | None.
-  .flex.flex-col.gap-1(v-if="selected.length")
-    .flex.items-center.gap-2.rounded-md.border.px-2.py-1(
-      v-for="entry in selected"
-      :key="entry.task.id"
-      :class="taskReferenceKindClass(entry.kind)"
-    )
-      component.size-3.shrink-0(
-        :class="taskReferenceKindTextClass(entry.kind)"
-        :is="taskReferenceKindIcon(entry.kind)"
-      )
-      component.size-3.shrink-0(:is="taskStateIcon(entry.task.state)")
-      strong.text-xs.font-semibold {{ entry.task.id }}:
-      span.truncate.text-xs(:class="taskNameClass(entry.task)") {{ taskReferenceName(entry.task) }}
-      Select.ml-auto.w-36(
-        :model-value="entry.kind"
-        @update:model-value="setKind(entry, $event)"
-      )
-        SelectTrigger(size="sm" title="Reference kind")
-          SelectValue
-        SelectContent
-          SelectGroup
-            SelectItem(
-              v-for="option in TASK_REFERENCE_KINDS"
-              :key="option.value"
-              :value="option.value"
-            ) {{ option.label }}
-      Button.shrink-0(
+.flex.flex-wrap.items-center(class="gap-1.5")
+  DropdownMenu(v-model:open="menuOpen")
+    DropdownMenuTrigger(as-child)
+      Button(
         type="button"
-        variant="ghost"
-        size="icon-sm"
-        title="Remove reference"
-        @click="remove(entry)"
-      )
-        XIcon
-  .relative(ref="root")
-    .relative
-      SearchIcon.text-muted-foreground.pointer-events-none.absolute.size-4(
-        class="top-1/2 left-2.5 -translate-y-1/2"
-      )
-      Input.w-full.pl-8(
-        v-model="search"
-        placeholder="Add reference…"
-        autocomplete="off"
-        @focus="open = true"
+        variant="outline"
+        size="sm"
+        :title="triggerTitle"
         :disabled="disabled"
       )
-    TaskPicker.absolute.top-full.right-0.left-0.z-50.mt-1(
-      v-if="open && !disabled"
-      :search="search"
-      :reference-project-id="projectId"
-      :exclude-ids="excludeIds"
-      @pick="add"
+        ListTreeIcon(data-icon="inline-start")
+        span References
+        span.text-muted-foreground(v-if="selected.length") {{ selected.length }}
+    DropdownMenuContent.w-96(align="start" @select.prevent)
+      .p-2
+        DropdownMenuFilter(
+          v-model="search"
+          placeholder="Search tasks…"
+          aria-label="Search tasks to reference"
+          auto-focus
+        )
+      TaskPicker(
+        embedded
+        :search="search"
+        :reference-project-id="projectId"
+        :exclude-ids="excludeIds"
+        @pick="add"
+      )
+
+  span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
+    v-for="entry in selected"
+    :key="entry.task.id"
+    class="py-0.5"
+    :class="taskReferenceKindClass(entry.kind)"
+    :title="taskReferenceTitle(entry.task)"
+  )
+    component.size-3.shrink-0(
+      :class="taskReferenceKindTextClass(entry.kind)"
+      :is="taskReferenceKindIcon(entry.kind)"
     )
+    strong.font-semibold {{ entry.task.id }}
+    span.max-w-40.truncate(:class="taskNameClass(entry.task)") {{ taskReferenceName(entry.task) }}
+    DropdownMenu
+      DropdownMenuTrigger(as-child)
+        button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+          type="button"
+          class="p-0.5 hover:opacity-100"
+          title="Reference kind"
+        )
+          ChevronDownIcon.size-3
+      DropdownMenuContent.w-40(align="end")
+        DropdownMenuRadioGroup(
+          :model-value="entry.kind"
+          @update:model-value="setKind(entry, $event)"
+        )
+          DropdownMenuRadioItem(
+            v-for="option in TASK_REFERENCE_KINDS"
+            :key="option.value"
+            :value="option.value"
+          ) {{ option.label }}
+    button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+      type="button"
+      class="p-0.5 hover:opacity-100"
+      title="Remove reference"
+      @click="remove(entry)"
+    )
+      XIcon.size-3
 </template>
 
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuFilter,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   TASK_REFERENCE_KINDS,
   taskNameClass,
@@ -96,15 +103,14 @@ import {
   taskReferenceKindIcon,
   taskReferenceKindTextClass,
   taskReferenceName,
-  taskStateIcon,
+  taskReferenceTitle,
 } from "@/lib/task";
 import {
   TaskReferenceKind,
   type Task,
   type TaskReferenceInput,
 } from "@cherrypi/sdk";
-import { ListTreeIcon, SearchIcon, XIcon } from "@lucide/vue";
-import { onClickOutside, useEventListener } from "@vueuse/core";
+import { ChevronDownIcon, ListTreeIcon, XIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import TaskPicker from "./TaskPicker.vue";
 
@@ -130,31 +136,10 @@ const emit = defineEmits<{ "update:modelValue": [TaskReferenceInput[]] }>();
 const selected = ref<SelectedReference[]>([]);
 
 const search = ref("");
-const open = ref(false);
-const root = ref<HTMLElement | null>(null);
+const menuOpen = ref(false);
 
-onClickOutside(root, () => (open.value = false));
-
-useEventListener(
-  window,
-  "keydown",
-  (event: KeyboardEvent) => {
-    if (!open.value || event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    open.value = false;
-  },
-  { capture: true },
-);
-
-watch(search, (value) => {
-  if (value.trim()) open.value = true;
-});
-watch(
-  () => props.disabled,
-  (disabled) => {
-    if (disabled) open.value = false;
-  },
+const triggerTitle = computed(() =>
+  props.projectId ? "References" : "Select a project first",
 );
 
 const excludeIds = computed(() => selected.value.map((entry) => entry.task.id));
@@ -176,6 +161,7 @@ function add(candidate: Task) {
     { task: candidate, kind: TaskReferenceKind.INFORMATIONAL },
   ];
   search.value = "";
+  menuOpen.value = false;
   emitValue();
 }
 

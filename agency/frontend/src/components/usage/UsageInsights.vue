@@ -23,8 +23,9 @@ Card
       div
         CardTitle Averages per task
         CardDescription
-          | Completed tasks in range. TTC spans first queue → completion; active is
-          | the agent's work time.
+          | Completed tasks in range. TTC is the time outside backlog since the first
+          | queue, active is the agent's work time, and thinking is the model's own
+          | work inside it.
       .flex.items-center.gap-2
         span.text-11.text-muted-foreground {{ tasksLabel }}
         DropdownMenu
@@ -58,7 +59,7 @@ Card
               DropdownMenuSeparator
               DropdownMenuItem(@select="clearTags") Clear tag filter
   CardContent
-    .grid.grid-cols-2.gap-3(class="sm:grid-cols-3 lg:grid-cols-5")
+    .grid.grid-cols-2.gap-3(class="sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8")
       .border-border.flex.flex-col.rounded-lg.border.p-3(
         v-for="tile in tiles"
         :key="tile.key"
@@ -76,7 +77,7 @@ Card
       | {{ tasksLabel }} · {{ rangeLabel }}
     span.text-2xs.text-muted-foreground
       template(v-if="selectedTagIds.length") Tag-filtered · any selected tag
-      template(v-else) Queue → completion · agent-active excludes idle waits
+      template(v-else) Outside backlog · active excludes idle waits · thinking is model work
 </template>
 
 <script setup lang="ts">
@@ -100,7 +101,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import UsageSparkline from "@/components/usage/UsageSparkline.vue";
 import type { UsageInsightTag } from "@/composables/useUsageAnalytics";
-import { formatDuration, formatTokens } from "@/lib/format";
+import {
+  formatDuration,
+  formatDurationPrecise,
+  formatRate,
+  formatTokens,
+} from "@/lib/format";
 import {
   usageRangeLabel,
   type UsageInsightDay,
@@ -167,14 +173,14 @@ const tiles = computed(() => {
   const showsTtc = hasTasks && insights.ttcSamples > 0;
   const ttcSub =
     insights.ttcSamples === insights.tasks
-      ? "queue → completed"
+      ? "outside backlog"
       : `${insights.ttcSamples} of ${insights.tasks} timed`;
 
   return [
     {
       key: "ttc",
-      label: "TTC total",
-      hint: "queue → done",
+      label: "TTC",
+      hint: "avg / task",
       value: showsTtc ? formatDuration(insights.ttcMs) : "—",
       sub: ttcSub,
       color: "var(--chart-1)",
@@ -188,6 +194,43 @@ const tiles = computed(() => {
       sub: "agent work / task",
       color: "var(--chart-2)",
       values: last(props.daily.map((day) => day.activeMs)),
+    },
+    {
+      key: "thinking",
+      label: "Thinking",
+      hint: "model work",
+      value: hasTasks ? formatDuration(insights.thinkingMs) : "—",
+      sub: insights.modelWaitMs
+        ? `${formatDuration(insights.modelWaitMs)} waiting`
+        : "per task",
+      color: "var(--chart-3)",
+      values: last(props.daily.map((day) => day.thinkingMs)),
+    },
+    {
+      key: "ttft",
+      label: "TTFT",
+      hint: "first token",
+      value:
+        hasTasks && insights.ttftRuns
+          ? formatDurationPrecise(insights.ttftPerRunMs)
+          : "—",
+      sub: insights.ttftRuns
+        ? `avg / run · ${insights.ttftRuns} runs`
+        : "no measured runs",
+      color: "var(--chart-4)",
+      values: last(props.daily.map((day) => day.ttftPerRunMs)),
+    },
+    {
+      key: "rate",
+      label: "Speed",
+      hint: "output tok/s",
+      value:
+        hasTasks && insights.tokensPerSecond
+          ? formatRate(insights.tokensPerSecond)
+          : "—",
+      sub: "generation only",
+      color: "var(--chart-5)",
+      values: last(props.daily.map((day) => day.tokensPerSecond)),
     },
     {
       key: "rounds",

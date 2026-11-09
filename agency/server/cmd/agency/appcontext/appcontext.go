@@ -38,6 +38,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/health"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
+	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/promptaccess"
@@ -47,15 +48,18 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/settings"
 	"cherrypi.vladfaust.com/agency/internal/sites"
+	"cherrypi.vladfaust.com/agency/internal/speech"
 	"cherrypi.vladfaust.com/agency/internal/storage"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"cherrypi.vladfaust.com/agency/internal/tags"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/agency/internal/taskwake"
 	"cherrypi.vladfaust.com/agency/internal/teams"
 	"cherrypi.vladfaust.com/agency/internal/templates"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	"cherrypi.vladfaust.com/agency/internal/webhook"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
+	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
 	"connectrpc.com/connect"
 )
 
@@ -88,6 +92,10 @@ type AppContext struct {
 	Realtime *realtime.Bus
 
 	ProcessLogs *processlog.Log
+
+	Speech *speech.Service
+
+	Plugins *pluginhost.Service
 }
 
 func taskTransitionNotifier(
@@ -380,11 +388,58 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	promptsSvc := prompts.New(st)
 	tagsSvc := tags.New(st)
+	settingsSvc := settings.New(st)
 	tasksSvc := tasks.New(st, projectsSvc)
+
+	pluginStore, err := pluginhost.OpenStore(config.DatabaseDSN)
+	if err != nil {
+		log.Fatalf("Failed to open the plugin store: %v", err)
+	}
+	pluginsSvc := pluginhost.NewService(pluginhost.Config{
+		DSN:                 config.DatabaseDSN,
+		DataDir:             config.PluginDataDir,
+		RequirePGDatabase:   config.PluginPGRequireDatabase,
+		AllowPrivateNetwork: config.PluginAllowPrivateNetwork,
+	}, pluginStore)
+	pluginsSvc.Projects = projectsSvc
+	pluginsSvc.Agents = agentRegistry
+	pluginsSvc.Accounts = accountsSvc
+	pluginsSvc.Tasks = tasksSvc
+	pluginsSvc.Settings = settingsSvc
+	pluginsSvc.Teams = teamsSvc
+	pluginsSvc.Tags = tagsSvc
+	if err := pluginsSvc.Bootstrap(context.Background()); err != nil {
+		log.Fatalf("Failed to bootstrap plugins: %v", err)
+	}
+
 	onTransition := taskTransitionNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	tasksSvc.OnTransition = func(ctx context.Context, tr tasks.Transition) {
 		onTransition(ctx, tr)
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+
+		if tr.Held {
+			pluginsSvc.DispatchEvent(ctx, pluginhost.Event{
+				Name:   "task_held",
+				TaskID: tr.TaskID,
+				State:  string(tr.State),
+				Extra:  map[string]any{"holds": pluginHoldsPayload(tr.Holds)},
+			})
+			return
+		}
+		if event := pluginEventForState(tr.State); event != "" {
+			pluginsSvc.DispatchEvent(ctx, pluginhost.Event{
+				Name:   event,
+				TaskID: tr.TaskID,
+				State:  string(tr.State),
+			})
+		}
+	}
+	tasksSvc.OnCreated = func(ctx context.Context, taskID string) {
+		pluginsSvc.DispatchEvent(ctx, pluginhost.Event{Name: "task_created", TaskID: taskID})
+	}
+
+	tasksSvc.OnHoldReleased = func(ctx context.Context, release tasks.HoldRelease) {
+		pluginsSvc.DispatchEvent(ctx, pluginhost.HoldReleaseEvent(release))
 	}
 	tasksSvc.OnChange = func(context.Context, string) {
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
@@ -392,6 +447,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	tasksSvc.OnComment = commentNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	tasksSvc.OnMention = mentionNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	limitsSvc := limits.New(st)
+	tasksSvc.Limits = limitsSvc
 	sched := scheduler.New(
 		tasksSvc,
 		projectsSvc,
@@ -401,6 +457,66 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		hub,
 	)
 	sched.Attachments = attachmentsSvc
+	sched.Plugins = pluginsSvc
+
+	pluginsSvc.FollowUp = sched.FollowUp
+	pluginsSvc.RecordMessage = func(
+		ctx context.Context,
+		taskID, messageID, text string,
+		actorID ids.ActorID,
+		at int64,
+	) {
+		if err := attachmentsSvc.RecordMessage(
+			ctx, taskID, messageID, text, actorID, nil, at,
+		); err != nil {
+			log.Printf("[plugins] record message for %s: %v", taskID, err)
+		}
+	}
+
+	waker := &taskwake.Waker{
+		Tasks: tasksSvc,
+		Wake:  sched.Wake,
+		Steer: func(ctx context.Context, t tasks.Task, prompt string) error {
+			agent, err := agentRegistry.GetByActor(ctx, t.AssigneeActorID)
+			if err != nil {
+				return err
+			}
+			conn, err := hub.Connection(agent.ID)
+			if err != nil {
+				return err
+			}
+			sender, err := tasksSvc.Sender(ctx, 0)
+			if err != nil {
+				return err
+			}
+			_, err = conn.Tasks.AddToTask(ctx, &agentv1.AddToTaskRequest{
+				Id:     t.SessionID,
+				Prompt: prompt,
+				TaskId: t.ID,
+				Ref: &agentv1.TaskRef{
+					ProjectId: t.ProjectID,
+					Seq:       t.Seq,
+				},
+				Sender: &agentv1.PromptSender{
+					ActorId:  int64(sender.ActorID),
+					Username: sender.Username,
+					Name:     sender.Name,
+					Kind:     sender.Kind,
+				},
+			})
+			return err
+		},
+	}
+	tasksSvc.OnChildFinished = waker.OnChildFinished
+
+	tasksSvc.OnInputCleared = func(ctx context.Context, t tasks.Task) {
+		sched.DeliverPendingPrompt(ctx, t)
+		waker.OnInputCleared(ctx, t)
+	}
+
+	tasksSvc.OnPendingPromptQueued = func(context.Context, string) {
+		sched.Wake()
+	}
 
 	artifactsSvc := artifacts.New(st)
 	sitesSvc := sites.New(
@@ -433,6 +549,13 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Health:        healthSvc,
 		Realtime:      realtimeBus,
 		OnTaskFailed:  sched.Wake,
+		OnTaskEvent: func(ctx context.Context, event, taskID string, extra map[string]any) {
+			pluginsSvc.DispatchEvent(ctx, pluginhost.Event{
+				Name:   event,
+				TaskID: taskID,
+				Extra:  extra,
+			})
+		},
 	}
 	hub.OnConnect = func(ctx context.Context, conn *tunnel.Connection) {
 		go consumer.Run(ctx, conn)
@@ -463,7 +586,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Storage:  objectStore,
 		Accounts: accountsSvc,
 		Agents:   agentRegistry,
-		Settings: settings.New(st),
+		Settings: settingsSvc,
+		Speech:   speech.New(settingsSvc),
 		Projects: projectsSvc,
 		Prompts:  promptsSvc,
 		PromptFlow: &promptflow.Service{
@@ -497,6 +621,36 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Audit:         auditSvc,
 		Realtime:      realtimeBus,
 		ProcessLogs:   processLog,
+		Plugins:       pluginsSvc,
+	}
+}
+
+func pluginHoldsPayload(holds []tasks.TaskHold) []map[string]any {
+	out := make([]map[string]any, len(holds))
+	for i, hold := range holds {
+		out[i] = map[string]any{
+			"plugin":      hold.PluginID,
+			"plugin_name": hold.PluginName,
+			"key":         hold.Key,
+			"reason":      hold.Reason,
+			"created_at":  hold.CreatedAt.UnixMilli(),
+		}
+	}
+	return out
+}
+
+func pluginEventForState(state tasks.State) string {
+	switch state {
+	case tasks.StateRunning:
+		return "task_started"
+	case tasks.StateSettled:
+		return "task_settled"
+	case tasks.StateCompleted:
+		return "task_completed"
+	case tasks.StateCancelled:
+		return "task_cancelled"
+	default:
+		return ""
 	}
 }
 

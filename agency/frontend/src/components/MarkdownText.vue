@@ -28,7 +28,9 @@ component(
 </template>
 
 <script setup lang="ts">
-import type { InlineImage } from "@/lib/lightbox";
+import type { DiagramSource, InlineImage } from "@/lib/lightbox";
+import { mermaidTheme } from "@/lib/mermaid";
+import { attachMermaidTools } from "@/lib/mermaidViewer";
 import { loadReferenceDirectory, referencePlugin } from "@/lib/references";
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
@@ -71,6 +73,11 @@ function createMarkdown(html: boolean) {
     );
   };
 
+  md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
+    `<div class="md-table">${self.renderToken(tokens, idx, options)}`;
+  md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
+    `${self.renderToken(tokens, idx, options)}</div>`;
+
   md.use(referencePlugin);
   return md;
 }
@@ -103,7 +110,11 @@ const props = withDefaults(
   }>(),
   { allowHtml: true, zoomable: false },
 );
-const emit = defineEmits<{ openImage: [image: InlineImage] }>();
+const emit = defineEmits<{
+  openImage: [image: InlineImage];
+
+  openDiagram: [diagram: DiagramSource];
+}>();
 
 const tag = computed(() => (props.inline ? "span" : "div"));
 const root = ref<HTMLElement>();
@@ -203,12 +214,19 @@ function onKeydown(event: KeyboardEvent) {
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
+const sources = new WeakMap<HTMLElement, string>();
+
 async function renderMermaid() {
   const nodes = root.value?.querySelectorAll<HTMLElement>(
     "pre.mermaid:not([data-processed])",
   );
   if (!nodes || nodes.length === 0) {
     return;
+  }
+
+  const rendered = Array.from(nodes);
+  for (const node of rendered) {
+    sources.set(node, node.textContent ?? "");
   }
 
   const snapshot = html.value;
@@ -221,12 +239,26 @@ async function renderMermaid() {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
-      theme: document.documentElement.classList.contains("dark")
-        ? "dark"
-        : "default",
+      theme: mermaidTheme(document.documentElement.classList.contains("dark")),
     });
-    await mermaid.run({ nodes: Array.from(nodes), suppressErrors: true });
+    await mermaid.run({ nodes: rendered, suppressErrors: true });
   } catch {}
+  if (snapshot === html.value) {
+    for (const node of rendered) {
+      addDiagramTools(node);
+    }
+  }
+}
+
+function addDiagramTools(node: HTMLElement) {
+  const svg = node.querySelector("svg");
+  if (!svg) return;
+  const code = sources.get(node) ?? "";
+  attachMermaidTools(node, {
+    code,
+
+    onExpand: () => emit("openDiagram", { svg: svg.outerHTML, code }),
+  });
 }
 
 function scheduleMermaid() {
@@ -246,6 +278,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+:deep(.md-table) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 :deep(.md-image) {
   position: relative;
   display: inline-block;

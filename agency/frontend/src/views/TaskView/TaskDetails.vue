@@ -35,6 +35,9 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         data-testid="comments-unread"
       ) {{ task.unreadComments > 99 ? "99+" : task.unreadComments }}
   .flex.flex-1.flex-col.gap-4.overflow-y-auto.p-4
+    .flex.flex-col.gap-1(v-if="task.badges.length")
+      span.text-muted-foreground.text-xs Badges
+      TaskBadges(:badges="task.badges" data-testid="task-details-badges")
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs Assignee
@@ -148,6 +151,14 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs Task id
         span.font-mono.text-xs.break-all(:title="task.id") {{ task.id }}
+      .flex.flex-col(v-if="task.parentTaskId" class="gap-0.5")
+        span.text-muted-foreground.text-xs Parent task
+        RouterLink.font-mono.text-xs(
+          class="hover:underline"
+          title="Sub-task of this task"
+          :to="{ name: 'task', params: { id: task.parentTaskId } }"
+          data-testid="task-parent-breadcrumb"
+        ) {{ task.parentTaskId }}
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs Created
         span.text-xs {{ formatTimestamp(task.createdAt) }}
@@ -217,6 +228,17 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               :size="16"
             )
             span {{ lead.name || lead.username || lead.actorId }}
+            button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+              v-if="canRemoveLead"
+              type="button"
+              class="p-0.5 hover:opacity-100"
+              title="Remove lead"
+              @click="$emit('toggle-lead', lead.actorId)"
+              :disabled="saving.leads"
+            )
+              XIcon.size-3
+          span.text-muted-foreground.text-xs(v-if="!task.leads.length")
+            | No lead yet — a task needs someone responsible before it runs
           DropdownMenu
             DropdownMenuTrigger(as-child)
               Button(
@@ -306,6 +328,10 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         )
           span.rounded-full.bg-current(class="size-1.5")
           | {{ tag.name }}
+          LockIcon.size-3.shrink-0.text-amber-500(
+            v-if="tag.isRequired"
+            title="Only runs on agents that declare this tag"
+          )
           button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
             type="button"
             class="p-0.5 hover:opacity-100"
@@ -337,6 +363,10 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 :style="{ backgroundColor: tagColor(tag.color) }"
               )
               span {{ tag.name }}
+              LockIcon.size-3.shrink-0.text-amber-500(
+                v-if="tag.isRequired"
+                title="Only runs on agents that declare this tag"
+              )
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
       span.text-muted-foreground.text-xs Attachments
@@ -346,6 +376,63 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         :attachments="task.attachments"
         @open="$emit('open-attachment', $event)"
       )
+
+    .flex.flex-col.gap-1(
+      v-if="detailsTab === 'general' && task.childTasks.length"
+      data-testid="task-subtasks"
+    )
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-xs Sub-tasks
+        span.text-muted-foreground.text-xs
+          | {{ task.pendingChildren }} open
+      .flex.flex-col.gap-1
+        RouterLink.flex.items-center.gap-2.rounded-md.border.px-2.py-1.text-xs(
+          v-for="child in task.childTasks"
+          :key="child.id"
+          class="hover:bg-muted/50"
+          :to="{ name: 'task', params: { id: child.id } }"
+          :title="child.name || child.prompt || child.id"
+        )
+          component.text-muted-foreground.size-3.shrink-0(
+            :is="taskStateIcon(child.state)"
+          )
+          span.shrink-0.font-mono {{ child.id }}
+          span.truncate {{ child.name || child.prompt || "Untitled" }}
+          span.text-muted-foreground.ml-auto.shrink-0
+            | {{ taskStateLabel(child.state) }}
+
+    .flex.flex-col.gap-1(
+      v-if="detailsTab === 'general' && task.holds.length"
+      data-testid="task-holds"
+    )
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-xs Holds
+        span.text-muted-foreground.text-xs
+          | {{ task.holds.length }} pending
+      .flex.flex-col.gap-1
+        .flex.flex-col.rounded-md.border.px-2.py-1.text-xs(
+          v-for="hold in task.holds"
+          :key="`${hold.plugin}:${hold.key}`"
+          class="gap-0.5"
+          :title="`Held since ${formatTimestamp(hold.createdAt)}`"
+        )
+          .flex.items-center.gap-2
+            PauseIcon.text-muted-foreground.size-3.shrink-0
+            span.truncate.font-medium {{ hold.pluginName || hold.plugin }}
+            span.text-muted-foreground.ml-auto.shrink-0.font-mono {{ hold.key }}
+            Button.shrink-0(
+              v-if="canCloseOut"
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              title="Release this hold"
+              :aria-label="`Release the ${hold.pluginName || hold.plugin} hold ${hold.key}`"
+              @click="emit('release-hold', hold)"
+              data-testid="release-hold"
+            )
+              LockOpenIcon.size-3
+          span.text-muted-foreground.whitespace-pre-wrap(v-if="hold.reason")
+            | {{ hold.reason }}
 
     TaskReferences(
       v-if="detailsTab === 'general'"
@@ -397,9 +484,41 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ formatCost(taskUsage.cost) }}
         .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground Total run time
+          span.text-muted-foreground(
+            title="Time from the first queue to completion. Keeps counting while the task is open and stops in backlog."
+          ) Time till completion
+          Skeleton.h-3.w-16(v-if="!task")
+          span.font-medium.tabular-nums(v-else) {{ formatDuration(ttcMs) }}
+        .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(
+            title="The agent's work time: idle gaps and user-input waits excluded."
+          ) Active time
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ formatDuration(taskUsage.activeMs) }}
+        .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(
+            title="The model's own working time: active time minus tool calls, model waits included."
+          ) Thinking time
+          Skeleton.h-3.w-16(v-if="!taskUsage")
+          span.font-medium.tabular-nums(v-else) {{ measured(thinkingMs) }}
+        .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(
+            title="The part of the thinking time spent waiting for a provider response."
+          ) Model wait
+          Skeleton.h-3.w-16(v-if="!taskUsage")
+          span.font-medium.tabular-nums(v-else) {{ measured(modelWaitMs) }}
+        .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(
+            title="Run start to first token, summed over every run and averaged per run."
+          ) TTFT
+          Skeleton.h-3.w-16(v-if="!taskUsage")
+          span.font-medium.tabular-nums(v-else) {{ ttftLabel }}
+        .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(
+            title="Output tokens over the time the model spent generating them: thinking time minus model waits."
+          ) Generation speed
+          Skeleton.h-3.w-16(v-if="!taskUsage")
+          span.font-medium.tabular-nums(v-else) {{ generationLabel }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground Workspace size
           Skeleton.h-3.w-16(v-if="taskDiskLoading")
@@ -468,6 +587,31 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
 
     .bg-border.h-px(v-if="detailsTab === 'general'")
     .flex.flex-col.gap-2(v-if="detailsTab === 'general'")
+      DropdownMenu
+        DropdownMenuTrigger(as-child)
+          Button(
+            type="button"
+            variant="outline"
+            :title="task.projectId ? 'Create a task related to this one' : 'A related task needs this task to belong to a project'"
+            :disabled="actionBusy || !task.projectId"
+            data-testid="task-new-related"
+          )
+            PlusIcon(data-icon="inline-start")
+            span New task
+        DropdownMenuContent.w-72(align="start")
+          DropdownMenuLabel Relate it to {{ task.id }}
+          DropdownMenuSeparator
+          DropdownMenuItem(
+            v-for="option in NEW_TASK_RELATIONS"
+            :key="option.value"
+            :title="option.description"
+            @click="$emit('create-related', option.value)"
+            :data-testid="`task-new-related-${option.value}`"
+          )
+            component.size-3.shrink-0(:is="newTaskRelationIcon(option.value)")
+            .flex.min-w-0.flex-col
+              span.font-medium {{ option.label }}
+              span.text-muted-foreground.text-xs {{ option.description }}
       template(v-if="task.archived")
         Button(
           variant="outline"
@@ -586,6 +730,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
 import TaskArtifacts from "@/components/tasks/TaskArtifacts.vue";
+import TaskBadges from "@/components/tasks/TaskBadges.vue";
 import TaskComments from "@/components/tasks/TaskComments.vue";
 import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
@@ -617,18 +762,24 @@ import {
   formatBytes,
   formatCost,
   formatDuration,
+  formatDurationPrecise,
+  formatRate,
   formatTimestamp,
   formatTokens,
 } from "@/lib/format";
 import type { LightboxItem } from "@/lib/lightbox";
 import type { LeadCandidate, ProjectTeamLink } from "@/lib/projectAccess";
 import {
-  TASK_SIZES,
+  NEW_TASK_RELATIONS,
+  newTaskRelationIcon,
   tagColor,
   tagStyle,
+  TASK_SIZES,
   taskStateClassFor,
   taskStateIcon,
+  taskStateLabel,
   taskStateLabelFor,
+  type NewTaskRelation,
 } from "@/lib/task";
 import { formatArgValue, parseArgsJSON } from "@/lib/taskTemplates";
 import {
@@ -642,6 +793,7 @@ import {
   type SystemPromptSection,
   type Tag,
   type Task,
+  type TaskHold,
   type TaskUsage,
 } from "@cherrypi/sdk";
 import { Disclosure, DisclosureButton, DisclosurePanel } from "@headlessui/vue";
@@ -655,6 +807,9 @@ import {
   ExternalLinkIcon,
   FileCodeIcon,
   InboxIcon,
+  LockIcon,
+  LockOpenIcon,
+  PauseIcon,
   PencilIcon,
   PinIcon,
   PlayIcon,
@@ -666,7 +821,7 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 type SavingState = {
@@ -724,10 +879,12 @@ const emit = defineEmits<{
   (e: "stop"): void;
   (e: "reopen", toQueue: boolean): void;
   (e: "close-out"): void;
+  (e: "release-hold", hold: TaskHold): void;
   (e: "archive"): void;
   (e: "unarchive"): void;
   (e: "cleanup-session"): void;
   (e: "delete"): void;
+  (e: "create-related", relation: NewTaskRelation): void;
 }>();
 
 const { agents, usernameFor, agentIdForActor } = useAgents();
@@ -792,6 +949,72 @@ const isActive = computed(() => {
 });
 const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
 
+const ttcCounts = computed(() => {
+  const state = props.task?.state;
+  return (
+    state !== undefined &&
+    state !== TaskState.BACKLOG &&
+    state !== TaskState.COMPLETED &&
+    state !== TaskState.CANCELLED
+  );
+});
+const ttcFetchedAt = ref(Date.now());
+const ttcNow = ref(Date.now());
+let ttcTimer: ReturnType<typeof setInterval> | undefined;
+function stopTtcClock() {
+  if (ttcTimer !== undefined) {
+    clearInterval(ttcTimer);
+    ttcTimer = undefined;
+  }
+}
+watch(
+  [() => props.task?.ttcMs, ttcCounts],
+  () => {
+    ttcFetchedAt.value = Date.now();
+    ttcNow.value = ttcFetchedAt.value;
+    stopTtcClock();
+    if (ttcCounts.value) {
+      ttcTimer = setInterval(() => {
+        ttcNow.value = Date.now();
+      }, 1000);
+    }
+  },
+  { immediate: true },
+);
+onBeforeUnmount(stopTtcClock);
+const ttcMs = computed(() => {
+  const task = props.task;
+  if (!task) return 0;
+  const base = Number(task.ttcMs);
+  if (!ttcCounts.value) return base;
+  return base + Math.max(0, ttcNow.value - ttcFetchedAt.value);
+});
+
+const timingMeasured = computed(
+  () => Number(props.taskUsage?.ttftRuns ?? 0) > 0,
+);
+const thinkingMs = computed(() => Number(props.taskUsage?.thinkingMs ?? 0));
+
+function measured(ms: number): string {
+  return timingMeasured.value ? formatDuration(ms) : "—";
+}
+const modelWaitMs = computed(() => Number(props.taskUsage?.modelWaitMs ?? 0));
+const ttftLabel = computed(() => {
+  const usage = props.taskUsage;
+  if (!usage || Number(usage.ttftRuns) === 0) return "—";
+  const total = Number(usage.ttftMs);
+  const average = total / Number(usage.ttftRuns);
+  return `${formatDurationPrecise(average)} avg · ${formatDuration(total)} total`;
+});
+const generationLabel = computed(() => {
+  const usage = props.taskUsage;
+  if (!usage) return "—";
+  const seconds = (thinkingMs.value - modelWaitMs.value) / 1000;
+  if (seconds <= 0) return "—";
+  const rate = Number(usage.outputTokens) / seconds;
+  return rate > 0 ? formatRate(rate) : "—";
+});
+
 const canMoveToBacklog = computed(() => {
   const state = props.task?.state;
   return (
@@ -830,7 +1053,8 @@ const canCloseOut = computed(() => {
     state !== TaskState.RUNNING &&
     state !== TaskState.INPUT &&
     state !== TaskState.COMPLETED &&
-    state !== TaskState.CANCELLED
+    state !== TaskState.CANCELLED &&
+    Boolean(props.task?.canCloseOut)
   );
 });
 
@@ -838,8 +1062,12 @@ const isClosedOut = computed(() => {
   const state = props.task?.state;
   return state === TaskState.COMPLETED || state === TaskState.CANCELLED;
 });
-const canChangeOutcome = isClosedOut;
-const canArchive = isClosedOut;
+const canChangeOutcome = computed(
+  () => isClosedOut.value && Boolean(props.task?.canCloseOut),
+);
+const canArchive = computed(
+  () => isClosedOut.value && Boolean(props.task?.canCloseOut),
+);
 
 const assigneeChoice = computed(() => {
   const actorId = props.task?.assigneeActorId;
@@ -856,6 +1084,12 @@ const teamIds = computed(() =>
 const leadIds = computed(() =>
   (props.task?.leads ?? []).map((lead) => lead.actorId),
 );
+
+const canRemoveLead = computed(() => {
+  const state = props.task?.state;
+  const leadless = state === TaskState.BACKLOG || state === TaskState.CANCELLED;
+  return leadless || leadIds.value.length > 1;
+});
 const teamSearch = ref("");
 const leadSearch = ref("");
 const filteredProjectTeams = computed(() => {

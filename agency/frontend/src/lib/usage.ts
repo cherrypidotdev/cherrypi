@@ -24,6 +24,47 @@ export interface UsageSummary {
   completed: number;
   archived: number;
   allTimeCompleted: number;
+
+  thinkingMs: number;
+
+  modelWaitMs: number;
+
+  toolMs: number;
+
+  ttftMs: number;
+  ttftRuns: number;
+
+  ttcMs: number;
+
+  ttcSamples: number;
+}
+
+export interface UsageTiming {
+  activeMs: number;
+  toolMs: number;
+  modelWaitMs: number;
+  ttftMs: number;
+  ttftRuns: number;
+}
+
+export function thinkingMs(timing: Pick<UsageTiming, "activeMs" | "toolMs">) {
+  return Math.max(0, timing.activeMs - timing.toolMs);
+}
+
+export function generationRate(
+  outputTokens: number,
+  thinking: number,
+  modelWaitMs: number,
+): number {
+  const seconds = (thinking - modelWaitMs) / 1000;
+  if (seconds <= 0 || outputTokens <= 0) return 0;
+  return outputTokens / seconds;
+}
+
+export function averageTtftMs(
+  timing: Pick<UsageTiming, "ttftMs" | "ttftRuns">,
+) {
+  return timing.ttftRuns > 0 ? timing.ttftMs / timing.ttftRuns : 0;
 }
 
 export interface UsageInsights {
@@ -40,6 +81,16 @@ export interface UsageInsights {
   tokens: number;
 
   cost: number;
+
+  thinkingMs: number;
+
+  modelWaitMs: number;
+
+  ttftPerRunMs: number;
+
+  ttftRuns: number;
+
+  tokensPerSecond: number;
 }
 
 export interface UsageInsightDay extends UsageInsights {
@@ -50,11 +101,17 @@ export interface TaskInsightSample {
   queuedAtMs: number;
 
   settledAtMs: number;
+
+  ttcMs?: number;
   inputTokens?: number;
   outputTokens?: number;
   cost?: number;
   activeMs?: number;
   runs?: number;
+  toolMs?: number;
+  modelWaitMs?: number;
+  ttftMs?: number;
+  ttftRuns?: number;
 }
 
 export function taskTtcMs(
@@ -63,6 +120,11 @@ export function taskTtcMs(
 ): number | null {
   if (!queuedAtMs || !settledAtMs || settledAtMs < queuedAtMs) return null;
   return settledAtMs - queuedAtMs;
+}
+
+export function sampleTtcMs(sample: TaskInsightSample): number | null {
+  if (sample.ttcMs && sample.ttcMs > 0) return sample.ttcMs;
+  return taskTtcMs(sample.queuedAtMs, sample.settledAtMs);
 }
 
 export function summarizeTaskInsights(
@@ -74,17 +136,44 @@ export function summarizeTaskInsights(
   let cost = 0;
   let activeMs = 0;
   let runs = 0;
+  let thinking = 0;
+  let modelWait = 0;
+  let ttft = 0;
+  let ttftRuns = 0;
+  let generation = 0;
+  let generationSamples = 0;
 
   for (const sample of samples) {
-    const ttc = taskTtcMs(sample.queuedAtMs, sample.settledAtMs);
+    const ttc = sampleTtcMs(sample);
     if (ttc !== null) {
       ttcTotal += ttc;
       ttcSamples++;
     }
+    const timing = {
+      activeMs: sample.activeMs ?? 0,
+      toolMs: sample.toolMs ?? 0,
+      modelWaitMs: sample.modelWaitMs ?? 0,
+      ttftMs: sample.ttftMs ?? 0,
+      ttftRuns: sample.ttftRuns ?? 0,
+    };
     tokens += (sample.inputTokens ?? 0) + (sample.outputTokens ?? 0);
     cost += sample.cost ?? 0;
-    activeMs += sample.activeMs ?? 0;
+    activeMs += timing.activeMs;
     runs += sample.runs ?? 0;
+    thinking += thinkingMs(timing);
+    modelWait += timing.modelWaitMs;
+    ttft += timing.ttftMs;
+    ttftRuns += timing.ttftRuns;
+
+    const rate = generationRate(
+      sample.outputTokens ?? 0,
+      thinkingMs(timing),
+      timing.modelWaitMs,
+    );
+    if (rate > 0) {
+      generation += rate;
+      generationSamples++;
+    }
   }
 
   const tasks = samples.length;
@@ -98,6 +187,11 @@ export function summarizeTaskInsights(
     rounds: average(runs),
     tokens: average(tokens),
     cost: average(cost),
+    thinkingMs: average(thinking),
+    modelWaitMs: average(modelWait),
+    ttftPerRunMs: ttftRuns ? ttft / ttftRuns : 0,
+    ttftRuns,
+    tokensPerSecond: generationSamples ? generation / generationSamples : 0,
   };
 }
 

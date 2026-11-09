@@ -552,14 +552,17 @@ func (s *Service) notify(
 	if s.Notifications == nil || recipient == 0 {
 		return
 	}
+
 	err := s.Notifications.Create(ctx, notifications.Notification{
 		AgentID:          target.AgentID,
-		ProjectID:        target.ProjectID,
 		RecipientActorID: recipient,
 		Kind:             kind,
 		Severity:         "info",
 		Title:            title,
 		Body:             body,
+		PromptScope:      string(target.Scope),
+		PromptProjectID:  target.ProjectID,
+		PromptTeamID:     target.TeamID,
 	})
 	if err != nil {
 		log.Printf("prompt proposal notification: %v", err)

@@ -46,7 +46,7 @@ WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, 0) = sqlc.arg(agent_id)
   AND coalesce(team_id, 0) = sqlc.arg(team_id)
   AND coalesce(project_id, '') = sqlc.arg(project_id)
-  AND (sqlc.narg(status) IS NULL OR status = sqlc.narg(status))
+  AND (CAST(sqlc.narg(status) AS TEXT) IS NULL OR status = CAST(sqlc.narg(status) AS TEXT))
   AND (sqlc.arg(before_id) = 0 OR id < sqlc.arg(before_id))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(max_count);
@@ -54,7 +54,7 @@ LIMIT sqlc.arg(max_count);
 -- name: ListPromptProposalsByAuthor :many
 SELECT * FROM prompt_proposals
 WHERE author_actor_id = sqlc.arg(author_actor_id)
-  AND (sqlc.narg(status) IS NULL OR status = sqlc.narg(status))
+  AND (CAST(sqlc.narg(status) AS TEXT) IS NULL OR status = CAST(sqlc.narg(status) AS TEXT))
   AND (sqlc.arg(before_id) = 0 OR id < sqlc.arg(before_id))
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(max_count);

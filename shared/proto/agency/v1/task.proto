@@ -60,6 +60,10 @@ service TaskService {
   
   
   
+  
+  
+  
+  
   rpc AddTaskReference(AddTaskReferenceRequest) returns (AddTaskReferenceResponse);
   
   
@@ -70,7 +74,16 @@ service TaskService {
   
   rpc ReopenTask(ReopenTaskRequest) returns (ReopenTaskResponse);
   
+  
+  
+  
+  
+  
+  rpc ReleaseTaskHold(ReleaseTaskHoldRequest) returns (ReleaseTaskHoldResponse);
+  
   rpc CloseOutTask(CloseOutTaskRequest) returns (CloseOutTaskResponse);
+  
+  
   
   
   
@@ -174,6 +187,10 @@ enum TaskState {
   
   
   TASK_STATE_BACKLOG = 11;
+  
+  
+  
+  TASK_STATE_WAITING = 12;
   
   
   
@@ -390,6 +407,7 @@ message Task {
   
   
   
+  
   string waiting_reason = 53;
   
   
@@ -401,6 +419,75 @@ message Task {
   
   
   TaskTemplateInfo template = 56;
+  
+  
+  
+  bool can_close_out = 57;
+  
+  
+  string parent_task_id = 58;
+  reserved 59; 
+  
+  repeated TaskReference child_tasks = 60;
+  
+  
+  int32 pending_children = 61;
+  
+  
+  string pending_steering = 62;
+  
+  
+  repeated TaskBadge badges = 63;
+  
+  
+  
+  
+  repeated TaskHold holds = 64;
+  
+  
+  
+  
+  int64 ttc_ms = 65;
+}
+
+
+
+
+message TaskHold {
+  
+  string plugin = 1;
+  
+  string plugin_name = 2;
+  
+  string key = 3;
+  
+  
+  string reason = 4;
+  
+  google.protobuf.Timestamp created_at = 5;
+}
+
+
+
+
+
+
+message TaskBadge {
+  
+  string plugin_id = 1;
+  
+  string plugin_name = 2;
+  
+  string key = 3;
+  
+  string label = 4;
+  
+  
+  string value = 5;
+  
+  string tone = 6;
+  
+  string url = 7;
 }
 
 
@@ -427,6 +514,7 @@ message TaskLog {
   string new_value = 7;
   
   string message = 8;
+  
   
   
   
@@ -504,6 +592,10 @@ message TaskComment {
 
 
 
+
+
+
+
 enum TaskReferenceKind {
   TASK_REFERENCE_KIND_UNSPECIFIED = 0;
   
@@ -514,7 +606,19 @@ enum TaskReferenceKind {
   
   
   TASK_REFERENCE_KIND_SUPERSEDES = 3;
+  
+  
+  TASK_REFERENCE_KIND_BLOCKED_BY = 4;
+  
+  
+  TASK_REFERENCE_KIND_BLOCKS = 5;
+  
+  
+  
+  TASK_REFERENCE_KIND_SUPERSEDED_BY = 6;
 }
+
+
 
 
 
@@ -530,6 +634,8 @@ message TaskReference {
   
   TaskReferenceKind kind = 5;
 }
+
+
 
 
 message TaskReferenceInput {
@@ -590,6 +696,11 @@ message Tag {
   
   
   bool is_default = 8;
+  
+  
+  
+  
+  bool is_required = 9;
 }
 
 message ListTasksRequest {
@@ -613,6 +724,9 @@ message ListTasksRequest {
   int32 offset = 10;
   
   TaskPriority priority = 11;
+  reserved 12; 
+  
+  string parent_task_id = 13;
 }
 message ListTasksResponse {
   repeated Task tasks = 1;
@@ -653,6 +767,7 @@ message CreateTaskRequest {
   TaskSize size = 14;
   
   
+  
   repeated TaskReferenceInput references = 15;
   reserved 16, 17; 
   
@@ -673,6 +788,10 @@ message CreateTaskRequest {
   
   
   bool template_prompt_override = 23;
+  
+  
+  string parent_task_id = 24;
+  reserved 25; 
 }
 message CreateTaskResponse {
   Task task = 1;
@@ -768,6 +887,10 @@ message AddTaskReferenceResponse {
 message RemoveTaskReferenceRequest {
   string id = 1;
   string referenced_task_id = 2;
+  
+  
+  
+  bool reverse = 3;
 }
 message RemoveTaskReferenceResponse {
   Task task = 1;
@@ -788,6 +911,36 @@ message CloseOutTaskRequest {
   TaskState outcome = 2;
 }
 message CloseOutTaskResponse {
+  Task task = 1;
+}
+
+
+
+
+enum TaskHoldReleaseMode {
+  
+  TASK_HOLD_RELEASE_MODE_UNSPECIFIED = 0;
+  
+  TASK_HOLD_RELEASE_MODE_SETTLE = 1;
+  
+  TASK_HOLD_RELEASE_MODE_QUEUE = 2;
+  
+  TASK_HOLD_RELEASE_MODE_COMPLETE = 3;
+}
+
+message ReleaseTaskHoldRequest {
+  
+  string id = 1;
+  
+  string plugin = 2;
+  
+  string key = 3;
+  
+  TaskHoldReleaseMode mode = 4;
+  
+  string prompt = 5;
+}
+message ReleaseTaskHoldResponse {
   Task task = 1;
 }
 
@@ -1096,6 +1249,8 @@ message CreateTagRequest {
   string color = 4;
   
   bool is_default = 5;
+  
+  bool is_required = 6;
 }
 message CreateTagResponse {
   Tag tag = 1;
@@ -1108,6 +1263,8 @@ message UpdateTagRequest {
   string color = 4;
   
   bool is_default = 5;
+  
+  bool is_required = 6;
 }
 message UpdateTagResponse {
   Tag tag = 1;

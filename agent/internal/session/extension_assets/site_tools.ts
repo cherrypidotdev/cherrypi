@@ -18,6 +18,12 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  agentTokens,
+  credentialNote,
+  credentialsLine,
+  fetchWithAgentToken,
+} from "./agent_token.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
@@ -62,9 +68,9 @@ export default function (pi: ExtensionAPI) {
         /\/+$/,
         "",
       );
-      const token = await agentToken();
+      const tokens = await agentTokens();
       const taskId = process.env.CHERRYPI_TASK_ID ?? "";
-      if (!agencyUrl || !token || !taskId) {
+      if (!agencyUrl || tokens.length === 0 || !taskId) {
         return text("Site publishing is not configured for this task.");
       }
 
@@ -107,21 +113,21 @@ export default function (pi: ExtensionAPI) {
       if (settings.agencyWide !== undefined)
         form.append("agency_wide", settings.agencyWide ? "true" : "false");
 
-      let res: Response;
-      try {
-        res = await fetch(
-          `${agencyUrl}/api/rest/sites/${encodeURIComponent(id)}/publish`,
-          {
-            method: "POST",
-            body: form,
-            headers: { Authorization: `Bearer ${token}` },
-          },
+      const outcome = await fetchWithAgentToken(
+        `${agencyUrl}/api/rest/sites/${encodeURIComponent(id)}/publish`,
+        { method: "POST", body: form },
+        tokens,
+      );
+      const res = outcome.res;
+      if (!res) {
+        return text(
+          `Publish failed: ${outcome.error ?? "unknown error"}${credentialsLine(outcome)}`,
         );
-      } catch (err) {
-        return text(`Publish failed: ${String(err)}`);
       }
       if (!res.ok) {
-        return text(`Publish failed: ${res.status} ${await res.text()}`);
+        return text(
+          `Publish failed: ${res.status} ${await res.text()}${credentialsLine(outcome)}`,
+        );
       }
       const site = (await res.json()) as {
         url?: string;
@@ -134,7 +140,8 @@ export default function (pi: ExtensionAPI) {
         ? `\n\nWarnings:\n${warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "";
       return text(
-        `Published ${site.title || id} at ${agencyUrl}${url}. This task now has a Site tab.${warningText}`,
+        `Published ${site.title || id} at ${agencyUrl}${url}. This task now has a Site tab.${warningText}` +
+          credentialNote(outcome),
       );
     },
   });
@@ -172,8 +179,8 @@ export default function (pi: ExtensionAPI) {
         /\/+$/,
         "",
       );
-      const token = await agentToken();
-      if (!agencyUrl || !token) {
+      const tokens = await agentTokens();
+      if (!agencyUrl || tokens.length === 0) {
         return text("Site editing is not configured for this task.");
       }
       const id = String(params.id ?? "").trim();
@@ -189,28 +196,30 @@ export default function (pi: ExtensionAPI) {
       if (updated.agencyWide !== undefined)
         body.agency_wide = Boolean(updated.agencyWide);
 
-      let res: Response;
-      try {
-        res = await fetch(
-          `${agencyUrl}/api/rest/sites/${encodeURIComponent(id)}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify(body),
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          },
+      const outcome = await fetchWithAgentToken(
+        `${agencyUrl}/api/rest/sites/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+        },
+        tokens,
+      );
+      const res = outcome.res;
+      if (!res) {
+        return text(
+          `Edit failed: ${outcome.error ?? "unknown error"}${credentialsLine(outcome)}`,
         );
-      } catch (err) {
-        return text(`Edit failed: ${String(err)}`);
       }
       if (!res.ok) {
-        return text(`Edit failed: ${res.status} ${await res.text()}`);
+        return text(
+          `Edit failed: ${res.status} ${await res.text()}${credentialsLine(outcome)}`,
+        );
       }
       const site = (await res.json()) as { url?: string; title?: string };
       return text(
-        `Updated ${site.title || id} at ${agencyUrl}${site.url ?? `/sites/${id}`}.`,
+        `Updated ${site.title || id} at ${agencyUrl}${site.url ?? `/sites/${id}`}.` +
+          credentialNote(outcome),
       );
     },
   });
@@ -221,15 +230,4 @@ function text(value: string) {
     content: [{ type: "text" as const, text: value }],
     details: undefined,
   };
-}
-
-async function agentToken(): Promise<string> {
-  const file = process.env.CHERRYPI_AGENT_TOKEN_FILE ?? "";
-  if (file) {
-    try {
-      const raw = (await readFile(file, "utf8")).trim();
-      if (raw) return raw;
-    } catch {}
-  }
-  return process.env.CHERRYPI_AGENT_TOKEN ?? "";
 }

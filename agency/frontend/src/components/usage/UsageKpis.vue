@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .grid.grid-cols-1.gap-3(
-  class="sm:grid-cols-2 lg:grid-cols-5"
+  class="sm:grid-cols-2 lg:grid-cols-4"
   aria-label="Usage summary"
 )
   .bg-card.ring-border.to-card.relative.flex.flex-col.overflow-hidden.rounded-xl.bg-gradient-to-br.p-3.ring-1(
@@ -55,33 +55,81 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
     .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold Completed tasks
-      span.text-muted-foreground.text-10 incl. archived
-    .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatCount(summary.completed) }}
+      span.text-muted-foreground.text-2xs.font-semibold TTC total
+      span.text-muted-foreground.text-10 outside backlog
+    .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ summary.ttcSamples ? formatDuration(summary.ttcMs) : "—" }}
     .text-2xs.text-muted-foreground.mt-1
-      | {{ summary.archived }} archived · {{ summary.allTimeCompleted }} all time
+      template(v-if="summary.ttcSamples === summary.completed")
+        | across {{ summary.completed }} completed tasks
+      template(v-else-if="summary.ttcSamples")
+        | {{ summary.ttcSamples }} of {{ summary.completed }} timed
+      template(v-else) no completed tasks in range
     .mt-auto.h-7.pt-1
-      UsageSparkline(color="var(--chart-3)" :values="spark.completed")
+      UsageSparkline(color="var(--chart-5)" :values="spark.ttc")
 
-  .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
-    .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold Active time
-      span.text-muted-foreground.text-10 agent work
-    .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatDuration(summary.activeMs) }}
-    .text-2xs.text-muted-foreground.mt-1
-      template(v-if="summary.runs")
-        | {{ formatDuration(summary.activeMs / summary.runs) }} avg / round
-      template(v-else) no rounds
-    .mt-auto.h-7.pt-1
-      UsageSparkline(color="var(--chart-4)" :values="spark.active")
+  template(v-if="showWorkTiles")
+    .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-2xs.font-semibold Completed tasks
+        span.text-muted-foreground.text-10 incl. archived
+      .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatCount(summary.completed) }}
+      .text-2xs.text-muted-foreground.mt-1
+        | {{ summary.archived }} archived · {{ summary.allTimeCompleted }} all time
+      .mt-auto.h-7.pt-1
+        UsageSparkline(color="var(--chart-3)" :values="spark.completed")
+
+    .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-2xs.font-semibold Thinking time
+        span.text-muted-foreground.text-10 model work
+      .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatDuration(summary.thinkingMs) }}
+      .text-2xs.text-muted-foreground.mt-1
+        template(v-if="summary.runs")
+          | {{ formatDuration(summary.thinkingMs / summary.runs) }} avg / round
+        template(v-else) no rounds
+      .mt-auto.h-7.pt-1
+        UsageSparkline(color="var(--chart-2)" :values="spark.thinking")
+
+    .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-2xs.font-semibold TTFT
+        span.text-muted-foreground.text-10 first token
+      .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ summary.ttftRuns ? formatDurationPrecise(summary.ttftMs / summary.ttftRuns) : "—" }}
+      .text-2xs.text-muted-foreground.mt-1
+        template(v-if="summary.ttftRuns")
+          | avg / run · {{ formatDuration(summary.ttftMs) }} total
+        template(v-else) no measured runs
+      .mt-auto.h-7.pt-1
+        UsageSparkline(color="var(--chart-3)" :values="spark.ttft")
+
+    .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
+      .flex.items-center.justify-between.gap-2
+        span.text-muted-foreground.text-2xs.font-semibold Active time
+        span.text-muted-foreground.text-10 agent work
+      .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatDuration(summary.activeMs) }}
+      .text-2xs.text-muted-foreground.mt-1
+        template(v-if="summary.runs")
+          | {{ formatDuration(summary.activeMs / summary.runs) }} avg / round
+        template(v-else) no rounds
+      .mt-auto.h-7.pt-1
+        UsageSparkline(color="var(--chart-4)" :values="spark.active")
 </template>
 
 <script setup lang="ts">
 import UsageSparkline from "@/components/usage/UsageSparkline.vue";
-import type { UsageSeriesPoint } from "@/composables/useUsageAnalytics";
-import { formatCount, formatDuration, formatTokens } from "@/lib/format";
+import type {
+  UsageContext,
+  UsageSeriesPoint,
+} from "@/composables/useUsageAnalytics";
+import {
+  formatCount,
+  formatDuration,
+  formatDurationPrecise,
+  formatTokens,
+} from "@/lib/format";
 import {
   usageRangePill,
+  type UsageInsightDay,
   type UsageRange,
   type UsageSummary,
 } from "@/lib/usage";
@@ -90,8 +138,14 @@ import { computed } from "vue";
 const props = defineProps<{
   summary: UsageSummary;
   daily: UsageSeriesPoint[];
+
+  insightDaily?: UsageInsightDay[];
   range: UsageRange;
+
+  context: UsageContext;
 }>();
+
+const showWorkTiles = computed(() => props.context === "agency");
 
 const rangePill = computed(() => usageRangePill(props.range));
 
@@ -104,11 +158,17 @@ function last(values: number[]): number[] {
   return values.slice(-18);
 }
 
-const spark = computed(() => ({
-  cost: last(props.daily.map((point) => point.cost)),
-  tokens: last(props.daily.map((point) => point.input + point.output)),
-  runs: last(props.daily.map((point) => point.runs)),
-  completed: last(props.daily.map((point) => point.completed)),
-  active: last(props.daily.map((point) => point.runs)),
-}));
+const spark = computed(() => {
+  const insights = props.insightDaily ?? [];
+  return {
+    cost: last(props.daily.map((point) => point.cost)),
+    tokens: last(props.daily.map((point) => point.input + point.output)),
+    runs: last(props.daily.map((point) => point.runs)),
+    completed: last(props.daily.map((point) => point.completed)),
+    active: last(insights.map((day) => day.activeMs)),
+    ttc: last(insights.map((day) => day.ttcMs)),
+    thinking: last(insights.map((day) => day.thinkingMs)),
+    ttft: last(insights.map((day) => day.ttftPerRunMs)),
+  };
+});
 </script>

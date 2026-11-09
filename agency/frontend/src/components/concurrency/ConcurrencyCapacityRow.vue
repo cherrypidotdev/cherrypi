@@ -35,10 +35,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         class="bg-amber-500/12 px-1.5 py-0.5 dark:text-amber-400"
       ) At cap
     span.text-3xs.text-muted-foreground(v-if="row.detail") {{ row.detail }}
+    span.text-3xs.text-amber-600(v-if="reservedLabel" class="dark:text-amber-400")
+      | {{ reservedLabel }}
   ConcurrencyTrack(
     :label="row.label"
     :used="row.used"
     :cap="row.cap"
+    :reserved="row.reserved"
     :waiting="row.waiting"
   )
 </template>
@@ -47,6 +50,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import type { CapacityRow } from "@/lib/concurrency";
 import { tagStyle } from "@/lib/task";
+import { computed } from "vue";
 
-defineProps<{ row: CapacityRow }>();
+const props = defineProps<{ row: CapacityRow }>();
+
+const reservedLabel = computed(() => {
+  const reserved = props.row.reserved ?? 0;
+  return reserved > 0 ? `${reserved} reserved` : "";
+});
 </script>

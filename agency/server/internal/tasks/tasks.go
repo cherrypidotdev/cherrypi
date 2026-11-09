@@ -20,14 +20,17 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/store"
@@ -37,6 +40,7 @@ type State string
 
 const (
 	StateBacklog   State = "backlog"
+	StateWaiting   State = "waiting"
 	StateQueued    State = "queued"
 	StateRunning   State = "running"
 	StateInput     State = "input"
@@ -49,6 +53,11 @@ const (
 func HoldsSlot(state State) bool {
 	return state == StateRunning || state == StateInput ||
 		state == StateSettled || state == StateFailed
+}
+
+func CountsTtc(state State) bool {
+	return state != StateBacklog && state != StateCompleted &&
+		state != StateCancelled
 }
 
 type Resolution string
@@ -89,6 +98,10 @@ var (
 
 	ErrRunning = errors.New("task is running; stop it or let it settle first")
 
+	ErrPendingPrompt = errors.New(
+		"task has an undelivered follow-up; close it out once it has run",
+	)
+
 	ErrTagMissing = errors.New("tag not found")
 
 	ErrNotMember = errors.New("agent is not a member of the project")
@@ -96,6 +109,10 @@ var (
 	ErrAssigneeViewer = errors.New(
 		"assignee is a viewer of the project and cannot run tasks; " +
 			"grant it the member role first",
+	)
+
+	ErrAssigneeMissingTag = errors.New(
+		"assignee does not declare required agent tags",
 	)
 
 	ErrProjectHasNoAgents = errors.New(
@@ -107,7 +124,7 @@ var (
 	ErrReferenceCycle = errors.New("blocking reference would create a cycle")
 
 	ErrReferenceNotAllowed = errors.New(
-		"a task may only reference tasks in its own, a descendant, or a sibling project",
+		"a task may only reference tasks in its own, an ancestor, a descendant, or a sibling project",
 	)
 
 	ErrMergeTooFew = errors.New("select at least two tasks to merge")
@@ -126,7 +143,18 @@ var (
 		"a lead must be a project member or belong to one of the task's owning teams",
 	)
 
+	ErrLeadRequired = errors.New(
+		"a task needs at least one lead; name a lead who is a project member " +
+			"or a member of an owning team",
+	)
+
 	ErrCannotPrompt = errors.New("not allowed to prompt this task")
+
+	ErrCannotCloseOut = errors.New(
+		"only a lead or an administrator may close out or archive this task",
+	)
+
+	ErrHoldNotFound = errors.New("task hold not found")
 
 	ErrFollowUpRequired = errors.New(
 		"task has already started; send a follow-up prompt to queue it",
@@ -142,6 +170,8 @@ type Tag struct {
 	Description string
 	Color       string
 	Archived    bool
+
+	Required bool
 }
 
 type Link struct {
@@ -155,7 +185,52 @@ const (
 	ReferenceBlocking      ReferenceKind = "blocking"
 	ReferenceInformational ReferenceKind = "informational"
 	ReferenceSupersedes    ReferenceKind = "supersedes"
+
+	ReferenceBlockedBy ReferenceKind = "blocked_by"
+
+	ReferenceBlocks ReferenceKind = "blocks"
+
+	ReferenceSupersededBy ReferenceKind = "superseded_by"
 )
+
+func referenceEdge(
+	kind ReferenceKind,
+	taskID, referencedID string,
+) (sourceID, targetID string, stored ReferenceKind) {
+	switch kind {
+	case ReferenceBlocks:
+		return referencedID, taskID, ReferenceBlocking
+	case ReferenceSupersededBy:
+		return referencedID, taskID, ReferenceSupersedes
+	case ReferenceBlocking, ReferenceBlockedBy:
+		return taskID, referencedID, ReferenceBlocking
+	case ReferenceSupersedes:
+		return taskID, referencedID, ReferenceSupersedes
+	default:
+		return taskID, referencedID, ReferenceInformational
+	}
+}
+
+func isInverseReferenceKind(kind ReferenceKind) bool {
+	return kind == ReferenceBlocks || kind == ReferenceSupersededBy
+}
+
+func perspectiveKind(kind ReferenceKind, incoming bool) ReferenceKind {
+	switch kind {
+	case ReferenceBlocking:
+		if incoming {
+			return ReferenceBlocks
+		}
+		return ReferenceBlockedBy
+	case ReferenceSupersedes:
+		if incoming {
+			return ReferenceSupersededBy
+		}
+		return ReferenceSupersedes
+	default:
+		return ReferenceInformational
+	}
+}
 
 type Reference struct {
 	ID     string
@@ -173,12 +248,14 @@ type ReferenceInput struct {
 }
 
 type Task struct {
-	RowID           int64
-	ID              string
-	Seq             int64
-	Prompt          string
-	Name            string
-	ProjectID       string
+	RowID     int64
+	ID        string
+	Seq       int64
+	Prompt    string
+	Name      string
+	ProjectID string
+
+	ParentTaskID    string
 	AssigneeActorID ids.ActorID
 
 	CreatorActorID ids.ActorID
@@ -216,7 +293,15 @@ type Task struct {
 
 	ReferencedBy []Reference
 
+	ChildTasks []Reference
+
+	PendingChildren int
+
+	PendingSteering string
+
 	Blockers int
+
+	Holds []TaskHold
 
 	PendingPrompt string
 
@@ -228,6 +313,8 @@ type Task struct {
 	UpdatedAt            time.Time
 
 	StateUpdatedAt time.Time
+
+	TtcMs int64
 
 	SessionDeletedAt time.Time
 
@@ -257,6 +344,8 @@ type Filter struct {
 
 	Archived bool
 
+	ParentTaskID string
+
 	ReferenceProjectID string
 
 	Limit  int64
@@ -268,9 +357,11 @@ type Filter struct {
 }
 
 type CreateParams struct {
-	Prompt          string
-	Name            string
-	ProjectID       string
+	Prompt    string
+	Name      string
+	ProjectID string
+
+	ParentTaskID    string
 	AssigneeActorID ids.ActorID
 	TagIDs          []string
 	References      []ReferenceInput
@@ -344,14 +435,61 @@ type AttributeResult struct {
 	Error error
 }
 
+type ChildOutcome string
+
+const (
+	ChildSettled   ChildOutcome = "settled"
+	ChildFailed    ChildOutcome = "failed"
+	ChildCompleted ChildOutcome = "completed"
+	ChildCancelled ChildOutcome = "cancelled"
+)
+
+type WakeState struct {
+	Lines []string          `json:"lines,omitempty"`
+	Keys  map[string]string `json:"keys,omitempty"`
+	Count int               `json:"count,omitempty"`
+
+	PluginWakes map[string]int `json:"plugin_wakes,omitempty"`
+
+	DeliveredPrompt string `json:"delivered_prompt,omitempty"`
+}
+
+func parseWakeState(raw string) WakeState {
+	var st WakeState
+	if strings.TrimSpace(raw) == "" {
+		return WakeState{Keys: map[string]string{}}
+	}
+	if err := json.Unmarshal([]byte(raw), &st); err != nil {
+		return WakeState{Keys: map[string]string{}}
+	}
+	if st.Keys == nil {
+		st.Keys = map[string]string{}
+	}
+	return st
+}
+
+func (w WakeState) JSON() string {
+	raw, err := json.Marshal(w)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
 type Transition struct {
 	TaskID string
 	State  State
+
+	Held bool
+
+	Holds []TaskHold
 }
 
 type Service struct {
 	store    store.Store
 	projects *projects.Service
+
+	Limits *limits.Service
 
 	OnTransition func(ctx context.Context, t Transition)
 
@@ -360,6 +498,16 @@ type Service struct {
 	OnComment func(ctx context.Context, taskID string, comment Comment)
 
 	OnMention func(ctx context.Context, taskID string, comment Comment)
+
+	OnCreated func(ctx context.Context, taskID string)
+
+	OnChildFinished func(ctx context.Context, child Task, outcome ChildOutcome)
+
+	OnInputCleared func(ctx context.Context, t Task)
+
+	OnPendingPromptQueued func(ctx context.Context, taskID string)
+
+	OnHoldReleased func(ctx context.Context, release HoldRelease)
 }
 
 func New(st store.Store, projectsSvc *projects.Service) *Service {
@@ -394,6 +542,14 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	if err := s.ValidateTags(ctx, project.ID, p.TagIDs); err != nil {
 		return Task{}, err
 	}
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		project.ID,
+		p.AssigneeActorID,
+		p.TagIDs,
+	); err != nil {
+		return Task{}, err
+	}
 	teamIDs, err := s.resolveTaskTeams(ctx, project.ID, p.TeamIDs)
 	if err != nil {
 		return Task{}, err
@@ -409,7 +565,23 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	parentID := strings.TrimSpace(p.ParentTaskID)
+	if parentID != "" {
+		parent, err := s.store.GetTask(ctx, parentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Task{}, ErrNotFound
+		} else if err != nil {
+			return Task{}, err
+		}
 
+		if err := s.checkReferenceProject(
+			ctx,
+			parent.ProjectID.String,
+			project.ID,
+		); err != nil {
+			return Task{}, err
+		}
+	}
 	number, err := s.store.AllocateTaskNumber(ctx, project.ID)
 	if err != nil {
 		return Task{}, err
@@ -422,6 +594,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		Prompt:          prompt,
 		Name:            strings.TrimSpace(p.Name),
 		ProjectID:       project.ID,
+		ParentTaskID:    parentID,
 		AssigneeActorID: nullID(p.AssigneeActorID),
 		AssigneePinned:  boolInt(p.AssigneeActorID != 0),
 		Priority:        p.Priority,
@@ -462,7 +635,16 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	if err := s.setTaskTeams(ctx, row.ID, teamIDs); err != nil {
 		return Task{}, err
 	}
-	if err := s.setTaskLeads(ctx, project.ID, row.ID, p.LeadActorIDs); err != nil {
+	leadActorIDs, err := s.resolveCreateLeads(
+		ctx, project.ID, row.ID, p.LeadActorIDs,
+	)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := s.setTaskLeads(ctx, project.ID, row.ID, leadActorIDs); err != nil {
+		return Task{}, err
+	}
+	if err := s.requireLead(ctx, row.ID, initial); err != nil {
 		return Task{}, err
 	}
 
@@ -482,10 +664,17 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 			return Task{}, err
 		}
 	}
+
 	switch initial {
 	case StateQueued:
-		if _, err := s.Queue(internal, row.ID); err != nil {
+		created, err := s.snapshot(ctx, row.ID)
+		if err != nil {
 			return Task{}, err
+		}
+		if created.State == StateBacklog {
+			if _, err := s.Queue(internal, row.ID); err != nil {
+				return Task{}, err
+			}
 		}
 	}
 	t, err := s.Get(ctx, row.ID)
@@ -493,6 +682,20 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		return Task{}, err
 	}
 	s.logCreated(ctx, t)
+	if s.OnCreated != nil {
+		s.OnCreated(ctx, t.ID)
+	}
+	if parentID != "" {
+		s.recordLog(
+			ctx, actorFrom(ctx), now, t.ID, LogParent, "parent",
+			"", parentID, "Sub-task of "+parentID, nil,
+		)
+	}
+	if parentID != "" {
+		if err := s.ReconcileWaiting(ctx, parentID); err != nil {
+			log.Printf("[tasks] reconcile waiting parent %s: %v", parentID, err)
+		}
+	}
 	return t, nil
 }
 
@@ -523,6 +726,8 @@ func (s *Service) resolveReferences(
 		} else if err != nil {
 			return nil, err
 		}
+		kind := normalizeReferenceKind(ref.Kind)
+
 		if err := s.checkReferenceProject(
 			ctx,
 			fromProjectID,
@@ -531,7 +736,7 @@ func (s *Service) resolveReferences(
 			return nil, err
 		}
 		seen[id] = true
-		out = append(out, ReferenceInput{TaskID: id, Kind: normalizeReferenceKind(ref.Kind)})
+		out = append(out, ReferenceInput{TaskID: id, Kind: kind})
 	}
 	return out, nil
 }
@@ -556,7 +761,8 @@ func (s *Service) checkReferenceProject(
 
 func normalizeReferenceKind(kind ReferenceKind) ReferenceKind {
 	switch kind {
-	case ReferenceBlocking, ReferenceSupersedes:
+	case ReferenceBlocking, ReferenceBlockedBy, ReferenceBlocks,
+		ReferenceSupersedes, ReferenceSupersededBy, ReferenceInformational:
 		return kind
 	default:
 		return ReferenceInformational
@@ -592,6 +798,11 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 		return Task{}, err
 	}
 	t := toTask(row, tags, links, refs[id], referencedBy[id], progress)
+	holds, err := s.Holds(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	t.Holds = holds
 	application, err := s.store.GetTaskTemplateApplication(ctx, id)
 	if err == nil {
 		t.Template = &TemplateApplication{
@@ -624,6 +835,22 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 		return Task{}, err
 	}
 	t.LeadActorIDs = actorIDsFromInt64s(leads)
+	children, err := s.store.ListTaskChildren(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	for _, child := range children {
+		t.ChildTasks = append(t.ChildTasks, Reference{
+			ID:     child.ID,
+			Name:   child.Name,
+			Prompt: child.Prompt,
+			State:  State(child.State),
+			Kind:   ReferenceInformational,
+		})
+		if !finishedChild(State(child.State)) {
+			t.PendingChildren++
+		}
+	}
 	if actorID := actorIDFrom(ctx); actorID != 0 {
 		subscribed, err := s.store.IsActorSubscribedToTask(
 			ctx,
@@ -688,6 +915,7 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 		AgentID:            nullID(f.AgentID),
 		State:              nullString(string(f.State)),
 		Archived:           boolInt(f.Archived),
+		ParentTaskID:       nullString(f.ParentTaskID),
 		TagID:              nullString(f.TagID),
 		Search:             nullString(f.Search),
 		Size:               nullString(f.Size),
@@ -740,6 +968,10 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	holdsByTask, err := s.allHolds(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Task, len(rows))
 	for i, row := range rows {
 		out[i] = toTask(
@@ -752,6 +984,7 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 		)
 		out[i].TeamIDs = teamsByTask[row.ID]
 		out[i].LeadActorIDs = actorIDsFromInt64s(leadsByTask[row.ID])
+		out[i].Holds = holdsByTask[row.ID]
 	}
 
 	if actorID := actorIDFrom(ctx); actorID != 0 {
@@ -849,6 +1082,10 @@ func (s *Service) ListQueued(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	holdsByTask, err := s.allHolds(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Task, len(rows))
 	for i, row := range rows {
 		out[i] = toTask(
@@ -861,6 +1098,7 @@ func (s *Service) ListQueued(ctx context.Context) ([]Task, error) {
 		)
 		out[i].TeamIDs = teamsByTask[row.ID]
 		out[i].LeadActorIDs = actorIDsFromInt64s(leadsByTask[row.ID])
+		out[i].Holds = holdsByTask[row.ID]
 	}
 	return out, nil
 }
@@ -890,6 +1128,10 @@ func (s *Service) ListRunning(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	holdsByTask, err := s.allHolds(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Task, len(rows))
 	for i, row := range rows {
 		out[i] = toTask(
@@ -902,6 +1144,7 @@ func (s *Service) ListRunning(ctx context.Context) ([]Task, error) {
 		)
 		out[i].TeamIDs = teamsByTask[row.ID]
 		out[i].LeadActorIDs = actorIDsFromInt64s(leadsByTask[row.ID])
+		out[i].Holds = holdsByTask[row.ID]
 	}
 	return out, nil
 }
@@ -939,6 +1182,14 @@ func (s *Service) Update(ctx context.Context, id string, p UpdateParams) (Task, 
 		return Task{}, err
 	}
 	if err := s.ValidateTags(ctx, project.ID, p.TagIDs); err != nil {
+		return Task{}, err
+	}
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		project.ID,
+		p.AssigneeActorID,
+		p.TagIDs,
+	); err != nil {
 		return Task{}, err
 	}
 
@@ -988,19 +1239,54 @@ func (s *Service) Update(ctx context.Context, id string, p UpdateParams) (Task, 
 }
 
 func (s *Service) Queue(ctx context.Context, id string) (Task, error) {
-	cur, err := s.requireState(ctx, id, StateBacklog)
+	cur, err := s.Get(ctx, id)
 	if err != nil {
 		return Task{}, err
 	}
-	if !cur.StartedAt.IsZero() {
-		return Task{}, ErrFollowUpRequired
+
+	if len(cur.Holds) > 0 {
+		return Task{}, heldError(cur.Holds)
 	}
-	if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
+	if cur.State == StateWaiting {
+		return cur, nil
+	}
+	waiting, err := s.hasIncompleteDependencies(ctx, cur)
+	if err != nil {
+		return Task{}, err
+	}
+	switch cur.State {
+	case StateBacklog:
+		if !cur.StartedAt.IsZero() {
+			return Task{}, ErrFollowUpRequired
+		}
+		if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
+			return Task{}, err
+		}
+	case StateRunning, StateInput, StateSettled, StateFailed:
+		if !waiting {
+			return Task{}, ErrFollowUpRequired
+		}
+	default:
+		return Task{}, ErrWrongState
+	}
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		cur.ProjectID,
+		cur.AssigneeActorID,
+		tagIDsOf(cur.Tags),
+	); err != nil {
+		return Task{}, err
+	}
+	if err := s.requireLead(ctx, id, StateQueued); err != nil {
 		return Task{}, err
 	}
 	now := time.Now().UnixMilli()
+	event := store.TaskQueue
+	if waiting {
+		event = store.TaskWait
+	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
-		Event:     store.TaskQueue,
+		Event:     event,
 		QueuedAt:  sql.NullInt64{Int64: now, Valid: true},
 		UpdatedAt: now,
 		ID:        id,
@@ -1019,8 +1305,87 @@ func (s *Service) Queue(ctx context.Context, id string) (Task, error) {
 	return after, nil
 }
 
+func finishedChild(state State) bool {
+	switch state {
+	case StateSettled, StateFailed, StateCompleted, StateCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) IncompleteChildIDs(ctx context.Context, id string) ([]string, error) {
+	children, err := s.store.ListTaskChildren(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(children))
+	for _, child := range children {
+		if !finishedChild(State(child.State)) {
+			out = append(out, child.ID)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) hasIncompleteDependencies(ctx context.Context, t Task) (bool, error) {
+	if len(IncompleteBlockerIDs(t.References)) > 0 {
+		return true, nil
+	}
+	children, err := s.store.CountIncompleteChildTasks(ctx, t.ID)
+	if err != nil {
+		return false, err
+	}
+	return children > 0, nil
+}
+
+func (s *Service) ReconcileWaiting(ctx context.Context, id string) error {
+	before, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch before.State {
+	case StateRunning, StateInput, StateBacklog,
+		StateCompleted, StateCancelled:
+		return nil
+	}
+	if before.State == StateWaiting && len(before.Holds) > 0 {
+		return nil
+	}
+	waiting, err := s.hasIncompleteDependencies(ctx, before)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	var event store.TaskEvent
+	switch {
+	case waiting && (before.State == StateQueued ||
+		before.State == StateSettled || before.State == StateFailed):
+		event = store.TaskWait
+	case !waiting && before.State == StateWaiting:
+		event = store.TaskUnwait
+	default:
+		return nil
+	}
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+		Event:     event,
+		QueuedAt:  sql.NullInt64{Int64: now, Valid: true},
+		UpdatedAt: now,
+		ID:        id,
+	})
+	if err != nil || n == 0 {
+		return err
+	}
+	after, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.logChanges(ctx, before, after)
+	return nil
+}
+
 func (s *Service) Dequeue(ctx context.Context, id string) (Task, error) {
-	cur, err := s.requireState(ctx, id, StateQueued)
+	cur, err := s.requireStates(ctx, id, StateQueued, StateWaiting)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1034,6 +1399,9 @@ func (s *Service) Dequeue(ctx context.Context, id string) (Task, error) {
 	}
 	if n == 0 {
 		return Task{}, ErrWrongState
+	}
+	if err := s.ClearHolds(ctx, id, HoldClearedByDequeue); err != nil {
+		log.Printf("[tasks] clear holds after dequeue %s: %v", id, err)
 	}
 	after, err := s.Get(ctx, id)
 	if err != nil {
@@ -1082,6 +1450,15 @@ func (s *Service) AddReference(
 	taskID, referencedID string,
 	kind ReferenceKind,
 ) (Task, error) {
+	return s.addReference(ctx, taskID, referencedID, kind, true)
+}
+
+func (s *Service) addReference(
+	ctx context.Context,
+	taskID, referencedID string,
+	kind ReferenceKind,
+	rewire bool,
+) (Task, error) {
 	kind = normalizeReferenceKind(kind)
 	cur, err := s.Get(ctx, taskID)
 	if err != nil {
@@ -1090,15 +1467,20 @@ func (s *Service) AddReference(
 	if taskID == referencedID {
 		return Task{}, ErrSelfReference
 	}
-	referenced, err := s.Get(ctx, referencedID)
+	sourceID, targetID, stored := referenceEdge(kind, taskID, referencedID)
+	source, err := s.Get(ctx, sourceID)
 	if err != nil {
 		return Task{}, err
 	}
-	if err := s.checkReferenceProject(ctx, cur.ProjectID, referenced.ProjectID); err != nil {
+	target, err := s.Get(ctx, targetID)
+	if err != nil {
 		return Task{}, err
 	}
-	if kind == ReferenceBlocking {
-		cycle, err := s.hasBlockingReferencePath(ctx, referencedID, taskID)
+	if err := s.checkReferenceProject(ctx, source.ProjectID, target.ProjectID); err != nil {
+		return Task{}, err
+	}
+	if stored == ReferenceBlocking {
+		cycle, err := s.hasBlockingReferencePath(ctx, targetID, sourceID)
 		if err != nil {
 			return Task{}, err
 		}
@@ -1107,15 +1489,15 @@ func (s *Service) AddReference(
 		}
 	}
 	if err := s.store.AddTaskReference(ctx, store.UpsertTaskReferenceParams{
-		TaskID:           taskID,
-		ReferencedTaskID: referencedID,
-		Kind:             string(kind),
+		TaskID:           sourceID,
+		ReferencedTaskID: targetID,
+		Kind:             string(stored),
 		CreatedAt:        time.Now().UnixMilli(),
 	}); err != nil {
 		return Task{}, err
 	}
-	if kind == ReferenceSupersedes {
-		if err := s.cancelSuperseded(ctx, referencedID); err != nil {
+	if stored == ReferenceSupersedes {
+		if err := s.cancelSuperseded(ctx, targetID); err != nil {
 			return Task{}, err
 		}
 	}
@@ -1124,7 +1506,65 @@ func (s *Service) AddReference(
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
-	return after, nil
+	if isInverseReferenceKind(kind) {
+
+		s.logIncomingReference(ctx, taskID, Reference{
+			ID:     source.ID,
+			Name:   source.Name,
+			Prompt: source.Prompt,
+			State:  source.State,
+		}, stored, true)
+	}
+	if stored == ReferenceSupersedes && rewire {
+		if err := s.rewireBlockers(ctx, targetID, sourceID); err != nil {
+			return Task{}, err
+		}
+	}
+	if err := s.ReconcileWaiting(ctx, sourceID); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, taskID)
+}
+
+func (s *Service) rewireBlockers(
+	ctx context.Context,
+	supersededID, replacementID string,
+) error {
+	if supersededID == replacementID {
+		return nil
+	}
+	edges, err := s.store.ListAllBlockingTaskReferences(ctx)
+	if err != nil {
+		return err
+	}
+	for _, edge := range edges {
+		if edge.ReferencedTaskID != supersededID || edge.TaskID == replacementID {
+			continue
+		}
+		referrer, err := s.snapshot(ctx, edge.TaskID)
+		if err != nil {
+			return err
+		}
+		if referrer.Archived {
+			continue
+		}
+		switch referrer.State {
+		case StateCompleted, StateCancelled:
+			continue
+		}
+		if _, err := s.RemoveReference(ctx, edge.TaskID, supersededID); err != nil {
+			return err
+		}
+		if _, err := s.AddReference(
+			ctx, edge.TaskID, replacementID, ReferenceBlocking,
+		); err != nil {
+			if errors.Is(err, ErrReferenceCycle) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) cancelSuperseded(ctx context.Context, id string) error {
@@ -1142,22 +1582,53 @@ func (s *Service) cancelSuperseded(ctx context.Context, id string) error {
 }
 
 func (s *Service) RemoveReference(ctx context.Context, taskID, referencedID string) (Task, error) {
-	cur, err := s.Get(ctx, taskID)
+	return s.removeReferenceEdge(ctx, taskID, referencedID, taskID)
+}
+
+func (s *Service) RemoveIncomingReference(
+	ctx context.Context,
+	taskID, referencedID string,
+) (Task, error) {
+	return s.removeReferenceEdge(ctx, referencedID, taskID, taskID)
+}
+
+func (s *Service) removeReferenceEdge(
+	ctx context.Context,
+	sourceID, targetID, viewID string,
+) (Task, error) {
+	cur, err := s.Get(ctx, viewID)
 	if err != nil {
 		return Task{}, err
 	}
+	var removed *Reference
+	if viewID != sourceID {
+		for _, ref := range cur.ReferencedBy {
+			if ref.ID == sourceID {
+				peer := ref
+				removed = &peer
+				break
+			}
+		}
+	}
 	if _, err := s.store.RemoveTaskReference(ctx, store.RemoveTaskReferenceParams{
-		TaskID:           taskID,
-		ReferencedTaskID: referencedID,
+		TaskID:           sourceID,
+		ReferencedTaskID: targetID,
 	}); err != nil {
 		return Task{}, err
 	}
-	after, err := s.Get(ctx, taskID)
+	after, err := s.Get(ctx, viewID)
 	if err != nil {
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
-	return after, nil
+	if removed != nil {
+
+		s.logIncomingReference(ctx, viewID, *removed, removed.Kind, false)
+	}
+	if err := s.ReconcileWaiting(ctx, sourceID); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, viewID)
 }
 
 func (s *Service) SetReferences(
@@ -1177,13 +1648,9 @@ func (s *Service) SetReferences(
 	for _, ref := range target {
 		want[ref.TaskID] = ref
 	}
-	existing, err := s.store.ListTaskReferenceIDs(ctx, taskID)
-	if err != nil {
-		return Task{}, err
-	}
-	for _, id := range existing {
-		if _, ok := want[id]; !ok {
-			if _, err := s.RemoveReference(ctx, taskID, id); err != nil {
+	for _, ref := range cur.References {
+		if _, ok := want[ref.ID]; !ok {
+			if _, err := s.RemoveReference(ctx, taskID, ref.ID); err != nil {
 				return Task{}, err
 			}
 		}
@@ -1246,6 +1713,9 @@ func (s *Service) Archive(ctx context.Context, id string) (Task, error) {
 	}
 	if n == 0 {
 		return Task{}, ErrWrongState
+	}
+	if err := s.ClearHolds(ctx, id, HoldClearedByArchive); err != nil {
+		log.Printf("[tasks] clear holds after archive %s: %v", id, err)
 	}
 	after, err := s.snapshot(ctx, id)
 	if err != nil {
@@ -1432,7 +1902,15 @@ func (s *Service) Merge(ctx context.Context, rawIDs []string) (Task, error) {
 	}
 
 	for _, t := range mergees {
-		if _, err := s.AddReference(ctx, merged.ID, t.ID, ReferenceSupersedes); err != nil {
+		if _, err := s.addReference(
+			ctx, merged.ID, t.ID, ReferenceSupersedes, false,
+		); err != nil {
+			return Task{}, err
+		}
+	}
+
+	for _, t := range mergees {
+		if err := s.rewireBlockers(ctx, t.ID, merged.ID); err != nil {
 			return Task{}, err
 		}
 	}
@@ -1468,6 +1946,7 @@ func sizeName(rank int) string {
 func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 	before, beforeErr := s.snapshot(ctx, id)
 	now := time.Now().UnixMilli()
+
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     store.TaskSettle,
 		SettledAt: sql.NullInt64{Int64: now, Valid: true},
@@ -1477,13 +1956,88 @@ func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if n == 1 {
-		s.transitioned(ctx, id, StateSettled)
-		if after, err := s.snapshot(ctx, id); err == nil && beforeErr == nil {
-			s.logChanges(ctx, before, after)
-		}
+	if n != 1 {
+		return false, nil
 	}
-	return n == 1, nil
+	after, err := s.snapshot(ctx, id)
+	if err != nil {
+		return true, nil
+	}
+	if beforeErr == nil {
+		s.logChanges(ctx, before, after)
+	}
+	if after.State == StateWaiting {
+
+		holds, err := s.Holds(ctx, id)
+		if err != nil {
+			return true, nil
+		}
+		s.transitionedHeld(ctx, id, holds)
+		return true, nil
+	}
+	s.transitioned(ctx, id, StateSettled)
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after settle %s: %v", id, err)
+	}
+
+	if requeued, err := s.requeuePendingPrompt(ctx, id); err != nil {
+		log.Printf("[tasks] requeue pending prompt %s: %v", id, err)
+	} else if requeued && s.OnPendingPromptQueued != nil {
+		s.OnPendingPromptQueued(ctx, id)
+	}
+	s.childFinished(ctx, id, ChildSettled)
+	return true, nil
+}
+
+func (s *Service) requeuePendingPrompt(ctx context.Context, id string) (bool, error) {
+	cur, err := s.Get(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if cur.State != StateSettled || strings.TrimSpace(cur.PendingPrompt) == "" {
+		return false, nil
+	}
+
+	if s.pendingPromptDelivered(ctx, id, cur.PendingPrompt) {
+		return false, nil
+	}
+	now := time.Now().UnixMilli()
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+		Event:                store.TaskRequeueWithPrompt,
+		PendingPrompt:        cur.PendingPrompt,
+		PendingPromptActorID: nullID(cur.PendingPromptActorID),
+		QueuedAt:             sql.NullInt64{Int64: now, Valid: true},
+		UpdatedAt:            now,
+		ID:                   id,
+	})
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil
+	}
+	after, err := s.snapshot(ctx, id)
+	if err != nil {
+		return true, err
+	}
+	s.logChanges(ctx, cur, after)
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after pending-prompt requeue %s: %v", id, err)
+	}
+	s.changed(ctx, id)
+	return true, nil
+}
+
+func (s *Service) pendingPromptDelivered(
+	ctx context.Context,
+	id, prompt string,
+) bool {
+	st, err := s.WakeState(ctx, id)
+	if err != nil {
+		return false
+	}
+	return st.DeliveredPrompt != "" &&
+		st.DeliveredPrompt == strings.TrimSpace(prompt)
 }
 
 func (s *Service) MarkInput(ctx context.Context, id string) (bool, error) {
@@ -1514,9 +2068,16 @@ func (s *Service) ClearInput(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if n == 1 && beforeErr == nil {
-		if after, err := s.snapshot(ctx, id); err == nil {
-			s.logChanges(ctx, before, after)
+	if n == 1 {
+		if beforeErr == nil {
+			if after, err := s.snapshot(ctx, id); err == nil {
+				s.logChanges(ctx, before, after)
+			}
+		}
+		if s.OnInputCleared != nil {
+			if t, err := s.Get(ctx, id); err == nil {
+				s.OnInputCleared(ctx, t)
+			}
 		}
 	}
 	return n == 1, nil
@@ -1559,6 +2120,17 @@ func (s *Service) closeOut(ctx context.Context, id string, r Resolution) (Task, 
 	if cur.State == StateRunning || cur.State == StateInput {
 		return Task{}, ErrRunning
 	}
+
+	if r == ResolutionCompleted &&
+		strings.TrimSpace(cur.PendingPrompt) != "" &&
+		!s.pendingPromptDelivered(ctx, id, cur.PendingPrompt) {
+		return Task{}, ErrPendingPrompt
+	}
+	if r == ResolutionCompleted {
+		if err := s.requireLead(ctx, id, StateCompleted); err != nil {
+			return Task{}, err
+		}
+	}
 	now := time.Now().UnixMilli()
 	var n int64
 	switch r {
@@ -1585,6 +2157,10 @@ func (s *Service) closeOut(ctx context.Context, id string, r Resolution) (Task, 
 	if n == 0 {
 		return Task{}, ErrWrongState
 	}
+
+	if err := s.ClearHolds(ctx, id, HoldClearedByCloseOut); err != nil {
+		log.Printf("[tasks] clear holds after close-out %s: %v", id, err)
+	}
 	state := StateCompleted
 	if r == ResolutionCancelled {
 		state = StateCancelled
@@ -1595,7 +2171,29 @@ func (s *Service) closeOut(ctx context.Context, id string, r Resolution) (Task, 
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after close-out %s: %v", id, err)
+	}
+	s.reconcileReferrers(ctx, id)
+	if r == ResolutionCompleted {
+		s.childFinished(ctx, id, ChildCompleted)
+	} else {
+		s.childFinished(ctx, id, ChildCancelled)
+	}
 	return after, nil
+}
+
+func (s *Service) reconcileReferrers(ctx context.Context, id string) {
+	referrers, err := s.store.ListTaskReferencedBy(ctx, id)
+	if err != nil {
+		log.Printf("[tasks] list referrers of %s: %v", id, err)
+		return
+	}
+	for _, referrer := range referrers {
+		if err := s.ReconcileWaiting(ctx, referrer.ID); err != nil {
+			log.Printf("[tasks] reconcile referrer %s: %v", referrer.ID, err)
+		}
+	}
 }
 
 func (s *Service) RequeueWithPrompt(
@@ -1619,6 +2217,21 @@ func (s *Service) RequeueWithPrompt(
 		}
 	default:
 		return Task{}, ErrWrongState
+	}
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		cur.ProjectID,
+		cur.AssigneeActorID,
+		tagIDsOf(cur.Tags),
+	); err != nil {
+		return Task{}, err
+	}
+	if err := s.requireLead(ctx, id, StateQueued); err != nil {
+		return Task{}, err
+	}
+
+	if cur.ParentTaskID != "" {
+		s.clearChildWakeKey(ctx, cur.ParentTaskID, cur.ID)
 	}
 	pending := prompt
 	if undelivered := strings.TrimSpace(cur.PendingPrompt); undelivered != "" {
@@ -1644,7 +2257,10 @@ func (s *Service) RequeueWithPrompt(
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
-	return after, nil
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
+	}
+	return s.Get(ctx, id)
 }
 
 func (s *Service) ClearPendingPrompt(ctx context.Context, id string) error {
@@ -1685,6 +2301,10 @@ func (s *Service) Fail(ctx context.Context, id, errMsg string) (Task, error) {
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after fail %s: %v", id, err)
+	}
+	s.childFinished(ctx, id, ChildFailed)
 	return after, nil
 }
 
@@ -1694,12 +2314,16 @@ func (s *Service) Reopen(ctx context.Context, id string, queue bool) (Task, erro
 		return Task{}, err
 	}
 	switch cur.State {
-	case StateSettled, StateFailed, StateCompleted, StateCancelled:
+	case StateSettled, StateFailed, StateCompleted, StateCancelled, StateWaiting:
 	default:
 		return Task{}, ErrWrongState
 	}
 	state := StateBacklog
 	if queue {
+
+		if len(cur.Holds) > 0 {
+			return Task{}, heldError(cur.Holds)
+		}
 
 		if !cur.StartedAt.IsZero() && cur.State != StateFailed {
 			return Task{}, ErrFollowUpRequired
@@ -1707,7 +2331,29 @@ func (s *Service) Reopen(ctx context.Context, id string, queue bool) (Task, erro
 		if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
 			return Task{}, err
 		}
+
+		if err := s.validateAssigneeTagDeclarations(
+			ctx,
+			cur.ProjectID,
+			cur.AssigneeActorID,
+			tagIDsOf(cur.Tags),
+		); err != nil {
+			return Task{}, err
+		}
+		if err := s.requireLead(ctx, id, StateQueued); err != nil {
+			return Task{}, err
+		}
 		state = StateQueued
+		waiting, err := s.hasIncompleteDependencies(ctx, cur)
+		if err != nil {
+			return Task{}, err
+		}
+		if waiting {
+			state = StateWaiting
+		}
+	}
+	if cur.ParentTaskID != "" {
+		s.clearChildWakeKey(ctx, cur.ParentTaskID, cur.ID)
 	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     store.TaskReopen,
@@ -1799,7 +2445,7 @@ func (s *Service) UpdateAttributes(
 		return Task{}, err
 	}
 
-	if attrs.changesTags() || attrs.Prompt != nil {
+	if attrs.changesTags() || attrs.Prompt != nil || attrs.AssigneeActorID != nil {
 		if cur, err = s.Get(ctx, id); err != nil {
 			return Task{}, err
 		}
@@ -1840,6 +2486,21 @@ func (s *Service) applyAttributes(
 			); err != nil {
 				return Task{}, err
 			}
+		}
+	}
+
+	finalAssignee := cur.AssigneeActorID
+	if attrs.AssigneeActorID != nil {
+		finalAssignee = *attrs.AssigneeActorID
+	}
+	if finalAssignee != 0 && (attrs.AssigneeActorID != nil || attrs.changesTags()) {
+		if err := s.validateAssigneeTagDeclarations(
+			ctx,
+			cur.ProjectID,
+			finalAssignee,
+			resultingTagIDs(tagIDsOf(cur.Tags), attrs.AddTagIDs, attrs.RemoveTagIDs),
+		); err != nil {
+			return Task{}, err
 		}
 	}
 	editable := cur.State == StateBacklog && cur.StartedAt.IsZero()
@@ -1984,6 +2645,15 @@ func (s *Service) applyAttributes(
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
+	cur, _ := s.Get(ctx, id)
+
+	if err := s.store.DetachTaskChildren(ctx, store.DetachTaskChildrenParams{
+		ParentTaskID: nullString(id),
+		UpdatedAt:    time.Now().UnixMilli(),
+	}); err != nil {
+		return err
+	}
+	referrers, _ := s.store.ListTaskReferencedBy(ctx, id)
 	if _, err := s.Get(ctx, id); err != nil {
 		return err
 	}
@@ -1991,6 +2661,15 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.changed(ctx, id)
+
+	for _, referrer := range referrers {
+		if err := s.ReconcileWaiting(ctx, referrer.ID); err != nil {
+			log.Printf("[tasks] reconcile referrer %s after delete: %v", referrer.ID, err)
+		}
+	}
+	if cur.ID != "" && cur.ParentTaskID != "" && s.OnChildFinished != nil {
+		s.OnChildFinished(ctx, cur, ChildCancelled)
+	}
 	return nil
 }
 
@@ -2024,6 +2703,10 @@ func (s *Service) Claim(
 		return false, err
 	}
 	if n == 1 {
+
+		if err := s.ResetWakeState(ctx, task.ID); err != nil {
+			log.Printf("[tasks] reset wake state %s: %v", task.ID, err)
+		}
 
 		if task.StartedAt.IsZero() {
 			if err := s.setTeamPromptPins(ctx, task.ID, pins.Teams); err != nil {
@@ -2147,6 +2830,60 @@ func (s *Service) RunningCounts(ctx context.Context, agentID ids.AgentID) (Count
 	return out, nil
 }
 
+func (s *Service) AgentClassCounts(
+	ctx context.Context,
+	agentID ids.AgentID,
+	reserved map[string]int,
+) (ClassCounts, error) {
+	rows, err := s.store.ListRunningTasksByAgent(ctx, agentID)
+	if err != nil {
+		return ClassCounts{}, err
+	}
+	links, err := s.store.ListRunningTaskTagsByAgent(ctx, agentID)
+	if err != nil {
+		return ClassCounts{}, err
+	}
+	ids := make([]string, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	tagsByTask := map[string][]Tag{}
+	for _, link := range links {
+		tagsByTask[link.TaskID] = append(tagsByTask[link.TaskID], Tag{
+			ID:   link.TagID,
+			Name: link.Name,
+		})
+	}
+	return ClassCountsOf(ids, tagsByTask, reserved), nil
+}
+
+func (s *Service) ProjectClassCounts(
+	ctx context.Context,
+	projectID string,
+	reserved map[string]int,
+) (ClassCounts, error) {
+	rows, err := s.store.ListRunningTasksByProject(ctx, projectID)
+	if err != nil {
+		return ClassCounts{}, err
+	}
+	links, err := s.store.ListRunningTaskTagsByProject(ctx, projectID)
+	if err != nil {
+		return ClassCounts{}, err
+	}
+	ids := make([]string, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	tagsByTask := map[string][]Tag{}
+	for _, link := range links {
+		tagsByTask[link.TaskID] = append(tagsByTask[link.TaskID], Tag{
+			ID:   link.TagID,
+			Name: link.Name,
+		})
+	}
+	return ClassCountsOf(ids, tagsByTask, reserved), nil
+}
+
 func (s *Service) CanRunTask(
 	ctx context.Context,
 	projectID string,
@@ -2169,10 +2906,6 @@ func (s *Service) IsMember(
 ) (bool, error) {
 	member, _, err := s.CanRunTask(ctx, projectID, agentID)
 	return member, err
-}
-
-func (s *Service) requireState(ctx context.Context, id string, want State) (Task, error) {
-	return s.requireStates(ctx, id, want)
 }
 
 func (s *Service) requireStates(
@@ -2254,6 +2987,91 @@ func (s *Service) requireExecutor(
 	return ErrProjectHasNoAgents
 }
 
+func (s *Service) validateAssigneeTagDeclarations(
+	ctx context.Context,
+	projectID string,
+	assigneeActorID ids.ActorID,
+	tagIDs []string,
+) error {
+	if s.Limits == nil || projectID == "" || assigneeActorID == 0 ||
+		len(tagIDs) == 0 {
+		return nil
+	}
+	agentID, ok := s.agentIDByActor(ctx, assigneeActorID)
+	if !ok {
+		return nil
+	}
+	required := make([]Tag, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		row, err := s.store.GetTag(ctx, tagID)
+		if err != nil {
+			return err
+		}
+		if row.IsRequired == 0 {
+			continue
+		}
+		required = append(required, Tag{
+			ID:        row.ID,
+			ProjectID: row.ProjectID.String,
+			Name:      row.Name,
+			Required:  true,
+		})
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	lim, err := s.Limits.Get(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	missing := MissingTagDeclarations(lim, projectID, required)
+	if len(missing) == 0 {
+		return nil
+	}
+	names := make([]string, len(missing))
+	for i, tag := range missing {
+		names[i] = "#" + tag.Name
+	}
+	return fmt.Errorf("%w: %s", ErrAssigneeMissingTag, strings.Join(names, ", "))
+}
+
+func tagIDsOf(tags []Tag) []string {
+	out := make([]string, len(tags))
+	for i, tag := range tags {
+		out[i] = tag.ID
+	}
+	return out
+}
+
+func resultingTagIDs(current, add, remove []string) []string {
+	seen := make(map[string]bool, len(current)+len(add))
+	out := make([]string, 0, len(current)+len(add))
+	for _, id := range current {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, id := range remove {
+		delete(seen, id)
+	}
+	kept := out[:0]
+	for _, id := range out {
+		if seen[id] {
+			kept = append(kept, id)
+		}
+	}
+	for _, id := range add {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		kept = append(kept, id)
+	}
+	return kept
+}
+
 func (s *Service) ValidateTags(ctx context.Context, projectID string, tagIDs []string) error {
 	for _, tagID := range tagIDs {
 		row, err := s.store.GetTag(ctx, tagID)
@@ -2270,6 +3088,18 @@ func (s *Service) ValidateTags(ctx context.Context, projectID string, tagIDs []s
 }
 
 func (s *Service) SetTags(ctx context.Context, taskID string, tagIDs []string) error {
+	cur, err := s.Get(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		cur.ProjectID,
+		cur.AssigneeActorID,
+		tagIDs,
+	); err != nil {
+		return err
+	}
 	if err := s.store.DeleteTaskTags(ctx, taskID); err != nil {
 		return err
 	}
@@ -2298,6 +3128,7 @@ func (s *Service) tagsForTask(ctx context.Context, taskID string) ([]Tag, error)
 			Description: row.Description,
 			Color:       row.Color,
 			Archived:    row.ArchivedAt.Valid,
+			Required:    row.IsRequired != 0,
 		}
 	}
 	return out, nil
@@ -2453,6 +3284,7 @@ func (s *Service) allTags(ctx context.Context) (map[string][]Tag, error) {
 			Description: row.Description,
 			Color:       row.Color,
 			Archived:    row.ArchivedAt.Valid,
+			Required:    row.IsRequired != 0,
 		})
 	}
 	return out, nil
@@ -2478,6 +3310,25 @@ func (s *Service) allTaskLeads(ctx context.Context) (map[string][]int64, error) 
 	out := map[string][]int64{}
 	for _, row := range rows {
 		out[row.TaskID] = append(out[row.TaskID], row.ActorID)
+	}
+	return out, nil
+}
+
+func (s *Service) allHolds(ctx context.Context) (map[string][]TaskHold, error) {
+	rows, err := s.store.ListAllTaskHolds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]TaskHold{}
+	for _, row := range rows {
+		out[row.TaskID] = append(out[row.TaskID], TaskHold{
+			TaskID:     row.TaskID,
+			PluginID:   row.PluginID,
+			PluginName: row.PluginName,
+			Key:        row.Key,
+			Reason:     row.Reason,
+			CreatedAt:  time.UnixMilli(row.CreatedAt),
+		})
 	}
 	return out, nil
 }
@@ -2619,6 +3470,10 @@ func (s *Service) SetTaskTeams(ctx context.Context, id string, teamIDs []int64) 
 			kept = append(kept, lead)
 		}
 	}
+	if len(kept) == 0 && leadRequired(before.State) && actorIDFrom(ctx) != 0 {
+
+		return Task{}, ErrLeadRequired
+	}
 	if err := s.setTaskLeads(ctx, before.ProjectID, id, kept); err != nil {
 		return Task{}, err
 	}
@@ -2664,6 +3519,10 @@ func (s *Service) SetTaskLeads(
 	if err != nil {
 		return Task{}, err
 	}
+	if leadRequired(before.State) && actorIDFrom(ctx) != 0 &&
+		len(dedupeActorIDs(leadActorIDs)) == 0 {
+		return Task{}, ErrLeadRequired
+	}
 	if err := s.setTaskLeads(ctx, before.ProjectID, id, leadActorIDs); err != nil {
 		return Task{}, err
 	}
@@ -2673,6 +3532,71 @@ func (s *Service) SetTaskLeads(
 	}
 	s.logOwnership(ctx, before, after)
 	return after, nil
+}
+
+func leadRequired(state State) bool {
+	return state != StateBacklog && state != StateCancelled
+}
+
+func (s *Service) canLead(
+	ctx context.Context,
+	projectID, taskID string,
+	actorID ids.ActorID,
+) (bool, error) {
+	if actorID == 0 {
+		return false, nil
+	}
+	inTeam, err := s.store.IsActorInTaskTeam(ctx, store.IsActorInTaskTeamParams{
+		TaskID:  taskID,
+		ActorID: int64(actorID),
+	})
+	if err != nil {
+		return false, err
+	}
+	if inTeam {
+		return true, nil
+	}
+	if strings.TrimSpace(projectID) == "" {
+		return false, nil
+	}
+	return s.projects.ActorCanPrompt(ctx, projectID, actorID)
+}
+
+func (s *Service) resolveCreateLeads(
+	ctx context.Context,
+	projectID, taskID string,
+	explicit []ids.ActorID,
+) ([]ids.ActorID, error) {
+	out := dedupeActorIDs(explicit)
+	creator := actorIDFrom(ctx)
+	if creator == 0 {
+		return out, nil
+	}
+	if actorFrom(ctx) != ActorAgent && len(out) > 0 {
+		return out, nil
+	}
+	eligible, err := s.canLead(ctx, projectID, taskID, creator)
+	if err != nil {
+		return nil, err
+	}
+	if !eligible {
+		return out, nil
+	}
+	return dedupeActorIDs(append(out, creator)), nil
+}
+
+func (s *Service) requireLead(ctx context.Context, id string, state State) error {
+	if !leadRequired(state) || actorIDFrom(ctx) == 0 {
+		return nil
+	}
+	leads, err := s.store.ListTaskLeadsByTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(leads) == 0 {
+		return ErrLeadRequired
+	}
+	return nil
 }
 
 func (s *Service) validateTaskLeads(
@@ -2858,6 +3782,145 @@ func (s *Service) CanPrompt(
 	})
 }
 
+func (s *Service) WakeState(ctx context.Context, id string) (WakeState, error) {
+	row, err := s.store.GetTask(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WakeState{}, ErrNotFound
+	}
+	if err != nil {
+		return WakeState{}, err
+	}
+	return parseWakeState(row.PendingSteering), nil
+}
+
+func (s *Service) SetWakeState(ctx context.Context, id string, st WakeState) error {
+	if _, err := s.store.SetTaskPendingSteering(ctx, store.SetTaskPendingSteeringParams{
+		PendingSteering: st.JSON(),
+		UpdatedAt:       time.Now().UnixMilli(),
+		ID:              id,
+	}); err != nil {
+		return err
+	}
+	s.changed(ctx, id)
+	return nil
+}
+
+func (s *Service) MarkPendingPromptDelivered(ctx context.Context, id, text string) error {
+	st, err := s.WakeState(ctx, id)
+	if err != nil {
+		return err
+	}
+	st.DeliveredPrompt = strings.TrimSpace(text)
+	return s.SetWakeState(ctx, id, st)
+}
+
+func (s *Service) ResetWakeState(ctx context.Context, id string) error {
+	return s.SetWakeState(ctx, id, WakeState{Keys: map[string]string{}})
+}
+
+func (s *Service) clearChildWakeKey(ctx context.Context, parentID, childID string) {
+	st, err := s.WakeState(ctx, parentID)
+	if err != nil {
+		return
+	}
+	if _, ok := st.Keys[childID]; !ok {
+		return
+	}
+	delete(st.Keys, childID)
+	if err := s.SetWakeState(ctx, parentID, st); err != nil {
+		log.Printf("[tasks] clear child wake key %s/%s: %v", parentID, childID, err)
+	}
+}
+
+func (s *Service) AppendPendingPrompt(
+	ctx context.Context, id, text string, actorID ids.ActorID,
+) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	pending := strings.TrimSpace(t.PendingPrompt)
+	if pending != "" {
+		pending += "\n\n"
+	}
+	pending += text
+	if _, err := s.store.SetTaskPendingPromptAny(ctx, store.SetTaskPendingPromptAnyParams{
+		PendingPrompt:        pending,
+		PendingPromptActorID: nullID(actorID),
+		UpdatedAt:            time.Now().UnixMilli(),
+		ID:                   id,
+	}); err != nil {
+		return err
+	}
+	s.changed(ctx, id)
+	return nil
+}
+
+func (s *Service) FailForWakeCap(ctx context.Context, id, msg string) error {
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.State == StateRunning || t.State == StateInput {
+		_, err = s.Fail(ctx, id, msg)
+		return err
+	}
+	now := time.Now().UnixMilli()
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+		Event:     store.TaskFailResting,
+		Error:     msg,
+		SettledAt: sql.NullInt64{Int64: now, Valid: true},
+		UpdatedAt: now,
+		ID:        id,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrWrongState
+	}
+	after, err := s.snapshot(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.transitioned(ctx, id, StateFailed)
+	s.logChanges(ctx, t, after)
+	return nil
+}
+
+func (s *Service) childFinished(ctx context.Context, id string, outcome ChildOutcome) {
+	if s.OnChildFinished == nil {
+		return
+	}
+	child, err := s.Get(ctx, id)
+	if err != nil || child.ParentTaskID == "" {
+		return
+	}
+	s.OnChildFinished(ctx, child, outcome)
+}
+
+func (s *Service) CanCloseOut(
+	ctx context.Context,
+	t Task,
+	actorID ids.ActorID,
+	isAdmin bool,
+) (bool, error) {
+	if isAdmin {
+		return true, nil
+	}
+	if actorID == 0 {
+		return false, nil
+	}
+	return s.store.IsActorTaskLead(ctx, store.IsActorTaskLeadParams{
+		TaskID:  t.ID,
+		ActorID: int64(actorID),
+	})
+}
+
 func (s *Service) Recipients(ctx context.Context, id string) ([]ids.ActorID, error) {
 	rows, err := s.store.ListTaskNotificationRecipients(ctx, id)
 	if err != nil {
@@ -2931,6 +3994,7 @@ func toTask(
 		Prompt:          row.Prompt,
 		Name:            row.Name,
 		ProjectID:       row.ProjectID.String,
+		ParentTaskID:    row.ParentTaskID.String,
 		AssigneeActorID: ids.ActorID(row.AssigneeActorID.Int64),
 		AssigneePinned:  row.AssigneePinned != 0,
 		Priority:        row.Priority,
@@ -2956,6 +4020,7 @@ func toTask(
 		Progress:             progressOrEmpty(progress),
 		References:           refs,
 		ReferencedBy:         referencedBy,
+		PendingSteering:      strings.Join(parseWakeState(row.PendingSteering).Lines, "\n"),
 		Blockers:             countBlockers(refs),
 		CreatorActorID:       ids.ActorID(row.CreatorActorID.Int64),
 		PendingPrompt:        row.PendingPrompt,
@@ -2966,10 +4031,21 @@ func toTask(
 		CreatedAt:            time.UnixMilli(row.CreatedAt),
 		UpdatedAt:            time.UnixMilli(row.UpdatedAt),
 		StateUpdatedAt:       time.UnixMilli(row.StateUpdatedAt),
+		TtcMs:                ttcMs(row.State, row.StateUpdatedAt, row.TtcMs),
 		SessionDeletedAt:     timeOrZero(row.SessionDeletedAt),
 		Archived:             row.ArchivedAt.Valid,
 		ArchivedAt:           timeOrZero(row.ArchivedAt),
 	}
+}
+
+func ttcMs(state string, stateUpdatedAt, accumulated int64) int64 {
+	if !CountsTtc(State(state)) || stateUpdatedAt <= 0 {
+		return accumulated
+	}
+	if live := time.Now().UnixMilli() - stateUpdatedAt; live > 0 {
+		return accumulated + live
+	}
+	return accumulated
 }
 
 func IncompleteBlockerIDs(refs []Reference) []string {

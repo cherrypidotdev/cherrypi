@@ -23,6 +23,11 @@ import (
 	"sort"
 )
 
+//go:embed extension_assets/agent_token.ts
+var agentTokenModule []byte
+
+const agentTokenModuleName = "agent_token.ts"
+
 //go:embed extension_assets/set_task_urls.ts
 var setTaskURLsExtension []byte
 
@@ -41,8 +46,14 @@ var siteToolsExtension []byte
 //go:embed extension_assets/agent_tools.ts
 var agentToolsExtension []byte
 
+//go:embed extension_assets/plugin_tools.ts
+var pluginToolsExtension []byte
+
 //go:embed extension_assets/image_budget.ts
 var imageBudgetExtension []byte
+
+//go:embed extension_assets/timings.ts
+var timingsExtension []byte
 
 //go:embed extension_assets/ask_user_question.ts
 var askUserQuestionExtension []byte
@@ -52,22 +63,30 @@ func InstallExtensions(dir string) ([]string, error) {
 		return nil, err
 	}
 
-	paths := make([]string, 0, 8)
-	for name, content := range map[string][]byte{
+	assets := map[string][]byte{
+		agentTokenModuleName:      agentTokenModule,
 		"set_task_urls.ts":        setTaskURLsExtension,
 		"upload_attachment.ts":    uploadAttachmentExtension,
 		"set_task_artifacts.ts":   setTaskArtifactsExtension,
 		"report_task_progress.ts": reportTaskProgressExtension,
+		"plugin_tools.ts":         pluginToolsExtension,
 		"site_tools.ts":           siteToolsExtension,
 		"agent_tools.ts":          agentToolsExtension,
 		"ask_user_question.ts":    askUserQuestionExtension,
 		"image_budget.ts":         imageBudgetExtension,
-	} {
+		"timings.ts":              timingsExtension,
+	}
+
+	paths := make([]string, 0, len(assets)-1)
+	for name, content := range assets {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, content, 0o644); err != nil {
 			return nil, err
 		}
-		paths = append(paths, path)
+
+		if name != agentTokenModuleName {
+			paths = append(paths, path)
+		}
 	}
 
 	sort.Strings(paths)

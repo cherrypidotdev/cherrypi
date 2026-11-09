@@ -79,6 +79,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Spinner(v-if="saving" data-icon="inline-start")
       CheckIcon(v-else data-icon="inline-start")
       span Save limits
+
+  Card(data-testid="agent-tag-declarations")
+    CardHeader
+      CardTitle Tags this agent handles
+      CardDescription
+        | A per-tag concurrency cap also declares the tag. Tasks whose tag is
+        | marked required only run on agents that declare it, and a 0 cap still
+        | declares it (the agent is interested but has no capacity right now).
+    CardContent.flex.flex-col.gap-3
+      p.text-muted-foreground.text-sm(
+        v-if="!declaredGlobal.length && !declaredProjects.length"
+      )
+        | No per-tag caps yet, so this agent declares no tags.
+      template(v-else)
+        .flex.flex-col.gap-1(v-if="declaredGlobal.length")
+          span.text-xs.font-medium Global
+          .flex.flex-wrap.items-center(class="gap-1.5")
+            span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs(
+              v-for="name in declaredGlobal"
+              :key="name"
+              class="py-0.5"
+              :style="tagStyle(tagByName(name)?.color)"
+            )
+              span.rounded-full.bg-current(class="size-1.5")
+              span {{ name }}
+        .flex.flex-col.gap-1(
+          v-for="group in declaredProjects"
+          :key="group.projectId"
+        )
+          span.text-xs.font-medium {{ group.projectName }}
+          .flex.flex-wrap.items-center(class="gap-1.5")
+            span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs(
+              v-for="tag in group.tags"
+              :key="tag.id"
+              class="py-0.5"
+              :style="tagStyle(tag.color)"
+            )
+              span.rounded-full.bg-current(class="size-1.5")
+              span {{ tag.name }}
 </template>
 
 <script setup lang="ts">
@@ -102,21 +141,25 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { withProgress } from "@/composables/useProgress";
 import { useTags } from "@/composables/useTags";
-import { agent } from "@/lib/sdk";
+import { agency, agent } from "@/lib/sdk";
 import { tagStyle } from "@/lib/task";
-import type { AgentTaskLimits, Tag } from "@cherrypi/sdk";
+import type { AgentTaskLimits, Project, Tag } from "@cherrypi/sdk";
 import { CheckIcon, XIcon } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{ agentId: string }>();
 
-const { active: tags, refresh: refreshTags } = useTags();
+const { all: allTags, active: tags, refresh: refreshTags } = useTags();
 const saving = ref(false);
 const error = ref("");
 
 const maxConcurrent = ref(1);
 const tagLimits = ref<{ tagName: string; maxConcurrent: number }[]>([]);
+const projectTagLimits = ref<
+  { projectId: string; tagId: string; maxConcurrent: number }[]
+>([]);
+const projects = ref<Project[]>([]);
 const addTagName = ref("");
 
 const availableTagNames = computed(() => {
@@ -136,8 +179,43 @@ const availableTagNames = computed(() => {
 
 function tagByName(name: string): Tag | undefined {
   const key = name.toLowerCase();
-  return tags.value.find((tag) => tag.name.toLowerCase() === key);
+  return allTags.value.find((tag) => tag.name.toLowerCase() === key);
 }
+
+function tagById(id: string): Tag | undefined {
+  return allTags.value.find((tag) => tag.id === id);
+}
+
+function projectName(id: string): string {
+  return projects.value.find((project) => project.id === id)?.name ?? id;
+}
+
+const declaredGlobal = computed(() => {
+  const names = new Set<string>();
+  for (const limit of tagLimits.value) {
+    const name = limit.tagName.trim().toLowerCase();
+    if (name) names.add(name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+});
+
+const declaredProjects = computed(() => {
+  const groups = new Map<string, Tag[]>();
+  for (const limit of projectTagLimits.value) {
+    const tag = tagById(limit.tagId);
+    if (!tag) continue;
+    const list = groups.get(limit.projectId) ?? [];
+    if (!list.some((item) => item.id === tag.id)) list.push(tag);
+    groups.set(limit.projectId, list);
+  }
+  return [...groups.entries()]
+    .map(([projectId, projectTags]) => ({
+      projectId,
+      projectName: projectName(projectId),
+      tags: projectTags.sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.projectName.localeCompare(b.projectName));
+});
 
 function addTagLimit(value: unknown) {
   const name = String(value);
@@ -161,6 +239,16 @@ async function load() {
       tagName: limit.tagName,
       maxConcurrent: limit.maxConcurrent,
     }));
+    projectTagLimits.value = limits.projectTagLimits.map((limit) => ({
+      projectId: limit.projectId,
+      tagId: limit.tagId,
+      maxConcurrent: limit.maxConcurrent,
+    }));
+    if (!projects.value.length) {
+      try {
+        projects.value = await agency.listAgentProjects(props.agentId);
+      } catch {}
+    }
     error.value = "";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);

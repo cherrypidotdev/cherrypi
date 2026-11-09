@@ -63,9 +63,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           size="lg"
           :used="board.overall.used"
           :cap="board.overall.cap"
+          :reserved="board.overall.reserved"
           :waiting="board.waiting.length"
           :show-count="false"
         )
+        .flex.flex-wrap.items-center.gap-x-4.gap-y-1(
+          v-if="Object.keys(board.reservedByClass).length"
+        )
+          span.text-2xs.text-muted-foreground Reserved on this agent
+          span.text-2xs.inline-flex.items-center.gap-1(
+            v-for="(slots, name) in board.reservedByClass"
+            :key="name"
+          )
+            span.size-2.rounded-full.border(class="border-amber-500/60 bg-amber-500/40")
+            | {{ "#" + name }} {{ slots }}
         .flex.flex-wrap.items-center.justify-between.gap-3
           .flex.flex-wrap.items-center.gap-x-4.gap-y-1
             span.text-2xs.inline-flex.items-center.gap-1(

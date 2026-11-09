@@ -60,3 +60,209 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     display: none !important;
   }
 }
+
+/* Mermaid diagrams.
+ *
+ * ```mermaid fences become <MermaidDiagram> (see .vitepress/config.mts). The
+ * diagram itself is drawn by Mermaid with the palette from theme/mermaid.ts,
+ * which reads the --vp-c-* tokens; these rules only give it a frame, a toolbar
+ * and a full-screen view. */
+.mermaid-diagram {
+  margin: 24px 0;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.mermaid-diagram__canvas {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  border-radius: 8px;
+  cursor: zoom-in;
+  outline: none;
+}
+
+.mermaid-diagram__canvas.is-pending {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.mermaid-diagram__canvas:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 4px;
+}
+
+.mermaid-diagram__canvas svg {
+  height: auto;
+  max-width: 100%;
+}
+
+/* Mermaid writes HTML labels (including a paragraph for multi-line text) into
+ * foreignObject, and VitePress' article typography (`line-height: 28px` on `p`)
+ * would then overflow the box Mermaid sized for its own 1.5 line height. */
+.mermaid-diagram__canvas svg p,
+.mermaid-zoom__canvas svg p {
+  margin: 0;
+  font: inherit;
+  line-height: inherit;
+}
+
+.mermaid-diagram__bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mermaid-diagram__button {
+  padding: 2px 12px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 999px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.mermaid-diagram__button:hover {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.mermaid-diagram__button:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.mermaid-diagram__code {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--vp-code-block-bg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mermaid-diagram__bar + .mermaid-diagram__code,
+.mermaid-diagram__error + .mermaid-diagram__code {
+  margin-top: 12px;
+}
+
+.mermaid-diagram__error {
+  margin: 12px 0 0;
+  color: var(--vp-c-warning-1);
+  font-size: 13px;
+}
+
+html.mermaid-diagram-locked {
+  overflow: hidden;
+}
+
+.mermaid-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  background: rgba(9, 14, 26, 0.88);
+  backdrop-filter: blur(6px);
+}
+
+.mermaid-zoom__stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.mermaid-zoom__stage.is-dragging {
+  cursor: grabbing;
+}
+
+.mermaid-zoom__canvas {
+  flex: none;
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mermaid-zoom__canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.mermaid-zoom__bar {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+}
+
+.mermaid-zoom__button {
+  min-width: 44px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mermaid-zoom__button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-zoom__button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.mermaid-zoom__button.is-primary {
+  border-color: transparent;
+  background: var(--vp-c-brand-1);
+}
+
+.mermaid-zoom__hint {
+  margin: 0;
+  padding: 0 16px 18px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .mermaid-zoom__hint {
+    display: none;
+  }
+}
+
+@media print {
+  .mermaid-diagram {
+    break-inside: avoid;
+    background: none;
+  }
+
+  .mermaid-diagram__bar {
+    display: none;
+  }
+}

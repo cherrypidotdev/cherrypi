@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -121,6 +122,8 @@ type CreateOptions struct {
 	AgencySeq       int64
 
 	Sender *PromptSender
+
+	PluginTools []PluginTool
 }
 
 type AddOptions struct {
@@ -173,6 +176,12 @@ func (m *Manager) Create(
 	}
 
 	now := time.Now().UnixMilli()
+	toolsJSON := "[]"
+	if len(opts.PluginTools) > 0 {
+		if raw, err := json.Marshal(opts.PluginTools); err == nil {
+			toolsJSON = string(raw)
+		}
+	}
 	row, err := m.store.CreateSession(ctx, sqlitedb.CreateSessionParams{
 		ID:                 id,
 		Status:             int64(StatusActive),
@@ -184,6 +193,7 @@ func (m *Manager) Create(
 		AppendSystemPrompt: opts.AppendSystemPrompt,
 		AgencyProjectID:    opts.AgencyProjectID,
 		AgencyTaskSeq:      opts.AgencySeq,
+		PluginTools:        toolsJSON,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	})
@@ -221,11 +231,17 @@ func (m *Manager) Create(
 
 	s.notifyAgentState("created", StatusInProgress)
 
+	row, err = m.store.GetSession(ctx, id)
+	if err != nil {
+		return sqlitedb.Task{}, err
+	}
+
 	if autoTitle {
+
 		go m.autoTitle(id, prompt, opts.ModelProvider, opts.ModelID, opts.ThinkingLevel)
 	}
 
-	return m.store.GetSession(ctx, id)
+	return row, nil
 }
 
 const titleTimeout = 60 * time.Second
@@ -306,7 +322,7 @@ func (m *Manager) runPiTitle(
 		"--no-extensions",
 	}
 
-	args = append(args, m.cfg.PiArgs...)
+	args = append(args, withoutExtensionArgs(m.cfg.PiArgs)...)
 	if provider != "" && modelID != "" {
 		args = append(args, "--model", provider+"/"+modelID)
 	}
@@ -328,6 +344,22 @@ func (m *Manager) runPiTitle(
 		return "", fmt.Errorf("title pi: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return parseTitle(string(out)), nil
+}
+
+func withoutExtensionArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--extension" || arg == "-e":
+
+			i++
+		case strings.HasPrefix(arg, "--extension="), strings.HasPrefix(arg, "-e="):
+
+		default:
+			out = append(out, arg)
+		}
+	}
+	return out
 }
 
 // parseTitle extracts the first non-empty line of a model's reply and strips
@@ -940,6 +972,9 @@ func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 	s.appendSystemPrompt = row.AppendSystemPrompt
 	s.agencyProjectID = row.AgencyProjectID
 	s.agencySeq = row.AgencyTaskSeq
+	if row.PluginTools != "" {
+		_ = json.Unmarshal([]byte(row.PluginTools), &s.pluginTools)
+	}
 	if row.WaitingForInput != 0 && row.PendingDialog.Valid {
 		s.savedDialog = row.PendingDialog.String
 	}

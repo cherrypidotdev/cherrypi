@@ -32,7 +32,8 @@ The composer asks for:
 - **Title and prompt** — what should be done. Attach files with the paperclip
   or by drag and drop.
 - **Tags, priority and size** — optional metadata used by filters and the
-  scheduler.
+  scheduler. A tag marked **required** in project settings only runs on agents
+  whose concurrency limits declare it; a lock icon marks it in the picker.
 
 Submit it with **Put to Backlog** (park it, still editable) or **Queue**
 (hand it to the scheduler now). A backlog task can still be edited; a queued
@@ -40,6 +41,24 @@ task waits for an incomplete blocking reference, an eligible agent, or a free
 slot. The task page shows the exact reason (for example
 `Waiting for tasks to become completed: PRFX-1, PRFX-2`), and the task table
 repeats it in the state tooltip.
+
+## Voice input
+
+Every Markdown composer — the new-task form, the task prompt editor, the
+follow-up composer and task comments — has a microphone at the right end of its
+formatting toolbar, once an administrator enables voice input
+(**Organization settings → Integrations**). Click it, speak, and click it again
+to stop.
+
+- With a speech-to-text endpoint configured by an administrator
+  (**Organization settings → Integrations → Voice input**), the agency records
+  the clip and inserts the transcript when you stop. The API key never reaches
+  the browser.
+- Without an endpoint, Chrome, Edge and Safari use their own Web Speech
+  recognition and stream interim words into the editor as you speak. Firefox has
+  no such API, so the microphone is hidden there.
+- The provider detects the language automatically. The recording is capped at
+  25 MiB, which is several minutes of speech.
 
 ## Task templates
 
@@ -79,7 +98,8 @@ records.
 | State | Meaning |
 | --- | --- |
 | `backlog` | Created but not queued yet. The prompt, project, and model are still editable. |
-| `queued` | Waiting for blocking references, an eligible agent, or a free slot. |
+| `waiting` | Held by an incomplete blocking reference or an unfinished sub-task. Slot-free; it queues itself once the last blocker finishes. |
+| `queued` | Waiting for an eligible agent or a free slot. |
 | `running` | Pi is working. |
 | `input` | Pi asked a question and waits for an answer. |
 | `settled` | The run finished; the task can be followed up. |

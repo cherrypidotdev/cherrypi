@@ -28,8 +28,10 @@ import (
 
 	sqlitedb "cherrypi.vladfaust.com/agency/internal/gen/sqlite"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/telemetry"
 	_sql "cherrypi.vladfaust.com/agency/sql"
 	"github.com/pressly/goose/v3"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 type SqliteStore struct {
@@ -44,7 +46,7 @@ func NewSqliteStore(dsn string) (Store, error) {
 func newSqliteStore(dsn string, foreignKeys bool) (Store, error) {
 	log.Printf("Using agency SQLite database at %s", dsn)
 
-	migrationDB, err := openSQLite(dsn, false)
+	migrationDB, err := openSQLite(dsn, false, false)
 	if err != nil {
 		return nil, fmt.Errorf("connect to agency SQLite: %w", err)
 	}
@@ -65,10 +67,11 @@ func newSqliteStore(dsn string, foreignKeys bool) (Store, error) {
 		return nil, fmt.Errorf("close agency SQLite migration connection: %w", err)
 	}
 
-	db, err := openSQLite(dsn, foreignKeys)
+	db, err := openSQLite(dsn, foreignKeys, true)
 	if err != nil {
 		return nil, fmt.Errorf("connect to agency SQLite: %w", err)
 	}
+	telemetry.RegisterDBStats(db, dsn, semconv.DBSystemNameSQLite)
 
 	return &SqliteStore{db: db, q: sqlitedb.New(db)}, nil
 }
@@ -1079,6 +1082,18 @@ func (s *SqliteStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskWait:
+		return s.q.WaitTask(ctx, sqlitedb.WaitTaskParams(WaitTaskParams{
+			QueuedAt:  p.QueuedAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
+	case TaskUnwait:
+		return s.q.UnwaitTask(ctx, sqlitedb.UnwaitTaskParams(UnwaitTaskParams{
+			QueuedAt:  p.QueuedAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
 	case TaskDequeue:
 		return s.q.DequeueTask(ctx, sqlitedb.DequeueTaskParams(DequeueTaskParams{
 			UpdatedAt: p.UpdatedAt,
@@ -1101,6 +1116,26 @@ func (s *SqliteStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskReleaseSettle:
+		return s.q.ReleaseSettleTask(
+			ctx,
+			sqlitedb.ReleaseSettleTaskParams(ReleaseSettleTaskParams{
+				SettledAt: p.SettledAt,
+				UpdatedAt: p.UpdatedAt,
+				ID:        p.ID,
+			}),
+		)
+	case TaskReleaseQueue:
+		return s.q.ReleaseQueueTask(
+			ctx,
+			sqlitedb.ReleaseQueueTaskParams(ReleaseQueueTaskParams{
+				PendingPrompt:        p.PendingPrompt,
+				PendingPromptActorID: p.PendingPromptActorID,
+				QueuedAt:             p.QueuedAt,
+				UpdatedAt:            p.UpdatedAt,
+				ID:                   p.ID,
+			}),
+		)
 	case TaskInput:
 		return s.q.MarkTaskInput(ctx, sqlitedb.MarkTaskInputParams(MarkTaskInputParams{
 			UpdatedAt: p.UpdatedAt,
@@ -1149,6 +1184,13 @@ func (s *SqliteStore) TransitionTask(
 		}))
 	case TaskFail:
 		return s.q.FailTask(ctx, sqlitedb.FailTaskParams(FailTaskParams{
+			Error:     p.Error,
+			SettledAt: p.SettledAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
+	case TaskFailResting:
+		return s.q.FailRestingTask(ctx, sqlitedb.FailRestingTaskParams(FailRestingTaskParams{
 			Error:     p.Error,
 			SettledAt: p.SettledAt,
 			UpdatedAt: p.UpdatedAt,

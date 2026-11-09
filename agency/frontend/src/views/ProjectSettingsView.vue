@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsTrigger(value="general") General
       TabsTrigger(value="tasks") Tasks
       TabsTrigger(value="templates") Templates
+      TabsTrigger(value="plugins") Plugins
       TabsTrigger(value="access") Access
       TabsTrigger(value="danger") Danger zone
 
@@ -234,6 +235,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         CardContent
           TaskTemplatesPanel(:project-id="project?.id ?? ''")
 
+    TabsContent(value="plugins")
+      ProjectPluginsPanel(v-if="project" :project-id="project.id")
+
     TabsContent(value="access")
       .flex.flex-col.gap-6
         Card
@@ -301,8 +305,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
                 ActorCombobox#new-member-actor.w-56(
                   v-model="newMemberUsername"
-                  placeholder="Add an actor…"
-                  kinds="all"
+                  placeholder="Add an actor or plugin…"
+                  kinds="project"
                 )
                 Select(v-model="newMemberRole")
                   SelectTrigger.w-36
@@ -498,6 +502,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
+import ProjectPluginsPanel from "@/components/settings/ProjectPluginsPanel.vue";
 import TagsPanel from "@/components/settings/TagsPanel.vue";
 import TaskTemplatesPanel from "@/components/templates/TaskTemplatesPanel.vue";
 import { Badge } from "@/components/ui/badge";
@@ -570,7 +575,7 @@ const route = useRoute();
 const router = useRouter();
 const { refresh: refreshProjects } = useProjects();
 
-const TABS = ["general", "tasks", "templates", "access", "danger"];
+const TABS = ["general", "tasks", "templates", "plugins", "access", "danger"];
 const tab = ref(
   typeof props.tab === "string" && TABS.includes(props.tab)
     ? props.tab

@@ -100,6 +100,17 @@ message AgentTaskUsage {
   
   
   int64 runs = 7;
+  
+  
+  
+  
+  
+  
+  int64 thinking_ms = 8;
+  int64 tool_ms = 9;
+  int64 model_wait_ms = 10;
+  int64 ttft_ms = 11;
+  int64 ttft_runs = 12;
 }
 
 
@@ -117,6 +128,15 @@ message UsageModel {
   
   
   string provider = 7;
+  
+  
+  
+  
+  int64 active_ms = 8;
+  int64 tool_ms = 9;
+  int64 model_wait_ms = 10;
+  int64 ttft_ms = 11;
+  int64 ttft_runs = 12;
 }
 
 
@@ -140,8 +160,38 @@ message GetTaskUsageRequest {
   string task_id = 2;
 }
 
+
+
+
+message AgentUsageRun {
+  
+  
+  string provider = 1;
+  
+  string model = 2;
+  int64 input_tokens = 3;
+  int64 output_tokens = 4;
+  double cost = 5;
+  
+  int64 active_ms = 6;
+  
+  google.protobuf.Timestamp at = 7;
+  
+  
+  
+  
+  
+  int64 thinking_ms = 8;
+  int64 tool_ms = 9;
+  int64 model_wait_ms = 10;
+  int64 ttft_ms = 11;
+}
+
 message GetTaskUsageResponse {
   agent.v1.TaskUsage usage = 1;
+  
+  
+  repeated AgentUsageRun runs = 2;
 }
 
 message GetDiskUsageRequest {

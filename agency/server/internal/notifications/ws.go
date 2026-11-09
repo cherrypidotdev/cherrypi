@@ -38,15 +38,18 @@ type Event struct {
 }
 
 type Entry struct {
-	ID        int64       `json:"id"`
-	AgentID   ids.AgentID `json:"agentId"`
-	TaskID    string      `json:"taskId"`
-	Kind      string      `json:"kind"`
-	Severity  string      `json:"severity"`
-	Title     string      `json:"title"`
-	Body      string      `json:"body"`
-	CreatedAt string      `json:"createdAt"`
-	ReadAt    *time.Time  `json:"readAt,omitempty"`
+	ID              int64       `json:"id"`
+	AgentID         ids.AgentID `json:"agentId"`
+	TaskID          string      `json:"taskId"`
+	Kind            string      `json:"kind"`
+	Severity        string      `json:"severity"`
+	Title           string      `json:"title"`
+	Body            string      `json:"body"`
+	PromptScope     string      `json:"promptScope"`
+	PromptProjectID string      `json:"promptProjectId"`
+	PromptTeamID    int64       `json:"promptTeamId"`
+	CreatedAt       string      `json:"createdAt"`
+	ReadAt          *time.Time  `json:"readAt,omitempty"`
 }
 
 func (s *Service) WSHandler() http.Handler {
@@ -112,14 +115,17 @@ func writeEvent(ctx context.Context, conn *websocket.Conn, event Event) error {
 
 func browserEntry(n Notification) *Entry {
 	entry := &Entry{
-		ID:        n.ID,
-		AgentID:   n.AgentID,
-		TaskID:    n.TaskID,
-		Kind:      n.Kind,
-		Severity:  n.Severity,
-		Title:     n.Title,
-		Body:      n.Body,
-		CreatedAt: n.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ID:              n.ID,
+		AgentID:         n.AgentID,
+		TaskID:          n.TaskID,
+		Kind:            n.Kind,
+		Severity:        n.Severity,
+		Title:           n.Title,
+		Body:            n.Body,
+		PromptScope:     n.PromptScope,
+		PromptProjectID: n.PromptProjectID,
+		PromptTeamID:    n.PromptTeamID,
+		CreatedAt:       n.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if !n.ReadAt.IsZero() {
 		readAt := n.ReadAt.UTC()

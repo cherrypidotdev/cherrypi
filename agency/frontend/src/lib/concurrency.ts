@@ -44,7 +44,23 @@ export type BlockerKind =
   | "tag"
   | "project-tag"
   | "offline"
-  | "reference";
+  | "reference"
+  | "reserved";
+
+export interface TagReservation {
+  tagName: string;
+  reserved: number;
+}
+
+export interface ClassFloor {
+  reserved: Record<string, number>;
+
+  general: number;
+
+  byClass: Record<string, number>;
+
+  cap: number;
+}
 
 export interface ConcurrencyBlocker {
   kind: BlockerKind;
@@ -70,6 +86,8 @@ export interface CapacityRow {
   tag?: Tag;
   used: number;
   cap: number;
+
+  reserved?: number;
   tasks: Task[];
   waiting: number;
   full: boolean;
@@ -90,6 +108,8 @@ export interface AgentConcurrencyBoard {
   tagRows: CapacityRow[];
   uncappedTags: { tag?: Tag; name: string; used: number; waiting: number }[];
   projectTagRows: CapacityRow[];
+
+  reservedByClass: Record<string, number>;
   free: number;
   fullCapCount: number;
   fullProjectCount: number;
@@ -118,6 +138,9 @@ export interface ProjectConcurrencyBoard {
   members: ProjectMember[];
   tagRows: ProjectTagCapacityRow[];
   waiting: WaitingTask[];
+
+  reservations: TagReservation[];
+  floor: ClassFloor;
   held: number;
   capSum: number;
   memberCount: number;
@@ -204,12 +227,118 @@ function matchesTaskTag(task: Task, tag: Tag): boolean {
   );
 }
 
+export function reservedRecord(
+  list: TagReservation[] | undefined,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of list ?? []) {
+    const name = item.tagName.toLowerCase();
+    if (item.reserved <= 0) continue;
+    out[name] = Math.max(out[name] ?? 0, item.reserved);
+  }
+  return out;
+}
+
+export function agentReserved(
+  projects: Project[],
+  byProject: Map<string, TagReservation[]> | undefined,
+  reservableProjectIds?: Set<string>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!byProject) return out;
+  for (const project of projects) {
+    if (reservableProjectIds && !reservableProjectIds.has(project.id)) continue;
+    for (const [name, slots] of Object.entries(
+      reservedRecord(byProject.get(project.id)),
+    )) {
+      out[name] = Math.max(out[name] ?? 0, slots);
+    }
+  }
+  return out;
+}
+
+export function classFloor(
+  tasks: Task[],
+  reserved: Record<string, number>,
+  cap: number,
+): ClassFloor {
+  const floor: ClassFloor = { reserved, general: 0, byClass: {}, cap };
+  for (const task of tasks) {
+    let classed = false;
+    for (const tag of task.tags) {
+      const name = tag.name.toLowerCase();
+      if (!(name in reserved)) continue;
+      floor.byClass[name] = (floor.byClass[name] ?? 0) + 1;
+      classed = true;
+    }
+    if (!classed) floor.general += 1;
+  }
+  return floor;
+}
+
+export function reservedSlots(reserved: Record<string, number>): number {
+  return Object.values(reserved).reduce((sum, slots) => sum + slots, 0);
+}
+
+export function fitsFloor(floor: ClassFloor, task: Task): boolean {
+  const names = Object.keys(floor.reserved);
+  if (!names.length) return true;
+  const carried = new Set(task.tags.map((tag) => tag.name.toLowerCase()));
+  let reservedTotal = 0;
+  let spill = 0;
+  let own = 0;
+  for (const name of names) {
+    const slots = floor.reserved[name]!;
+    if (slots <= 0) continue;
+    reservedTotal += slots;
+    const held = floor.byClass[name] ?? 0;
+    if (held > slots) spill += held - slots;
+    if (!carried.has(name)) continue;
+
+    if (slots - held > own) own = slots - held;
+  }
+  const generalFree = floor.cap - reservedTotal - floor.general - spill;
+  return own + generalFree >= 1;
+}
+
+export function blockingClass(floor: ClassFloor, task: Task): string {
+  const carried = new Set(task.tags.map((tag) => tag.name.toLowerCase()));
+  const names = Object.keys(floor.reserved).filter(
+    (name) => !carried.has(name),
+  );
+  const pool = names.length ? names : Object.keys(floor.reserved);
+  pool.sort(
+    (a, b) =>
+      (floor.reserved[b] ?? 0) - (floor.reserved[a] ?? 0) || a.localeCompare(b),
+  );
+  return pool[0] ?? "";
+}
+
+export function reservedBlocker(
+  floor: ClassFloor,
+  task: Task,
+): ConcurrencyBlocker | null {
+  if (fitsFloor(floor, task)) return null;
+  const name = blockingClass(floor, task);
+  if (!name) return null;
+  const slots = floor.reserved[name] ?? 0;
+  const used = floor.byClass[name] ?? 0;
+  return {
+    kind: "reserved",
+    label: `Reserved for #${name}`,
+    detail:
+      `${slots} slot(s) are kept for #${name} tasks (${used} held); ` +
+      `a task without #${name} needs more room than that leaves.`,
+  };
+}
+
 export function blockersFor(
   agent: Agent,
   limits: AgentTaskLimits,
   counts: CapacityCounts,
   task: Task,
   tagCatalog: Tag[],
+  floor?: ClassFloor,
 ): ConcurrencyBlocker[] {
   const blockers: ConcurrencyBlocker[] = [];
   if (agent.status !== AgentStatus.ONLINE) {
@@ -266,6 +395,11 @@ export function blockersFor(
     }
   }
 
+  if (floor) {
+    const reserved = reservedBlocker(floor, task);
+    if (reserved) blockers.push(reserved);
+  }
+
   const references = taskIncompleteBlockers(task);
   if (references.length) {
     blockers.push({
@@ -288,8 +422,20 @@ export function buildAgentBoard(options: {
   limits: AgentTaskLimits;
   tasks: Task[];
   allTags: Tag[];
+
+  reservations?: Map<string, TagReservation[]>;
+
+  reservableProjectIds?: Set<string>;
 }): AgentConcurrencyBoard {
-  const { agent, projects, limits, tasks, allTags } = options;
+  const {
+    agent,
+    projects,
+    limits,
+    tasks,
+    allTags,
+    reservations,
+    reservableProjectIds,
+  } = options;
   const held = sortHeld(
     tasks.filter((task) => CONCURRENCY_HELD_STATES.has(task.state)),
   );
@@ -297,11 +443,13 @@ export function buildAgentBoard(options: {
     .filter((task) => task.state === TaskState.QUEUED)
     .sort((a, b) => taskTime(a) - taskTime(b));
   const counts = countTasks(held);
+  const reserved = agentReserved(projects, reservations, reservableProjectIds);
+  const floor = classFloor(held, reserved, limits.maxConcurrent);
 
   const waiting: WaitingTask[] = queued.map((task) => ({
     task,
     agent,
-    blockers: blockersFor(agent, limits, counts, task, allTags),
+    blockers: blockersFor(agent, limits, counts, task, allTags, floor),
   }));
   const waitingByProject = (projectId: string) =>
     waiting.filter((item) => item.task.projectId === projectId);
@@ -328,6 +476,7 @@ export function buildAgentBoard(options: {
     detail: `agent cap ${limits.maxConcurrent}`,
     used: counts.total,
     cap: limits.maxConcurrent,
+    reserved: reservedSlots(reserved),
     tasks: held,
     waiting: waiting.length,
     full: counts.total >= limits.maxConcurrent,
@@ -350,6 +499,7 @@ export function buildAgentBoard(options: {
       project,
       used,
       cap,
+
       tasks: held.filter((task) => task.projectId === project.id),
       waiting: rowWaiting.length,
       full: used >= cap,
@@ -472,6 +622,7 @@ export function buildAgentBoard(options: {
       (a.tag?.name ?? "").localeCompare(b.tag?.name ?? ""),
     ),
     projectTagRows,
+    reservedByClass: reserved,
     free,
     fullCapCount:
       (overall.full ? 1 : 0) +
@@ -490,9 +641,22 @@ export function buildProjectBoard(options: {
   tasks: Task[];
   limitsByAgent: Map<string, AgentTaskLimits>;
   allTags: Tag[];
+
+  reservations?: TagReservation[];
+
+  capacityAgentIds?: Set<string>;
 }): ProjectConcurrencyBoard {
-  const { project, members, tasks, limitsByAgent, allTags } = options;
+  const {
+    project,
+    members,
+    tasks,
+    limitsByAgent,
+    allTags,
+    reservations,
+    capacityAgentIds,
+  } = options;
   const projectTasks = tasks.filter((task) => task.projectId === project.id);
+  const reservationList = reservations ?? [];
   const memberBoards: ProjectMember[] = [];
 
   for (const agent of members) {
@@ -505,12 +669,17 @@ export function buildProjectBoard(options: {
     const agentTasks = tasks.filter(
       (task) => task.assigneeActorId === agent.actorId,
     );
+
+    const runsHere = !capacityAgentIds || capacityAgentIds.has(agent.id);
     const board = buildAgentBoard({
       agent,
       projects: [project],
       limits,
       tasks: agentTasks,
       allTags,
+      reservations: runsHere
+        ? new Map([[project.id, reservationList]])
+        : undefined,
     });
     const projectRow =
       board.projectRows.find((row) => row.project?.id === project.id) ??
@@ -525,6 +694,22 @@ export function buildProjectBoard(options: {
     });
   }
 
+  const capSum = memberBoards.reduce(
+    (sum, member) =>
+      capacityAgentIds && !capacityAgentIds.has(member.agent.id)
+        ? sum
+        : sum + member.projectRow.cap,
+    0,
+  );
+  const projectHeld = projectTasks.filter((task) =>
+    CONCURRENCY_HELD_STATES.has(task.state),
+  );
+  const floor = classFloor(
+    projectHeld,
+    reservedRecord(reservationList),
+    capSum,
+  );
+
   const memberByActor = new Map(
     memberBoards.map((member) => [member.agent.actorId, member] as const),
   );
@@ -533,19 +718,31 @@ export function buildProjectBoard(options: {
     .sort((a, b) => taskTime(a) - taskTime(b))
     .map((task) => {
       const member = memberByActor.get(task.assigneeActorId);
+
+      const viewerTask =
+        !!member &&
+        !!capacityAgentIds &&
+        !capacityAgentIds.has(member.agent.id);
+
+      const reserved = viewerTask ? null : reservedBlocker(floor, task);
+      const merged = [
+        ...(member?.board.waiting.find((item) => item.task.id === task.id)
+          ?.blockers ?? []),
+        ...(reserved ? [reserved] : []),
+      ];
+      const blockers = merged.filter(
+        (blocker, index) =>
+          merged.findIndex(
+            (other) =>
+              other.kind === blocker.kind && other.label === blocker.label,
+          ) === index,
+      );
       if (member) {
-        const known = member.board.waiting.find(
-          (item) => item.task.id === task.id,
-        );
-        return {
-          task,
-          agent: member.agent,
-          blockers: known?.blockers ?? [],
-        };
+        return { task, agent: member.agent, blockers };
       }
       return {
         task,
-        blockers: [],
+        blockers,
         reason: taskWaitingReason(task),
       };
     });
@@ -608,11 +805,10 @@ export function buildProjectBoard(options: {
     members: memberBoards,
     tagRows,
     waiting,
+    reservations: reservationList,
+    floor,
     held: memberBoards.reduce((sum, member) => sum + member.projectRow.used, 0),
-    capSum: memberBoards.reduce(
-      (sum, member) => sum + member.projectRow.cap,
-      0,
-    ),
+    capSum,
     memberCount: memberBoards.length,
     onlineCount: memberBoards.filter(
       (member) => member.agent.status === AgentStatus.ONLINE,

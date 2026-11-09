@@ -19,6 +19,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,6 +33,10 @@ const (
 	keyShowUsageKPI         = "show_usage_kpi"
 	keyShowConcurrencyKPI   = "show_concurrency_kpi"
 	keyNotificationSoundSet = "notification_sound_set"
+	keyVoiceInputEnabled    = "voice_input_enabled"
+	keySTTBaseURL           = "stt_base_url"
+	keySTTModel             = "stt_model"
+	keySTTAPIKey            = "stt_api_key"
 
 	KeyAgencyLogoAttachmentID    = "agency_logo_attachment_id"
 	KeyAgencyFaviconAttachmentID = "agency_favicon_attachment_id"
@@ -40,6 +45,12 @@ const (
 var ErrInvalidColor = errors.New("primary color must be a lowercase #rrggbb")
 
 var ErrInvalidSoundSet = errors.New("unknown notification sound set")
+
+var ErrInvalidSTTBaseURL = errors.New("speech-to-text base URL must be an absolute http(s) URL")
+
+const DefaultSTTModel = "whisper-1"
+
+const sttTranscriptionsPath = "/audio/transcriptions"
 
 const DefaultNotificationSoundSet = "cherry"
 
@@ -62,9 +73,25 @@ type Settings struct {
 
 	NotificationSoundSet string
 
+	VoiceInputEnabled bool
+
+	STTBaseURL string
+
+	STTModel string
+
+	STTAPIKey string
+
+	ClearSTTAPIKey bool
+
 	LogoAttachmentID    int64
 	FaviconAttachmentID int64
 }
+
+func (s Settings) ServerTranscription() bool {
+	return s.VoiceInputEnabled && s.STTBaseURL != "" && s.STTModel != ""
+}
+
+func (s Settings) HasSTTAPIKey() bool { return s.STTAPIKey != "" }
 
 type Service struct {
 	store store.Store
@@ -82,6 +109,7 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 		ShowUsageKPI:         true,
 		ShowConcurrencyKPI:   true,
 		NotificationSoundSet: DefaultNotificationSoundSet,
+		STTModel:             DefaultSTTModel,
 	}
 	for _, row := range rows {
 		switch row.Key {
@@ -97,6 +125,16 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 			if notificationSoundSets[row.Value] {
 				out.NotificationSoundSet = row.Value
 			}
+		case keyVoiceInputEnabled:
+			out.VoiceInputEnabled = parseBool(row.Value, false)
+		case keySTTBaseURL:
+			out.STTBaseURL = strings.TrimSpace(row.Value)
+		case keySTTModel:
+			if model := strings.TrimSpace(row.Value); model != "" {
+				out.STTModel = model
+			}
+		case keySTTAPIKey:
+			out.STTAPIKey = row.Value
 		case KeyAgencyLogoAttachmentID:
 			out.LogoAttachmentID = parseAttachmentID(row.Value)
 		case KeyAgencyFaviconAttachmentID:
@@ -106,10 +144,12 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	return out, nil
 }
 
-func parseBoolDefault(value string) bool {
+func parseBoolDefault(value string) bool { return parseBool(value, true) }
+
+func parseBool(value string, def bool) bool {
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
-		return true
+		return def
 	}
 	return parsed
 }
@@ -122,10 +162,35 @@ func parseAttachmentID(value string) int64 {
 	return id
 }
 
+func normalizeSTTBaseURL(raw string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if trimmed == "" {
+		return "", nil
+	}
+	trimmed = strings.TrimSuffix(trimmed, sttTranscriptionsPath)
+	parsed, err := url.Parse(trimmed)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", ErrInvalidSTTBaseURL
+	}
+
+	if parsed.User != nil {
+		return "", ErrInvalidSTTBaseURL
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
 func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	name := strings.TrimSpace(in.AgencyName)
 	color := strings.ToLower(strings.TrimSpace(in.PrimaryColor))
 	soundSet := strings.TrimSpace(in.NotificationSoundSet)
+	baseURL, err := normalizeSTTBaseURL(in.STTBaseURL)
+	if err != nil {
+		return Settings{}, err
+	}
+	model := strings.TrimSpace(in.STTModel)
+	if model == "" {
+		model = DefaultSTTModel
+	}
 
 	if color != "" && !colorPattern.MatchString(color) {
 		return Settings{}, ErrInvalidColor
@@ -140,6 +205,14 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	current, err := s.Get(ctx)
 	if err != nil {
 		return Settings{}, err
+	}
+
+	apiKey := strings.TrimSpace(in.STTAPIKey)
+	switch {
+	case in.ClearSTTAPIKey:
+		apiKey = ""
+	case apiKey == "":
+		apiKey = current.STTAPIKey
 	}
 
 	if err := s.store.UpsertSetting(
@@ -181,6 +254,19 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	); err != nil {
 		return Settings{}, err
 	}
+	for key, value := range map[string]string{
+		keyVoiceInputEnabled: strconv.FormatBool(in.VoiceInputEnabled),
+		keySTTBaseURL:        baseURL,
+		keySTTModel:          model,
+		keySTTAPIKey:         apiKey,
+	} {
+		if err := s.store.UpsertSetting(
+			ctx,
+			store.UpsertSettingParams{Key: key, Value: value},
+		); err != nil {
+			return Settings{}, err
+		}
+	}
 
 	return Settings{
 		AgencyName:           name,
@@ -188,6 +274,10 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 		ShowUsageKPI:         in.ShowUsageKPI,
 		ShowConcurrencyKPI:   in.ShowConcurrencyKPI,
 		NotificationSoundSet: soundSet,
+		VoiceInputEnabled:    in.VoiceInputEnabled,
+		STTBaseURL:           baseURL,
+		STTModel:             model,
+		STTAPIKey:            apiKey,
 		LogoAttachmentID:     current.LogoAttachmentID,
 		FaviconAttachmentID:  current.FaviconAttachmentID,
 	}, nil

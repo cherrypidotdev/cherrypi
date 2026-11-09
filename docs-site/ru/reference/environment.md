@@ -66,6 +66,59 @@ boot с понятной ошибкой.
 | --- | --- | --- |
 | `CHERRYPI_SITES_INSECURE_HTTP` | выкл. | Отдавать сырое содержимое сайтов вообще без учётных данных по обычному HTTP, если хост не localhost. Нужен только для прямого неаутентифицированного доступа (обычный viewer использует короткоживущие URL-grant'ы); статические байты становятся публичными по URL. Никогда не включайте на публичном развёртывании. |
 
+## Наблюдаемость (OpenTelemetry)
+
+Agency экспортирует трейсы, метрики и логи по OTLP. Используются стандартные
+переменные OpenTelemetry, поэтому подойдёт любой collector или бэкенд с OTLP —
+специальных настроек CherryPi не нужно.
+
+| Переменная | По умолчанию | Описание |
+| --- | --- | --- |
+| `CHERRYPI_OTEL_ENABLED` | авто | Включить (`1`) или выключить (`0`) телеметрию. Если не задана, OTLP-endpoint в переменных ниже включает её автоматически. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Базовый URL collector'а, например `http://otel-collector:4317` (gRPC) или `http://otel-collector:4318` (HTTP). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` или `http/protobuf`. Переопределения для сигнала (`OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `..._METRICS_PROTOCOL`, `..._LOGS_PROTOCOL`) важнее. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | Endpoint для конкретного сигнала. Аналогично для метрик и логов. |
+| `OTEL_SERVICE_NAME` | `cherrypi-agency` | Имя сервиса во всех сигналах. |
+| `OTEL_RESOURCE_ATTRIBUTES` | — | Дополнительные resource-атрибуты, например `deployment.environment=prod`. |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Стандартный sampler (`always_on`, `always_off`, `traceidratio`, `parentbased_traceidratio`, …). |
+| `OTEL_TRACES_SAMPLER_ARG` | — | Доля для ratio-sampler'ов, например `0.1`. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | `none` отключает трейсы, оставляя метрики и логи. |
+| `OTEL_METRICS_EXPORTER` | `otlp` | `none` отключает метрики. |
+| `OTEL_LOGS_EXPORTER` | `otlp` | `none` отключает мост логов. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Интервал экспорта метрик в миллисекундах. |
+| `OTEL_BSP_*` / `OTEL_BLRP_*` | значения SDK | Настройка батчей трейсов/логов (очередь, задержка, таймаут, размер). |
+
+```sh
+CHERRYPI_OTEL_ENABLED=1
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=cherrypi-agency
+```
+
+Инструментируется:
+
+- каждый унарный Connect/gRPC вызов (`agency.v1.TaskService/GetTask`, …) —
+  RPC-спан и гистограмма длительности RPC. Потоковые соединения (туннель агента,
+  realtime- и task-watcher) не трейсятся: их спан жил бы столько же, сколько
+  соединение;
+- каждый REST-запрос под `/api/` и `/plugins/` — HTTP-спан и
+  гистограмма длительности HTTP;
+- каждый SQL-запрос agency через `database/sql` (SQLite и PostgreSQL), включая
+  `db.query.text`, плюс gauge'и пула `sql.DB`;
+- строки стандартного логгера процесса как OTel-логи, дополнительно к
+  process-логу на диске.
+
+В трейс-вьюере, который понимает W3C trace context (`traceparent`), видно
+дерево запроса: HTTP- или RPC-спан, его SQL-потомки и ошибки. Пример:
+
+```text
+POST /api/rest/auth/login           (HTTP server, ~2 ms)
+└── SELECT … FROM users …           (SQL, ~1 ms)
+```
+
+Встроенный фронтенд, документация и статические байты сайтов не трейсятся: это
+файлы, а не работа agency.
+
 ## Только для разработки
 
 Игнорируются релизными сборками.

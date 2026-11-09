@@ -36,11 +36,16 @@ type RegisterAgentParams struct {
 type TaskEvent string
 
 const (
-	TaskQueue             TaskEvent = "queue"
-	TaskDequeue           TaskEvent = "dequeue"
-	TaskArchive           TaskEvent = "archive"
-	TaskUnarchive         TaskEvent = "unarchive"
-	TaskSettle            TaskEvent = "settle"
+	TaskQueue     TaskEvent = "queue"
+	TaskWait      TaskEvent = "block"
+	TaskUnwait    TaskEvent = "unblock"
+	TaskDequeue   TaskEvent = "dequeue"
+	TaskArchive   TaskEvent = "archive"
+	TaskUnarchive TaskEvent = "unarchive"
+	TaskSettle    TaskEvent = "settle"
+
+	TaskReleaseSettle     TaskEvent = "release_settle"
+	TaskReleaseQueue      TaskEvent = "release_queue"
 	TaskInput             TaskEvent = "input"
 	TaskClearInput        TaskEvent = "clear_input"
 	TaskResume            TaskEvent = "resume"
@@ -49,6 +54,7 @@ const (
 	TaskReopen            TaskEvent = "reopen"
 	TaskClaim             TaskEvent = "claim"
 	TaskFail              TaskEvent = "fail"
+	TaskFailResting       TaskEvent = "fail_resting"
 	TaskFailBySession     TaskEvent = "fail_by_session"
 	TaskRequeue           TaskEvent = "requeue"
 	TaskRequeueWithPrompt TaskEvent = "requeue_with_prompt"

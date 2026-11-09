@@ -33,9 +33,23 @@ const (
 )
 
 type historyEntry struct {
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp"`
-	Message   json.RawMessage `json:"message"`
+	Type       string          `json:"type"`
+	Timestamp  string          `json:"timestamp"`
+	Message    json.RawMessage `json:"message"`
+	CustomType string          `json:"customType"`
+	Data       json.RawMessage `json:"data"`
+}
+
+const modelWaitCustomType = "cherrypi_model_wait"
+
+type modelWaitData struct {
+	Kind       int32  `json:"kind"`
+	Model      string `json:"model"`
+	DurationMs int64  `json:"durationMs"`
+	FirstToken bool   `json:"firstToken"`
+	Error      string `json:"error"`
+	Attempt    uint32 `json:"attempt"`
+	Reason     string `json:"reason"`
 }
 
 type historyMessage struct {
@@ -301,6 +315,39 @@ func truncateMiddle(s string, maxBytes int) string {
 	return s[:headEnd] + truncatedMessageMarker + s[tailStart:]
 }
 
+func parseCustomLine(
+	entry historyEntry,
+	at *timestamppb.Timestamp,
+) []*agentv1.TaskEvent {
+	if entry.CustomType != modelWaitCustomType {
+		return nil
+	}
+	var data modelWaitData
+	if json.Unmarshal(entry.Data, &data) != nil || data.DurationMs <= 0 {
+		return nil
+	}
+	kind := agentv1.ModelWait_Kind(data.Kind)
+	switch kind {
+	case agentv1.ModelWait_KIND_MODEL_REQUEST,
+		agentv1.ModelWait_KIND_RETRY,
+		agentv1.ModelWait_KIND_COMPACTION:
+	default:
+		return nil
+	}
+	return []*agentv1.TaskEvent{{
+		At: at,
+		Event: &agentv1.TaskEvent_ModelWait{ModelWait: &agentv1.ModelWait{
+			Kind:       kind,
+			Model:      data.Model,
+			DurationMs: data.DurationMs,
+			FirstToken: data.FirstToken,
+			Error:      data.Error,
+			Attempt:    data.Attempt,
+			Reason:     data.Reason,
+		}},
+	}}
+}
+
 // parseLine decodes one JSONL line into zero or more console events. It is the
 
 func parseLine(line string) []*agentv1.TaskEvent {
@@ -308,14 +355,20 @@ func parseLine(line string) []*agentv1.TaskEvent {
 		return nil
 	}
 	var entry historyEntry
-	if json.Unmarshal([]byte(line), &entry) != nil || entry.Type != "message" {
+	if json.Unmarshal([]byte(line), &entry) != nil {
+		return nil
+	}
+	at := parseTime(entry.Timestamp)
+	if entry.Type == "custom" {
+		return parseCustomLine(entry, at)
+	}
+	if entry.Type != "message" {
 		return nil
 	}
 	var msg historyMessage
 	if json.Unmarshal(entry.Message, &msg) != nil {
 		return nil
 	}
-	at := parseTime(entry.Timestamp)
 
 	switch msg.Role {
 	case "user":

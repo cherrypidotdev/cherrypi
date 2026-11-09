@@ -496,11 +496,9 @@ func (s *Service) ListProposals(
 		rows []store.PromptProposal
 		err  error
 	)
+
+	status := sql.NullString{String: string(f.Status), Valid: f.Status != ""}
 	if f.MineActorID != 0 {
-		var status any
-		if f.Status != "" {
-			status = string(f.Status)
-		}
 		rows, err = s.store.ListPromptProposalsByAuthor(
 			ctx,
 			store.ListPromptProposalsByAuthorParams{
@@ -513,10 +511,6 @@ func (s *Service) ListProposals(
 	} else {
 		if err := f.Scope.validate(f.AgentID, f.TeamID, f.ProjectID); err != nil {
 			return nil, err
-		}
-		var status any
-		if f.Status != "" {
-			status = string(f.Status)
 		}
 		rows, err = s.store.ListPromptProposalsByTarget(
 			ctx,

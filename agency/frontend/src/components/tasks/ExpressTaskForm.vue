@@ -21,8 +21,15 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
   CardContent(:class="bare ? 'p-0' : 'p-3'")
     form.flex.flex-col.gap-3(@submit.prevent="submit()")
       .flex.flex-col.gap-2
-        .flex.items-center.justify-between.gap-2
-          WritePreviewTabs(v-model="tab" test-id="express-tab")
+        .flex.items-center.gap-2
+          Input.flex-1(
+            v-model="title"
+            placeholder="Auto-generated title"
+            aria-label="Task title"
+            autocomplete="off"
+            @keydown.enter.prevent
+            data-testid="composer-title"
+          )
           .flex.shrink-0.items-center.gap-2
             Button(
               type="button"
@@ -63,7 +70,6 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
               PaperclipIcon.size-5
               span Drop files to attach
           MarkdownEditor(
-            v-if="tab === 'write'"
             ref="promptInput"
             v-model="prompt"
             v-model:resize-height="promptHeight"
@@ -78,15 +84,6 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             @task-picked="addPromptReference"
             @paste="onPaste"
           )
-          .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
-            v-else
-            data-testid="express-preview"
-          )
-            MarkdownText.prose.prose-sm.max-w-none(
-              class="prose-p:my-1 prose-pre:my-2"
-              :style="INHERIT_PROSE"
-              :text="prompt"
-            )
         .flex.flex-wrap.items-center.gap-2
           Button(
             type="button"
@@ -137,13 +134,47 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             span {{ fixedProjectLabel }}
           Combobox.w-40(
             v-else
-            v-model="projectChoice"
             placeholder="Select project"
             size="sm"
             empty-text="No matching project."
             title="Project"
             aria-label="Project"
+            :model-value="projectChoice"
             :options="projectComboboxOptions"
+            @update:model-value="pickProject"
+          )
+
+          Button(
+            type="button"
+            variant="outline"
+            size="sm"
+            :title="selectedProjectId ? 'Start from a task template' : 'Select a project first'"
+            @click="templateOpen = true"
+            :disabled="!selectedProjectId"
+            data-testid="composer-template"
+          )
+            FileCodeIcon(data-icon="inline-start")
+            span Template
+
+          span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
+            v-if="appliedTemplate"
+            class="py-0.5"
+            :title="`Rendered from template version ${appliedTemplate.version}`"
+          )
+            FileCodeIcon.size-3.shrink-0
+            span {{ appliedTemplate.templateName }} · v{{ appliedTemplate.version }}
+            button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+              type="button"
+              class="p-0.5 hover:opacity-100"
+              title="Detach the template (keeps the rendered prompt)"
+              @click="detachTemplate"
+            )
+              XIcon.size-3
+
+          TaskParentPicker(
+            v-model="parentChoice"
+            :project-id="selectedProjectId"
+            :disabled="!projectReady"
           )
 
           Button(
@@ -176,16 +207,6 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
 
           .bg-muted.inline-flex.items-center.gap-1.rounded-lg.border(class="p-0.5")
             button.rounded-md.px-2.text-xs.font-medium.transition-colors(
-              v-for="option in PRIORITIES"
-              :key="option.value"
-              type="button"
-              class="py-0.5"
-              :class="priority === option.value ? `bg-card shadow-sm ring-1 ring-border ${taskPriorityTextClass(option.value)}` : 'text-muted-foreground hover:text-foreground'"
-              @click="priority = option.value"
-            ) {{ option.label }}
-
-          .bg-muted.inline-flex.items-center.gap-1.rounded-lg.border(class="p-0.5")
-            button.rounded-md.px-2.text-xs.font-medium.transition-colors(
               v-for="option in SIZES"
               :key="option.value"
               type="button"
@@ -194,32 +215,15 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
               @click="size = option.value"
             ) {{ option.label }}
 
-          Button(
-            type="button"
-            variant="outline"
-            size="sm"
-            :title="selectedProjectId ? 'Start from a task template' : 'Select a project first'"
-            @click="templateOpen = true"
-            :disabled="!selectedProjectId"
-            data-testid="composer-template"
-          )
-            FileCodeIcon(data-icon="inline-start")
-            span Template
-
-          span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
-            v-if="appliedTemplate"
-            class="py-0.5"
-            :title="`Rendered from template version ${appliedTemplate.version}`"
-          )
-            FileCodeIcon.size-3.shrink-0
-            span {{ appliedTemplate.templateName }} · v{{ appliedTemplate.version }}
-            button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+          .bg-muted.inline-flex.items-center.gap-1.rounded-lg.border(class="p-0.5")
+            button.rounded-md.px-2.text-xs.font-medium.transition-colors(
+              v-for="option in PRIORITIES"
+              :key="option.value"
               type="button"
-              class="p-0.5 hover:opacity-100"
-              title="Detach the template (keeps the rendered prompt)"
-              @click="detachTemplate"
-            )
-              XIcon.size-3
+              class="py-0.5"
+              :class="priority === option.value ? `bg-card shadow-sm ring-1 ring-border ${taskPriorityTextClass(option.value)}` : 'text-muted-foreground hover:text-foreground'"
+              @click="priority = option.value"
+            ) {{ option.label }}
 
           DropdownMenu
             DropdownMenuTrigger(as-child)
@@ -334,12 +338,12 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             :disabled="!selectedProjectId"
           )
 
-      TaskReferencePicker(
-        v-model="references"
-        :project-id="selectedProjectId"
-        :known-tasks="referenceTasks"
-        :disabled="!projectReady"
-      )
+          TaskReferencePicker(
+            v-model="references"
+            :project-id="selectedProjectId"
+            :known-tasks="referenceTasks"
+            :disabled="!projectReady"
+          )
 
       p.text-muted-foreground.text-xs(v-if="noProjects")
         | A task must belong to a project. Create one or ask to be added.
@@ -365,12 +369,11 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
-import MarkdownText from "@/components/MarkdownText.vue";
 import StagedAttachmentList from "@/components/attachments/StagedAttachmentList.vue";
 import TagPicker from "@/components/tags/TagPicker.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
+import TaskParentPicker from "@/components/tasks/TaskParentPicker.vue";
 import TaskReferencePicker from "@/components/tasks/TaskReferencePicker.vue";
-import WritePreviewTabs from "@/components/tasks/WritePreviewTabs.vue";
 import TaskTemplateApplyDialog, {
   type AppliedTemplate,
 } from "@/components/templates/TaskTemplateApplyDialog.vue";
@@ -386,6 +389,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -406,9 +410,12 @@ import {
 } from "@/composables/useStagedAttachments";
 import { useTags } from "@/composables/useTags";
 import { currentAccount } from "@/lib/account";
-import { composerDraftKey } from "@/lib/draft";
+import {
+  composerDraftKey,
+  composerProjectDraftKey,
+  composerTitleDraftKey,
+} from "@/lib/draft";
 import { NEW_TASK_PROMPT_HEIGHT_KEY } from "@/lib/editorHeight";
-import { INHERIT_PROSE } from "@/lib/markdown";
 import { sortProjectsByName } from "@/lib/project";
 import {
   projectAccessApi,
@@ -421,10 +428,12 @@ import { sketchSceneFilename, toStoredSnapshot } from "@/lib/sketches";
 import {
   EMPTY_TASK_MODEL_SELECTION,
   TASK_SIZES,
+  newTaskReferenceKind,
   taskPriorityLabel,
   taskPriorityTextClass,
   taskSizeLabel,
   taskSizeTextClass,
+  type NewTaskRelation,
   type TaskModelSelection,
 } from "@/lib/task";
 import { teamApi } from "@/lib/team";
@@ -486,13 +495,19 @@ const props = defineProps<{
 
   projectId?: string;
 
+  defaultProjectId?: string;
+
   bare?: boolean;
+
+  relatedTask?: Task | null;
+
+  relation?: NewTaskRelation;
 }>();
 
 const BARE_CARD =
   "gap-0 rounded-none bg-transparent py-0 text-inherit ring-0 ring-transparent";
 
-const emit = defineEmits<{ created: [] }>();
+const emit = defineEmits<{ created: [Task] }>();
 
 const { agents, loadAgents, actorIdFor } = useAgents();
 const { active: allProjects, loadProjects } = useProjects();
@@ -501,11 +516,36 @@ const prompt = useDraft(() =>
   composerDraftKey({ agent: props.agentId, project: props.projectId }),
 );
 
-const tab = ref<"write" | "preview">("write");
+const title = useDraft(() =>
+  composerTitleDraftKey({ agent: props.agentId, project: props.projectId }),
+);
 const priority = ref(TaskPriority.NORMAL);
 const size = ref(TaskSize.MEDIUM);
 const assigneeChoice = ref(props.agentId || AUTO);
-const projectChoice = ref(props.projectId || NO_PROJECT);
+
+const draftProject = useDraft(() =>
+  composerProjectDraftKey({ agent: props.agentId, project: props.projectId }),
+);
+const projectChoice = ref(props.projectId || draftProject.value || NO_PROJECT);
+
+function commitProject(id: string) {
+  draftProject.value = id === NO_PROJECT ? "" : id;
+}
+
+function pickProject(id: string) {
+  projectChoice.value = id;
+  commitProject(id);
+}
+
+watch(
+  [prompt, title],
+  ([promptText, titleText]) => {
+    if (!promptText.trim() && !titleText.trim()) return;
+    if (draftProject.value || projectChoice.value === NO_PROJECT) return;
+    commitProject(projectChoice.value);
+  },
+  { flush: "sync" },
+);
 
 const modelSelection = ref<TaskModelSelection>({
   ...EMPTY_TASK_MODEL_SELECTION,
@@ -517,6 +557,10 @@ const references = ref<TaskReferenceInput[]>([]);
 
 const appliedTemplate = ref<AppliedTemplate | null>(null);
 const templateOpen = ref(false);
+
+const parentChoice = ref<Task | null>(null);
+
+let seededRelation = "";
 
 const referenceTasks = ref<Task[]>([]);
 
@@ -804,6 +848,22 @@ watch(
   { immediate: true },
 );
 
+function adoptPageProject() {
+  const page = props.defaultProjectId || "";
+  if (!page || fixedProjectId.value || draftProject.value) return;
+
+  if (
+    projectOptions.value.length &&
+    !projectOptions.value.some((project) => project.id === page)
+  ) {
+    return;
+  }
+  if (projectChoice.value === page) return;
+  projectChoice.value = page;
+}
+
+watch(() => props.defaultProjectId, adoptPageProject, { immediate: true });
+
 function dropIneligibleAssignee() {
   if (
     fixedAgentId.value ||
@@ -858,6 +918,9 @@ watch(projectOptions, (options) => {
     !options.some((project) => project.id === projectChoice.value)
   ) {
     projectChoice.value = NO_PROJECT;
+
+    commitProject(NO_PROJECT);
+    adoptPageProject();
   }
 });
 
@@ -867,6 +930,7 @@ watch(
     references.value = [];
     referenceTasks.value = [];
     appliedTemplate.value = null;
+    parentChoice.value = null;
     selectedTags.value = new Set();
     defaultTagsProject.value = "";
     owningTeamIds.value = [];
@@ -908,9 +972,33 @@ watch(
         .map((team) => team.team_id)
         .filter((teamID) => mine.has(teamID));
     } catch {}
-    if (leadCandidates.value.some((lead) => lead.actor_id === creator)) {
+
+    if (
+      !leadActorIds.value.length &&
+      leadCandidates.value.some((lead) => lead.actor_id === creator)
+    ) {
       leadActorIds.value = [creator];
     }
+  },
+  { immediate: true },
+);
+
+watch(
+  [() => props.relatedTask, () => props.relation, projectReady],
+  () => {
+    const related = props.relatedTask;
+    const relation = props.relation;
+    if (!related || !relation || !projectReady.value) return;
+    const key = `${related.id}:${relation}`;
+    if (seededRelation === key) return;
+    seededRelation = key;
+    const kind = newTaskReferenceKind(relation);
+    if (!kind) {
+      parentChoice.value = related;
+      return;
+    }
+    references.value = [{ taskId: related.id, kind }];
+    referenceTasks.value = [related];
   },
   { immediate: true },
 );
@@ -951,7 +1039,8 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
     const input: CreateTaskInput = {
       prompt: prompt.value.trim(),
 
-      autoTitle: true,
+      name: title.value.trim() || undefined,
+      autoTitle: !title.value.trim(),
       priority: priority.value,
       size: size.value,
       projectId:
@@ -973,6 +1062,7 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
       templateArgs: appliedTemplate.value?.args,
 
       templatePromptOverride: !!appliedTemplate.value,
+      parentTaskId: parentChoice.value?.id,
 
       state: hasAttachments ? TaskState.BACKLOG : desired,
     };
@@ -994,15 +1084,16 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
     }
 
     prompt.value = "";
+    title.value = "";
+    draftProject.value = "";
     clearStaged();
     references.value = [];
     referenceTasks.value = [];
     appliedTemplate.value = null;
-
-    tab.value = "write";
+    adoptPageProject();
     await nextTick();
     promptInput.value?.focus();
-    emit("created");
+    emit("created", task);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -1013,6 +1104,7 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
 
 function fillFromTemplate(payload: AppliedTemplate) {
   prompt.value = payload.prompt;
+  title.value = payload.title;
   priority.value = payload.priority;
   size.value = payload.size;
   selectedTags.value = new Set(payload.tagIds);
@@ -1021,7 +1113,6 @@ function fillFromTemplate(payload: AppliedTemplate) {
   if (payload.leadActorIds.length)
     leadActorIds.value = [...payload.leadActorIds];
   appliedTemplate.value = payload;
-  tab.value = "write";
 }
 
 function applyTemplate(payload: AppliedTemplate) {

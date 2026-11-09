@@ -35,6 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsTrigger(value="security") Security
       TabsTrigger(value="auth") Auth
       TabsTrigger(value="tokens") Tokens
+      TabsTrigger(value="plugins") Plugins
       TabsTrigger(value="notifications") Notifications
 
     TabsContent(value="profile")
@@ -326,6 +327,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-if="!(account?.tokens ?? []).length"
           ) No tokens yet.
 
+    TabsContent(value="plugins")
+      UserPluginsPanel(v-if="account" :actor-id="String(account.actor.id)")
+
     TabsContent(value="notifications")
       .flex.flex-col.gap-6
         NotificationsPanel
@@ -340,6 +344,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ActivityPanel from "@/components/account/ActivityPanel.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import NotificationsPanel from "@/components/settings/NotificationsPanel.vue";
+import UserPluginsPanel from "@/components/settings/UserPluginsPanel.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -381,7 +386,14 @@ import { toast } from "vue3-toastify";
 
 const route = useRoute();
 const router = useRouter();
-const TABS = ["profile", "security", "auth", "tokens", "notifications"];
+const TABS = [
+  "profile",
+  "security",
+  "auth",
+  "tokens",
+  "plugins",
+  "notifications",
+];
 const tab = ref(
   route.query.must_change_password
     ? "security"

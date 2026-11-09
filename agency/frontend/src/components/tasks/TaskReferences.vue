@@ -21,76 +21,58 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   .flex.items-center.gap-2
     span.text-muted-foreground.text-xs References
     Spinner.size-3(v-if="busy")
-  p.text-muted-foreground.text-xs(
-    v-if="!references.length && !referencedBy.length"
-  )
+  p.text-muted-foreground.text-xs(v-if="!rows.length")
     | —
 
-  .flex.flex-col.gap-1(v-if="references.length")
+  .flex.flex-col.gap-1(v-if="rows.length")
     .flex.items-center.rounded-md.border.px-2.py-1(
-      v-for="ref in references"
-      :key="ref.id"
+      v-for="entry in rows"
+      :key="entry.key"
       class="gap-1.5"
-      :class="taskReferenceKindClass(ref.kind)"
+      :class="taskReferenceKindClass(entry.kind)"
+      :title="taskReferenceKindDescription(entry.kind)"
     )
-      component.size-3.shrink-0(:is="taskStateIcon(ref.state)")
-      RouterLink.inline-flex.min-w-0.flex-1.items-center.gap-1(
-        :to="{ name: 'task', params: { id: ref.id } }"
-        :title="taskReferenceTitle(ref)"
+      component.size-3.shrink-0(
+        :class="taskReferenceKindTextClass(entry.kind)"
+        :is="taskReferenceKindIcon(entry.kind)"
       )
-        strong.shrink-0.text-xs.font-semibold {{ ref.id }}:
-        span.truncate.text-xs(:class="taskNameClass(ref)") {{ taskReferenceName(ref) }}
-      .border-border.divide-border.inline-flex.shrink-0.items-center.divide-x.overflow-hidden.rounded-md.border
-        button(
-          v-for="option in TASK_REFERENCE_KINDS"
-          :key="option.value"
-          type="button"
-          class="px-1.5 py-0.5"
-          :class="ref.kind === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'"
-          :title="option.label"
-          :aria-label="option.label"
-          @click="requestKind(ref, option.value)"
-          :disabled="busy === ref.id"
-        )
-          component.size-3(
-            :class="ref.kind === option.value ? taskReferenceKindTextClass(option.value) : ''"
-            :is="taskReferenceKindIcon(option.value)"
-          )
+      component.size-3.shrink-0(:is="taskStateIcon(entry.task.state)")
+      RouterLink.inline-flex.min-w-0.flex-1.items-center.gap-1(
+        :to="{ name: 'task', params: { id: entry.task.id } }"
+        :title="taskReferenceTitle(entry.task)"
+      )
+        strong.shrink-0.text-xs.font-semibold {{ entry.task.id }}:
+        span.truncate.text-xs(:class="taskNameClass(entry.task)") {{ taskReferenceName(entry.task) }}
+      Select.ml-auto.w-36(
+        :model-value="entry.kind"
+        @update:model-value="requestKind(entry, $event)"
+      )
+        SelectTrigger(size="sm" :title="taskReferenceKindLabel(entry.kind)")
+          SelectValue
+        SelectContent
+          SelectGroup
+            SelectItem(
+              v-for="option in TASK_REFERENCE_KINDS"
+              :key="option.value"
+              :value="option.value"
+            ) {{ option.label }}
       Button.shrink-0(
         variant="ghost"
         size="icon-sm"
         title="Remove reference"
-        @click="remove(ref)"
-        :disabled="busy === ref.id"
+        @click="remove(entry)"
+        :disabled="busy === entry.task.id"
       )
         XIcon
 
-  .flex.flex-col.gap-1(v-if="referencedBy.length")
-    span.text-muted-foreground.text-xs Referenced by
-    .flex.items-center(
-      v-for="ref in referencedBy"
-      :key="ref.id"
-      class="gap-1.5 py-0.5"
-    )
-      component.size-3.shrink-0(
-        :class="taskReferenceKindTextClass(ref.kind)"
-        :is="taskReferenceKindIcon(ref.kind)"
-      )
-      strong.text-xs.font-semibold {{ ref.id }}:
-      RouterLink.max-w-40.truncate.text-xs(
-        :to="{ name: 'task', params: { id: ref.id } }"
-        :title="taskReferenceTitle(ref)"
-        :class="taskNameClass(ref)"
-      ) {{ taskReferenceName(ref) }}
-      span.text-muted-foreground.ml-auto.text-xs
-        | {{ taskReferenceKindLabel(ref.kind) }}
-    span.text-muted-foreground.text-xs
-      | Incoming references are managed from the referencing task.
-
   p.text-muted-foreground.text-xs(
-    v-if="references.some((ref) => ref.kind === TaskReferenceKind.BLOCKING)"
+    v-if="rows.some((entry) => entry.kind === TaskReferenceKind.BLOCKED_BY)"
   )
-    | A blocking reference holds this task back until the referenced task is completed.
+    | This task waits for its blocking references to be completed before it can be queued.
+  p.text-muted-foreground.text-xs(
+    v-if="rows.some((entry) => entry.kind === TaskReferenceKind.BLOCKS)"
+  )
+    | The tasks this one blocks wait for it to be completed.
 
   .relative
     .relative
@@ -118,11 +100,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TriangleAlertIcon.size-4.text-amber-500
           span Add blocking reference?
         DialogDescription
-          | "{{ pending ? taskReferenceTitle(pending) : "" }}" must be completed
+          | "{{ pending ? taskReferenceTitle(pending.task) : "" }}" must be completed
           | before this task can be queued again.
       p.text-muted-foreground.text-sm
         | This task is currently {{ taskStateLabel(task.state) }}. It is stopped
-        | and parked as Blocked until the referenced task is completed. Its Pi
+        | and parked as Waiting until the referenced task is completed. Its Pi
         | session and workspace are kept for a re-queue.
       DialogFooter
         Button(type="button" variant="outline" @click="confirmOpen = false")
@@ -143,6 +125,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { agency } from "@/lib/sdk";
 import {
@@ -153,6 +143,7 @@ import {
   taskReferenceKindLabel,
   taskReferenceKindTextClass,
   taskReferenceName,
+  taskReferencePerspectiveKind,
   taskReferenceTitle,
   taskStateIcon,
   taskStateLabel,
@@ -170,6 +161,15 @@ import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
 import TaskPicker from "./TaskPicker.vue";
 
+interface ReferenceRow {
+  key: string;
+  task: TaskReference;
+
+  kind: TaskReferenceKind;
+
+  incoming: boolean;
+}
+
 const props = defineProps<{ task: Task }>();
 const emit = defineEmits<{ updated: [Task] }>();
 
@@ -178,15 +178,54 @@ const search = ref("");
 const open = ref(false);
 const root = ref<HTMLElement | null>(null);
 const confirmOpen = ref(false);
-const pending = ref<TaskReference | null>(null);
-const pendingKind = ref<TaskReferenceKind>(TaskReferenceKind.BLOCKING);
+const pending = ref<ReferenceRow | null>(null);
 
-const references = computed(() => props.task.references ?? []);
+const rows = computed<ReferenceRow[]>(() => {
+  const outgoing = (props.task.references ?? []).map((ref) => ({
+    key: `out:${ref.id}`,
+    task: ref,
+    kind: taskReferencePerspectiveKind(ref.kind, false),
+    incoming: false,
+  }));
+  const incoming = (props.task.referencedBy ?? []).map((ref) => ({
+    key: `in:${ref.id}`,
+    task: ref,
+    kind: taskReferencePerspectiveKind(ref.kind, true),
+    incoming: true,
+  }));
+  return [...outgoing, ...incoming].sort((a, b) =>
+    a.task.id.localeCompare(b.task.id),
+  );
+});
+
 const excludeIds = computed(() => [
   props.task.id,
-  ...references.value.map((ref) => ref.id),
+  ...rows.value.map((entry) => entry.task.id),
 ]);
-const referencedBy = computed(() => props.task.referencedBy ?? []);
+
+const activeTask = computed(() => isActiveState(props.task.state));
+
+function isActiveState(state: TaskState | undefined): boolean {
+  return (
+    state === TaskState.QUEUED ||
+    state === TaskState.RUNNING ||
+    state === TaskState.INPUT
+  );
+}
+
+function isIncomingKind(kind: TaskReferenceKind): boolean {
+  return (
+    kind === TaskReferenceKind.BLOCKS ||
+    kind === TaskReferenceKind.SUPERSEDED_BY
+  );
+}
+
+function taskReferenceKindDescription(kind: TaskReferenceKind): string {
+  return (
+    TASK_REFERENCE_KINDS.find((option) => option.value === kind)?.description ??
+    ""
+  );
+}
 
 onClickOutside(root, () => (open.value = false));
 
@@ -206,62 +245,122 @@ watch(search, (value) => {
   if (value.trim()) open.value = true;
 });
 
-const activeTask = computed(
-  () =>
-    props.task.state === TaskState.QUEUED ||
-    props.task.state === TaskState.RUNNING ||
-    props.task.state === TaskState.INPUT,
-);
-
-async function apply(refId: string, kind: TaskReferenceKind) {
-  busy.value = refId;
+async function add(candidate: Task) {
+  busy.value = candidate.id;
   try {
-    const updated = await agency.addTaskReference(props.task.id, refId, kind);
+    const updated = await agency.addTaskReference(
+      props.task.id,
+      candidate.id,
+      TaskReferenceKind.INFORMATIONAL,
+    );
     emit("updated", updated);
-    return updated;
+    return true;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
-    return null;
+    return false;
   } finally {
     busy.value = "";
   }
 }
 
 async function addCandidate(candidate: Task) {
-  await apply(candidate.id, TaskReferenceKind.INFORMATIONAL);
-  search.value = "";
+  if (await add(candidate)) search.value = "";
 }
 
-function requestKind(ref: TaskReference, kind: unknown) {
+async function applyKind(row: ReferenceRow, kind: TaskReferenceKind) {
+  if (kind === row.kind) return true;
+  busy.value = row.task.id;
+  try {
+    if (isIncomingKind(kind) === row.incoming) {
+      const updated = await agency.addTaskReference(
+        props.task.id,
+        row.task.id,
+        kind,
+      );
+      emit("updated", updated);
+      return true;
+    }
+    await agency.removeTaskReference(props.task.id, row.task.id, {
+      reverse: row.incoming,
+    });
+    try {
+      const updated = await agency.addTaskReference(
+        props.task.id,
+        row.task.id,
+        kind,
+      );
+      emit("updated", updated);
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+      const restored = await agency.addTaskReference(
+        props.task.id,
+        row.task.id,
+        row.kind,
+      );
+      emit("updated", restored);
+      return false;
+    }
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+    return false;
+  } finally {
+    busy.value = "";
+  }
+}
+
+function requestKind(row: ReferenceRow, kind: unknown) {
   const next = kind as TaskReferenceKind;
-  if (next === TaskReferenceKind.BLOCKING && activeTask.value) {
-    pending.value = ref;
-    pendingKind.value = TaskReferenceKind.BLOCKING;
+  if (next === row.kind) return;
+  if (next === TaskReferenceKind.BLOCKED_BY && activeTask.value) {
+    pending.value = row;
     confirmOpen.value = true;
     return;
   }
-  if (next === TaskReferenceKind.SUPERSEDES) {
-    if (
-      !window.confirm(
-        `Supersede "${taskReferenceTitle(ref)}"? A backlog, queued, or failed task is cancelled.`,
-      )
-    ) {
-      return;
-    }
+  if (
+    next === TaskReferenceKind.BLOCKS &&
+    isActiveState(row.task.state) &&
+    !window.confirm(
+      `Block "${taskReferenceTitle(row.task)}"? That task stops until this one is completed.`,
+    )
+  ) {
+    return;
   }
-  void apply(ref.id, next);
+  if (
+    next === TaskReferenceKind.SUPERSEDES &&
+    !window.confirm(
+      `Supersede "${taskReferenceTitle(row.task)}"? A backlog, queued, or failed task is cancelled.`,
+    )
+  ) {
+    return;
+  }
+  if (
+    next === TaskReferenceKind.SUPERSEDED_BY &&
+    !window.confirm(
+      `Mark this task superseded by "${taskReferenceTitle(row.task)}"? This task is cancelled when it is in backlog, queued, or failed.`,
+    )
+  ) {
+    return;
+  }
+  void applyKind(row, next);
 }
 
 async function confirmKind() {
-  const ref = pending.value;
-  if (!ref) return;
-  if (await apply(ref.id, pendingKind.value)) confirmOpen.value = false;
+  const row = pending.value;
+  if (!row) return;
+  if (await applyKind(row, TaskReferenceKind.BLOCKED_BY)) {
+    confirmOpen.value = false;
+  }
 }
 
-async function remove(ref: TaskReference) {
-  busy.value = ref.id;
+async function remove(row: ReferenceRow) {
+  busy.value = row.task.id;
   try {
-    const updated = await agency.removeTaskReference(props.task.id, ref.id);
+    const updated = await agency.removeTaskReference(
+      props.task.id,
+      row.task.id,
+      { reverse: row.incoming },
+    );
     emit("updated", updated);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));

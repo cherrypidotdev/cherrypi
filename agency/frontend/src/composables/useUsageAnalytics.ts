@@ -21,7 +21,9 @@ import { useUsage, type UsageBucket } from "@/composables/useUsage";
 import { agency } from "@/lib/sdk";
 import {
   DAY_MS,
+  sampleTtcMs,
   summarizeTaskInsights,
+  thinkingMs as thinkingOf,
   usageAccent,
   usageRangeBounds,
   utcDayStart,
@@ -87,6 +89,12 @@ export interface UsageTaskRow {
   outputTokens: number;
   cost: number;
   activeMs: number;
+
+  thinkingMs: number;
+  toolMs: number;
+  modelWaitMs: number;
+  ttftMs: number;
+  ttftRuns: number;
   runs: number;
   live: boolean;
 }
@@ -285,6 +293,31 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       (sum, bucket) => sum + Number(bucket.runs ?? 0),
       0,
     );
+    const thinking = buckets.reduce(
+      (sum, bucket) =>
+        sum +
+        thinkingOf({
+          activeMs: Number(bucket.activeMs),
+          toolMs: Number(bucket.toolMs),
+        }),
+      0,
+    );
+    const modelWait = buckets.reduce(
+      (sum, bucket) => sum + Number(bucket.modelWaitMs),
+      0,
+    );
+    const toolMs = buckets.reduce(
+      (sum, bucket) => sum + Number(bucket.toolMs),
+      0,
+    );
+    const ttftMs = buckets.reduce(
+      (sum, bucket) => sum + Number(bucket.ttftMs),
+      0,
+    );
+    const ttftRuns = buckets.reduce(
+      (sum, bucket) => sum + Number(bucket.ttftRuns),
+      0,
+    );
     return {
       cost: usage.value?.cost ?? 0,
       inputTokens: Number(usage.value?.inputTokens ?? 0),
@@ -295,6 +328,13 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       completed: completedInRange.value.length,
       archived: completedInRange.value.filter((task) => task.archived).length,
       allTimeCompleted: completedAll.value.length,
+      thinkingMs: thinking,
+      modelWaitMs: modelWait,
+      toolMs,
+      ttftMs,
+      ttftRuns,
+      ttcMs: ttcTotal.value.total,
+      ttcSamples: ttcTotal.value.samples,
     };
   });
 
@@ -324,6 +364,14 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       outputTokens: bucket.outputTokens,
       cost: bucket.cost,
       activeMs: bucket.activeMs,
+      thinkingMs: thinkingOf({
+        activeMs: bucket.activeMs,
+        toolMs: bucket.toolMs,
+      }),
+      toolMs: bucket.toolMs,
+      modelWaitMs: bucket.modelWaitMs,
+      ttftMs: bucket.ttftMs,
+      ttftRuns: bucket.ttftRuns,
       runs: bucket.runs,
       live: bucket.live,
     };
@@ -431,17 +479,34 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
     return {
       queuedAtMs: timestampMs(task.queuedAt),
       settledAtMs: timestampMs(task.settledAt),
+      ttcMs: Number(task.ttcMs ?? 0),
       inputTokens: bucket?.inputTokens ?? 0,
       outputTokens: bucket?.outputTokens ?? 0,
       cost: bucket?.cost ?? 0,
       activeMs: bucket?.activeMs ?? 0,
       runs: bucket?.runs ?? 0,
+      toolMs: bucket?.toolMs ?? 0,
+      modelWaitMs: bucket?.modelWaitMs ?? 0,
+      ttftMs: bucket?.ttftMs ?? 0,
+      ttftRuns: bucket?.ttftRuns ?? 0,
     };
   }
 
   const insights = computed(() =>
     summarizeTaskInsights(insightTasks.value.map(insightSample)),
   );
+
+  const ttcTotal = computed(() => {
+    let total = 0;
+    let samples = 0;
+    for (const task of insightTasks.value) {
+      const ttc = sampleTtcMs(insightSample(task));
+      if (ttc === null) continue;
+      total += ttc;
+      samples++;
+    }
+    return { total, samples };
+  });
 
   const insightDaily = computed<UsageInsightDay[]>(() => {
     const tasksByDay = new Map<number, Task[]>();

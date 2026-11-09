@@ -35,6 +35,7 @@ import {
 import {
   TagService,
   TaskService as AgencyTaskService,
+  TaskHoldReleaseMode,
   TaskPriority,
   TaskReferenceKind,
   TaskSize,
@@ -53,6 +54,7 @@ import {
   type AgentProjectMembership,
   type Project,
   type ProjectAgent,
+  type ProjectTagReservation,
 } from "./gen/buf/agency/v1/projects_pb.js";
 import {
   PromptProposalStatus,
@@ -75,6 +77,7 @@ import { DashboardService as AgencyDashboardService } from "./gen/buf/agency/v1/
 import {
   SettingsService,
   type Settings,
+  type VoiceInput,
 } from "./gen/buf/agency/v1/settings_pb.js";
 import { TerminalService as AgencyTerminalService } from "./gen/buf/agency/v1/terminal_pb.js";
 import { DesktopService as AgencyDesktopService } from "./gen/buf/agency/v1/desktop_pb.js";
@@ -96,8 +99,17 @@ import {
 import { SiteService, type Site } from "./gen/buf/agency/v1/sites_pb.js";
 import type {
   AgentHealthSample,
+  AgentUsageRun,
   GetUsageResponse,
 } from "./gen/buf/agency/v1/dashboard_pb.js";
+import {
+  PluginService,
+  type Plugin,
+  type PluginLog,
+  type PluginPreview,
+  type PluginSettings,
+  type ProjectPlugin,
+} from "./gen/buf/agency/v1/plugins_pb.js";
 import {
   TerminalKind,
   type Terminal,
@@ -141,6 +153,7 @@ import {
   type RealtimeKind,
   type WatchRealtimeOptions,
   type ReopenTaskOptions,
+  type ReleaseTaskHoldInput,
   type SetTaskModelInput,
   type TaskLinkInput,
   type SetTaskLeadsInput,
@@ -163,22 +176,30 @@ export {
   AgentStatus,
   AgentVersionStatus,
 } from "./gen/buf/agency/v1/agents_pb.js";
-export type { Project, ProjectAgent, AgentProjectMembership };
+export type {
+  Project,
+  ProjectAgent,
+  ProjectTagReservation,
+  AgentProjectMembership,
+};
 export type { TaskTemplate, TaskTemplateVersion };
 export { TaskTemplateArgType };
 export type { Site };
 export type { AgentProjectPrompt, Prompt, SystemPromptSection };
 export { PromptScope };
-export type { Settings as AgencySettings };
+export type { Settings as AgencySettings, VoiceInput };
 export type { Webhook as AgencyWebhook };
 export type { Notification as AgencyNotification };
 export { WebhookEvent as AgencyWebhookEvent };
 export type {
   GetUsageResponse as AgencyUsageResponse,
   AgentTaskUsage,
+  AgentUsageRun,
   UsageDay as AgencyUsageDay,
   UsageModel as AgencyUsageModel,
 } from "./gen/buf/agency/v1/dashboard_pb.js";
+
+export type TaskUsageWithRuns = TaskUsage & { runs: AgentUsageRun[] };
 
 export const UNKNOWN_USAGE_MODEL = "__unknown__";
 
@@ -190,12 +211,24 @@ export interface GetUsageOptions extends CallOptions {
   model?: string;
 }
 
+export interface RemoveTaskReferenceOptions extends CallOptions {
+  reverse?: boolean;
+}
+
 export interface AgencyClientOptions {
   baseUrl: string;
 
   token?: string;
 
   transport?: Transport;
+}
+
+export interface VoiceInputSettingsInput {
+  enabled: boolean;
+
+  baseUrl: string;
+
+  model: string;
 }
 
 export interface AgencySettingsInput {
@@ -208,6 +241,18 @@ export interface AgencySettingsInput {
   showConcurrencyKpi?: boolean;
 
   notificationSoundSet?: string;
+
+  voiceInput?: VoiceInputSettingsInput;
+
+  voiceInputApiKey?: string;
+
+  clearApiKey?: boolean;
+}
+
+export interface TranscribeAudioInput {
+  file: Blob;
+
+  filename?: string;
 }
 
 export interface CreateAgentInput {
@@ -216,6 +261,13 @@ export interface CreateAgentInput {
   description?: string;
 
   prompt?: string;
+}
+
+export interface UpdateProjectPluginInput {
+  enabled: boolean;
+  allowTaskCreation: boolean;
+  maxPriority: number;
+  settingsJson?: string;
 }
 
 export interface UpdateSiteInput {
@@ -314,6 +366,7 @@ export class AgencyClient {
   private readonly desktops: Client<typeof AgencyDesktopService>;
   private readonly notifications: Client<typeof AgencyNotificationService>;
   private readonly sites: Client<typeof SiteService>;
+  private readonly plugins: Client<typeof PluginService>;
   private readonly webhooks: Client<typeof AgencyWebhookService>;
   private readonly realtime: Client<typeof RealtimeService>;
 
@@ -346,6 +399,7 @@ export class AgencyClient {
     this.desktops = createClient(AgencyDesktopService, transport);
     this.notifications = createClient(AgencyNotificationService, transport);
     this.sites = createClient(SiteService, transport);
+    this.plugins = createClient(PluginService, transport);
     this.webhooks = createClient(AgencyWebhookService, transport);
     this.realtime = createClient(RealtimeService, transport);
   }
@@ -554,6 +608,47 @@ export class AgencyClient {
   ): Promise<ProjectAgent[]> {
     const res = await this.projects.listProjectAgents({ projectId }, options);
     return res.agents;
+  }
+
+  async listProjectTagReservations(
+    projectId: string,
+    options?: CallOptions,
+  ): Promise<ProjectTagReservation[]> {
+    const res = await this.projects.listProjectTagReservations(
+      { projectId, projectIds: [] },
+      options,
+    );
+    return res.reservations;
+  }
+
+  async listProjectTagReservationsFor(
+    projectIds: string[],
+    options?: CallOptions,
+  ): Promise<ProjectTagReservation[]> {
+    if (!projectIds.length) return [];
+    const res = await this.projects.listProjectTagReservations(
+      { projectId: "", projectIds },
+      options,
+    );
+    return res.reservations;
+  }
+
+  async updateProjectTagReservations(
+    projectId: string,
+    reservations: { tagName: string; reserved: number }[],
+    options?: CallOptions,
+  ): Promise<ProjectTagReservation[]> {
+    const res = await this.projects.updateProjectTagReservations(
+      {
+        projectId,
+        reservations: reservations.map((reservation) => ({
+          tagName: reservation.tagName,
+          reserved: reservation.reserved,
+        })),
+      },
+      options,
+    );
+    return res.reservations;
   }
 
   async listAgentProjects(
@@ -971,11 +1066,40 @@ export class AgencyClient {
           showUsageKpi: input.showUsageKpi ?? true,
           showConcurrencyKpi: input.showConcurrencyKpi ?? true,
           notificationSoundSet: input.notificationSoundSet ?? "",
+          voiceInput: input.voiceInput
+            ? {
+                enabled: input.voiceInput.enabled,
+                baseUrl: input.voiceInput.baseUrl,
+                model: input.voiceInput.model,
+              }
+            : undefined,
         },
+        voiceInputApiKey: input.voiceInputApiKey ?? "",
+        clearApiKey: input.clearApiKey ?? false,
       },
       options,
     );
     return res.settings!;
+  }
+
+  async transcribeAudio(
+    input: TranscribeAudioInput,
+    options?: CallOptions,
+  ): Promise<string> {
+    const form = new FormData();
+    form.append("file", input.file, input.filename ?? "dictation.webm");
+
+    const res = await fetch(`${this.baseUrl}/api/rest/speech/transcribe`, {
+      method: "POST",
+      body: form,
+      headers: this.restHeaders(),
+      signal: options?.signal,
+    });
+    if (!res.ok) {
+      throw new Error(await restError(res));
+    }
+    const payload = (await res.json()) as { text?: string };
+    return payload.text ?? "";
   }
 
   async listTasks(
@@ -992,6 +1116,7 @@ export class AgencyClient {
         size: filter?.size ?? TaskSize.UNSPECIFIED,
         priority: filter?.priority ?? TaskPriority.UNSPECIFIED,
         archived: filter?.archived ?? false,
+        parentTaskId: filter?.parentTaskId ?? "",
         referenceProjectId: filter?.referenceProjectId ?? "",
         limit: filter?.limit ?? 0,
         offset: filter?.offset ?? 0,
@@ -1037,6 +1162,7 @@ export class AgencyClient {
           ? JSON.stringify(input.templateArgs)
           : "",
         templatePromptOverride: input.templatePromptOverride ?? false,
+        parentTaskId: input.parentTaskId ?? "",
       },
       options,
     );
@@ -1134,6 +1260,24 @@ export class AgencyClient {
   ): Promise<Task> {
     const res = await this.tasks.reopenTask(
       { id, queue: reopen?.queue ?? false },
+      options,
+    );
+    return res.task!;
+  }
+
+  async releaseTaskHold(
+    id: string,
+    input: ReleaseTaskHoldInput,
+    options?: CallOptions,
+  ): Promise<Task> {
+    const res = await this.tasks.releaseTaskHold(
+      {
+        id,
+        plugin: input.plugin,
+        key: input.key,
+        mode: input.mode ?? TaskHoldReleaseMode.SETTLE,
+        prompt: input.prompt ?? "",
+      },
       options,
     );
     return res.task!;
@@ -1308,10 +1452,10 @@ export class AgencyClient {
   async removeTaskReference(
     id: string,
     referencedTaskId: string,
-    options?: CallOptions,
+    options?: RemoveTaskReferenceOptions,
   ): Promise<Task> {
     const res = await this.tasks.removeTaskReference(
-      { id, referencedTaskId },
+      { id, referencedTaskId, reverse: options?.reverse ?? false },
       options,
     );
     return res.task!;
@@ -1441,6 +1585,190 @@ export class AgencyClient {
         onEvent(message.event);
       }
     }
+  }
+
+  async listPlugins(options?: CallOptions): Promise<Plugin[]> {
+    const res = await this.plugins.listPlugins({}, options);
+    return res.plugins;
+  }
+
+  async getPlugin(id: string, options?: CallOptions): Promise<Plugin> {
+    const res = await this.plugins.getPlugin({ id }, options);
+    return res.plugin!;
+  }
+
+  async inspectPlugin(
+    bundle: Uint8Array,
+    options?: CallOptions,
+  ): Promise<PluginPreview> {
+    const res = await this.plugins.inspectPlugin({ bundle }, options);
+    return res.preview!;
+  }
+
+  async installPlugin(
+    bundle: Uint8Array,
+    options?: CallOptions,
+  ): Promise<Plugin> {
+    const res = await this.plugins.installPlugin({ bundle }, options);
+    return res.plugin!;
+  }
+
+  async setPluginEnabled(
+    id: string,
+    enabled: boolean,
+    options?: CallOptions,
+  ): Promise<Plugin> {
+    const res = await this.plugins.setPluginEnabled({ id, enabled }, options);
+    return res.plugin!;
+  }
+
+  async uninstallPlugin(
+    id: string,
+    purge = false,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.plugins.uninstallPlugin({ id, purge }, options);
+  }
+
+  async listPluginLogs(
+    id: string,
+    limit = 100,
+    options?: CallOptions,
+  ): Promise<PluginLog[]> {
+    const res = await this.plugins.listPluginLogs({ id, limit }, options);
+    return res.logs;
+  }
+
+  async listPluginRuntimeLogs(
+    pluginId: string,
+    query: {
+      scope?: string;
+      targetId?: string;
+      minLevel?: string;
+      search?: string;
+      limit?: number;
+    } = {},
+    options?: CallOptions,
+  ): Promise<PluginLog[]> {
+    const res = await this.plugins.listPluginRuntimeLogs(
+      {
+        pluginId,
+        scope: query.scope ?? "",
+        targetId: query.targetId ?? "",
+        minLevel: query.minLevel ?? "",
+        search: query.search ?? "",
+        limit: query.limit ?? 100,
+      },
+      options,
+    );
+    return res.logs;
+  }
+
+  async getPluginSettings(
+    pluginId: string,
+    scope: string,
+    targetId = "",
+    options?: CallOptions,
+  ): Promise<PluginSettings> {
+    const res = await this.plugins.getPluginSettings(
+      { pluginId, scope, targetId },
+      options,
+    );
+    return res.settings!;
+  }
+
+  async updatePluginSettings(
+    pluginId: string,
+    scope: string,
+    targetId: string,
+    settings: Record<string, unknown>,
+    options?: CallOptions,
+  ): Promise<PluginSettings> {
+    const res = await this.plugins.updatePluginSettings(
+      {
+        pluginId,
+        scope,
+        targetId,
+        settingsJson: JSON.stringify(settings),
+      },
+      options,
+    );
+    return res.settings!;
+  }
+
+  async setPluginSettingsEnabled(
+    pluginId: string,
+    scope: string,
+    targetId: string,
+    enabled: boolean,
+    options?: CallOptions,
+  ): Promise<PluginSettings> {
+    const res = await this.plugins.setPluginSettingsEnabled(
+      { pluginId, scope, targetId, enabled },
+      options,
+    );
+    return res.settings!;
+  }
+
+  async listSurfacePlugins(
+    scope: string,
+    targetId = "",
+    options?: CallOptions,
+  ): Promise<{ settings: PluginSettings[]; projectPlugins: ProjectPlugin[] }> {
+    const res = await this.plugins.listSurfacePlugins(
+      { scope, targetId },
+      options,
+    );
+    return {
+      settings: res.settings,
+      projectPlugins: res.projectPlugins,
+    };
+  }
+
+  async getProjectPlugin(
+    pluginId: string,
+    projectId: string,
+    options?: CallOptions,
+  ): Promise<ProjectPlugin> {
+    const res = await this.plugins.getProjectPlugin(
+      { pluginId, projectId },
+      options,
+    );
+    return res.projectPlugin!;
+  }
+
+  async updateProjectPlugin(
+    pluginId: string,
+    projectId: string,
+    input: UpdateProjectPluginInput,
+    options?: CallOptions,
+  ): Promise<ProjectPlugin> {
+    const res = await this.plugins.updateProjectPlugin(
+      {
+        pluginId,
+        projectId,
+        enabled: input.enabled,
+        allowTaskCreation: input.allowTaskCreation,
+        maxPriority: input.maxPriority,
+        settingsJson: input.settingsJson,
+      },
+      options,
+    );
+    return res.projectPlugin!;
+  }
+
+  /** Invite a plugin actor to a project so its project surface can be used. */
+  async invitePluginToProject(
+    pluginId: string,
+    projectId: string,
+    role = "member",
+    options?: CallOptions,
+  ): Promise<ProjectPlugin> {
+    const res = await this.plugins.invitePluginToProject(
+      { pluginId, projectId, role },
+      options,
+    );
+    return res.projectPlugin!;
   }
 
   async listSites(
@@ -1630,6 +1958,7 @@ export class AgencyClient {
         description: input.description ?? "",
         color: input.color ?? "",
         isDefault: input.isDefault ?? false,
+        isRequired: input.isRequired ?? false,
       },
       options,
     );
@@ -1648,6 +1977,7 @@ export class AgencyClient {
         description: input.description ?? "",
         color: input.color ?? "",
         isDefault: input.isDefault ?? false,
+        isRequired: input.isRequired ?? false,
       },
       options,
     );
@@ -1762,9 +2092,9 @@ export class AgencyClient {
   async getTaskUsage(
     taskId: string,
     options?: CallOptions,
-  ): Promise<TaskUsage> {
+  ): Promise<TaskUsageWithRuns> {
     const res = await this.dashboard.getTaskUsage({ taskId }, options);
-    return res.usage!;
+    return Object.assign(res.usage!, { runs: res.runs });
   }
 
   async getDiskUsage(

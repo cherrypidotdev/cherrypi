@@ -116,6 +116,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
   -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=${VERSION}'" \
   -o /out/cherrypi-agency ./cmd/agency
 
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  CGO_ENABLED=0 go build \
+  -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=${VERSION}'" \
+  -o /out/cherrypi-plugin ./cmd/cherrypi-plugin
+
 
 FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
@@ -126,6 +132,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   ca-certificates curl
 
 COPY --from=backend /out/cherrypi-agency /usr/local/bin/cherrypi-agency
+COPY --from=backend /out/cherrypi-plugin /usr/local/bin/cherrypi-plugin
 
 EXPOSE 8080
 

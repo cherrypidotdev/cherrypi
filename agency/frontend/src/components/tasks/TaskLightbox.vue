@@ -67,8 +67,13 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         ChevronLeftIcon.size-7
 
       template(v-if="active")
+        .flex.h-full.w-full.flex-col.items-center.justify-center(
+          v-if="active.diagram"
+          ref="diagramHost"
+          data-test="lightbox-diagram"
+        )
         img.max-h-full.max-w-full.rounded-md.object-contain.select-none(
-          v-if="active.image"
+          v-else-if="active.image"
           :src="active.url"
           draggable="false"
           :alt="active.filename"
@@ -128,6 +133,11 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           draggable="false"
           :alt="item.filename"
         )
+        span.flex.size-full.items-center.justify-center(
+          v-else-if="item.diagram"
+          class="text-white/60"
+        )
+          WorkflowIcon.size-6
         span.flex.size-full.items-center.justify-center(v-else class="text-white/60")
           FileIcon.size-6
 </template>
@@ -141,14 +151,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { LightboxItem } from "@/lib/lightbox";
+import { attachMermaidTools } from "@/lib/mermaidViewer";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
   FileIcon,
+  WorkflowIcon,
   XIcon,
 } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  watchEffect,
+} from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -201,6 +220,27 @@ watch(
   },
   { immediate: true },
 );
+
+const diagramHost = ref<HTMLElement>();
+
+watchEffect((onCleanup) => {
+  const host = diagramHost.value;
+  const diagram = props.open ? active.value?.diagram : undefined;
+  if (!host || !diagram) return;
+  host.innerHTML = diagram.svg;
+  const svg = host.querySelector("svg");
+  if (!svg) return;
+
+  svg.removeAttribute("style");
+
+  host.classList.add("mermaid-always");
+  const tools = attachMermaidTools(host, { code: diagram.code });
+  onCleanup(() => {
+    tools.dispose();
+    host.replaceChildren();
+    host.classList.remove("mermaid-always");
+  });
+});
 
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));

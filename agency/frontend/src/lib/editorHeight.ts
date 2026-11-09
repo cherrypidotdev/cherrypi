@@ -14,13 +14,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-export const EDITOR_MIN_HEIGHT = 64;
+export const EDITOR_MIN_HEIGHT = 96;
+
+export const COMPACT_EDITOR_HEIGHT = 112;
 
 export const EDITOR_MAX_HEIGHT = 384;
 
 const VIEWPORT_MARGIN = 160;
 
 export const NEW_TASK_PROMPT_HEIGHT_KEY = "cherrypi:new-task-prompt-height";
+
+export const QUESTIONNAIRE_NOTE_HEIGHT_KEY =
+  "cherrypi:questionnaire-note-height";
+
+export const QUESTIONNAIRE_FINAL_NOTE_HEIGHT_KEY =
+  "cherrypi:questionnaire-final-note-height";
 
 export function clampEditorHeight(height: number): number {
   const viewportMax =

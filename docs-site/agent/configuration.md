@@ -22,8 +22,8 @@ working directory (loaded automatically). Flags override the environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHERRYPI_AGENCY_URL` | — | Agency URL (required). |
-| `CHERRYPI_AGENT_TOKEN` | — | Personal access token (`pat_…`). `--token` overrides it; it wins over the cached file. |
-| `CHERRYPI_AGENT_TOKEN_FILE` | `$CHERRYPI_DIR/agent.token` | Cached token file read by the bundled Pi tools on every call. |
+| `CHERRYPI_AGENT_TOKEN` | — | Personal access token (`pat_…`). `--token` overrides it; it wins over the cached file for the agent and the bundled Pi tools alike. |
+| `CHERRYPI_AGENT_TOKEN_FILE` | `$CHERRYPI_DIR/agent.token` | Cached token file, re-read by the bundled Pi tools on every call as the fallback to `CHERRYPI_AGENT_TOKEN`. |
 | `CHERRYPI_DIR` | `~/.cherrypi` | Data directory: SQLite database, token, per-task workspaces. |
 | `CHERRYPI_DATABASE_DSN` | `$CHERRYPI_DIR/cherrypi.sqlite3` | Local agent database. |
 | `CHERRYPI_AGENT_TUNNEL_TRANSPORT` | `auto` | `auto`, `http2` or `websocket`. Diagnostic only. |
@@ -47,16 +47,22 @@ working directory (loaded automatically). Flags override the environment.
 
 ## Tokens
 
-A personal access token is the agent's only credential. There are two paths,
+A personal access token is the agent's only credential. There are two sources,
 in order of preference:
 
-1. **`--token` / `CHERRYPI_AGENT_TOKEN`** — an explicit token. It is fixed: a
-   rotated token file does not override it. Restart the agent to apply a new
+1. **`--token` / `CHERRYPI_AGENT_TOKEN`** — an explicit token. The agent and
+   every bundled Pi tool prefer it over the cached file, so a stale file can
+   never mask a working environment token. Restart the agent to apply a new
    token.
 2. **Cached token** — `CHERRYPI_AGENT_TOKEN_FILE`, default
    `$CHERRYPI_DIR/agent.token`. The agent validates it at startup and discards
    it if the agency rejects it. The bundled Pi tools re-read it on every call,
-   so a rotated file applies without respawning Pi.
+   so an operator-written file reaches a running session without a Pi respawn.
+
+Both sides read the same two credentials in the same order. When the agency
+answers `401` to the preferred one, the bundled tools retry once with the
+other and name the rejected credential in the tool result, so a stale file or
+environment token is visible instead of looking like an outage.
 
 There is no username/password fallback. If both sources are missing, the agent
 exits with instructions.

@@ -32,11 +32,42 @@ they are stored in the database and apply immediately.
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Attachments per message. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Process-log files to retain. |
 | `CHERRYPI_H2C` | off | Serve cleartext HTTP/2. Diagnostic/direct-agent use only. |
+| `CHERRYPI_OTEL_ENABLED` | auto | Enable OTLP traces, metrics and logs. Auto-on when an OTLP endpoint is set. |
 | `CHERRYPI_FRONTEND_PROXY_URL` | — | Development only: proxy the SPA to Vite. |
 | `CHERRYPI_DOCS_PROXY_URL` | — | Development only: proxy `/docs` to VitePress. |
 
 The complete list, including S3 region validation and storage failure hints, is
 in the [environment reference](/reference/environment).
+
+## Observability
+
+The agency can export traces, metrics and logs to any OpenTelemetry collector
+over OTLP. It reads the standard `OTEL_*` variables, so pointing it at a
+collector is one environment change:
+
+```sh
+CHERRYPI_OTEL_ENABLED=1
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=cherrypi-agency
+```
+
+For a local backend, start the optional Grafana LGTM stack (Grafana, Tempo,
+Prometheus and Loki with an OTLP collector) next to the agency:
+
+```sh
+docker compose -f compose.yaml -f compose.telemetry.yaml up -d --build
+```
+
+Grafana listens on <http://localhost:3000>; the agency reaches the collector at
+`otel-lgtm:4317`.
+
+Use `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` with an endpoint on port `4318`
+when the collector sits behind an ordinary HTTP proxy. Traces cover every
+unary Connect/gRPC call, every REST request under `/api/` and `/plugins/`, and
+every SQL statement, so a slow request shows which query inside it was
+slow. The full variable list, including sampling and per-signal switches, is in
+the [environment reference](/reference/environment#observability-opentelemetry).
 
 ## Database
 
@@ -98,9 +129,31 @@ the `minio-init` service creates it.
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |
 | Storage | S3 status, upload limits and object retention. |
+| Integrations | Webhooks and voice input. |
 | Logs | The agency process log with follow, download and tail. |
 
 See [Authentication and teams](/agency/authentication) for the identity model.
+
+### Voice input
+
+**Settings → Integrations → Voice input** turns dictation on for every Markdown
+composer and configures the speech-to-text endpoint:
+
+| Field | Meaning |
+| --- | --- |
+| Enable voice input | Show the microphone in the composers. **Off by default**: with no endpoint configured the browser's own recognizer would send audio to the browser vendor, so dictation is an explicit choice. |
+| API base URL | An HTTP(S) endpoint that implements `POST /audio/transcriptions` with a multipart `file` and a `model`. The agency appends the path, so paste the API base (for example `https://api.example.com/v1`). Credentials in the URL (`user:pass@`) are rejected: the base URL is readable by every member, the key is not. |
+| Model | The transcription model name the endpoint accepts. Defaults to `whisper-1`. |
+| API key | Sent as a bearer token. Stored by the agency, never returned to the browser; leave it blank to keep the stored key. Optional for an endpoint that needs no authentication. **Remove** forgets it. |
+
+The stored key survives a base-URL change: an administrator who repoints the
+endpoint presses **Remove** first, so an old token is never sent to a new host.
+
+When the base URL is empty the agency does not upload audio: supported browsers
+fall back to their own Web Speech recognition, and Firefox hides the microphone.
+The agency forwards at most 25 MiB per recording, times the provider call out
+after two minutes, and logs a rejected provider response without echoing its
+body to the browser.
 
 ## Data directory
 

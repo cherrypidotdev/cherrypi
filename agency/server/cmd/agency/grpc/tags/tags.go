@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 
+	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/tags"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	"connectrpc.com/connect"
@@ -27,6 +28,8 @@ import (
 
 type TagServer struct {
 	Tags *tags.Service
+
+	Scheduler *scheduler.Scheduler
 }
 
 func (s *TagServer) ListTags(
@@ -55,6 +58,7 @@ func (s *TagServer) CreateTag(
 		req.Description,
 		req.Color,
 		req.IsDefault,
+		req.IsRequired,
 	)
 	if err != nil {
 		return nil, mapError(err)
@@ -73,9 +77,13 @@ func (s *TagServer) UpdateTag(
 		req.Description,
 		req.Color,
 		req.IsDefault,
+		req.IsRequired,
 	)
 	if err != nil {
 		return nil, mapError(err)
+	}
+	if s.Scheduler != nil {
+		s.Scheduler.Wake()
 	}
 	return &agencyv1.UpdateTagResponse{Tag: toProto(tag)}, nil
 }
@@ -111,6 +119,7 @@ func toProto(tag tags.Tag) *agencyv1.Tag {
 		Color:       tag.Color,
 		Archived:    tag.Archived,
 		IsDefault:   tag.IsDefault,
+		IsRequired:  tag.IsRequired,
 		TaskCount:   int32(tag.TaskCount),
 	}
 }

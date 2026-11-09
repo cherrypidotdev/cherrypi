@@ -22,6 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsList
       TabsTrigger(value="general") General
       TabsTrigger(value="projects") Projects
+      TabsTrigger(value="plugins") Plugins
       TabsTrigger(value="tasks") Tasks
       TabsTrigger(value="security") Security
 
@@ -194,6 +195,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     :agent-id="id"
                     :project-id="entry.project.id"
                   )
+
+    TabsContent(value="plugins")
+      AgentPluginsPanel(v-if="item" :agent-actor-id="item.actorId")
 
     TabsContent(value="tasks")
       .flex.flex-col.gap-6
@@ -397,6 +401,7 @@ import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AgentActivityPanel from "@/components/settings/AgentActivityPanel.vue";
 import AgentOwnersPanel from "@/components/settings/AgentOwnersPanel.vue";
+import AgentPluginsPanel from "@/components/settings/AgentPluginsPanel.vue";
 import AgentProjectLimits from "@/components/settings/AgentProjectLimits.vue";
 import AgentTeamsPanel from "@/components/settings/AgentTeamsPanel.vue";
 import ConcurrencyPanel from "@/components/settings/ConcurrencyPanel.vue";
@@ -488,7 +493,7 @@ const isAdmin = computed(() => currentAccount.value?.is_admin ?? false);
 const PI_DEFAULT = "__pi_default__";
 const PI_DEFAULT_LEVEL = "__model_default__";
 
-const SETTINGS_TABS = ["general", "projects", "tasks", "security"];
+const SETTINGS_TABS = ["general", "projects", "plugins", "tasks", "security"];
 const settingsRoute = useRoute();
 const tab = ref(
   typeof settingsRoute.query.section === "string" &&

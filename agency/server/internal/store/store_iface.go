@@ -69,6 +69,7 @@ type Store interface {
 	CountIncompleteBlockingReferences(ctx context.Context, taskID string) (int64, error)
 	CountProjectChildren(ctx context.Context, parentID string) (int64, error)
 	CountProjectsOwnedByTeam(ctx context.Context, teamID int64) (int64, error)
+	CountTaskHolds(ctx context.Context, taskID string) (int64, error)
 	CountTaskSessionEntries(ctx context.Context, taskID string) (int64, error)
 	CountTasksByProject(ctx context.Context, projectID sql.NullString) (int64, error)
 	CountTasksOwnedByTeam(ctx context.Context, teamID int64) (int64, error)
@@ -207,6 +208,8 @@ type Store interface {
 	DeleteTaskComments(ctx context.Context, taskID string) error
 	DeleteTaskFavorite(ctx context.Context, p DeleteTaskFavoriteParams) error
 	DeleteTaskFavoritesByActor(ctx context.Context, actorID ids.ActorID) error
+	DeleteTaskHold(ctx context.Context, p DeleteTaskHoldParams) (int64, error)
+	DeleteTaskHolds(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskLeads(ctx context.Context, taskID string) error
 	DeleteTaskLinks(ctx context.Context, taskID string) error
 	DeleteTaskSubscription(ctx context.Context, p DeleteTaskSubscriptionParams) error
@@ -365,6 +368,11 @@ type Store interface {
 	InsertAgentUsage(ctx context.Context, p InsertAgentUsageParams) error
 	InsertArtifactPart(ctx context.Context, p InsertArtifactPartParams) error
 	InsertProjectLog(ctx context.Context, p InsertProjectLogParams) error
+	ReplaceProjectTagReservations(
+		ctx context.Context,
+		projectID string,
+		rows []InsertProjectTagReservationParams,
+	) error
 	InsertPrompt(ctx context.Context, p InsertPromptParams) (Prompt, error)
 	InsertTaskLink(ctx context.Context, p InsertTaskLinkParams) error
 	InsertTaskLog(ctx context.Context, p InsertTaskLogParams) error
@@ -430,6 +438,10 @@ type Store interface {
 		ctx context.Context,
 		agentID ids.AgentID,
 	) ([]ListAgentProjectMembershipsRow, error)
+	ListAgentProjectTagReservations(
+		ctx context.Context,
+		agentID ids.AgentID,
+	) ([]ListAgentProjectTagReservationsRow, error)
 	ListAgentProjectTagLimits(
 		ctx context.Context,
 		agentID ids.AgentID,
@@ -468,6 +480,8 @@ type Store interface {
 		agentID sql.NullInt64,
 		projectID sql.NullString,
 	) ([]ListAgentUsageModelsRow, error)
+
+	ListAgentUsageRuns(ctx context.Context, sessionID string) ([]AgentUsage, error)
 	ListAgents(ctx context.Context) ([]AgentRow, error)
 	ListAgentsOwnedBy(ctx context.Context, ownerActorID ids.ActorID) ([]int64, error)
 	ListAllBlockingTaskReferences(
@@ -543,6 +557,10 @@ type Store interface {
 		parentID, childID string,
 		actorID ids.ActorID,
 	) ([]ListProjectSharedOwnerTeamsRow, error)
+	ListProjectTagReservations(
+		ctx context.Context,
+		projectID string,
+	) ([]ProjectTagReservation, error)
 	ListProjectTeamInvitations(
 		ctx context.Context,
 		projectID string,
@@ -579,8 +597,13 @@ type Store interface {
 		ctx context.Context,
 		agentID ids.AgentID,
 	) ([]ListRunningTaskTagsByAgentRow, error)
+	ListRunningTaskTagsByProject(
+		ctx context.Context,
+		projectID string,
+	) ([]ListRunningTaskTagsByProjectRow, error)
 	ListRunningTasks(ctx context.Context) ([]Task, error)
 	ListRunningTasksByAgent(ctx context.Context, agentID ids.AgentID) ([]Task, error)
+	ListRunningTasksByProject(ctx context.Context, projectID string) ([]Task, error)
 	ListSessionTasks(ctx context.Context) ([]Task, error)
 	ListSessionsByActor(ctx context.Context, actorID ids.ActorID) ([]Session, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
@@ -601,6 +624,9 @@ type Store interface {
 		taskID string,
 	) ([]ListTaskCommentAttachmentsRow, error)
 	ListTaskComments(ctx context.Context, taskID string) ([]TaskComment, error)
+	ListAllTaskHolds(ctx context.Context) ([]ListAllTaskHoldsRow, error)
+	ListTaskHoldTaskIDsByPlugin(ctx context.Context, pluginID string) ([]string, error)
+	ListTaskHolds(ctx context.Context, taskID string) ([]ListTaskHoldsRow, error)
 	ListTaskLeadsByTask(ctx context.Context, taskID string) ([]int64, error)
 	ListTaskLinks(ctx context.Context) ([]ListTaskLinksRow, error)
 	ListTaskProgress(ctx context.Context) (map[string]TaskPlan, error)
@@ -694,6 +720,11 @@ type Store interface {
 	) (int64, error)
 	RemoveTeamMember(ctx context.Context, p RemoveTeamMemberParams) (int64, error)
 	RenameTask(ctx context.Context, p RenameTaskParams) (Task, error)
+	SetTaskPendingSteering(ctx context.Context, p SetTaskPendingSteeringParams) (int64, error)
+	SetTaskPendingPromptAny(ctx context.Context, p SetTaskPendingPromptAnyParams) (int64, error)
+	ListTaskChildren(ctx context.Context, parentTaskID string) ([]Task, error)
+	CountIncompleteChildTasks(ctx context.Context, parentTaskID string) (int64, error)
+	DetachTaskChildren(ctx context.Context, p DetachTaskChildrenParams) error
 	RespondProjectTeamInvitation(
 		ctx context.Context,
 		p RespondProjectTeamInvitationParams,
@@ -813,6 +844,7 @@ type Store interface {
 	UpsertSetting(ctx context.Context, p UpsertSettingParams) error
 	UpsertTaskArtifact(ctx context.Context, p UpsertTaskArtifactParams) error
 	UpsertTaskCommentRead(ctx context.Context, p UpsertTaskCommentReadParams) error
+	UpsertTaskHold(ctx context.Context, p UpsertTaskHoldParams) error
 	CreateSite(ctx context.Context, p CreateSiteParams) (Site, error)
 	GetSite(ctx context.Context, id string) (Site, error)
 	ListSites(ctx context.Context) ([]Site, error)

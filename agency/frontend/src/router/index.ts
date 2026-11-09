@@ -39,14 +39,32 @@ import TeamView from "@/views/TeamView.vue";
 import TeamsView from "@/views/TeamsView.vue";
 import UserView from "@/views/UserView.vue";
 import UsersView from "@/views/UsersView.vue";
-import { createRouter, createWebHistory } from "vue-router";
+import {
+  createRouter,
+  createWebHistory,
+  type RouteRecordRaw,
+} from "vue-router";
 
 const publicRoutes = new Set([
   "login",
   "magic-link",
   "reset-password",
   "invite",
+  ...(import.meta.env.DEV ? ["dev-studio"] : []),
 ]);
+
+// branch is dead in a production build (Vite replaces the flag with `false`),
+
+const devRoutes: RouteRecordRaw[] = import.meta.env.DEV
+  ? [
+      {
+        path: "/dev-studio",
+        name: "dev-studio",
+        component: () => import("@/views/DevStudioView.vue"),
+        meta: { title: "Design studio" },
+      },
+    ]
+  : [];
 
 const router = createRouter({
   history: createWebHistory(),
@@ -75,6 +93,7 @@ const router = createRouter({
       component: InviteView,
       meta: { title: "Accept invitation" },
     },
+    ...devRoutes,
     {
       path: "/",
       component: AppShell,

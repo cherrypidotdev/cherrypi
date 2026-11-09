@@ -25,20 +25,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   )
     .mx-auto.flex.max-w-3xl.items-start.gap-3
       InfoIcon.text-muted-foreground.size-4.shrink-0(class="mt-0.5")
+
       p.text-sm.font-medium.break-words
-        template(v-if="waitingBlockers.length")
-          span Waiting for tasks to become completed:&#32;
-          template(
-            v-for="(blocker, index) in waitingBlockers"
-            :key="blocker.id"
-          )
-            RouterLink.font-semibold.underline.underline-offset-2(
-              class="hover:text-foreground/80"
-              :to="{ name: 'task', params: { id: blocker.id } }"
-            ) {{ blocker.id }}
-            template(v-if="index < waitingBlockers.length - 1")
-              span ,&#32;
-        span(v-else) {{ waitingReason }}
+        template(v-for="(part, index) in waitingParts" :key="index")
+          RouterLink.font-semibold.underline.underline-offset-2(
+            v-if="part.kind === 'id'"
+            class="hover:text-foreground/80"
+            :to="{ name: 'task', params: { id: part.id } }"
+          ) {{ part.id }}
+          template(v-else) {{ part.text }}
 
   .shrink-0.border-b.px-4.py-2(
     v-if="task && task.state === TaskState.FAILED"
@@ -99,17 +94,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :id="id"
       :busy="busy"
       :waiting-for-input="task?.runtime?.waitingForInput"
+      :run-over="runOver"
       :attachments="task?.attachments ?? []"
       :actor-pictures="actorPictures"
       :actor-names="actorNames"
       :agent-id="task.assigneeActorId && !sessionDeleted ? agentIdForActor(task.assigneeActorId) : ''"
       :agent="assigneeAgent"
       :model-config="config"
+      :model-name="config?.modelName ?? ''"
       :model-selection="modelSelection"
       :model-disabled="saving.model || !config"
+      :usage-runs="taskUsage?.runs ?? []"
       @queue="$emit('queue', $event)"
       @open-attachment="$emit('open-attachment', $event)"
       @open-image="$emit('open-image', $event)"
+      @open-diagram="$emit('open-diagram', $event)"
       @model-change="$emit('model-change', $event)"
     )
 
@@ -187,7 +186,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @remind="$emit('remind-plan')"
     )
 
-    form.relative.shrink-0.border-t.p-4(
+    form.relative.shrink-0.border-t.p-3(
       ref="composer"
       :class="canCompose ? '' : 'opacity-50'"
       @submit.prevent="$emit('send')"
@@ -201,7 +200,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .bg-border.h-1.w-10.rounded-full.transition-opacity(
           :class="resizing ? 'opacity-100' : 'opacity-40 hover:opacity-100'"
         )
-      .mx-auto.flex.max-w-3xl.flex-col.gap-2
+
+      .mx-auto.flex.max-w-3xl.flex-col.gap-3
         p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
           v-if="sessionDeleted"
           data-testid="session-cleaned-up-hint"
@@ -211,6 +211,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             | The agent-side Pi session and workspace are gone (cleaned up, or
             | the agent restarted with fresh data). Sending a message replays
             | the stored conversation in a new Pi session.
+
         p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
           v-if="isInput"
           data-testid="composer-input-hint"
@@ -219,6 +220,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           span
             | The agent is waiting for your answers. You can draft a follow-up
             | now; sending unlocks once the questionnaire is submitted.
+
         .flex.flex-col.gap-2
           .flex.flex-wrap.items-center.gap-2
             WritePreviewTabs(
@@ -226,6 +228,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :model-value="tab"
               @update:model-value="$emit('update:tab', $event)"
             )
+
             .ml-auto.flex.flex-wrap.items-center.gap-2
               TaskModelPicker(
                 v-if="task.assigneeActorId && !sessionDeleted"
@@ -254,6 +257,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               )
                 SendIcon(data-icon="inline-start")
                 span {{ steer ? "Steer" : "Send" }}
+
           MarkdownEditor(
             v-if="tab === 'write'"
             ref="promptInput"
@@ -262,13 +266,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             references
             test-id="composer-editor"
             aria-label="Follow-up prompt"
-            title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+            title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+B bold · Ctrl+I italic · Ctrl+E code · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
             :model-value="prompt"
             :reference-project-id="task?.projectId ?? ''"
             :reference-task-id="task?.id ?? ''"
             :fill="textareaHeight !== null"
             :style="textareaStyle"
-            height="3.5rem"
+            height="6.5rem"
             @update:model-value="$emit('update:prompt', $event)"
             @submit="$emit('enter')"
             :disabled="!canCompose"
@@ -282,29 +286,38 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :style="inheritProse"
               :text="prompt"
             )
-          .flex.flex-col.gap-1(v-if="canCompose")
-            .flex.items-center.gap-2
-              AttachmentUploadButton(
-                label="Attach"
-                :task-id="task.id"
-                @uploaded="$emit('staged-uploaded', $event)"
+
+          .flex.flex-col.gap-1(v-if="canCompose || contextWindow")
+            .flex.min-h-7.flex-wrap.items-center.gap-2
+              template(v-if="canCompose")
+                AttachmentUploadButton(
+                  label="Attach"
+                  :task-id="task.id"
+                  @uploaded="$emit('staged-uploaded', $event)"
+                )
+                Button(
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  title="Draw a sketch"
+                  @click="$emit('open-new-sketch')"
+                )
+                  PencilIcon(data-icon="inline-start")
+                  span Sketch
+                span.text-muted-foreground.text-xs(
+                  v-if="!stagedAttachments.length"
+                ) Paste, drop, or pick files to send with this prompt
+              ContextMeter.ml-auto(
+                v-if="contextWindow"
+                :tokens="taskUsage?.contextTokens ?? 0"
+                :window="contextWindow"
               )
-              Button(
-                type="button"
-                variant="outline"
-                size="sm"
-                title="Draw a sketch"
-                @click="$emit('open-new-sketch')"
-              )
-                PencilIcon(data-icon="inline-start")
-                span Sketch
-              span.text-muted-foreground.text-xs(
-                v-if="!stagedAttachments.length"
-              ) Paste, drop, or pick files to send with this prompt
             AttachmentList(
-              v-if="stagedAttachments.length"
+              v-if="canCompose && stagedAttachments.length"
               removable
               sketchable
+              compact
+              :show-author="false"
               :attachments="stagedAttachments"
               @remove="$emit('remove-staged', $event)"
               @sketch="$emit('open-sketch', $event)"
@@ -312,11 +325,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
           p.text-muted-foreground.text-xs(v-if="isPostponed")
             | Sending a follow-up queues this task immediately.
-          .flex.min-h-7.items-center.gap-2(v-if="contextWindow")
-            ContextMeter.ml-auto(
-              :tokens="taskUsage?.contextTokens ?? 0"
-              :window="contextWindow"
-            )
 </template>
 
 <script setup lang="ts">
@@ -344,10 +352,10 @@ import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
 import { namedSender } from "@/lib/actors";
 import type { UserMessageParts } from "@/lib/console";
-import type { InlineImage } from "@/lib/lightbox";
+import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import {
-  taskIncompleteBlockers,
   taskWaitingReason,
+  waitingReasonParts,
   type TaskModelSelection,
 } from "@/lib/task";
 import {
@@ -355,7 +363,7 @@ import {
   type Attachment,
   type Task,
   type TaskConfig,
-  type TaskUsage,
+  type TaskUsageWithRuns,
 } from "@cherrypi/sdk";
 import {
   ChevronRightIcon,
@@ -376,7 +384,7 @@ const props = defineProps<{
 
   id: string;
   task?: Task;
-  taskUsage?: TaskUsage;
+  taskUsage?: TaskUsageWithRuns;
   config?: TaskConfig;
   modelSelection: TaskModelSelection;
   saving: { model: boolean };
@@ -405,6 +413,8 @@ defineEmits<{
   (e: "pending-prompt-saved"): void;
   (e: "open-attachment", attachment: Attachment): void;
   (e: "open-image", image: InlineImage): void;
+
+  (e: "open-diagram", diagram: DiagramSource): void;
   (e: "open-new-sketch"): void;
   (e: "open-sketch", attachment: Attachment): void;
   (e: "model-change", selection: TaskModelSelection): void;
@@ -462,15 +472,23 @@ const canEditPrompt = isEditableBacklog;
 const isStarted = computed(() => Boolean(props.task?.sessionId));
 const isInput = computed(() => props.task?.state === TaskState.INPUT);
 
+const runOver = computed(() => {
+  const state = props.task?.state;
+  return (
+    state === TaskState.SETTLED ||
+    state === TaskState.FAILED ||
+    state === TaskState.COMPLETED ||
+    state === TaskState.CANCELLED
+  );
+});
+
 const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
 
 const showPrompt = computed(() => !isStarted.value && !isPostponed.value);
 const waitingReason = computed(() =>
   props.task ? taskWaitingReason(props.task) : "",
 );
-const waitingBlockers = computed(() =>
-  props.task ? taskIncompleteBlockers(props.task) : [],
-);
+const waitingParts = computed(() => waitingReasonParts(waitingReason.value));
 const promptHint = computed(() => {
   if (isPostponed.value) return "Started · follow up below to queue it again";
   if (isBacklog.value) return "Backlog · click to edit";
@@ -523,7 +541,8 @@ const textareaStyle = computed(() =>
     ? undefined
     : { height: `${textareaHeight.value}px` },
 );
-const MIN_TEXTAREA_HEIGHT = 48;
+
+const MIN_TEXTAREA_HEIGHT = 72;
 let resizeStartY = 0;
 let resizeStartHeight = 0;
 

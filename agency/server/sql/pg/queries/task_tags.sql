@@ -20,7 +20,7 @@
 -- name: ListTaskTags :many
 SELECT
   t.id AS task_id, tags.id, tags.project_id, tags.name, tags.description,
-  tags.color, tags.archived_at
+  tags.color, tags.archived_at, tags.is_required
 FROM task_tags tt
 JOIN tasks t ON t.rowid = tt.task_rowid
 JOIN tags ON tags.id = tt.tag_id
@@ -29,7 +29,7 @@ ORDER BY t.id, lower(tags.name);
 -- name: ListTaskTagsByTask :many
 SELECT
   tags.id, tags.project_id, tags.name, tags.description, tags.color,
-  tags.archived_at
+  tags.archived_at, tags.is_required
 FROM task_tags tt
 JOIN tags ON tags.id = tt.tag_id
 WHERE tt.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = $1)

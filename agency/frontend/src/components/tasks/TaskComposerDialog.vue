@@ -21,11 +21,20 @@ Dialog(v-model:open="open")
   DialogContent.overflow-y-auto.overscroll-contain(class="max-h-[90vh] sm:max-w-2xl")
     DialogHeader
       DialogTitle New task
-      DialogDescription
+      DialogDescription(v-if="relationNote")
+        | {{ relationNote }}
+      DialogDescription(v-else)
         | Describe the work and queue as many as you need — creating a task
         | keeps this composer open.
 
-    ExpressTaskForm(bare)
+    ExpressTaskForm(
+      bare
+      :project-id="relatedTask?.projectId"
+      :default-project-id="defaultProjectId"
+      :related-task="relatedTask"
+      :relation="relation"
+      @created="$emit('created', $event)"
+    )
 </template>
 
 <script setup lang="ts">
@@ -37,6 +46,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { newTaskRelationNote, type NewTaskRelation } from "@/lib/task";
+import type { Task } from "@cherrypi/sdk";
+import { computed } from "vue";
+
+const props = defineProps<{
+  relatedTask?: Task | null;
+
+  relation?: NewTaskRelation;
+
+  defaultProjectId?: string;
+}>();
+
+const emit = defineEmits<{ created: [Task] }>();
 
 const open = defineModel<boolean>("open", { default: false });
+
+const relationNote = computed(() =>
+  props.relatedTask
+    ? newTaskRelationNote(props.relation, props.relatedTask.id)
+    : "",
+);
 </script>

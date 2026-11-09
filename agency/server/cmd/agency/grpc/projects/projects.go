@@ -22,10 +22,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
+	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/scheduler"
+	"cherrypi.vladfaust.com/agency/internal/tags"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
@@ -39,6 +43,12 @@ type ProjectServer struct {
 	Hub      *tunnel.Hub
 
 	Attachments *attachments.Service
+
+	Limits *limits.Service
+
+	Tags *tags.Service
+
+	Scheduler *scheduler.Scheduler
 }
 
 func (s *ProjectServer) ListProjects(
@@ -416,4 +426,142 @@ func mapError(err error) *connect.Error {
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
+}
+
+const maxReservationProjects = 200
+
+func (s *ProjectServer) ListProjectTagReservations(
+	ctx context.Context,
+	req *agencyv1.ListProjectTagReservationsRequest,
+) (*agencyv1.ListProjectTagReservationsResponse, error) {
+	if len(req.ProjectIds) > 0 {
+		if len(req.ProjectIds) > maxReservationProjects {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				fmt.Errorf("at most %d projects per call", maxReservationProjects),
+			)
+		}
+		out := make([]*agencyv1.ProjectTagReservation, 0, len(req.ProjectIds))
+		for _, projectID := range req.ProjectIds {
+			if _, err := s.Projects.Get(ctx, projectID); err != nil {
+
+				if errors.Is(err, projects.ErrProjectMissing) {
+					continue
+				}
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
+			list, err := s.reservations(ctx, projectID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, toProtoReservations(projectID, list)...)
+		}
+		return &agencyv1.ListProjectTagReservationsResponse{Reservations: out}, nil
+	}
+	if _, err := s.Projects.Get(ctx, req.ProjectId); err != nil {
+		return nil, mapError(err)
+	}
+	list, err := s.reservations(ctx, req.ProjectId)
+	if err != nil {
+		return nil, err
+	}
+	return &agencyv1.ListProjectTagReservationsResponse{
+		Reservations: toProtoReservations(req.ProjectId, list),
+	}, nil
+}
+
+func (s *ProjectServer) UpdateProjectTagReservations(
+	ctx context.Context,
+	req *agencyv1.UpdateProjectTagReservationsRequest,
+) (*agencyv1.UpdateProjectTagReservationsResponse, error) {
+	if err := s.requireOwner(ctx, req.ProjectId); err != nil {
+		return nil, mapError(err)
+	}
+	if s.Limits == nil {
+		return nil, connect.NewError(
+			connect.CodeUnimplemented,
+			errors.New("reserved concurrency is unavailable"),
+		)
+	}
+	known, err := s.projectTagNames(ctx, req.ProjectId)
+	if err != nil {
+		return nil, err
+	}
+	in := make([]limits.Reservation, 0, len(req.Reservations))
+	for _, res := range req.Reservations {
+		name := strings.ToLower(strings.TrimSpace(res.TagName))
+		if name == "" {
+			continue
+		}
+		if !known[name] {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				fmt.Errorf("%q is not a tag of this project", res.TagName),
+			)
+		}
+		in = append(in, limits.Reservation{
+			TagName:  name,
+			Reserved: int(res.Reserved),
+		})
+	}
+	list, err := s.Limits.UpdateProjectReservations(ctx, req.ProjectId, in)
+	if err != nil {
+		if errors.Is(err, limits.ErrInvalidReservation) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if s.Scheduler != nil {
+		s.Scheduler.Wake()
+	}
+	return &agencyv1.UpdateProjectTagReservationsResponse{
+		Reservations: toProtoReservations(req.ProjectId, list),
+	}, nil
+}
+
+func (s *ProjectServer) reservations(
+	ctx context.Context,
+	projectID string,
+) ([]limits.Reservation, error) {
+	if s.Limits == nil {
+		return nil, nil
+	}
+	list, err := s.Limits.ProjectReservations(ctx, projectID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return list, nil
+}
+
+func (s *ProjectServer) projectTagNames(
+	ctx context.Context,
+	projectID string,
+) (map[string]bool, error) {
+	if s.Tags == nil {
+		return map[string]bool{}, nil
+	}
+	list, err := s.Tags.List(ctx, projectID, true)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	out := make(map[string]bool, len(list))
+	for _, tag := range list {
+		out[strings.ToLower(tag.Name)] = true
+	}
+	return out, nil
+}
+
+func toProtoReservations(
+	projectID string,
+	list []limits.Reservation,
+) []*agencyv1.ProjectTagReservation {
+	out := make([]*agencyv1.ProjectTagReservation, len(list))
+	for i, res := range list {
+		out[i] = &agencyv1.ProjectTagReservation{
+			TagName:   res.TagName,
+			Reserved:  int32(res.Reserved),
+			ProjectId: projectID,
+		}
+	}
+	return out
 }

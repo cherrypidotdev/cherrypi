@@ -105,6 +105,7 @@ function blockerClass(kind: ConcurrencyBlocker["kind"]): string {
       return "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400";
     case "tag":
     case "project-tag":
+    case "reserved":
       return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400";
     case "reference":
       return "border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400";

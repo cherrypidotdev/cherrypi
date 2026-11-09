@@ -36,6 +36,11 @@ export interface UsageBucket {
 
   activeMs: number;
 
+  toolMs: number;
+  modelWaitMs: number;
+  ttftMs: number;
+  ttftRuns: number;
+
   runs: number;
   live: boolean;
 }
@@ -90,6 +95,10 @@ export function useUsage(
         outputTokens: Number(bucket.outputTokens),
         cost: bucket.cost,
         activeMs: Number(bucket.activeMs),
+        toolMs: Number(bucket.toolMs ?? 0),
+        modelWaitMs: Number(bucket.modelWaitMs ?? 0),
+        ttftMs: Number(bucket.ttftMs ?? 0),
+        ttftRuns: Number(bucket.ttftRuns ?? 0),
         runs: Number(bucket.runs ?? 0),
         live: false,
       });

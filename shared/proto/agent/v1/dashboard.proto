@@ -50,6 +50,8 @@ message TaskUsage {
   bool live = 5;
   
   
+  
+  
   double tokens_per_second = 6;
   double cost_per_hour = 7;
   
@@ -62,6 +64,18 @@ message TaskUsage {
   
   int64 context_tokens = 9;
   int64 context_window = 10;
+  
+  
+  
+  
+  
+  int64 thinking_ms = 11;
+  int64 model_wait_ms = 12;
+  int64 tool_ms = 13;
+  
+  
+  int64 ttft_ms = 14;
+  int64 ttft_runs = 15;
 }
 
 

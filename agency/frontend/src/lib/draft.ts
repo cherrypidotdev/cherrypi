@@ -30,6 +30,20 @@ export function composerDraftKey(scope: {
   return `${COMPOSER_PREFIX}${scope.agent || ANY}:${scope.project || ANY}`;
 }
 
+export function composerTitleDraftKey(scope: {
+  agent?: string;
+  project?: string;
+}): string {
+  return `${composerDraftKey(scope)}:title`;
+}
+
+export function composerProjectDraftKey(scope: {
+  agent?: string;
+  project?: string;
+}): string {
+  return `${composerDraftKey(scope)}:project`;
+}
+
 export function loadDraft(key: string): string {
   try {
     return localStorage.getItem(key) ?? "";

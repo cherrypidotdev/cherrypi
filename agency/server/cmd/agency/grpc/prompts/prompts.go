@@ -61,7 +61,8 @@ func (s *PromptServer) GetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTargets(ctx, target); err != nil {
+	target, err = s.validateTargets(ctx, target)
+	if err != nil {
 		return nil, err
 	}
 	p, access, err := s.Flow.Get(ctx, identity, target)
@@ -88,7 +89,8 @@ func (s *PromptServer) SetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTargets(ctx, target); err != nil {
+	target, err = s.validateTargets(ctx, target)
+	if err != nil {
 		return nil, err
 	}
 	p, err := s.Flow.Set(ctx, identity, target, req.Content, req.Note)
@@ -103,6 +105,10 @@ func (s *PromptServer) ListPromptVersions(
 	req *agencyv1.ListPromptVersionsRequest,
 ) (*agencyv1.ListPromptVersionsResponse, error) {
 	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	if err != nil {
+		return nil, err
+	}
+	target, err = s.validateTargets(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +168,8 @@ func (s *PromptServer) CreatePromptProposal(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateTargets(ctx, target); err != nil {
+	target, err = s.validateTargets(ctx, target)
+	if err != nil {
 		return nil, err
 	}
 	proposal, err := s.Flow.CreateProposal(
@@ -196,6 +203,10 @@ func (s *PromptServer) ListPromptProposals(
 	}
 	if !req.Mine {
 		target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+		if err != nil {
+			return nil, err
+		}
+		target, err = s.validateTargets(ctx, target)
 		if err != nil {
 			return nil, err
 		}
@@ -409,34 +420,45 @@ func (s *PromptServer) projectName(ctx context.Context, id string) string {
 	return p.Name
 }
 
-func (s *PromptServer) validateTargets(ctx context.Context, target promptaccess.Target) error {
+func (s *PromptServer) validateTargets(
+	ctx context.Context,
+	target promptaccess.Target,
+) (promptaccess.Target, error) {
 	if target.Scope == prompts.ScopeAgent || target.Scope == prompts.ScopeAgentProject {
 		if _, err := s.Agents.Get(ctx, target.AgentID); err != nil {
 			if errors.Is(err, agents.ErrAgentMissing) {
-				return connect.NewError(connect.CodeNotFound, err)
+				return target, connect.NewError(connect.CodeNotFound, err)
 			}
-			return connect.NewError(connect.CodeInternal, err)
+			return target, connect.NewError(connect.CodeInternal, err)
 		}
 	}
 	if target.Scope == prompts.ScopeProject ||
 		target.Scope == prompts.ScopeAgentProject ||
 		target.Scope == prompts.ScopeTeamProject {
-		if _, err := s.Projects.Get(ctx, target.ProjectID); err != nil {
-			return connect.NewError(connect.CodeNotFound, err)
+		project, err := s.Projects.Get(ctx, target.ProjectID)
+		if errors.Is(err, projects.ErrProjectMissing) {
+			return target, connect.NewError(connect.CodeNotFound, err)
 		}
+		if err != nil {
+			return target, connect.NewError(connect.CodeInternal, err)
+		}
+		target.ProjectID = project.ID
 	}
 	if target.Scope.TeamScoped() {
 		if s.Teams == nil {
-			return connect.NewError(connect.CodeUnavailable, errors.New("teams unavailable"))
+			return target, connect.NewError(
+				connect.CodeUnavailable,
+				errors.New("teams unavailable"),
+			)
 		}
 		if _, err := s.Teams.Name(ctx, target.TeamID); err != nil {
 			if errors.Is(err, teams.ErrTeamNotFound) {
-				return connect.NewError(connect.CodeNotFound, err)
+				return target, connect.NewError(connect.CodeNotFound, err)
 			}
-			return connect.NewError(connect.CodeInternal, err)
+			return target, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	return nil
+	return target, nil
 }
 
 func requireIdentity(ctx context.Context) (auth.Identity, error) {

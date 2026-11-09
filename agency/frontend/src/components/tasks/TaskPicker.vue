@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .bg-popover.text-popover-foreground.overflow-hidden.rounded-md.border.shadow-md(
+  :class="embedded ? 'rounded-none border-0 bg-transparent shadow-none' : ''"
   data-testid="task-picker"
 )
   .border-border.flex.flex-wrap.items-center.gap-x-3.border-b.px-2(
@@ -187,6 +188,8 @@ const props = withDefaults(
     showProjectFilter?: boolean;
 
     excludeIds?: string[];
+
+    embedded?: boolean;
   }>(),
   {
     search: "",
@@ -194,6 +197,7 @@ const props = withDefaults(
     projectFilter: "",
     showProjectFilter: false,
     excludeIds: () => [],
+    embedded: false,
   },
 );
 

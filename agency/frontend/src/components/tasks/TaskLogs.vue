@@ -129,6 +129,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           span.rounded-full.bg-current(class="size-1.5")
           | {{ tag.name }}
+          LockIcon.size-3.shrink-0.text-amber-500(
+            v-if="tag.isRequired"
+            title="Only runs on agents that declare this tag"
+          )
         span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.line-through.opacity-60(
           v-for="tag in row.removedTags"
           :key="tag.id"
@@ -148,8 +152,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :to="`/tasks/${ref.id}`"
           :class="ref.state ? taskStateClass(ref.state) : ''"
         )
-          LockIcon.size-3.shrink-0.text-amber-500(
-            v-if="ref.kind === 'blocking'"
+          component.size-3.shrink-0(
+            :class="referenceKindClass(ref.kind)"
+            :is="referenceKindIcon(ref.kind)"
           )
           component.size-3.shrink-0(
             v-if="ref.state"
@@ -163,8 +168,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="hover:bg-muted/50 py-0.5"
           :to="`/tasks/${ref.id}`"
         )
-          LockIcon.size-3.shrink-0.text-amber-500(
-            v-if="ref.kind === 'blocking'"
+          component.size-3.shrink-0(
+            :class="referenceKindClass(ref.kind)"
+            :is="referenceKindIcon(ref.kind)"
           )
           strong.font-semibold {{ ref.id }}
           span(v-if="ref.name") {{ ref.name }}
@@ -174,12 +180,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="hover:bg-muted/50 py-0.5"
           :to="`/tasks/${ref.id}`"
           :class="ref.state ? taskStateClass(ref.state) : ''"
-          :title="`Kind changed to ${ref.kind}`"
+          :title="`Kind changed to ${referenceKindLabel(ref.kind)}`"
         )
-          LockIcon.size-3.shrink-0.text-amber-500(
-            v-if="ref.kind === 'blocking'"
+          component.size-3.shrink-0(
+            :class="referenceKindClass(ref.kind)"
+            :is="referenceKindIcon(ref.kind)"
           )
-          LinkIcon.text-muted-foreground.size-3.shrink-0(v-else)
           strong.font-semibold {{ ref.id }}
           span(v-if="ref.name") {{ ref.name }}
 
@@ -211,6 +217,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           LinkIcon.shrink-0(class="size-3.5")
           span.font-medium {{ link.label || link.url }}
 
+      .flex.flex-wrap.items-center.gap-1(
+        v-else-if="row.badges && row.badges.length"
+      )
+        a.inline-flex.items-stretch.overflow-hidden.rounded-md.border.text-xs(
+          v-for="badge in row.badges"
+          :key="badge.key"
+          :class="taskBadgeToneClass(badge.tone)"
+          :href="badge.url || undefined"
+          :target="badge.url ? '_blank' : undefined"
+          :rel="badge.url ? 'noopener noreferrer' : undefined"
+          :title="`${row.pluginName || 'Plugin'} — ${badge.label}`"
+        )
+          span.text-muted-foreground.inline-flex.items-center(
+            class="bg-muted/60 px-1.5 py-0.5"
+          ) {{ badge.label }}
+          span.inline-flex.items-center.font-medium(
+            v-if="badge.value"
+            class="px-1.5 py-0.5"
+          ) {{ badge.value }}
+
       span.text-xs.leading-snug(v-else) {{ row.log.message }}
 
       .text-muted-foreground.flex.flex-wrap.items-center.gap-x-1.text-xs
@@ -228,8 +254,13 @@ import { useProjects } from "@/composables/useProjects";
 import { formatRelativeTimestamp, formatTimestamp } from "@/lib/format";
 import {
   tagStyle,
+  taskBadgeToneClass,
   taskPriorityClass,
   taskPriorityLabel,
+  taskReferenceKindFromLog,
+  taskReferenceKindIcon,
+  taskReferenceKindLabel,
+  taskReferenceKindTextClass,
   taskSizeClass,
   taskSizeLabel,
   taskStateClass,
@@ -245,14 +276,17 @@ import {
   CrownIcon,
   DatabaseZapIcon,
   ExternalLinkIcon,
+  EyeOffIcon,
   FlagIcon,
   FolderIcon,
   GitBranchIcon,
   LinkIcon,
   LockIcon,
+  LockOpenIcon,
   MessageSquareIcon,
   MessagesSquareIcon,
   PencilIcon,
+  PlugIcon,
   PlusIcon,
   RulerIcon,
   SettingsIcon,
@@ -266,6 +300,18 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 
 const props = defineProps<{ logs: TaskLog[] }>();
+
+function referenceKindIcon(kind: string | undefined): LucideIcon {
+  return taskReferenceKindIcon(taskReferenceKindFromLog(kind));
+}
+
+function referenceKindClass(kind: string | undefined): string {
+  return taskReferenceKindTextClass(taskReferenceKindFromLog(kind));
+}
+
+function referenceKindLabel(kind: string | undefined): string {
+  return taskReferenceKindLabel(taskReferenceKindFromLog(kind));
+}
 
 const { usernameFor } = useAgents();
 const { active: projects } = useProjects();
@@ -288,6 +334,11 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   teams: UsersIcon,
   leads: CrownIcon,
   comment: MessagesSquareIcon,
+  parent: GitBranchIcon,
+
+  hidden: EyeOffIcon,
+  plugin: PlugIcon,
+  hold: LockOpenIcon,
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -308,11 +359,16 @@ const KIND_LABELS: Record<string, string> = {
   teams: "Owning teams",
   leads: "Leads",
   comment: "Comment",
+  parent: "Parent task",
+  hidden: "Visibility",
+  plugin: "Plugin badges",
+  hold: "Plugin hold",
 };
 
 const STATE_VALUES: Record<string, TaskState> = {
   draft: TaskState.BACKLOG,
   backlog: TaskState.BACKLOG,
+  waiting: TaskState.WAITING,
   queued: TaskState.QUEUED,
   running: TaskState.RUNNING,
   input: TaskState.INPUT,
@@ -339,6 +395,7 @@ interface LogTag {
   id: string;
   name: string;
   color: string;
+  isRequired?: boolean;
 }
 
 interface LogReference {
@@ -358,10 +415,20 @@ interface LogRef {
   name: string;
 }
 
+interface LogBadge {
+  key: string;
+  label: string;
+  value?: string;
+  tone: string;
+  url?: string;
+}
+
 interface LogRow {
   log: TaskLog;
   icon: LucideIcon;
   kindLabel: string;
+  pluginName?: string;
+  badges?: LogBadge[];
   oldState?: TaskState;
   newState?: TaskState;
   oldPriority?: TaskPriority;
@@ -460,6 +527,13 @@ function buildRow(log: TaskLog): LogRow {
     case "links":
       row.addedLinks = (data.added ?? []) as LogLink[];
       row.removedLinks = (data.removed ?? []) as LogLink[];
+      break;
+    case "plugin":
+      row.pluginName = (data.plugin as string) ?? "";
+      row.badges = ((data.badges ?? []) as LogBadge[]).map((badge) => ({
+        ...badge,
+        tone: badge.tone ?? "neutral",
+      }));
       break;
   }
   return row;

@@ -139,24 +139,39 @@ type Session struct {
 
 	runWaitAccum  time.Duration
 	waitStartedAt time.Time
-	pending       map[string]chan response
-	reqID         uint64
-	model         string
-	provider      string
-	lastUse       sqlitedb.SumUsageBySessionRow
-	subs          map[chan Event]struct{}
-	logRing       []string
-	writeMu       sync.Mutex
+
+	runToolDuration      time.Duration
+	runModelWaitDuration time.Duration
+	runTTFTDuration      time.Duration
+	runFirstToken        bool
+
+	requestStartedAt time.Time
+
+	compactionStartedAt time.Time
+
+	openTools map[string]time.Time
+	pending   map[string]chan response
+	reqID     uint64
+	model     string
+	provider  string
+	lastUse   sqlitedb.SumUsageBySessionRow
+	subs      map[chan Event]struct{}
+	logRing   []string
+	writeMu   sync.Mutex
 
 	interactive bool
 
 	appendSystemPrompt string
+
+	pluginTools []PluginTool
 
 	probe bool
 
 	waiting bool
 
 	queue QueueEvent
+
+	pendingActivity *Event
 
 	pendingExt map[string]extensionUIRequest
 
@@ -245,6 +260,12 @@ type record struct {
 
 	FinalError string `json:"finalError"`
 
+	Attempt      uint32 `json:"attempt"`
+	MaxAttempts  uint32 `json:"maxAttempts"`
+	ErrorMessage string `json:"errorMessage"`
+
+	Reason string `json:"reason"`
+
 	Steering []string `json:"steering"`
 	FollowUp []string `json:"followUp"`
 
@@ -270,6 +291,7 @@ func newSession(
 		PiSessionID: piSessionID,
 		interactive: interactive,
 		pendingExt:  map[string]extensionUIRequest{},
+		openTools:   map[string]time.Time{},
 		subs:        map[chan Event]struct{}{},
 	}
 }
@@ -299,6 +321,8 @@ func (s *Session) promptConfigured(
 	defer s.opMu.Unlock()
 
 	s.cancelIdle()
+
+	s.discardWaitingForNewRun(ctx)
 
 	if err := s.ensureRunningLocked(ctx); err != nil {
 		return err
@@ -380,6 +404,11 @@ func (s *Session) childEnv(ctx context.Context) []string {
 	if s.cfg.AgentTokenFile != "" {
 		env = append(env, "CHERRYPI_AGENT_TOKEN_FILE="+s.cfg.AgentTokenFile)
 	}
+	if len(s.pluginTools) > 0 {
+		if raw, err := json.Marshal(s.pluginTools); err == nil {
+			env = append(env, "CHERRYPI_PLUGIN_TOOLS="+string(raw))
+		}
+	}
 
 	taskID := s.agencyTaskID
 	if s.agencyProjectID != "" && s.agencySeq > 0 && s.cfg.ResolveTaskID != nil {
@@ -433,6 +462,13 @@ func (s *Session) setRunning(v bool) {
 			s.runStartedAt = time.Now()
 			s.runWaitAccum = 0
 			s.waitStartedAt = time.Time{}
+			s.runToolDuration = 0
+			s.runModelWaitDuration = 0
+			s.runTTFTDuration = 0
+			s.runFirstToken = false
+			s.requestStartedAt = time.Time{}
+			s.compactionStartedAt = time.Time{}
+			s.openTools = map[string]time.Time{}
 		} else {
 			s.runStartedAt = time.Time{}
 		}
@@ -785,6 +821,7 @@ func (s *Session) settle(errMsg string) {
 
 	s.setRunning(false)
 
+	s.clearWaiting()
 	s.clearWaitingStore(ctx)
 	if errMsg != "" {
 		slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", errMsg)
@@ -899,6 +936,7 @@ func (s *Session) finishStoppedRun(ctx context.Context) {
 		log.Printf("[session %s] clear pending prompt: %v", s.ID, err)
 	}
 	s.setRunning(false)
+	s.clearWaiting()
 	s.clearWaitingStore(ctx)
 	s.emit(statusEvent(StatusDone, ""))
 	s.notifyAgentState("run_stopped", StatusDone)
@@ -941,11 +979,17 @@ func (s *Session) Restart() error {
 }
 
 func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
+	now := time.Now()
 	s.mu.Lock()
 	model := s.model
 	provider := s.provider
 	prev := s.lastUse
-	activeMs := s.runActiveDurationLocked(time.Now()).Milliseconds()
+
+	s.closeRunTimingLocked(now)
+	activeMs := s.runActiveDurationLocked(now).Milliseconds()
+	toolMs := s.runToolDuration.Milliseconds()
+	modelWaitMs := s.runModelWaitDuration.Milliseconds()
+	ttftMs := s.runTTFTDuration.Milliseconds()
 	s.mu.Unlock()
 
 	deltaIn := max(st.Tokens.Input-prev.InputTokens, 0)
@@ -964,7 +1008,10 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 		OutputTokens: deltaOut,
 		Cost:         deltaCost,
 		ActiveMs:     activeMs,
-		At:           time.Now().UnixMilli(),
+		ToolMs:       toolMs,
+		ModelWaitMs:  modelWaitMs,
+		TtftMs:       ttftMs,
+		At:           now.UnixMilli(),
 	})
 	if err != nil {
 		log.Printf("[session %s] insert usage: %v", s.ID, err)
@@ -978,7 +1025,10 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 		"output_tokens": deltaOut,
 		"cost":          deltaCost,
 		"active_ms":     activeMs,
-		"at":            time.Now().UnixMilli(),
+		"tool_ms":       toolMs,
+		"model_wait_ms": modelWaitMs,
+		"ttft_ms":       ttftMs,
+		"at":            now.UnixMilli(),
 	})
 
 	s.mu.Lock()
@@ -987,6 +1037,10 @@ func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
 		OutputTokens: prev.OutputTokens + deltaOut,
 		Cost:         prev.Cost + deltaCost,
 		ActiveMs:     prev.ActiveMs + activeMs,
+		ToolMs:       prev.ToolMs + toolMs,
+		ModelWaitMs:  prev.ModelWaitMs + modelWaitMs,
+		TtftMs:       prev.TtftMs + ttftMs,
+		TtftRuns:     prev.TtftRuns + boolToInt64(ttftMs > 0),
 	}
 	s.mu.Unlock()
 }
@@ -1107,6 +1161,29 @@ func (s *Session) handleRecord(b []byte) {
 			s.setRunFailure(*rec.Success, rec.FinalError)
 		}
 
+		s.emitPending(nil)
+
+	case "turn_start":
+
+		s.startRequest(time.Now())
+		s.emitPending(&PendingActivityEvent{Kind: PendingModelRequest})
+
+	case "auto_retry_start":
+		s.emitPending(&PendingActivityEvent{
+			Kind:        PendingRetry,
+			Error:       rec.ErrorMessage,
+			Attempt:     rec.Attempt,
+			MaxAttempts: rec.MaxAttempts,
+		})
+
+	case "compaction_start":
+		s.startCompaction(time.Now())
+		s.emitPending(&PendingActivityEvent{Kind: PendingCompaction, Reason: rec.Reason})
+
+	case "compaction_end":
+		s.finishCompaction(time.Now())
+		s.emitPending(nil)
+
 	case "agent_settled":
 		s.mu.Lock()
 
@@ -1133,6 +1210,15 @@ func (s *Session) handleRecord(b []byte) {
 		if json.Unmarshal(rec.AssistantMessageEvent, &ev) != nil {
 			return
 		}
+
+		switch ev.Type {
+		case "text_start", "text_delta", "thinking_start", "thinking_delta",
+			"toolcall_start", "toolcall_delta":
+			s.firstToken(time.Now())
+		}
+		if ev.Delta == "" {
+			return
+		}
 		switch ev.Type {
 		case "text_delta":
 			s.emit(Event{Kind: EventText, Delta: ev.Delta})
@@ -1150,10 +1236,12 @@ func (s *Session) handleRecord(b []byte) {
 		s.setQueue(rec.Steering, rec.FollowUp)
 
 	case "tool_execution_start":
+		s.startTool(rec.ToolCallID, time.Now())
 		s.emit(toolEvent(rec, ToolStarted))
 	case "tool_execution_update":
 		s.emit(toolEvent(rec, ToolUpdated))
 	case "tool_execution_end":
+		s.finishTool(rec.ToolCallID, time.Now())
 		s.emit(toolEvent(rec, ToolFinished))
 
 	case "entry_appended":
@@ -1232,7 +1320,17 @@ func (s *Session) handleEntryAppended(b []byte) {
 		s.handleTaskArtifactsEntry(rec.Entry.Data)
 	case taskProgressCustomType:
 		s.handleTaskProgressEntry(rec.Entry.Data)
+	case modelWaitCustomType:
+		s.handleModelWaitEntry(rec.Entry.Data)
 	}
+}
+
+func (s *Session) handleModelWaitEntry(raw json.RawMessage) {
+	wait, ok := parseModelWait(raw)
+	if !ok {
+		return
+	}
+	s.emit(Event{Kind: EventModelWait, ModelWait: wait})
 }
 
 func (s *Session) handleTaskURLsEntry(raw json.RawMessage) {
@@ -1475,6 +1573,7 @@ func (s *Session) fail(msg string) {
 	defer cancel()
 
 	s.setRunning(false)
+	s.clearWaiting()
 	slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", msg)
 	s.markFailed(ctx, msg)
 }
@@ -1880,8 +1979,28 @@ func (s *Session) clearWaiting() {
 	s.waiting = false
 	s.pendingExt = map[string]extensionUIRequest{}
 	s.lastDialogJSON = ""
+	s.savedDialog = ""
+	s.savedAnswer = nil
 	s.accumulateWaitLocked(time.Now())
 	s.mu.Unlock()
+}
+
+func (s *Session) discardWaitingForNewRun(ctx context.Context) {
+	s.mu.Lock()
+	discarded := !s.running &&
+		(s.waiting || s.lastDialogJSON != "" || s.savedDialog != "")
+	if !s.running {
+		s.waiting = false
+		s.pendingExt = map[string]extensionUIRequest{}
+		s.lastDialogJSON = ""
+		s.savedDialog = ""
+		s.accumulateWaitLocked(time.Now())
+	}
+	s.mu.Unlock()
+
+	if discarded {
+		s.clearWaitingStore(ctx)
+	}
 }
 
 func (s *Session) accumulateWaitLocked(now time.Time) {
@@ -1906,6 +2025,126 @@ func (s *Session) runActiveDurationLocked(now time.Time) time.Duration {
 	return d
 }
 
+func (s *Session) startRequest(now time.Time) {
+	s.mu.Lock()
+	if s.requestStartedAt.IsZero() {
+		s.requestStartedAt = now
+	}
+	s.mu.Unlock()
+}
+
+func (s *Session) firstToken(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.requestStartedAt.IsZero() {
+		return
+	}
+	if wait := now.Sub(s.requestStartedAt); wait > 0 {
+		s.runModelWaitDuration += wait
+	}
+	s.requestStartedAt = time.Time{}
+	if s.runFirstToken {
+		return
+	}
+	s.runFirstToken = true
+	if !s.runStartedAt.IsZero() {
+		if ttft := now.Sub(s.runStartedAt); ttft > 0 {
+			s.runTTFTDuration = ttft
+		}
+	}
+}
+
+func (s *Session) startCompaction(now time.Time) {
+	s.mu.Lock()
+	if s.compactionStartedAt.IsZero() {
+		s.compactionStartedAt = now
+	}
+	s.mu.Unlock()
+}
+
+func (s *Session) finishCompaction(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.foldCompactionLocked(now)
+}
+
+func (s *Session) foldCompactionLocked(now time.Time) {
+	if s.compactionStartedAt.IsZero() {
+		return
+	}
+	if wait := now.Sub(s.compactionStartedAt); wait > 0 {
+		s.runModelWaitDuration += wait
+	}
+	s.compactionStartedAt = time.Time{}
+}
+
+func (s *Session) startTool(callID string, now time.Time) {
+	s.mu.Lock()
+	if s.openTools == nil {
+		s.openTools = map[string]time.Time{}
+	}
+	if _, ok := s.openTools[callID]; !ok {
+		s.openTools[callID] = now
+	}
+	s.mu.Unlock()
+}
+
+func (s *Session) finishTool(callID string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	started, ok := s.openTools[callID]
+	if !ok {
+		return
+	}
+	delete(s.openTools, callID)
+	if d := now.Sub(started); d > 0 {
+		s.runToolDuration += d
+	}
+}
+
+func (s *Session) closeRunTimingLocked(now time.Time) {
+	if !s.requestStartedAt.IsZero() {
+		if wait := now.Sub(s.requestStartedAt); wait > 0 {
+			s.runModelWaitDuration += wait
+		}
+		s.requestStartedAt = time.Time{}
+	}
+	s.foldCompactionLocked(now)
+	for callID, started := range s.openTools {
+		if d := now.Sub(started); d > 0 {
+			s.runToolDuration += d
+		}
+		delete(s.openTools, callID)
+	}
+}
+
+func (s *Session) runThinkingLocked(now time.Time) time.Duration {
+	tool := s.runToolDuration
+	for _, started := range s.openTools {
+		if d := now.Sub(started); d > 0 {
+			tool += d
+		}
+	}
+	if thinking := s.runActiveDurationLocked(now) - tool; thinking > 0 {
+		return thinking
+	}
+	return 0
+}
+
+func thinkingMs(activeMs, toolMs int64) int64 {
+	if active := activeMs - toolMs; active > 0 {
+		return active
+	}
+	return 0
+}
+
+func boolToInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 func (s *Session) processRunning() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1926,7 +2165,18 @@ func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
 	running := s.running
 	started := s.runStartedAt
 	base := s.lastUse
-	active := s.runActiveDurationLocked(time.Now())
+	now := time.Now()
+	active := s.runActiveDurationLocked(now)
+	thinking := s.runThinkingLocked(now)
+	modelWait := s.runModelWaitDuration
+	if !s.requestStartedAt.IsZero() {
+		modelWait += now.Sub(s.requestStartedAt)
+	}
+	if !s.compactionStartedAt.IsZero() {
+		modelWait += now.Sub(s.compactionStartedAt)
+	}
+	toolDuration := s.runToolDuration
+	ttft := s.runTTFTDuration
 	s.mu.Unlock()
 
 	out := Usage{
@@ -1934,6 +2184,11 @@ func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
 		OutputTokens: st.Tokens.Output,
 		Cost:         st.Cost,
 		ActiveMs:     base.ActiveMs,
+		ThinkingMs:   thinkingMs(base.ActiveMs, base.ToolMs),
+		ModelWaitMs:  base.ModelWaitMs,
+		ToolMs:       base.ToolMs,
+		TTFTMs:       base.TtftMs,
+		TTFTRuns:     base.TtftRuns,
 	}
 
 	if st.ContextUsage != nil &&
@@ -1943,8 +2198,17 @@ func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
 		out.ContextWindow = st.ContextUsage.ContextWindow
 	}
 	if running && !started.IsZero() {
-		out.TokensPerSecond, out.CostPerHour = runRates(st, base, time.Since(started))
 		out.ActiveMs += active.Milliseconds()
+		out.ThinkingMs += thinking.Milliseconds()
+		out.ModelWaitMs += modelWait.Milliseconds()
+		out.ToolMs += toolDuration.Milliseconds()
+		out.TTFTMs += ttft.Milliseconds()
+		if ttft > 0 {
+			out.TTFTRuns++
+		}
+		out.TokensPerSecond, out.CostPerHour = runRates(
+			st, base, active, thinking, modelWait,
+		)
 	}
 	return out, true
 }
@@ -1952,19 +2216,19 @@ func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
 func runRates(
 	st sessionStats,
 	base sqlitedb.SumUsageBySessionRow,
-	elapsed time.Duration,
+	active, thinking, modelWait time.Duration,
 ) (tokensPerSecond, costPerHour float64) {
-	seconds := elapsed.Seconds()
-	if seconds <= 0 {
+	generation := (thinking - modelWait).Seconds()
+	if generation <= 0 {
 		return 0, 0
 	}
-	tokens := float64(
-		st.Tokens.Input-base.InputTokens,
-	) + float64(
-		st.Tokens.Output-base.OutputTokens,
-	)
+	tokens := float64(st.Tokens.Output - base.OutputTokens)
 	cost := st.Cost - base.Cost
-	return math.Max(tokens, 0) / seconds, math.Max(cost, 0) / seconds * 3600
+	seconds := active.Seconds()
+	if seconds > 0 {
+		costPerHour = math.Max(cost, 0) / seconds * 3600
+	}
+	return math.Max(tokens, 0) / generation, costPerHour
 }
 
 type Usage struct {
@@ -1973,6 +2237,12 @@ type Usage struct {
 	Cost         float64
 
 	ActiveMs int64
+
+	ThinkingMs  int64
+	ModelWaitMs int64
+	ToolMs      int64
+	TTFTMs      int64
+	TTFTRuns    int64
 
 	TokensPerSecond float64
 	CostPerHour     float64
@@ -1995,6 +2265,29 @@ func (s *Session) emit(ev Event) {
 
 		}
 	}
+}
+
+func (s *Session) emitPending(pending *PendingActivityEvent) {
+	if pending != nil && pending.Model == "" {
+		s.mu.Lock()
+		pending.Model = s.model
+		s.mu.Unlock()
+	}
+
+	ev := Event{Kind: EventPending, At: time.Now(), Pending: pending}
+
+	s.mu.Lock()
+	if pending == nil {
+		s.pendingActivity = nil
+	} else {
+		stored := ev
+		copy := *pending
+		stored.Pending = &copy
+		s.pendingActivity = &stored
+	}
+	s.mu.Unlock()
+
+	s.emit(ev)
 }
 
 func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func()) {
@@ -2022,6 +2315,13 @@ func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func
 		FollowUp: append([]string(nil), s.queue.FollowUp...),
 	}
 	ch <- Event{Kind: EventQueue, At: time.Now(), Queue: &queue}
+
+	if s.pendingActivity != nil {
+		ev := *s.pendingActivity
+		pending := *ev.Pending
+		ev.Pending = &pending
+		ch <- ev
+	}
 	s.subs[ch] = struct{}{}
 
 	return ch, func() {

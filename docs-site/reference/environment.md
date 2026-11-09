@@ -66,6 +66,60 @@ region and fails the boot with an actionable error.
 | --- | --- | --- |
 | `CHERRYPI_SITES_INSECURE_HTTP` | off | Serve raw site content without any credential on plain HTTP when the host is not localhost. Only needed for direct unauthenticated access (the normal viewer uses short-lived URL grants); makes the static bytes public by URL. Never enable on an Internet-facing deployment. |
 
+## Observability (OpenTelemetry)
+
+The agency exports traces, metrics and logs over OTLP. It follows the standard
+OpenTelemetry environment variables, so any collector or backend that speaks
+OTLP works without CherryPi-specific settings.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CHERRYPI_OTEL_ENABLED` | auto | Turn the pipeline on (`1`) or off (`0`). When unset, an OTLP endpoint in the variables below enables it automatically. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Collector base URL, e.g. `http://otel-collector:4317` (gRPC) or `http://otel-collector:4318` (HTTP). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` or `http/protobuf`. Per-signal overrides (`OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `..._METRICS_PROTOCOL`, `..._LOGS_PROTOCOL`) win over it. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | Signal-specific endpoint. The same pattern exists for metrics and logs. |
+| `OTEL_SERVICE_NAME` | `cherrypi-agency` | Service name on every signal. |
+| `OTEL_RESOURCE_ATTRIBUTES` | — | Extra resource attributes, e.g. `deployment.environment=prod`. |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Standard sampler (`always_on`, `always_off`, `traceidratio`, `parentbased_traceidratio`, …). |
+| `OTEL_TRACES_SAMPLER_ARG` | — | Ratio for the ratio samplers, e.g. `0.1`. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Set to `none` to disable traces while keeping metrics and logs. |
+| `OTEL_METRICS_EXPORTER` | `otlp` | Set to `none` to disable metrics. |
+| `OTEL_LOGS_EXPORTER` | `otlp` | Set to `none` to disable the log bridge. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric export interval in milliseconds. |
+| `OTEL_BSP_*` / `OTEL_BLRP_*` | SDK defaults | Batch span/log processor tuning (queue size, delay, timeout, batch size). |
+
+```sh
+CHERRYPI_OTEL_ENABLED=1
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=cherrypi-agency
+```
+
+The pipeline instruments:
+
+- every unary Connect/gRPC call (`agency.v1.TaskService/GetTask`, …) with an RPC
+  span and the RPC duration histogram. Streaming connections (the agent tunnel,
+  the realtime and task watchers) are not traced: their span would last as long
+  as the connection;
+- every REST request under `/api/` and `/plugins/` with an HTTP
+  server span and the HTTP duration histogram;
+- every agency SQL statement through `database/sql` (SQLite and PostgreSQL),
+  including the `db.query.text`, plus `sql.DB` pool gauges;
+- the process's standard log lines as OTel log records, in addition to the
+  on-disk process log.
+
+Use a trace viewer that follows the W3C trace context (`traceparent`) to see a
+request's full tree: HTTP or RPC span, its SQL children, and any errors. A
+sample request tree:
+
+```text
+POST /api/rest/auth/login           (HTTP server, ~2 ms)
+└── SELECT … FROM users …           (SQL, ~1 ms)
+```
+
+The embedded frontend, docs and static site bytes are not traced; they are
+files, not agency work.
+
 ## Development only
 
 Ignored by release builds.

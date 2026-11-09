@@ -111,28 +111,37 @@ test_docs:
 	cd docs-site && npm ci
 	cd docs-site && npm run build
 
+
+
+
+
+
+
+PRETTIER := PRETTIER_EXPERIMENTAL_CLI=1 npx prettier
+PRETTIER_CACHE_DIR := $(CURDIR)/.prettier-cache
+
 format_root:
-	npx prettier --write "*"
+	$(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/root.json" --write "*"
 
 format_frontend:
-	cd agency/frontend && npx prettier --write .
+	cd agency/frontend && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/frontend.json" --write .
 
 format_backend:
-	cd agent && npx prettier --write . && go fmt ./...
+	cd agent && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/agent.json" --write . && go fmt ./...
 
 format_agency:
-	cd agency/server && npx prettier --write . && go fmt ./...
+	cd agency/server && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/agency.json" --write . && go fmt ./...
 
 format_sdk:
-	cd agency/sdk/js && npx prettier --write .
+	cd agency/sdk/js && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/sdk.json" --write .
 
 format_docs:
-	npx prettier --write docs-site
+	$(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/docs.json" --write docs-site
 
 
 
 format_dev:
-	@if [ -d dev ]; then npx prettier --write dev; fi
+	@if [ -d dev ]; then $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/dev.json" --write dev; fi
 
 format_shared:
 	cd shared && go fmt ./...
@@ -155,33 +164,33 @@ format: format_root format_frontend format_docs format_dev format_backend format
 format_check: format_check_root format_check_frontend format_check_docs format_check_dev format_check_backend format_check_agency format_check_sdk format_check_shared
 
 format_check_root:
-	npx prettier --check "*"
+	$(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/root.json" --check "*"
 
 format_check_frontend:
-	cd agency/frontend && npx prettier --check .
+	cd agency/frontend && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/frontend.json" --check .
 
 format_check_backend:
-	cd agent && npx prettier --check .
+	cd agent && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/agent.json" --check .
 	@unformatted="$$(cd agent && gofmt -l .)"; \
 	if [ -n "$$unformatted" ]; then \
 		echo "gofmt required for:"; echo "$$unformatted"; exit 1; \
 	fi
 
 format_check_agency:
-	cd agency/server && npx prettier --check .
+	cd agency/server && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/agency.json" --check .
 	@unformatted="$$(cd agency/server && gofmt -l .)"; \
 	if [ -n "$$unformatted" ]; then \
 		echo "gofmt required for:"; echo "$$unformatted"; exit 1; \
 	fi
 
 format_check_sdk:
-	cd agency/sdk/js && npx prettier --check .
+	cd agency/sdk/js && $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/sdk.json" --check .
 
 format_check_docs:
-	npx prettier --check docs-site
+	$(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/docs.json" --check docs-site
 
 format_check_dev:
-	@if [ -d dev ]; then npx prettier --check dev; fi
+	@if [ -d dev ]; then $(PRETTIER) --cache-location "$(PRETTIER_CACHE_DIR)/dev.json" --check dev; fi
 
 format_check_shared:
 	@unformatted="$$(cd shared && gofmt -l .)"; \
@@ -244,6 +253,7 @@ binaries_build:
 	  echo "Building $$os/$$arch"; \
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agency-$$os-$$arch ./cmd/agency || exit 1; \
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agent -ldflags "-X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agent-$$os-$$arch ./cmd/agent || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-plugin-$$os-$$arch ./cmd/cherrypi-plugin || exit 1; \
 	done
 
 
@@ -251,7 +261,7 @@ binaries_build:
 
 binaries_zip:
 	@sha=$$(git rev-parse --short HEAD 2>/dev/null || echo unknown); \
-	for file in $(DIST)/cherrypi-agency-* $(DIST)/cherrypi-agent-*; do \
+	for file in $(DIST)/cherrypi-agency-* $(DIST)/cherrypi-agent-* $(DIST)/cherrypi-plugin-*; do \
 	  [ -f "$$file" ] || continue; \
 	  zip="$$file-$$sha.zip"; \
 	  echo "Packaging $$zip"; \

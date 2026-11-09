@@ -32,6 +32,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/promptflow"
@@ -44,6 +45,8 @@ import (
 const Prefix = "/api/rest/agent-tools"
 
 const TokenPath = Prefix + "/token"
+
+const PluginToolPath = Prefix + "/plugin-tools"
 
 const ResolvePath = Prefix + "/tasks/resolve"
 
@@ -59,6 +62,10 @@ type Handler struct {
 	PromptFlow *promptflow.Service
 
 	Templates *templates.Service
+
+	Plugins *pluginhost.Service
+
+	Wake func()
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +88,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.taskByID(w, r)
 	case path == Prefix+"/projects":
 		h.listProjects(w, r)
+	case path == PluginToolPath:
+		h.pluginTool(w, r)
 	case path == promptsPath:
 		h.getPrompt(w, r)
 	case path == promptVersionsPath:
@@ -107,6 +116,64 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (h *Handler) pluginTool(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	if h.Plugins == nil {
+		writeError(w, http.StatusServiceUnavailable, "plugins are unavailable")
+		return
+	}
+	caller, ok := auth.AgentID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input struct {
+		TaskID string         `json:"task_id"`
+		Tool   string         `json:"tool"`
+		Args   map[string]any `json:"args"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	taskID := strings.TrimSpace(input.TaskID)
+	tool := strings.TrimSpace(input.Tool)
+	if taskID == "" || tool == "" {
+		writeError(w, http.StatusBadRequest, "task_id and tool are required")
+		return
+	}
+	task, err := h.Tasks.Get(r.Context(), taskID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	callerAgent, err := h.Agents.Get(r.Context(), caller)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if task.AssigneeActorID != callerAgent.ActorID && task.SessionAgentID != caller {
+		writeError(w, http.StatusForbidden, "task is not assigned to this agent")
+		return
+	}
+	attached, err := h.Plugins.ResolveTool(r.Context(), taskID, tool)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	result, err := h.Plugins.InvokeTool(
+		r.Context(), attached, taskID, tool, input.Args,
+	)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"text": result})
 }
 
 func (h *Handler) validateToken(w http.ResponseWriter, r *http.Request) {
@@ -166,12 +233,13 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 	agentFilter := actorid.ParseAgent(strings.TrimSpace(query.Get("agent_id")))
 
 	filter := tasks.Filter{
-		ProjectID: projectID,
-		AgentID:   agentFilter,
-		State:     tasks.State(strings.TrimSpace(query.Get("state"))),
-		TagID:     strings.TrimSpace(query.Get("tag_id")),
-		Search:    strings.TrimSpace(query.Get("search")),
-		Size:      strings.TrimSpace(query.Get("size")),
+		ProjectID:    projectID,
+		AgentID:      agentFilter,
+		State:        tasks.State(strings.TrimSpace(query.Get("state"))),
+		TagID:        strings.TrimSpace(query.Get("tag_id")),
+		Search:       strings.TrimSpace(query.Get("search")),
+		Size:         strings.TrimSpace(query.Get("size")),
+		ParentTaskID: strings.TrimSpace(query.Get("parent_task_id")),
 	}
 
 	if projectID == "" {
@@ -214,6 +282,22 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) taskByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, Prefix+"/tasks/")
+	if id, isCloseOut := strings.CutSuffix(rest, "/close-out"); isCloseOut {
+		if id == "" || strings.ContainsRune(id, '/') {
+			http.NotFound(w, r)
+			return
+		}
+		h.closeOutTask(w, r, id)
+		return
+	}
+	if id, isQueue := strings.CutSuffix(rest, "/queue"); isQueue {
+		if id == "" || strings.ContainsRune(id, '/') {
+			http.NotFound(w, r)
+			return
+		}
+		h.queueTask(w, r, id)
+		return
+	}
 	if id, isHistory := strings.CutSuffix(rest, "/history"); isHistory {
 		if id == "" || strings.ContainsRune(id, '/') {
 			http.NotFound(w, r)
@@ -434,6 +518,8 @@ type createTaskInput struct {
 	TemplateID      string          `json:"template_id"`
 	TemplateVersion int64           `json:"template_version"`
 	TemplateArgs    json.RawMessage `json:"template_args"`
+
+	ParentTaskID string `json:"parent_task_id"`
 }
 
 func (h *Handler) resolveAssignee(
@@ -504,7 +590,7 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := taskActorContext(r)
 	state, ok := agentCreateState(input.State, input.Draft)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "state must be backlog")
+		writeError(w, http.StatusBadRequest, "state must be backlog or queued")
 		return
 	}
 	params := tasks.CreateParams{
@@ -517,6 +603,7 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		Priority:        priority,
 		Size:            input.Size,
 		State:           state,
+		ParentTaskID:    strings.TrimSpace(input.ParentTaskID),
 	}
 	if strings.TrimSpace(input.TemplateID) != "" {
 		if h.Templates == nil {
@@ -567,6 +654,9 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if task.State == tasks.StateQueued {
+		h.wake()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"task": toTaskJSON(task)})
 }
 
@@ -597,6 +687,8 @@ func agentCreateState(raw string, draft bool) (tasks.State, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "backlog", "draft":
 		return tasks.StateBacklog, true
+	case "queued":
+		return tasks.StateQueued, true
 	case "":
 		if draft {
 			return tasks.StateBacklog, true
@@ -605,6 +697,109 @@ func agentCreateState(raw string, draft bool) (tasks.State, bool) {
 	default:
 		return "", false
 	}
+}
+
+func (h *Handler) wake() {
+	if h.Wake != nil {
+		h.Wake()
+	}
+}
+
+func (h *Handler) queueTask(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	caller, ok := auth.AgentID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	task, err := h.Tasks.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !h.mayUpdate(r, caller, task) {
+		writeError(w, http.StatusForbidden, "missing can_update_tasks permission")
+		return
+	}
+	task, err = h.Tasks.Queue(taskActorContext(r), id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.wake()
+	writeJSON(w, http.StatusOK, map[string]any{"task": toTaskJSON(task)})
+}
+
+func (h *Handler) mayUpdate(r *http.Request, caller ids.AgentID, task tasks.Task) bool {
+	callerAgent, err := h.Agents.Get(r.Context(), caller)
+	if err == nil && task.AssigneeActorID == callerAgent.ActorID {
+		return true
+	}
+	perms, member, err := h.Projects.Permissions(r.Context(), task.ProjectID, caller)
+	if err != nil {
+		return false
+	}
+	return member && perms.CanUpdateTasks
+}
+
+func (h *Handler) closeOutTask(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	if _, ok := auth.AgentID(r.Context()); !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var input closeOutTaskInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	outcome := strings.ToLower(strings.TrimSpace(input.Outcome))
+	if outcome != string(tasks.ResolutionCompleted) &&
+		outcome != string(tasks.ResolutionCancelled) {
+		writeError(w, http.StatusBadRequest, "outcome must be completed or cancelled")
+		return
+	}
+	task, err := h.Tasks.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !h.mayCloseOut(r, task) {
+		writeError(w, http.StatusForbidden, "only a lead or an administrator may close out")
+		return
+	}
+	ctx := taskActorContext(r)
+	var out tasks.Task
+	if outcome == string(tasks.ResolutionCompleted) {
+		out, err = h.Tasks.Complete(ctx, id)
+	} else {
+		out, err = h.Tasks.Cancel(ctx, id)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h.wake()
+	writeJSON(w, http.StatusOK, map[string]any{"task": toTaskJSON(out)})
+}
+
+type closeOutTaskInput struct {
+	Outcome string `json:"outcome"`
+}
+
+func (h *Handler) mayCloseOut(r *http.Request, task tasks.Task) bool {
+	actorID, ok := auth.ActorID(r.Context())
+	if !ok || actorID == 0 {
+		return false
+	}
+	allowed, err := h.Tasks.CanCloseOut(r.Context(), task, actorID, false)
+	return err == nil && allowed
 }
 
 type updateTaskInput struct {
@@ -617,6 +812,8 @@ type updateTaskInput struct {
 	AssigneeActorID actorid.WireID    `json:"assignee_actor_id"`
 
 	AssigneeAgentID actorid.WireID `json:"assignee_agent_id"`
+
+	State *string `json:"state"`
 }
 
 type linkJSON struct {
@@ -646,17 +843,9 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	callerAgent, agentErr := h.Agents.Get(r.Context(), caller)
-	if agentErr != nil || task.AssigneeActorID != callerAgent.ActorID {
-		perms, member, err := h.Projects.Permissions(r.Context(), task.ProjectID, caller)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if !member || !perms.CanUpdateTasks {
-			writeError(w, http.StatusForbidden, "missing can_update_tasks permission")
-			return
-		}
+	if !h.mayUpdate(r, caller, task) {
+		writeError(w, http.StatusForbidden, "missing can_update_tasks permission")
+		return
 	}
 
 	var input updateTaskInput
@@ -725,6 +914,29 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 			id,
 			referenceInputs(*input.References),
 		); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if input.State != nil {
+		if !h.mayCloseOut(r, task) {
+			writeError(
+				w,
+				http.StatusForbidden,
+				"only a lead or an administrator may close out",
+			)
+			return
+		}
+		switch strings.ToLower(strings.TrimSpace(*input.State)) {
+		case string(tasks.ResolutionCompleted):
+			task, err = h.Tasks.Complete(ctx, id)
+		case string(tasks.ResolutionCancelled):
+			task, err = h.Tasks.Cancel(ctx, id)
+		default:
+			writeError(w, http.StatusBadRequest, "state must be completed or cancelled")
+			return
+		}
+		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -809,19 +1021,22 @@ func (h *Handler) members(r *http.Request, projectID string) []memberJSON {
 }
 
 type taskJSON struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Prompt       string          `json:"prompt"`
-	ProjectID    string          `json:"project_id"`
-	AssigneeID   string          `json:"assignee_actor_id"`
-	State        string          `json:"state"`
-	Priority     string          `json:"priority"`
-	Size         string          `json:"size"`
-	Tags         []string        `json:"tags"`
-	References   []referenceJSON `json:"references"`
-	ReferencedBy []referenceJSON `json:"referenced_by"`
-	Links        []linkJSON      `json:"links"`
-	CreatedAt    string          `json:"created_at"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Prompt          string          `json:"prompt"`
+	ProjectID       string          `json:"project_id"`
+	ParentTaskID    string          `json:"parent_task_id"`
+	PendingChildren int             `json:"pending_children"`
+	AssigneeID      string          `json:"assignee_actor_id"`
+	State           string          `json:"state"`
+	Priority        string          `json:"priority"`
+	Size            string          `json:"size"`
+	Tags            []string        `json:"tags"`
+	References      []referenceJSON `json:"references"`
+	ReferencedBy    []referenceJSON `json:"referenced_by"`
+	ChildTasks      []referenceJSON `json:"child_tasks"`
+	Links           []linkJSON      `json:"links"`
+	CreatedAt       string          `json:"created_at"`
 
 	Template *templateJSON `json:"template,omitempty"`
 }
@@ -885,19 +1100,31 @@ func toTaskJSON(t tasks.Task) taskJSON {
 	for i, link := range t.Links {
 		links[i] = linkJSON{URL: link.URL, Label: link.Label}
 	}
+	children := make([]referenceJSON, len(t.ChildTasks))
+	for i, child := range t.ChildTasks {
+		children[i] = referenceJSON{
+			ID:    child.ID,
+			Name:  child.Name,
+			State: string(child.State),
+			Kind:  string(child.Kind),
+		}
+	}
 	out := taskJSON{
-		ID:           t.ID,
-		Name:         t.Name,
-		Prompt:       t.Prompt,
-		ProjectID:    t.ProjectID,
-		AssigneeID:   actorid.Format(t.AssigneeActorID),
-		State:        string(t.State),
-		Priority:     priorityName(t.Priority),
-		Size:         t.Size,
-		Tags:         tags,
-		References:   refs,
-		ReferencedBy: incoming,
-		Links:        links,
+		ID:              t.ID,
+		Name:            t.Name,
+		Prompt:          t.Prompt,
+		ProjectID:       t.ProjectID,
+		ParentTaskID:    t.ParentTaskID,
+		PendingChildren: t.PendingChildren,
+		AssigneeID:      actorid.Format(t.AssigneeActorID),
+		State:           string(t.State),
+		Priority:        priorityName(t.Priority),
+		Size:            t.Size,
+		Tags:            tags,
+		References:      refs,
+		ReferencedBy:    incoming,
+		ChildTasks:      children,
+		Links:           links,
 	}
 	if !t.CreatedAt.IsZero() {
 		out.CreatedAt = t.CreatedAt.UTC().Format(time.RFC3339)

@@ -33,6 +33,14 @@ export interface LightboxItem {
   source: string;
 
   createdAt?: number;
+
+  diagram?: DiagramSource;
+}
+
+export interface DiagramSource {
+  svg: string;
+
+  code: string;
 }
 
 export interface InlineImage {
@@ -93,6 +101,28 @@ export function artifactItems(artifact: Artifact): LightboxItem[] {
   return artifact.parts
     .map((part, index) => artifactPartItem(artifact, part, index))
     .filter((item): item is LightboxItem => item !== undefined);
+}
+
+export function inlineDiagramItem(diagram: DiagramSource): LightboxItem {
+  const fingerprint = diagramFingerprint(diagram);
+  return {
+    key: `diagram:${fingerprint}`,
+    url: `mermaid:${fingerprint}`,
+    filename: "Mermaid diagram",
+    image: false,
+    source: "Task transcript",
+    createdAt: undefined,
+    diagram,
+  };
+}
+
+export function diagramFingerprint(diagram: DiagramSource): string {
+  const input = diagram.code || diagram.svg;
+  let hash = 5381;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return `${(hash >>> 0).toString(36)}-${input.length.toString(36)}`;
 }
 
 export function inlineImageItem(image: InlineImage): LightboxItem {

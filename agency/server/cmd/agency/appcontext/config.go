@@ -61,6 +61,14 @@ type Config struct {
 	SitesInsecureHTTP bool
 
 	LogFiles int
+
+	PluginDataDir string
+
+	PluginAllowPrivateNetwork bool
+
+	PluginPGRequireDatabase bool
+
+	OTelEnabled bool
 }
 
 func parseEnvUint16(envVar string) uint16 {
@@ -167,7 +175,35 @@ func ParseConfig() Config {
 
 	cfg.LogFiles = processlog.ParseKeep(os.Getenv("CHERRYPI_AGENCY_LOG_FILES"))
 
+	cfg.PluginDataDir = strings.TrimSpace(os.Getenv("CHERRYPI_PLUGIN_DATA_DIR"))
+	if cfg.PluginDataDir == "" {
+		cfg.PluginDataDir = cfg.Dir
+	}
+	cfg.PluginAllowPrivateNetwork = parseEnvBool("CHERRYPI_PLUGIN_ALLOW_PRIVATE_NETWORK")
+	cfg.PluginPGRequireDatabase = parseEnvBool("CHERRYPI_PLUGIN_PG_REQUIRE_DATABASE")
+
+	cfg.OTelEnabled = parseOTelEnabled()
+
 	return cfg
+}
+
+func parseOTelEnabled() bool {
+	if value := strings.TrimSpace(os.Getenv("CHERRYPI_OTEL_ENABLED")); value != "" {
+		return parseEnvBool("CHERRYPI_OTEL_ENABLED")
+	}
+
+	for _, key := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+	} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func parseS3Config(cfg *Config) {

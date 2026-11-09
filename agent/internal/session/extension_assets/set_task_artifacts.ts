@@ -18,6 +18,13 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  type AgentToken,
+  agentTokens,
+  credentialNote,
+  credentialsLine,
+  fetchWithAgentToken,
+} from "./agent_token.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
@@ -95,14 +102,15 @@ export default function (pi: ExtensionAPI) {
         /\/+$/,
         "",
       );
-      const token = await agentToken();
+      const tokens = await agentTokens();
       const taskId = process.env.CHERRYPI_TASK_ID ?? "";
-      if (!agencyUrl || !token || !taskId) {
+      if (!agencyUrl || tokens.length === 0 || !taskId) {
         return text("Artifact publishing is not configured for this task.");
       }
 
       const workspace = process.cwd();
       const artifacts = [];
+      const notes = new Set<string>();
 
       for (const artifact of params.artifacts ?? []) {
         const parts = [];
@@ -110,13 +118,16 @@ export default function (pi: ExtensionAPI) {
           if (typeof part.file === "string" && part.file.trim() !== "") {
             const uploaded = await uploadFile(
               agencyUrl,
-              token,
+              tokens,
               taskId,
               workspace,
               part.file.trim(),
             );
             if (typeof uploaded === "string") {
               return text(uploaded);
+            }
+            if (uploaded.note) {
+              notes.add(uploaded.note);
             }
             parts.push({
               kind: "file",
@@ -159,9 +170,10 @@ export default function (pi: ExtensionAPI) {
 
       const names = artifacts.map((a) => a.name).join(", ");
       return text(
-        artifacts.length === 0
+        (artifacts.length === 0
           ? "Cleared this task's artifacts."
-          : `Published ${artifacts.length} artifact(s): ${names}.`,
+          : `Published ${artifacts.length} artifact(s): ${names}.`) +
+          [...notes].join(""),
       );
     },
   });
@@ -169,12 +181,19 @@ export default function (pi: ExtensionAPI) {
 
 async function uploadFile(
   agencyUrl: string,
-  token: string,
+  tokens: AgentToken[],
   taskId: string,
   workspace: string,
   raw: string,
 ): Promise<
-  { id: number; url: string; filename?: string; contentType?: string } | string
+  | {
+      id: number;
+      url: string;
+      filename?: string;
+      contentType?: string;
+      note: string;
+    }
+  | string
 > {
   const filePath = isAbsolute(raw) ? raw : resolve(workspace, raw);
   const rel = relative(workspace, filePath);
@@ -193,18 +212,17 @@ async function uploadFile(
   form.append("file", new Blob([data]), basename(filePath));
   const query = new URLSearchParams({ kind: "artifact", id: taskId });
 
-  let res: Response;
-  try {
-    res = await fetch(`${agencyUrl}/api/rest/attachments?${query}`, {
-      method: "POST",
-      body: form,
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch (err) {
-    return `Upload failed for ${raw}: ${String(err)}`;
+  const outcome = await fetchWithAgentToken(
+    `${agencyUrl}/api/rest/attachments?${query}`,
+    { method: "POST", body: form },
+    tokens,
+  );
+  const res = outcome.res;
+  if (!res) {
+    return `Upload failed for ${raw}: ${outcome.error ?? "unknown error"}${credentialsLine(outcome)}`;
   }
   if (!res.ok) {
-    return `Upload failed for ${raw}: ${res.status} ${res.statusText}`;
+    return `Upload failed for ${raw}: ${res.status} ${res.statusText}${credentialsLine(outcome)}`;
   }
 
   const body = (await res.json()) as {
@@ -218,6 +236,7 @@ async function uploadFile(
     url: body.url ?? "",
     filename: body.filename,
     contentType: body.contentType,
+    note: credentialNote(outcome),
   };
 }
 
@@ -226,15 +245,4 @@ function text(value: string) {
     content: [{ type: "text" as const, text: value }],
     details: undefined,
   };
-}
-
-async function agentToken(): Promise<string> {
-  const file = process.env.CHERRYPI_AGENT_TOKEN_FILE ?? "";
-  if (file) {
-    try {
-      const raw = (await readFile(file, "utf8")).trim();
-      if (raw) return raw;
-    } catch {}
-  }
-  return process.env.CHERRYPI_AGENT_TOKEN ?? "";
 }

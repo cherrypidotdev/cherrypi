@@ -31,6 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     Tabs(v-model="tab")
       TabsList
         TabsTrigger(value="general") General
+        TabsTrigger(value="plugins") Plugins
         TabsTrigger(value="auth") Auth
         TabsTrigger(value="integrations") Integrations
         TabsTrigger(value="admin") Admin
@@ -104,12 +105,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     span.text-sm.font-medium Overview KPIs
                     span.text-muted-foreground.text-xs
                       | Choose which summary rows appear on the Agent, Project and
-                      | agency Tasks overviews.
+                      | agency Tasks overviews. The Usage pages always show the
+                      | full strip.
                   .flex.items-center.justify-between.gap-3
                     .flex.flex-col
                       span.text-sm.font-medium Show Usage KPIs
                       span.text-muted-foreground.text-xs
-                        | Cost, tokens, rounds, completed tasks and active time.
+                        | Cost, tokens, rounds and time to completion. The agency
+                        | Tasks overview and the Usage pages also show completed
+                        | tasks, thinking time, TTFT and active time.
                     Switch(
                       :model-value="showUsageKpi"
                       @update:model-value="showUsageKpi = Boolean($event)"
@@ -179,6 +183,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
               TaskColumnsPanel
 
+      TabsContent(value="plugins")
+        PluginsPanel
+
       TabsContent(value="auth")
         .flex.flex-col.gap-6
           AuthProvidersPanel
@@ -186,6 +193,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       TabsContent(value="integrations")
         .flex.flex-col.gap-6
+          VoiceInputPanel
           Alert
             AlertTitle Webhooks
             AlertDescription
@@ -206,9 +214,11 @@ import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AdminPanel from "@/components/settings/AdminPanel.vue";
 import AuthProvidersPanel from "@/components/settings/AuthProvidersPanel.vue";
+import PluginsPanel from "@/components/settings/PluginsPanel.vue";
 import ProcessLogsPanel from "@/components/settings/ProcessLogsPanel.vue";
 import SMTPSettingsPanel from "@/components/settings/SMTPSettingsPanel.vue";
 import TaskColumnsPanel from "@/components/settings/TaskColumnsPanel.vue";
+import VoiceInputPanel from "@/components/settings/VoiceInputPanel.vue";
 import WebhooksPanel from "@/components/settings/WebhooksPanel.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

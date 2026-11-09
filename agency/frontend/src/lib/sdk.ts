@@ -41,6 +41,7 @@ import {
   type ListTaskCommentsResult,
   type ListTasksFilter,
   type QuestionnaireAnswerInput,
+  type ReleaseTaskHoldInput,
   type ReopenTaskOptions,
   type SetTaskLeadsInput,
   type SetTaskModelInput,
@@ -52,7 +53,7 @@ import {
   type TaskConfig,
   type TaskEvent,
   type TaskSize,
-  type TaskUsage,
+  type TaskUsageWithRuns,
   type Terminal,
   type TerminalKind,
   type TerminalLog,
@@ -107,6 +108,11 @@ export const agent = {
     reopen?: ReopenTaskOptions,
     o?: CallOptions,
   ): Promise<Task> => agency.reopenTask(id, reopen, o),
+  releaseTaskHold: (
+    id: string,
+    input: ReleaseTaskHoldInput,
+    o?: CallOptions,
+  ): Promise<Task> => agency.releaseTaskHold(id, input, o),
   retryTask: (id: string, o?: CallOptions): Promise<Task> =>
     agency.retryTask(id, o),
   deleteTask: (id: string, o?: CallOptions): Promise<void> =>
@@ -206,8 +212,10 @@ export const agent = {
         untilMs: query.untilMs,
       },
     ),
-  getTaskUsage: (sessionId: string, o?: CallOptions): Promise<TaskUsage> =>
-    agency.getTaskUsage(sessionId, o),
+  getTaskUsage: (
+    sessionId: string,
+    o?: CallOptions,
+  ): Promise<TaskUsageWithRuns> => agency.getTaskUsage(sessionId, o),
   getTaskDiskUsage: (sessionId: string, o?: CallOptions): Promise<bigint> =>
     agency.getTaskDiskUsage(sessionId, o),
 

@@ -86,3 +86,97 @@ func Fits(l limits.Limits, c Counts, projectID string, tags []Tag) bool {
 
 	return true
 }
+
+type ClassCounts struct {
+	General int
+
+	ByClass map[string]int
+}
+
+func FitsClass(
+	c ClassCounts,
+	cap int,
+	reserved map[string]int,
+	tags []Tag,
+) bool {
+	if len(reserved) == 0 {
+		return true
+	}
+	reservedTotal := 0
+	spill := 0
+	own := 0
+	for name, slots := range reserved {
+		if slots <= 0 {
+			continue
+		}
+		reservedTotal += slots
+		if extra := c.ByClass[name] - slots; extra > 0 {
+			spill += extra
+		}
+		if !hasTag(tags, name) {
+			continue
+		}
+
+		if free := slots - c.ByClass[name]; free > own {
+			own = free
+		}
+	}
+	generalFree := cap - reservedTotal - c.General - spill
+	return own+generalFree >= 1
+}
+
+func hasTag(tags []Tag, name string) bool {
+	for _, tag := range tags {
+		if strings.ToLower(tag.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func ClassCountsOf(
+	rows []string,
+	tagsByTask map[string][]Tag,
+	reserved map[string]int,
+) ClassCounts {
+	out := ClassCounts{ByClass: make(map[string]int, len(reserved))}
+	for _, id := range rows {
+		tags := tagsByTask[id]
+		classed := false
+		for _, tag := range tags {
+			name := strings.ToLower(tag.Name)
+			if _, ok := reserved[name]; !ok {
+				continue
+			}
+			out.ByClass[name]++
+			classed = true
+		}
+		if !classed {
+			out.General++
+		}
+	}
+	return out
+}
+
+func RequiredTags(tags []Tag) []Tag {
+	out := make([]Tag, 0, len(tags))
+	for _, tag := range tags {
+		if tag.Required {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+func MissingTagDeclarations(l limits.Limits, projectID string, tags []Tag) []Tag {
+	var missing []Tag
+	for _, tag := range tags {
+		if !tag.Required {
+			continue
+		}
+		if !l.Declares(projectID, tag.Name, tag.ID) {
+			missing = append(missing, tag)
+		}
+	}
+	return missing
+}

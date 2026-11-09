@@ -18,7 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .relative.flex.h-full.flex-col
-  header.shrink-0.border-b(:class="detailsOpen ? 'mr-80' : ''")
+  header.shrink-0.border-b(
+    :class="detailsOpen ? 'mr-80' : ''"
+    data-testid="task-header"
+  )
     .flex.items-center.gap-3.px-4.py-2
       BackButton(:fallback="backFallback")
       .flex.min-w-0.flex-1.items-center.gap-2
@@ -136,6 +139,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @pending-prompt-saved="onPendingPromptSaved"
       @open-attachment="openAttachment"
       @open-image="openInlineImage"
+      @open-diagram="openInlineDiagram"
       @open-new-sketch="openNewSketch"
       @open-sketch="openSketch"
       @model-change="onModelSelectionChange"
@@ -186,6 +190,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @toggle-tag="toggleTag"
       @toggle-subscription="toggleSubscription"
       @reference-change="onReferenceChange"
+      @create-related="createRelatedTask"
       @open-attachment="openAttachment"
       @remind-plan="remindPlan"
       @open-media="openLightboxItem"
@@ -196,6 +201,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @stop="stop"
       @reopen="reopen"
       @close-out="closeOut"
+      @release-hold="releaseHoldFor"
       @archive="archive"
       @unarchive="unarchive"
       @cleanup-session="cleanupSession"
@@ -209,12 +215,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @closed="load"
   )
 
+  ReleaseHoldDialog(
+    v-model:open="releaseHoldOpen"
+    :task="task ?? null"
+    :hold="releaseHold"
+    @released="onHoldReleased"
+  )
+
   ArchiveTaskDialog(
     :open="archiveOpen"
     :tasks="task ? [task] : []"
     :busy="actionBusy"
     @update:open="archiveOpen = $event"
     @confirm="confirmArchive"
+  )
+
+  TaskComposerDialog(
+    v-model:open="relatedTaskOpen"
+    :related-task="task ?? null"
+    :relation="relatedTaskRelation"
+    @created="onRelatedTaskCreated"
   )
 
   TaskLinksDialog(
@@ -246,6 +266,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import BackButton from "@/components/BackButton.vue";
 import ArchiveTaskDialog from "@/components/tasks/ArchiveTaskDialog.vue";
 import CloseOutTaskDialog from "@/components/tasks/CloseOutTaskDialog.vue";
+import ReleaseHoldDialog from "@/components/tasks/ReleaseHoldDialog.vue";
+import TaskComposerDialog from "@/components/tasks/TaskComposerDialog.vue";
 import TaskLightbox from "@/components/tasks/TaskLightbox.vue";
 import TaskLinksDialog from "@/components/tasks/TaskLinksDialog.vue";
 import { Button } from "@/components/ui/button";
@@ -278,8 +300,10 @@ import { chatDraftKey } from "@/lib/draft";
 import {
   attachmentItem,
   buildTaskLightboxItems,
+  inlineDiagramItem,
   inlineImageItem,
   withLightboxItem,
+  type DiagramSource,
   type InlineImage,
   type LightboxItem,
 } from "@/lib/lightbox";
@@ -311,6 +335,7 @@ import {
   taskStateIcon,
   taskStateLabelFor,
   taskTitlePending,
+  type NewTaskRelation,
   type TaskModelSelection,
 } from "@/lib/task";
 import { deleteConfirmation } from "@/lib/taskActions";
@@ -326,8 +351,9 @@ import {
   type Task,
   type TaskAttributeInput,
   type TaskConfig,
+  type TaskHold,
   type TaskLinkInput,
-  type TaskUsage,
+  type TaskUsageWithRuns,
 } from "@cherrypi/sdk";
 import { CircleSlashIcon, MenuIcon, PencilIcon, StarIcon } from "@lucide/vue";
 import {
@@ -432,7 +458,7 @@ const lightboxEntries = ref<LightboxItem[]>([]);
 const lightboxIndex = ref(0);
 
 const inlineLightboxItems = ref<LightboxItem[]>([]);
-const taskUsage = ref<TaskUsage | undefined>();
+const taskUsage = ref<TaskUsageWithRuns | undefined>();
 
 const taskDiskBytes = ref<bigint | undefined>();
 const taskDiskLoading = ref(false);
@@ -495,6 +521,11 @@ const agentProjects = ref<Project[]>([]);
 const projectMembers = ref<string[]>([]);
 const closeOutDialogOpen = ref(false);
 const linksDialogOpen = ref(false);
+const releaseHoldOpen = ref(false);
+const releaseHold = ref<TaskHold | null>(null);
+
+const relatedTaskOpen = ref(false);
+const relatedTaskRelation = ref<NewTaskRelation | undefined>();
 const titleEditing = ref(false);
 const titleDraft = ref("");
 const titleInput = ref<{ $el?: HTMLInputElement } | undefined>();
@@ -774,10 +805,21 @@ async function setTaskLeads(ids: string[]) {
   }
 }
 
+const leadRequired = computed(() => {
+  const state = task.value?.state;
+  return (
+    !!state && state !== TaskState.BACKLOG && state !== TaskState.CANCELLED
+  );
+});
+
 async function toggleTaskLead(id: string) {
   const next = new Set(leadIds.value);
   if (next.has(id)) next.delete(id);
   else next.add(id);
+  if (!next.size && leadRequired.value) {
+    toast.error("A task needs at least one lead");
+    return;
+  }
   await setTaskLeads([...next]);
 }
 
@@ -978,6 +1020,17 @@ function onReferenceChange(next: Task) {
   task.value = next;
 }
 
+function createRelatedTask(relation: NewTaskRelation) {
+  relatedTaskRelation.value = relation;
+  relatedTaskOpen.value = true;
+}
+
+function onRelatedTaskCreated() {
+  relatedTaskOpen.value = false;
+  relatedTaskRelation.value = undefined;
+  void load();
+}
+
 const linkInputs = computed<TaskLinkInput[]>(() =>
   (task.value?.links ?? []).map((link) => ({
     url: link.url,
@@ -1023,7 +1076,9 @@ async function dequeue() {
 }
 
 const archiveOpen = ref(false);
-const archivePrefs = ref<UserPreferences>({ notify_first_archive: true });
+const archivePrefs = ref<UserPreferences>({
+  notify_first_archive: true,
+});
 
 async function runArchive() {
   actionBusy.value = true;
@@ -1095,6 +1150,15 @@ async function restartSession() {
 
 function closeOut() {
   closeOutDialogOpen.value = true;
+}
+
+function releaseHoldFor(hold: TaskHold) {
+  releaseHold.value = hold;
+  releaseHoldOpen.value = true;
+}
+
+function onHoldReleased(updated: Task) {
+  task.value = updated;
 }
 
 async function reopen(toQueue: boolean) {
@@ -1270,6 +1334,14 @@ function openAttachment(attachment: Attachment) {
 
 function openInlineImage(image: InlineImage) {
   const item = inlineImageItem(image);
+  if (!inlineLightboxItems.value.some((known) => known.key === item.key)) {
+    inlineLightboxItems.value = [...inlineLightboxItems.value, item];
+  }
+  openLightboxItem(item);
+}
+
+function openInlineDiagram(diagram: DiagramSource) {
+  const item = inlineDiagramItem(diagram);
   if (!inlineLightboxItems.value.some((known) => known.key === item.key)) {
     inlineLightboxItems.value = [...inlineLightboxItems.value, item];
   }

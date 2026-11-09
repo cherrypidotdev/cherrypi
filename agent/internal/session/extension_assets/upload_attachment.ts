@@ -18,6 +18,12 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  agentTokens,
+  credentialNote,
+  credentialsLine,
+  fetchWithAgentToken,
+} from "./agent_token.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
@@ -36,9 +42,9 @@ export default function (pi: ExtensionAPI) {
         /\/+$/,
         "",
       );
-      const token = await agentToken();
+      const tokens = await agentTokens();
       const taskId = process.env.CHERRYPI_TASK_ID ?? "";
-      if (!agencyUrl || !token || !taskId) {
+      if (!agencyUrl || tokens.length === 0 || !taskId) {
         return text("Attachment upload is not configured for this task.");
       }
 
@@ -65,18 +71,21 @@ export default function (pi: ExtensionAPI) {
       form.append("file", new Blob([data]), basename(filePath));
       const query = new URLSearchParams({ kind: "task", id: taskId });
 
-      let res: Response;
-      try {
-        res = await fetch(`${agencyUrl}/api/rest/attachments?${query}`, {
-          method: "POST",
-          body: form,
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      } catch (err) {
-        return text(`Upload failed: ${String(err)}`);
+      const outcome = await fetchWithAgentToken(
+        `${agencyUrl}/api/rest/attachments?${query}`,
+        { method: "POST", body: form },
+        tokens,
+      );
+      const res = outcome.res;
+      if (!res) {
+        return text(
+          `Upload failed: ${outcome.error ?? "unknown error"}${credentialsLine(outcome)}`,
+        );
       }
       if (!res.ok) {
-        return text(`Upload failed: ${res.status} ${res.statusText}`);
+        return text(
+          `Upload failed: ${res.status} ${res.statusText}${credentialsLine(outcome)}`,
+        );
       }
 
       const attachment = (await res.json()) as {
@@ -86,7 +95,8 @@ export default function (pi: ExtensionAPI) {
       const url = attachment.url ?? "";
       const name = attachment.filename ?? basename(filePath);
       return text(
-        `Uploaded ${name} as a task attachment. Reference it in your reply as a relative link, e.g. ![${name}](${url}). Use setTaskArtifacts for durable results.`,
+        `Uploaded ${name} as a task attachment. Reference it in your reply as a relative link, e.g. ![${name}](${url}). Use setTaskArtifacts for durable results.` +
+          credentialNote(outcome),
       );
     },
   });
@@ -97,15 +107,4 @@ function text(value: string) {
     content: [{ type: "text" as const, text: value }],
     details: undefined,
   };
-}
-
-async function agentToken(): Promise<string> {
-  const file = process.env.CHERRYPI_AGENT_TOKEN_FILE ?? "";
-  if (file) {
-    try {
-      const raw = (await readFile(file, "utf8")).trim();
-      if (raw) return raw;
-    } catch {}
-  }
-  return process.env.CHERRYPI_AGENT_TOKEN ?? "";
 }

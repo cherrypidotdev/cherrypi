@@ -15,9 +15,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .git
-.gitea
 .github
 .pi
+.gitea/*
+!.gitea/scripts
+.gitea/scripts/*
+!.gitea/scripts/fetch.sh
+!.gitea/scripts/install-golangci-lint.sh
 
 **/node_modules
 **/dist

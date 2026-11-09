@@ -1,0 +1,38 @@
+# CherryPi: A multi-agent-multi-human self-hosted agency
+# Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+services:
+  agency:
+    environment:
+      CHERRYPI_OTEL_ENABLED: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_SERVICE_NAME: cherrypi-agency
+    depends_on:
+      - otel-lgtm
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - otel_lgtm_data:/data
+
+volumes:
+  otel_lgtm_data:

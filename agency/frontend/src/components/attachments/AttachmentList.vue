@@ -17,42 +17,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.flex-col.gap-1(v-if="visibleAttachments.length")
-  .group.flex.items-start.gap-2.rounded-md.border.px-2.py-1.text-xs(
+.flex(v-if="visibleAttachments.length" :class="trayClass")
+  .group.flex.rounded-md.border.text-xs(
     v-for="attachment in visibleAttachments"
     :key="attachment.url"
+    :class="entryClass"
   )
-    button.size-8.shrink-0.cursor-pointer.rounded.transition-opacity(
+    button.shrink-0.cursor-pointer.overflow-hidden.rounded.transition-opacity(
       v-if="isImageAttachment(attachment)"
       type="button"
       class="hover:opacity-75"
+      :class="thumbClass"
       :title="`Preview ${attachment.filename}`"
       :aria-label="`Preview ${attachment.filename}`"
       @click="emit('open', attachment)"
     )
-      img.size-8.rounded.object-cover(
+      img.rounded.object-cover(
         :src="attachment.url"
         :alt="attachment.filename"
+        :class="thumbClass"
       )
-    FileIcon.text-muted-foreground.size-4.shrink-0(v-else class="mt-0.5")
-    .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
+    FileIcon.text-muted-foreground.shrink-0(v-else :class="fileIconClass")
+    .flex.min-w-0(:class="bodyClass")
       a.truncate(
         class="hover:underline"
+        :class="nameClass"
         :href="attachment.url"
         :title="`Preview ${attachment.filename}`"
         @click.prevent="emit('open', attachment)"
       ) {{ attachment.filename }}
-      .flex.flex-wrap.items-center.gap-1.text-xs
+      .flex.shrink-0.items-center.gap-1.text-xs(:class="metaClass")
         span.text-muted-foreground {{ formatFileSize(attachment.size) }}
-        template(v-if="attachment.createdBy")
+        template(v-if="showAuthor && attachment.createdBy")
           span.text-muted-foreground ·
           AttachmentAuthor(:actor="attachment.createdBy")
-    .flex.shrink-0.items-center(class="gap-0.5")
+    .flex.shrink-0.items-center.transition-opacity(:class="actionsClass")
       Button.shrink-0(
         v-if="sketchable && isImageAttachment(attachment)"
         type="button"
         variant="ghost"
-        size="icon-sm"
+        :size="actionSize"
         :title="sketchTitle(attachment)"
         @click="emit('sketch', attachment)"
         :data-testid="sketchTestId(attachment)"
@@ -61,8 +65,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Button.shrink-0(
         as-child
         variant="ghost"
-        size="icon-sm"
         title="Open in new tab"
+        :size="actionSize"
         :aria-label="`Open ${attachment.filename} in a new tab`"
       )
         a(rel="noopener noreferrer" :href="attachment.url" target="_blank")
@@ -71,8 +75,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         v-if="removable"
         type="button"
         variant="ghost"
-        size="icon-sm"
         title="Delete attachment"
+        :size="actionSize"
         :aria-label="`Delete ${attachment.filename}`"
         @click="emit('remove', attachment)"
       )
@@ -101,14 +105,49 @@ const props = withDefaults(
     emptyText?: string;
 
     sketchable?: boolean;
+
+    compact?: boolean;
+
+    showAuthor?: boolean;
   }>(),
-  { removable: false, emptyText: "—", sketchable: false },
+  {
+    removable: false,
+    emptyText: "—",
+    sketchable: false,
+    compact: false,
+    showAuthor: true,
+  },
 );
 const emit = defineEmits<{
   remove: [attachment: Attachment];
   sketch: [attachment: Attachment];
   open: [attachment: Attachment];
 }>();
+
+const trayClass = computed(() =>
+  props.compact ? "flex-wrap items-center gap-1" : "flex-col gap-1",
+);
+const entryClass = computed(() =>
+  props.compact
+    ? "max-w-full items-center gap-2 py-0.5 pl-2 pr-1"
+    : "items-start gap-2 px-2 py-1",
+);
+const thumbClass = computed(() => (props.compact ? "size-6" : "size-8"));
+const fileIconClass = computed(() =>
+  props.compact ? "size-3.5" : "mt-0.5 size-4",
+);
+const bodyClass = computed(() =>
+  props.compact ? "items-center gap-1.5" : "flex-1 flex-col gap-0.5",
+);
+const nameClass = computed(() => (props.compact ? "max-w-40" : ""));
+const metaClass = computed(() => (props.compact ? "" : "flex-wrap"));
+
+const actionsClass = computed(() =>
+  props.compact ? "gap-0.5 opacity-60 group-hover:opacity-100" : "gap-0.5",
+);
+const actionSize = computed<"icon-xs" | "icon-sm">(() =>
+  props.compact ? "icon-xs" : "icon-sm",
+);
 
 const visibleAttachments = computed(() =>
   props.attachments.filter((attachment) => !isSketchScene(attachment)),

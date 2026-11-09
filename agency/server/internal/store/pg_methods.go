@@ -903,11 +903,82 @@ func (s *PgStore) ListAgentProjectMemberships(
 	return fromPgListAgentProjectMembershipsRowSlice(rows), nil
 }
 
+func (s *PgStore) ListAgentProjectTagReservations(
+	ctx context.Context,
+	agentID ids.AgentID,
+) ([]ListAgentProjectTagReservationsRow, error) {
+	rows, err := s.q.ListAgentProjectTagReservations(ctx, int64(agentID))
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentProjectTagReservationsRowSlice(rows), nil
+}
+
 func (s *PgStore) ListProjectMemberActorIDs(
 	ctx context.Context,
 	projectID string,
 ) ([]int64, error) {
 	return s.q.ListProjectMemberActorIDs(ctx, projectID)
+}
+
+func (s *PgStore) ListProjectTagReservations(
+	ctx context.Context,
+	projectID string,
+) ([]ProjectTagReservation, error) {
+	rows, err := s.q.ListProjectTagReservations(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgProjectTagReservationSlice(rows), nil
+}
+
+func (s *PgStore) ReplaceProjectTagReservations(
+	ctx context.Context,
+	projectID string,
+	rows []InsertProjectTagReservationParams,
+) error {
+	return s.tx(ctx, func(q *pgdb.Queries) error {
+		if err := q.DeleteProjectTagReservations(ctx, projectID); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if err := q.InsertProjectTagReservation(
+				ctx,
+				pgdb.InsertProjectTagReservationParams(row),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *PgStore) ListRunningTasksByProject(
+	ctx context.Context,
+	projectID string,
+) ([]Task, error) {
+	rows, err := s.q.ListRunningTasksByProject(
+		ctx,
+		sql.NullString{String: projectID, Valid: projectID != ""},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
+}
+
+func (s *PgStore) ListRunningTaskTagsByProject(
+	ctx context.Context,
+	projectID string,
+) ([]ListRunningTaskTagsByProjectRow, error) {
+	rows, err := s.q.ListRunningTaskTagsByProject(
+		ctx,
+		sql.NullString{String: projectID, Valid: projectID != ""},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListRunningTaskTagsByProjectRowSlice(rows), nil
 }
 
 func (s *PgStore) InsertProjectLog(ctx context.Context, p InsertProjectLogParams) error {
@@ -1295,6 +1366,48 @@ func (s *PgStore) RenameTask(
 		return Task{}, err
 	}
 	return fromPgTask(row), nil
+}
+
+func (s *PgStore) ListTaskChildren(
+	ctx context.Context,
+	parentTaskID string,
+) ([]Task, error) {
+	rows, err := s.q.ListTaskChildren(ctx, sql.NullString{String: parentTaskID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
+}
+
+func (s *PgStore) CountIncompleteChildTasks(
+	ctx context.Context,
+	parentTaskID string,
+) (int64, error) {
+	return s.q.CountIncompleteChildTasks(
+		ctx,
+		sql.NullString{String: parentTaskID, Valid: true},
+	)
+}
+
+func (s *PgStore) DetachTaskChildren(
+	ctx context.Context,
+	p DetachTaskChildrenParams,
+) error {
+	return s.q.DetachTaskChildren(ctx, pgdb.DetachTaskChildrenParams(p))
+}
+
+func (s *PgStore) SetTaskPendingSteering(
+	ctx context.Context,
+	p SetTaskPendingSteeringParams,
+) (int64, error) {
+	return s.q.SetTaskPendingSteering(ctx, pgdb.SetTaskPendingSteeringParams(p))
+}
+
+func (s *PgStore) SetTaskPendingPromptAny(
+	ctx context.Context,
+	p SetTaskPendingPromptAnyParams,
+) (int64, error) {
+	return s.q.SetTaskPendingPromptAny(ctx, pgdb.SetTaskPendingPromptAnyParams(p))
 }
 
 func (s *PgStore) SetTaskPriority(
@@ -1969,6 +2082,17 @@ func (s *PgStore) ListAgentUsageModels(
 		return nil, err
 	}
 	return fromPgListAgentUsageModelsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentUsageRuns(
+	ctx context.Context,
+	sessionID string,
+) ([]AgentUsage, error) {
+	rows, err := s.q.ListAgentUsageRuns(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgAgentUsageSlice(rows), nil
 }
 
 func (s *PgStore) CreateAttachment(

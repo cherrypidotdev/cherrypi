@@ -17,12 +17,13 @@
 -- name: InsertAgentUsage :exec
 INSERT INTO agent_usage (
   agent_id, session_id, provider, model, input_tokens, output_tokens, cost,
-  active_ms, at
+  active_ms, tool_ms, model_wait_ms, ttft_ms, at
 )
 VALUES (
   sqlc.arg(agent_id), sqlc.arg(session_id), sqlc.arg(provider), sqlc.arg(model),
   sqlc.arg(input_tokens), sqlc.arg(output_tokens), sqlc.arg(cost),
-  sqlc.arg(active_ms), sqlc.arg(at)
+  sqlc.arg(active_ms), sqlc.arg(tool_ms), sqlc.arg(model_wait_ms),
+  sqlc.arg(ttft_ms), sqlc.arg(at)
 );
 
 -- name: ListAgentUsage :many
@@ -35,6 +36,10 @@ SELECT
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS BIGINT) AS output_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS DOUBLE PRECISION) AS cost,
   CAST(COALESCE(SUM(ag.active_ms), 0) AS BIGINT) AS active_ms,
+  CAST(COALESCE(SUM(ag.tool_ms), 0) AS BIGINT) AS tool_ms,
+  CAST(COALESCE(SUM(ag.model_wait_ms), 0) AS BIGINT) AS model_wait_ms,
+  CAST(COALESCE(SUM(ag.ttft_ms), 0) AS BIGINT) AS ttft_ms,
+  CAST(COUNT(CASE WHEN ag.ttft_ms > 0 THEN 1 END) AS BIGINT) AS ttft_runs,
   CAST(COUNT(*) AS BIGINT) AS runs,
   CAST(COALESCE(MAX(ag.at), 0) AS BIGINT) AS last_at
 FROM agent_usage AS ag
@@ -90,6 +95,11 @@ SELECT
   CAST(COALESCE(SUM(ag.input_tokens), 0) AS BIGINT) AS input_tokens,
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS BIGINT) AS output_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS DOUBLE PRECISION) AS cost,
+  CAST(COALESCE(SUM(ag.active_ms), 0) AS BIGINT) AS active_ms,
+  CAST(COALESCE(SUM(ag.tool_ms), 0) AS BIGINT) AS tool_ms,
+  CAST(COALESCE(SUM(ag.model_wait_ms), 0) AS BIGINT) AS model_wait_ms,
+  CAST(COALESCE(SUM(ag.ttft_ms), 0) AS BIGINT) AS ttft_ms,
+  CAST(COUNT(CASE WHEN ag.ttft_ms > 0 THEN 1 END) AS BIGINT) AS ttft_runs,
   CAST(COUNT(*) AS BIGINT) AS runs,
   CAST(COUNT(DISTINCT ag.session_id) AS BIGINT) AS tasks
 FROM agent_usage AS ag
@@ -116,3 +126,12 @@ LEFT JOIN tasks AS t
 WHERE (CAST(sqlc.narg(agent_id) AS BIGINT) IS NULL OR ag.agent_id = sqlc.narg(agent_id))
   AND (CAST(sqlc.narg(project_id) AS TEXT) IS NULL OR t.project_id = sqlc.narg(project_id))
 ORDER BY ag.provider, ag.model;
+
+-- name: ListAgentUsageRuns :many
+
+
+
+
+SELECT * FROM agent_usage
+WHERE session_id = sqlc.arg(session_id)
+ORDER BY at ASC, id ASC;

@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/telemetry"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -50,13 +52,18 @@ func sqliteDSN(dsn string, foreignKeys bool) string {
 		"&_journal_mode=WAL&_synchronous=NORMAL&_pragma=foreign_keys(" + flag + ")"
 }
 
-func openSQLite(dsn string, foreignKeys bool) (*sql.DB, error) {
+func openSQLite(dsn string, foreignKeys, instrument bool) (*sql.DB, error) {
 	connector, err := sqlite.NewConnector(sqliteDSN(dsn, foreignKeys))
 	if err != nil {
 		return nil, err
 	}
 
-	return sql.OpenDB(busyConnector{Connector: connector}), nil
+	wrapped := busyConnector{Connector: connector}
+	if !instrument {
+		return sql.OpenDB(wrapped), nil
+	}
+
+	return telemetry.SQLOpenConnector(wrapped, dsn, semconv.DBSystemNameSQLite), nil
 }
 
 func isBusy(err error) bool {

@@ -18,7 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 div(:class="rootClass" :style="rootStyle" :data-testid="testId")
-  .h-full(ref="host")
+  MarkdownToolbar(:view="view" :disabled="disabled")
+  .relative.min-h-0.flex-1(ref="host")
 
   .absolute.inset-x-0.bottom-0.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
     v-if="resizable && !fill"
@@ -46,7 +47,10 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
 </template>
 
 <script setup lang="ts">
+import MarkdownToolbar from "@/components/MarkdownToolbar.vue";
 import { EDITOR_MIN_HEIGHT, clampEditorHeight } from "@/lib/editorHeight";
+import { markdownFormattingKeymap } from "@/lib/markdownCommands";
+import { markdownSpellcheck } from "@/lib/markdownSpellcheck";
 import { IS_MAC } from "@/lib/platform";
 import { referenceCompletionSource } from "@/lib/referenceCompletion";
 import { taskReferenceMarkdown } from "@/lib/references";
@@ -417,7 +421,7 @@ const references = new Compartment();
 
 const rootClass = computed(() =>
   cn(
-    "border-input focus-within:border-ring focus-within:ring-ring/50 relative w-full rounded-lg border bg-transparent transition-colors focus-within:ring-3",
+    "border-input focus-within:border-ring focus-within:ring-ring/50 relative flex w-full flex-col rounded-lg border bg-transparent transition-colors focus-within:ring-3",
     "dark:bg-input/30",
     props.disabled && "opacity-50",
     props.resizable && "overflow-hidden",
@@ -447,12 +451,7 @@ const markdownHighlighting = HighlightStyle.define([
   { tag: tags.monospace, class: "cm-md-code" },
   { tag: tags.quote, class: "cm-md-quote" },
   {
-    tag: [
-      tags.processingInstruction,
-      tags.meta,
-      tags.contentSeparator,
-      tags.list,
-    ],
+    tag: [tags.processingInstruction, tags.meta, tags.contentSeparator],
     class: "cm-md-mark",
   },
   { tag: tags.comment, class: "cm-md-comment" },
@@ -542,6 +541,9 @@ function contentAttributes() {
     "aria-label": props.ariaLabel,
     "aria-multiline": "true",
     role: "textbox",
+    // CodeMirror ships `spellcheck="false"`; the editor is prose, so the
+
+    spellcheck: "true",
   });
 }
 
@@ -578,6 +580,7 @@ function sendingExtensions() {
     { key: "Mod-Enter", run: submitCommand },
     ...(props.submitOnEnter ? [{ key: "Enter", run: submitCommand }] : []),
     { key: "Shift-Enter", run: insertNewlineAndIndent },
+    ...markdownFormattingKeymap,
     { key: "Mod-k", run: deleteToLineEnd },
     { key: "Ctrl-k", run: deleteToLineEnd },
     { key: "Ctrl-Alt-ArrowUp", run: addCursorAbove },
@@ -607,6 +610,7 @@ function extensions() {
     EditorState.tabSize.of(2),
     markdown({ base: markdownLanguage, addKeymap: false }),
     syntaxHighlighting(markdownHighlighting),
+    markdownSpellcheck,
     closeBrackets(),
     highlightSelectionMatches(),
     baseTheme,

@@ -57,6 +57,11 @@ func (d *DashboardServer) GetUsage(
 			OutputTokens: row.OutputTokens,
 			Cost:         row.Cost,
 			ActiveMs:     row.ActiveMs,
+			ThinkingMs:   thinkingMs(row.ActiveMs, row.ToolMs),
+			ToolMs:       row.ToolMs,
+			ModelWaitMs:  row.ModelWaitMs,
+			TtftMs:       row.TtftMs,
+			TtftRuns:     row.TtftRuns,
 		}
 		order = append(order, row.SessionID)
 	}
@@ -112,6 +117,11 @@ func (d *DashboardServer) taskUsage(
 		OutputTokens: sum.OutputTokens,
 		Cost:         sum.Cost,
 		ActiveMs:     sum.ActiveMs,
+		ThinkingMs:   thinkingMs(sum.ActiveMs, sum.ToolMs),
+		ToolMs:       sum.ToolMs,
+		ModelWaitMs:  sum.ModelWaitMs,
+		TtftMs:       sum.TtftMs,
+		TtftRuns:     sum.TtftRuns,
 	}
 
 	liveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -128,6 +138,13 @@ func (d *DashboardServer) taskUsage(
 	}, nil
 }
 
+func thinkingMs(activeMs, toolMs int64) int64 {
+	if thinking := activeMs - toolMs; thinking > 0 {
+		return thinking
+	}
+	return 0
+}
+
 func liveBucket(id string, usage session.Usage) *agentv1.TaskUsage {
 	return &agentv1.TaskUsage{
 		TaskId:          id,
@@ -138,6 +155,11 @@ func liveBucket(id string, usage session.Usage) *agentv1.TaskUsage {
 		TokensPerSecond: usage.TokensPerSecond,
 		CostPerHour:     usage.CostPerHour,
 		ActiveMs:        usage.ActiveMs,
+		ThinkingMs:      usage.ThinkingMs,
+		ToolMs:          usage.ToolMs,
+		ModelWaitMs:     usage.ModelWaitMs,
+		TtftMs:          usage.TTFTMs,
+		TtftRuns:        usage.TTFTRuns,
 		ContextTokens:   usage.ContextTokens,
 		ContextWindow:   usage.ContextWindow,
 	}

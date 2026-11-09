@@ -15,6 +15,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import DefaultTheme from "vitepress/theme";
+import type { Theme } from "vitepress";
 import "./custom.css";
+import MermaidDiagram from "./components/MermaidDiagram.vue";
 
-export default DefaultTheme;
+export default {
+  extends: DefaultTheme,
+  enhanceApp({ app }) {
+    // ```mermaid fences are turned into this component by .vitepress/config.mts.
+    app.component("MermaidDiagram", MermaidDiagram);
+  },
+} satisfies Theme;

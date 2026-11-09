@@ -1,0 +1,121 @@
+# syntax=docker/dockerfile:1
+
+# The plugin CI image: everything a plugin repository needs to run
+# `cherrypi-plugin lint`, `test`, and `e2e --with-agent` in one container.
+#
+# It carries the agency and agent binaries (so e2e can boot both), the plugin
+# CLI, the mock LLM the agent uses in CI, and Pi itself. A plugin repo's job
+# runs in this image and checks out its own bundle; it needs no agency source.
+
+# ---- Code generation --------------------------------------------------------
+FROM golang:1.26 AS codegen
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  go install github.com/bufbuild/buf/cmd/buf@v1.70.0 \
+  && go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+
+WORKDIR /src/shared
+COPY shared/go.mod shared/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  go mod download
+COPY shared/buf.yaml shared/buf.gen.yaml ./
+COPY shared/proto ./proto
+RUN buf generate
+
+WORKDIR /src/agency/server
+COPY agency/server/go.mod agency/server/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  go mod download
+COPY agency/server/sqlc.yaml ./
+COPY agency/server/sql ./sql
+RUN sqlc generate
+
+WORKDIR /src/agent
+COPY agent/go.mod agent/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  go mod download
+COPY agent/sqlc.yaml ./
+COPY agent/sql ./sql
+RUN sqlc generate
+
+# ---- Binaries ---------------------------------------------------------------
+FROM golang:1.26 AS backend
+ARG VERSION=dev
+WORKDIR /src
+COPY shared/go.mod shared/go.sum ./shared/
+COPY agency/server/go.mod agency/server/go.sum ./agency/server/
+COPY agent/go.mod agent/go.sum ./agent/
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  cd agency/server && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  cd agent && go mod download
+
+COPY shared ./shared
+COPY agency/server ./agency/server
+COPY agent ./agent
+COPY --from=codegen /src/shared/gen ./shared/gen
+COPY --from=codegen /src/agency/server/internal/gen ./agency/server/internal/gen
+COPY --from=codegen /src/agent/internal/gen ./agent/internal/gen
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  cd agency/server && go run ./internal/store/gen
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  cd agency/server \
+  && CGO_ENABLED=0 go build -tags dev \
+       -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=${VERSION}'" \
+       -o /out/cherrypi-agency ./cmd/agency \
+  && CGO_ENABLED=0 go build -tags dev \
+       -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=${VERSION}'" \
+       -o /out/cherrypi-plugin ./cmd/cherrypi-plugin
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  cd agent \
+  && CGO_ENABLED=0 go build \
+       -ldflags "-X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=${VERSION}'" \
+       -o /out/cherrypi-agent ./cmd/agent \
+  && CGO_ENABLED=0 go build -o /out/cherrypi-mockllm ./cmd/mockllm
+
+# ---- Runtime ----------------------------------------------------------------
+FROM ubuntu:24.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+
+ENV NVM_DIR=/opt/nvm
+ENV NODE_VERSION=22.21.1
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt-get update && apt-get install -y --no-install-recommends \
+  wget ca-certificates curl git openssh-client
+
+RUN mkdir -p "$NVM_DIR" \
+  && curl --silent -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash \
+  && . "$NVM_DIR/nvm.sh" \
+  && nvm install "$NODE_VERSION" \
+  && nvm alias default "$NODE_VERSION" \
+  && nvm use default
+
+ENV PATH=$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
+
+# The same Pi pin as the agent image, so plugin CI exercises the tool path the
+# deployed agent uses.
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.99.1 \
+  && pi --version
+
+COPY --from=backend /out/cherrypi-agency /usr/local/bin/cherrypi-agency
+COPY --from=backend /out/cherrypi-agent /usr/local/bin/cherrypi-agent
+COPY --from=backend /out/cherrypi-plugin /usr/local/bin/cherrypi-plugin
+COPY --from=backend /out/cherrypi-mockllm /usr/local/bin/cherrypi-mockllm
+
+# A plugin job checks out its bundle here.
+WORKDIR /work
+
+CMD ["cherrypi-plugin", "help"]

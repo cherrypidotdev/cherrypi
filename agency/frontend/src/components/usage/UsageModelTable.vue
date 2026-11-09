@@ -33,6 +33,12 @@ Card
           TableHead.text-right Tasks
           TableHead.text-right Rounds
           TableHead.text-right Tokens
+          TableHead.text-right(
+            title="Output tokens over the time the model spent generating them"
+          ) Speed
+          TableHead.text-right(
+            title="Run start to first token, averaged over the runs that measured one"
+          ) TTFT
           TableHead.text-right Spend
       TableBody
         TableRow(v-for="row in rows" :key="label(row)")
@@ -48,6 +54,8 @@ Card
           TableCell.text-right.tabular-nums {{ formatCount(row.tasks) }}
           TableCell.text-right.tabular-nums {{ formatCount(row.runs) }}
           TableCell.text-right.tabular-nums {{ formatTokens(tokens(row)) }}
+          TableCell.text-right.tabular-nums {{ rate(row) }}
+          TableCell.text-right.tabular-nums {{ ttft(row) }}
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
   CardFooter.justify-between.gap-3
     span.text-2xs.text-muted-foreground
@@ -74,8 +82,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatCost, formatCount, formatTokens } from "@/lib/format";
-import { usageAccent } from "@/lib/usage";
+import {
+  formatCost,
+  formatCount,
+  formatDurationPrecise,
+  formatRate,
+  formatTokens,
+} from "@/lib/format";
+import { generationRate, thinkingMs, usageAccent } from "@/lib/usage";
 import type { AgencyUsageModel } from "@cherrypi/sdk";
 import { computed } from "vue";
 
@@ -103,5 +117,25 @@ function accent(value: string): string {
 
 function tokens(row: AgencyUsageModel): number {
   return Number(row.inputTokens) + Number(row.outputTokens);
+}
+
+function rate(row: AgencyUsageModel): string {
+  const timing = {
+    activeMs: Number(row.activeMs),
+    toolMs: Number(row.toolMs),
+    modelWaitMs: Number(row.modelWaitMs),
+  };
+  const value = generationRate(
+    Number(row.outputTokens),
+    thinkingMs(timing),
+    timing.modelWaitMs,
+  );
+  return value > 0 ? formatRate(value) : "—";
+}
+
+function ttft(row: AgencyUsageModel): string {
+  const runs = Number(row.ttftRuns);
+  if (!runs) return "—";
+  return formatDurationPrecise(Number(row.ttftMs) / runs);
 }
 </script>

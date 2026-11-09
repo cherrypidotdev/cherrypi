@@ -17,9 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.flex-col.gap-3
+.flex.flex-col.gap-2
   MarkdownText.prose.prose-sm.max-w-none(
-    class="prose-p:my-1 prose-pre:my-2"
     :style="INHERIT_PROSE"
     :allow-html="false"
     :text="question.question"
@@ -75,27 +74,51 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .flex.min-w-0.flex-col(class="gap-0.5")
           span.text-sm.font-medium(data-test="custom-option") Type something.
           p.text-muted-foreground.text-xs(v-if="!readonly") Type your answer in the field below
-          p.text-sm(v-else) {{ answer.custom || "(empty)" }}
+          MarkdownText.prose.prose-sm.max-w-none(
+            v-else
+            class="prose-p:my-1 prose-pre:my-2"
+            :style="INHERIT_PROSE"
+            :allow-html="false"
+            :text="answer.custom || '(empty)'"
+            data-test="custom-review"
+          )
   .flex.flex-col.gap-1(v-if="!readonly")
-    label.text-muted-foreground.text-xs(:for="`note-${index}`")
+    span.text-muted-foreground.text-xs
       | {{ answer.customSelected ? "Custom answer" : "Note (optional)" }}
-    Textarea(
-      :placeholder="answer.customSelected ? 'Write your own answer…' : 'Add context for this answer…'"
-      rows="2"
-      :id="`note-${index}`"
-      :model-value="answer.notes"
+    .rounded-lg(
       :class="{ 'questionnaire-custom-blink': blinking }"
-      @update:model-value="(value) => emit('notes', String(value))"
       @animationend="blinking = false"
-      :disabled="disabled"
-      data-test="note"
     )
-  p.text-muted-foreground.text-xs(v-else-if="answer.notes") Note: {{ answer.notes }}
+      MarkdownEditor(
+        ref="notesEditor"
+        v-model:resize-height="noteHeight"
+        :placeholder="answer.customSelected ? 'Write your own answer… Markdown supported.' : 'Add context for this answer… Markdown supported.'"
+        resizable
+        test-id="note"
+        :model-value="answer.notes"
+        :aria-label="answer.customSelected ? 'Custom answer' : 'Note'"
+        @update:model-value="(value) => emit('notes', String(value))"
+        :disabled="disabled"
+      )
+
+  .flex.flex-col(v-else-if="answer.notes")
+    p.text-muted-foreground.text-xs Note
+    MarkdownText.prose.prose-sm.max-w-none(
+      :style="INHERIT_PROSE"
+      :allow-html="false"
+      :text="answer.notes"
+      data-test="note-review"
+    )
 </template>
 
 <script setup lang="ts">
+import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
-import { Textarea } from "@/components/ui/textarea";
+import { useSessionEditorHeight } from "@/composables/useEditorHeight";
+import {
+  COMPACT_EDITOR_HEIGHT,
+  QUESTIONNAIRE_NOTE_HEIGHT_KEY,
+} from "@/lib/editorHeight";
 import { INHERIT_PROSE } from "@/lib/markdown";
 import type {
   QuestionnaireAnswer,
@@ -106,7 +129,6 @@ import { nextTick, ref, watch } from "vue";
 
 const props = defineProps<{
   question: QuestionnaireQuestion;
-  index: number;
   answer: QuestionnaireAnswer;
   disabled: boolean;
 
@@ -119,13 +141,16 @@ const emit = defineEmits<{
 }>();
 
 const blinking = ref(false);
+const notesEditor = ref<InstanceType<typeof MarkdownEditor> | null>(null);
+
+const noteHeight = useSessionEditorHeight(
+  QUESTIONNAIRE_NOTE_HEIGHT_KEY,
+  COMPACT_EDITOR_HEIGHT,
+);
 
 async function focusNotes() {
   await nextTick();
-  const field = document.getElementById(`note-${props.index}`);
-  if (field instanceof HTMLTextAreaElement) {
-    field.focus();
-  }
+  notesEditor.value?.focus();
 
   blinking.value = false;
   await nextTick();

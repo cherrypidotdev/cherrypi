@@ -444,7 +444,7 @@ import {
   Trash2Icon,
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { computed, onMounted, ref, watchEffect } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
 
@@ -452,7 +452,12 @@ const route = useRoute();
 const router = useRouter();
 const id = Number(route.params.id);
 
-const tab = ref("profile");
+const TABS = ["profile", "members", "projects", "settings"];
+const tab = ref(
+  typeof route.query.tab === "string" && TABS.includes(route.query.tab)
+    ? route.query.tab
+    : "profile",
+);
 const team = ref<Team>();
 const members = ref<TeamMember[]>([]);
 const invitations = ref<TeamInvitation[]>([]);
@@ -487,6 +492,13 @@ const canDelete = computed(() => isAdmin.value || team.value?.role === "owner");
 const teamLogo = computed(() => toSvg(String(id || "team"), 56));
 
 watchEffect(() => setPageTitle(team.value?.name || "Team"));
+
+watch(tab, (value) => {
+  const next = { ...route.query };
+  if (value === "profile") delete next.tab;
+  else next.tab = value;
+  void router.replace({ query: next });
+});
 
 function projectLogo(projectId: string): string {
   return toSvg(projectId, 24);

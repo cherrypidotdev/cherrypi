@@ -20,6 +20,7 @@ import type { TaskEvent } from "./gen/buf/agent/v1/task_pb.js";
 import type {
   Task,
   TaskComment,
+  TaskHoldReleaseMode,
   TaskPriority,
   TaskReferenceKind,
   TaskSize,
@@ -147,10 +148,22 @@ export interface ListTasksFilter {
   limit?: number;
 
   offset?: number;
+
+  parentTaskId?: string;
 }
 
 export interface ReopenTaskOptions {
   queue?: boolean;
+}
+
+export interface ReleaseTaskHoldInput {
+  plugin: string;
+
+  key: string;
+
+  mode?: TaskHoldReleaseMode;
+
+  prompt?: string;
 }
 
 export interface CreateTaskInput {
@@ -193,6 +206,8 @@ export interface CreateTaskInput {
   autoTitle?: boolean;
 
   state?: TaskState;
+
+  parentTaskId?: string;
 }
 
 export interface TaskReferenceInput {
@@ -359,6 +374,8 @@ export interface CreateTagInput {
   color?: string;
 
   isDefault?: boolean;
+
+  isRequired?: boolean;
 }
 
 export interface UpdateTagInput {
@@ -367,6 +384,8 @@ export interface UpdateTagInput {
   color?: string;
 
   isDefault?: boolean;
+
+  isRequired?: boolean;
 }
 
 export interface TagLimitInput {
@@ -428,6 +447,12 @@ export interface AttentionNotification {
   severity: string;
   title: string;
   body: string;
+
+  promptScope: string;
+
+  promptProjectId: string;
+
+  promptTeamId: number;
 
   createdAt: string;
 

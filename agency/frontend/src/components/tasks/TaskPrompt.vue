@@ -31,6 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @change="onModelChange"
           :disabled="savingModel || !agentId"
         )
+
       template(v-if="!editing")
         .flex.flex-col.gap-2
           .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm.transition-colors(
@@ -54,6 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             data-testid="prompt-attachments"
           )
             AttachmentList(
+              compact
               :removable="editable"
               :attachments="task.attachments"
               @remove="emit('remove', $event)"
@@ -64,9 +66,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           PencilIcon.size-3(v-if="editable")
           span {{ hintText }}
+
       template(v-else)
         .flex.flex-col.gap-2
           WritePreviewTabs(v-model="tab" test-id="prompt-tab")
+
           .relative(
             @dragenter.prevent="onDragEnter"
             @dragover.prevent
@@ -105,6 +109,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :style="inheritProse"
                 :text="draft"
               )
+
           .flex.flex-wrap.items-center.gap-2(v-if="showAttachments")
             AttachmentUploadButton(
               label="Attach"
@@ -112,6 +117,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :task-id="task.id"
               @uploaded="onUploaded"
             )
+
             Button(
               type="button"
               variant="outline"
@@ -121,11 +127,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               PencilIcon(data-icon="inline-start")
               span Sketch
+
             span.text-muted-foreground.text-xs(
               v-if="!task.attachments.length && !uploading"
             ) Paste, drop, or pick files to attach them to the prompt
+
             span.text-muted-foreground.text-xs(v-if="uploading")
               | Uploading…
+
           div(
             v-if="showAttachments && task.attachments.length"
             data-testid="prompt-attachments"
@@ -133,11 +142,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             AttachmentList(
               removable
               sketchable
+              compact
               :attachments="task.attachments"
               @remove="emit('remove', $event)"
               @sketch="openSketch"
               @open="emit('openAttachment', $event)"
             )
+
           .flex.items-center.gap-2
             span.text-muted-foreground.mr-auto.text-xs
               | Ctrl+Enter to save · Tab indents
@@ -158,6 +169,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Spinner(v-if="saving" data-icon="inline-start")
               CheckIcon(v-else data-icon="inline-start")
               span Save
+
           p.text-destructive.text-xs(v-if="error") {{ error }}
 
   SketchDialog(

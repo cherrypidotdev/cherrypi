@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         variant="default"
         title="New task"
         aria-label="New task"
-        @click="newTaskOpen = true"
+        @click="openNewTask"
       )
         PlusIcon
 
@@ -308,7 +308,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     main.flex-1.overflow-auto
       RouterView(v-slot="{ Component }")
         component(:key="route.fullPath" :is="Component")
-  TaskComposerDialog(v-model:open="newTaskOpen")
+  TaskComposerDialog(
+    v-model:open="newTaskOpen"
+    :default-project-id="pageProjectId"
+  )
 </template>
 
 <script setup lang="ts">
@@ -322,6 +325,7 @@ import { attentionPreference } from "@/composables/useAttentionPreferences";
 import { useDirectory } from "@/composables/useDirectory";
 import { useFleetConcurrency } from "@/composables/useFleetConcurrency";
 import { useNotifications } from "@/composables/useNotifications";
+import { usePageProject } from "@/composables/usePageProject";
 import { usePageTitle } from "@/composables/usePageTitle";
 import {
   startRealtime,
@@ -383,6 +387,13 @@ const { settings, loadSettings } = useSettings();
 const { collapsed, toggle, isSectionOpen, toggleSection } = useSidebar();
 
 const newTaskOpen = ref(false);
+const { projectId: pageProjectId, resolve: resolvePageProject } =
+  usePageProject();
+
+function openNewTask() {
+  void resolvePageProject();
+  newTaskOpen.value = true;
+}
 const { agents, loadAgents } = useAgents();
 const { users, loadUsers } = useUsers();
 

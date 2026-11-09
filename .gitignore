@@ -16,6 +16,7 @@
 
 .pi
 node_modules
+.prettier-cache
 cherrypi_home
 dist/
 agency_home/

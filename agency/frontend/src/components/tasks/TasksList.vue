@@ -74,7 +74,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         size="sm"
         :title="action.unavailableHint"
         @click="runStateAction(action)"
-        :disabled="bulkBusy || action.unavailable"
+        :disabled="bulkBusy || action.unavailable || (!closeOutSelection && CLOSE_OUT_ACTION_KEYS.has(action.key))"
       )
         component.size-3(:is="action.icon" data-icon="inline-start")
         span {{ action.label }}
@@ -848,7 +848,7 @@ const tabActions = computed<BulkAction[]>(() => {
       CANCEL_ACTION,
     ];
   }
-  if (state === TaskState.QUEUED) {
+  if (state === TaskState.QUEUED || state === TaskState.WAITING) {
     return [
       {
         key: "dequeue",
@@ -857,6 +857,8 @@ const tabActions = computed<BulkAction[]>(() => {
         icon: Undo2Icon,
         run: (task) => agent.dequeueTask(task.id),
       },
+      COMPLETE_ACTION,
+      CANCEL_ACTION,
     ];
   }
   if (state === TaskState.SETTLED) {
@@ -914,7 +916,16 @@ const CLOSED_OUT_STATES: TaskState[] = [
 const archiveableSelection = computed(
   () =>
     selectedTasks.value.length > 0 &&
-    selectedTasks.value.every((task) => CLOSED_OUT_STATES.includes(task.state)),
+    selectedTasks.value.every(
+      (task) => CLOSED_OUT_STATES.includes(task.state) && task.canCloseOut,
+    ),
+);
+
+const CLOSE_OUT_ACTION_KEYS = new Set(["complete", "cancel", "archive"]);
+const closeOutSelection = computed(
+  () =>
+    selectedTasks.value.length > 0 &&
+    selectedTasks.value.every((task) => task.canCloseOut),
 );
 const archiveHint = computed(() =>
   archiveableSelection.value
@@ -1032,7 +1043,9 @@ function applyArchivedRemoveTag(tag: Tag) {
   applyRemoveTag(tag, archivedSelectedTasks.value);
 }
 
-const prefs = ref<UserPreferences>({ notify_first_archive: true });
+const prefs = ref<UserPreferences>({
+  notify_first_archive: true,
+});
 const archiveDialog = ref(false);
 const archiveTargets = ref<Task[]>([]);
 

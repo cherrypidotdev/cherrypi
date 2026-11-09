@@ -15,15 +15,22 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 -- name: InsertUsage :exec
-INSERT INTO usage (session_id, provider, model, input_tokens, output_tokens, cost, active_ms, at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO usage (
+  session_id, provider, model, input_tokens, output_tokens, cost, active_ms,
+  tool_ms, model_wait_ms, ttft_ms, at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SumUsageBySession :one
 SELECT
   CAST(COALESCE(SUM(input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost,
-  CAST(COALESCE(SUM(active_ms), 0) AS INTEGER) AS active_ms
+  CAST(COALESCE(SUM(active_ms), 0) AS INTEGER) AS active_ms,
+  CAST(COALESCE(SUM(tool_ms), 0) AS INTEGER) AS tool_ms,
+  CAST(COALESCE(SUM(model_wait_ms), 0) AS INTEGER) AS model_wait_ms,
+  CAST(COALESCE(SUM(ttft_ms), 0) AS INTEGER) AS ttft_ms,
+  CAST(COUNT(CASE WHEN ttft_ms > 0 THEN 1 END) AS INTEGER) AS ttft_runs
 FROM usage
 WHERE session_id = ?;
 
@@ -34,6 +41,10 @@ SELECT
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost,
   CAST(COALESCE(SUM(active_ms), 0) AS INTEGER) AS active_ms,
+  CAST(COALESCE(SUM(tool_ms), 0) AS INTEGER) AS tool_ms,
+  CAST(COALESCE(SUM(model_wait_ms), 0) AS INTEGER) AS model_wait_ms,
+  CAST(COALESCE(SUM(ttft_ms), 0) AS INTEGER) AS ttft_ms,
+  CAST(COUNT(CASE WHEN ttft_ms > 0 THEN 1 END) AS INTEGER) AS ttft_runs,
   CAST(COALESCE(MAX(at), 0) AS INTEGER) AS last_at
 FROM usage
 GROUP BY session_id

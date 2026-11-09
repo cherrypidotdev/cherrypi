@@ -968,6 +968,18 @@ func (s *PgStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskWait:
+		return s.q.WaitTask(ctx, pgdb.WaitTaskParams(WaitTaskParams{
+			QueuedAt:  p.QueuedAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
+	case TaskUnwait:
+		return s.q.UnwaitTask(ctx, pgdb.UnwaitTaskParams(UnwaitTaskParams{
+			QueuedAt:  p.QueuedAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
 	case TaskDequeue:
 		return s.q.DequeueTask(ctx, pgdb.DequeueTaskParams(DequeueTaskParams{
 			UpdatedAt: p.UpdatedAt,
@@ -990,6 +1002,26 @@ func (s *PgStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskReleaseSettle:
+		return s.q.ReleaseSettleTask(
+			ctx,
+			pgdb.ReleaseSettleTaskParams(ReleaseSettleTaskParams{
+				SettledAt: p.SettledAt,
+				UpdatedAt: p.UpdatedAt,
+				ID:        p.ID,
+			}),
+		)
+	case TaskReleaseQueue:
+		return s.q.ReleaseQueueTask(
+			ctx,
+			pgdb.ReleaseQueueTaskParams(ReleaseQueueTaskParams{
+				PendingPrompt:        p.PendingPrompt,
+				PendingPromptActorID: p.PendingPromptActorID,
+				QueuedAt:             p.QueuedAt,
+				UpdatedAt:            p.UpdatedAt,
+				ID:                   p.ID,
+			}),
+		)
 	case TaskInput:
 		return s.q.MarkTaskInput(ctx, pgdb.MarkTaskInputParams(MarkTaskInputParams{
 			UpdatedAt: p.UpdatedAt,
@@ -1038,6 +1070,13 @@ func (s *PgStore) TransitionTask(
 		}))
 	case TaskFail:
 		return s.q.FailTask(ctx, pgdb.FailTaskParams(FailTaskParams{
+			Error:     p.Error,
+			SettledAt: p.SettledAt,
+			UpdatedAt: p.UpdatedAt,
+			ID:        p.ID,
+		}))
+	case TaskFailResting:
+		return s.q.FailRestingTask(ctx, pgdb.FailRestingTaskParams(FailRestingTaskParams{
 			Error:     p.Error,
 			SettledAt: p.SettledAt,
 			UpdatedAt: p.UpdatedAt,

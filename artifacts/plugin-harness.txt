@@ -1,0 +1,18 @@
+$ cherrypi-plugin lint plugins/acme-incident-manager
+ok acme-incident-manager 0.1.0 (plugin API 0.1.0)
+
+$ cherrypi-plugin test plugins/acme-incident-manager
+PASS test/incident_test.lua
+1 test files passed
+
+$ cherrypi-plugin test plugins/acme-git-reviewer
+PASS test/reviewer_test.lua
+1 test files passed
+$ cherrypi-plugin e2e plugins/acme-incident-manager --scenario plugins/acme-incident-manager/plugin-test.yaml --with-agent
+agency http://127.0.0.1:45753
+seeded project Incident Management, agent 1, plugin acme-incident-manager
+agent online
+ok the webhook creates an incident task
+ok the agent runs and settles
+ok the mock messenger received the reply
+passed 3 steps

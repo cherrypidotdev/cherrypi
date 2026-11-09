@@ -52,6 +52,7 @@ func (s *TaskServer) CreateTask(
 		AgencyProjectID:    req.Ref.GetProjectId(),
 		AgencySeq:          req.Ref.GetSeq(),
 		Sender:             sessionSender(req.Sender),
+		PluginTools:        sessionPluginTools(req.Tools),
 	})
 	if err != nil {
 		return nil, connectError(err)
@@ -89,6 +90,21 @@ func sessionAttachments(refs []*agentv1.AttachmentRef) []session.Attachment {
 			ContentType: ref.ContentType,
 			Size:        ref.Size,
 			URL:         ref.Url,
+		})
+	}
+	return out
+}
+
+func sessionPluginTools(tools []*agentv1.PluginTool) []session.PluginTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]session.PluginTool, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, session.PluginTool{
+			Name:        tool.GetName(),
+			Description: tool.GetDescription(),
+			InputSchema: tool.GetInputSchema(),
 		})
 	}
 	return out
@@ -471,6 +487,29 @@ func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
 				FollowUp: ev.Queue.FollowUp,
 			},
 		}
+	case session.EventPending:
+		pending := &agentv1.PendingActivity{}
+		if ev.Pending != nil {
+			pending.Kind = agentv1.PendingActivity_Kind(ev.Pending.Kind)
+			pending.Model = ev.Pending.Model
+			pending.Error = ev.Pending.Error
+			pending.Attempt = ev.Pending.Attempt
+			pending.MaxAttempts = ev.Pending.MaxAttempts
+			pending.Reason = ev.Pending.Reason
+		}
+		out.Event = &agentv1.TaskEvent_PendingActivity{PendingActivity: pending}
+	case session.EventModelWait:
+		wait := &agentv1.ModelWait{}
+		if ev.ModelWait != nil {
+			wait.Kind = agentv1.ModelWait_Kind(ev.ModelWait.Kind)
+			wait.Model = ev.ModelWait.Model
+			wait.DurationMs = ev.ModelWait.DurationMs
+			wait.FirstToken = ev.ModelWait.FirstToken
+			wait.Error = ev.ModelWait.Error
+			wait.Attempt = ev.ModelWait.Attempt
+			wait.Reason = ev.ModelWait.Reason
+		}
+		out.Event = &agentv1.TaskEvent_ModelWait{ModelWait: wait}
 	}
 
 	return out

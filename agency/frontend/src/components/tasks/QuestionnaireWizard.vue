@@ -17,47 +17,55 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-Card.border-primary
-  CardHeader
-    CardTitle.text-sm
-      | {{ readonly ? readonlyTitle : "Need your input" }}
-    p.text-muted-foreground.flex.items-center.gap-1.text-xs(
-      v-if="readonly && answeredBy"
-      data-test="questionnaire-answered-by"
-    )
-      UserRoundIcon.size-3
-      span Answered by {{ answeredByLabel(answeredBy) }}
-    CardDescription(v-if="readonly && unavailable")
-      | This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text.
-    CardDescription(v-else-if="readonly && cancelled") The questionnaire was declined.
-    CardDescription(v-else-if="readonly") Review the answers that were sent; they can no longer be changed.
-    CardDescription(v-else-if="submitting") Sending your answers…
-    CardDescription(v-else-if="multiple") Answer the questions below, then submit them together.
-    CardDescription(v-else) Answer the question below, then submit.
-  CardContent
+section.d-card.bg-base-100.border-base-300.border
+  .d-card-body.gap-3
+    header.flex.flex-col
+      h2.d-card-title.text-sm
+        | {{ readonly ? readonlyTitle : "Need your input" }}
+      p.text-muted-foreground.flex.items-center.gap-1.text-xs(
+        v-if="readonly && answeredBy"
+        data-test="questionnaire-answered-by"
+      )
+        UserRoundIcon.size-3
+        span Answered by {{ answeredByLabel(answeredBy) }}
+      p.text-muted-foreground.text-sm(v-if="readonly && unavailable")
+        | This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text.
+      p.text-muted-foreground.text-sm(v-else-if="readonly && cancelled")
+        | The questionnaire was declined.
+      p.text-muted-foreground.text-sm(v-else-if="readonly")
+        | Review the answers that were sent; they can no longer be changed.
+      p.text-muted-foreground.text-sm(v-else-if="submitting")
+        | Sending your answers…
+      p.text-muted-foreground.text-sm(v-else-if="multiple")
+        | Answer the questions below, then submit them together.
+      p.text-muted-foreground.text-sm(v-else)
+        | Answer the question below, then submit.
+
     .flex.items-center.gap-3(v-if="multiple && !readonly" data-test="progress")
-      .bg-muted.flex-1.overflow-hidden.rounded-full(class="h-1.5")
-        .bg-primary.h-full.rounded-full.duration-150.ease-out(
-          class="transition-[width]"
-          role="progressbar"
-          aria-valuemin="0"
-          :style="{ width: `${percent}%` }"
-          :aria-valuenow="answeredCount"
-          :aria-valuemax="questions.length"
-        )
+      progress.d-progress.d-progress-primary.flex-1(
+        :value="answeredCount"
+        aria-label="Questions answered"
+        :max="questions.length"
+      )
       span.text-muted-foreground.text-xs.tabular-nums
         | {{ answeredCount }} / {{ questions.length }} answered
 
-    Tabs.gap-3(v-if="multiple" v-model="active")
-      .w-full.overflow-x-auto.overscroll-x-contain(
+    template(v-if="multiple")
+      .w-full.overflow-x-auto.overflow-y-hidden.overscroll-none(
         ref="tabStrip"
         class="[&::-webkit-scrollbar-thumb]:bg-border [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
       )
-        TabsList.w-max.justify-start
-          TabsTrigger.shrink-0(
+        .d-tabs.d-tabs-box.d-tabs-sm.w-max(role="tablist")
+          button.d-tab.shrink-0(
             v-for="(question, index) in questions"
             :key="index"
-            :value="String(index + 1)"
+            type="button"
+            class="gap-1.5"
+            role="tab"
+            :aria-selected="active === String(index + 1)"
+            :tabindex="active === String(index + 1) ? 0 : -1"
+            @click="selectTab(index)"
+            @keydown="onTabKeydown($event, index)"
           )
             span.truncate
               MarkdownText(
@@ -68,14 +76,13 @@ Card.border-primary
             CheckIcon.size-3(v-if="answered(index)" data-test="tab-answered")
             HourglassIcon.size-3.opacity-50(v-else data-test="tab-unanswered")
 
-      TabsContent(
+      template(
         v-for="(question, index) in questions"
         :key="`question-${index}`"
-        :value="String(index + 1)"
       )
         QuestionEditor(
+          v-if="active === String(index + 1)"
           :question="question"
-          :index="index"
           :answer="answerAt(index)"
           :readonly="readonly"
           @toggle="toggleOption(question, index, $event)"
@@ -84,69 +91,62 @@ Card.border-primary
           :disabled="disabled"
         )
 
-    template(v-else-if="single")
-      QuestionEditor(
-        :question="single"
-        :index="0"
-        :answer="answerAt(0)"
-        :readonly="readonly"
-        @toggle="toggleOption(single, 0, $event)"
-        @toggle-custom="toggleCustom(0)"
-        @notes="setNotes(0, $event)"
-        :disabled="disabled"
-      )
-      p.text-destructive.mt-2.text-xs(v-if="errors") {{ errors }}
-
-    p.text-destructive.mt-2.text-xs(v-if="multiple && errors") {{ errors }}
-
-    .mt-3.border-t.pt-3(
-      v-if="readonly && finalNote.trim()"
-      data-test="final-note-review"
+    QuestionEditor(
+      v-else-if="single"
+      :question="single"
+      :answer="answerAt(0)"
+      :readonly="readonly"
+      @toggle="toggleOption(single, 0, $event)"
+      @toggle-custom="toggleCustom(0)"
+      @notes="setNotes(0, $event)"
+      :disabled="disabled"
     )
-      p.text-muted-foreground.text-xs Final note
-      MarkdownText.prose.prose-sm.max-w-none(
-        class="prose-p:my-1 prose-pre:my-2"
-        :style="INHERIT_PROSE"
-        :allow-html="false"
-        :text="finalNote"
-      )
 
-  CardFooter.flex-col.items-stretch.gap-3.border-t(v-if="!readonly")
-    .w-full
-      button.flex.w-full.items-center.gap-2.rounded-md.text-left(
+    .d-alert.d-alert-error.d-alert-soft.py-2.text-xs(
+      v-if="errors"
+      role="alert"
+    )
+      CircleAlertIcon(:size="14")
+      span {{ errors }}
+
+  template(v-if="!readonly")
+    .d-collapse.d-collapse-arrow.rounded-none.border-t(
+      :class="{ 'd-collapse-open': finalNoteOpen }"
+    )
+      button.d-collapse-title.flex.items-center.gap-2.text-left(
         type="button"
         aria-controls="questionnaire-final-note"
         :aria-expanded="finalNoteOpen"
         @click="finalNoteOpen = !finalNoteOpen"
         data-test="final-note-toggle"
       )
-        ChevronRightIcon.size-3.shrink-0.transition-transform(
-          aria-hidden="true"
-          :class="{ 'rotate-90': finalNoteOpen }"
-        )
         span.text-sm.font-medium Final note (optional)
-        span.text-muted-foreground.text-xs(
+        span.d-badge.d-badge-sm.d-badge-soft(
           v-if="finalNote.trim() && !finalNoteOpen"
-        ) · added
-      .flex.flex-col.gap-1.pt-2(v-if="finalNoteOpen")
-        label.text-muted-foreground.text-xs(for="questionnaire-final-note") A note about the questionnaire as a whole
-        Textarea#questionnaire-final-note(
-          placeholder="Anything not tied to a single answer…"
-          rows="2"
-          :model-value="finalNote"
-          @update:model-value="(value) => (finalNote = String(value))"
-          :disabled="submitting"
-          data-test="final-note"
-        )
-    .flex.flex-wrap.items-center.justify-between.gap-2
-      Button(
-        variant="ghost"
-        size="sm"
+        ) added
+
+      .d-collapse-content
+        .flex.flex-col.gap-1(v-if="finalNoteOpen")
+          #questionnaire-final-note
+            MarkdownEditor(
+              v-model="finalNote"
+              v-model:resize-height="finalNoteHeight"
+              placeholder="Anything not tied to a single answer… Markdown supported."
+              aria-label="Final note"
+              resizable
+              test-id="final-note"
+              :disabled="submitting"
+            )
+
+    .flex.flex-wrap.items-center.justify-between.gap-2.border-t.p-3
+      button.d-btn.d-btn-ghost.d-btn-sm(
+        type="button"
         @click="emit('decline')"
         :disabled="submitting"
       )
-        XIcon(data-icon="inline-start")
+        XIcon(:size="16")
         span Decline
+
       .flex.items-center.gap-2
         TaskModelPicker(
           v-if="agentId"
@@ -157,27 +157,35 @@ Card.border-primary
           @change="emit('modelChange', $event)"
           :disabled="modelDisabled || submitting"
         )
-        Button(@click="submit" :disabled="disabled || remaining > 0")
-          Spinner(v-if="submitting" data-icon="inline-start")
-          SendIcon(v-else data-icon="inline-start")
-          span {{ submitting ? "Submitting…" : "Submit answers" }}
+        button.d-btn.d-btn-primary(
+          type="button"
+          @click="submit"
+          :disabled="disabled || remaining > 0"
+          data-test="questionnaire-submit"
+        )
+          span.d-loading.d-loading-spinner.d-loading-xs(v-if="submitting")
+          SendIcon(v-else :size="16")
+          span {{ submitting ? "Submitting…" : "Submit" }}
+
+  .border-t.p-4(v-else-if="finalNote.trim()" data-test="final-note-review")
+    p.text-muted-foreground.text-xs Final note
+    MarkdownText.prose.prose-sm.max-w-none(
+      class="prose-p:my-1 prose-pre:my-2"
+      :style="INHERIT_PROSE"
+      :allow-html="false"
+      :text="finalNote"
+    )
 </template>
 
 <script setup lang="ts">
+import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
-import { Button } from "@/components/ui/button";
+import { useSessionEditorHeight } from "@/composables/useEditorHeight";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+  COMPACT_EDITOR_HEIGHT,
+  QUESTIONNAIRE_FINAL_NOTE_HEIGHT_KEY,
+} from "@/lib/editorHeight";
 import { INHERIT_PROSE } from "@/lib/markdown";
 import {
   answeredByLabel,
@@ -194,9 +202,10 @@ import {
 import type { TaskConfig } from "@cherrypi/sdk";
 import {
   CheckIcon,
-  ChevronRightIcon,
+  CircleAlertIcon,
   HourglassIcon,
   SendIcon,
+  UserRoundIcon,
   XIcon,
 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
@@ -332,6 +341,11 @@ const finalNote = ref(
     : (initialDraft?.finalNote ?? ""),
 );
 const finalNoteOpen = ref(finalNote.value.trim().length > 0);
+
+const finalNoteHeight = useSessionEditorHeight(
+  QUESTIONNAIRE_FINAL_NOTE_HEIGHT_KEY,
+  COMPACT_EDITOR_HEIGHT,
+);
 const active = ref("1");
 const tabStrip = ref<HTMLElement | null>(null);
 const multiple = computed(() => props.questions.length > 1);
@@ -399,11 +413,6 @@ const remaining = computed(
   () => props.questions.filter((_, i) => !isAnswered(answers.value[i]!)).length,
 );
 const answeredCount = computed(() => props.questions.length - remaining.value);
-const percent = computed(() =>
-  props.questions.length === 0
-    ? 0
-    : Math.round((answeredCount.value / props.questions.length) * 100),
-);
 const disabled = computed(() => props.submitting);
 
 function label(question: QuestionnaireQuestion, index: number): string {
@@ -417,6 +426,39 @@ function answerAt(index: number): QuestionnaireAnswer {
 function answered(index: number): boolean {
   const answer = answers.value[index];
   return answer ? isAnswered(answer) : false;
+}
+
+function selectTab(index: number) {
+  active.value = String(index + 1);
+}
+
+function onTabKeydown(event: KeyboardEvent, index: number) {
+  const last = props.questions.length - 1;
+  let target: number;
+  switch (event.key) {
+    case "ArrowRight":
+      target = index === last ? 0 : index + 1;
+      break;
+    case "ArrowLeft":
+      target = index === 0 ? last : index - 1;
+      break;
+    case "Home":
+      target = 0;
+      break;
+    case "End":
+      target = last;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  selectTab(target);
+  void nextTick(() => {
+    tabStrip.value
+      ?.querySelectorAll<HTMLElement>('[role="tab"]')
+      .item(target)
+      ?.focus();
+  });
 }
 
 function setNotes(index: number, value: string) {
@@ -482,7 +524,9 @@ function submit() {
 watch(active, () => {
   void nextTick(() => {
     const strip = tabStrip.value;
-    const element = strip?.querySelector<HTMLElement>('[data-state="active"]');
+    const element = strip?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    );
     if (!strip || !element) {
       return;
     }

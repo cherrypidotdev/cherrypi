@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
@@ -25,6 +26,7 @@ import (
 	dashboardgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/desktop"
 	notificationsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/notifications"
+	pluginsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/plugins"
 	projectsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/projects"
 	promptsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/prompts"
 	realtimegrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/realtime"
@@ -39,13 +41,37 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/agency/internal/telemetry"
 	agencyv1connect "cherrypi.vladfaust.com/shared/gen/buf/agency/v1/agencyv1connect"
 	tunnelv1connect "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1/tunnelv1connect"
 	sharedtunnel "cherrypi.vladfaust.com/shared/tunnel"
 	"connectrpc.com/connect"
+	"connectrpc.com/otelconnect"
 )
 
 func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	var telemetryInterceptor *otelconnect.Interceptor
+	if telemetry.Enabled() {
+		var err error
+
+		telemetryInterceptor, err = otelconnect.NewInterceptor(
+			otelconnect.WithFilter(func(_ context.Context, spec connect.Spec) bool {
+				return spec.StreamType == connect.StreamTypeUnary
+			}),
+		)
+		if err != nil {
+			log.Printf("OpenTelemetry RPC interceptor disabled: %v", err)
+		}
+	}
+
+	handlerOptions := func(extra ...connect.HandlerOption) []connect.HandlerOption {
+		opts := make([]connect.HandlerOption, 0, len(extra)+1)
+		if telemetryInterceptor != nil {
+			opts = append(opts, connect.WithInterceptors(telemetryInterceptor))
+		}
+		return append(opts, extra...)
+	}
+
 	agentService := &agentsgrpc.AgentServer{
 		Agents:      appCtx.Agents,
 		Prompts:     appCtx.Prompts,
@@ -57,14 +83,14 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Hub:         appCtx.Hub,
 		Accounts:    appCtx.Accounts,
 	}
-	path, handler := agencyv1connect.NewAgentServiceHandler(agentService)
+	path, handler := agencyv1connect.NewAgentServiceHandler(agentService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	settingsService := &settingsgrpc.SettingsServer{
 		Settings:    appCtx.Settings,
 		Attachments: appCtx.Attachments,
 	}
-	path, handler = agencyv1connect.NewSettingsServiceHandler(settingsService)
+	path, handler = agencyv1connect.NewSettingsServiceHandler(settingsService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	siteService := &sitesgrpc.SiteServer{
@@ -72,7 +98,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Accounts:    appCtx.Accounts,
 		Attachments: appCtx.Attachments,
 	}
-	path, handler = agencyv1connect.NewSiteServiceHandler(siteService)
+	path, handler = agencyv1connect.NewSiteServiceHandler(siteService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	projectService := &projectsgrpc.ProjectServer{
@@ -80,8 +106,11 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Agents:      appCtx.Agents,
 		Hub:         appCtx.Hub,
 		Attachments: appCtx.Attachments,
+		Limits:      appCtx.Limits,
+		Tags:        appCtx.Tags,
+		Scheduler:   appCtx.Scheduler,
 	}
-	path, handler = agencyv1connect.NewProjectServiceHandler(projectService)
+	path, handler = agencyv1connect.NewProjectServiceHandler(projectService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	promptService := &promptsgrpc.PromptServer{
@@ -94,11 +123,13 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Teams:    appCtx.Teams,
 		Accounts: appCtx.Accounts,
 	}
-	path, handler = agencyv1connect.NewPromptServiceHandler(promptService)
+	path, handler = agencyv1connect.NewPromptServiceHandler(promptService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	templateService := &tasktemplatesgrpc.Server{Templates: appCtx.Templates}
-	path, handler = agencyv1connect.NewTaskTemplateServiceHandler(templateService)
+	path, handler = agencyv1connect.NewTaskTemplateServiceHandler(
+		templateService,
+		handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	taskService := &taskgrpc.TaskServer{
@@ -110,6 +141,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Attachments: appCtx.Attachments,
 		Artifacts:   appCtx.Artifacts,
 		Templates:   appCtx.Templates,
+		Plugins:     appCtx.Plugins,
 		Actors: func(ctx context.Context, id ids.ActorID) (taskgrpc.ActorInfo, error) {
 			actor, err := appCtx.Accounts.GetActor(ctx, id)
 			if err != nil {
@@ -144,12 +176,15 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	)
 	path, handler = agencyv1connect.NewTaskServiceHandler(
 		taskService,
-		connect.WithInterceptors(actorInterceptor),
+		handlerOptions(connect.WithInterceptors(actorInterceptor))...,
 	)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
-	tagService := &tagsgrpc.TagServer{Tags: appCtx.Tags}
-	path, handler = agencyv1connect.NewTagServiceHandler(tagService)
+	tagService := &tagsgrpc.TagServer{
+		Tags:      appCtx.Tags,
+		Scheduler: appCtx.Scheduler,
+	}
+	path, handler = agencyv1connect.NewTagServiceHandler(tagService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	dashboardService := &dashboardgrpc.DashboardServer{
@@ -157,7 +192,9 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Store:  appCtx.Store,
 		Health: appCtx.Health,
 	}
-	path, handler = agencyv1connect.NewDashboardServiceHandler(dashboardService)
+	path, handler = agencyv1connect.NewDashboardServiceHandler(
+		dashboardService,
+		handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	terminalService := &terminalgrpc.TerminalServer{
@@ -165,29 +202,40 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Agents:   appCtx.Agents,
 		Realtime: appCtx.Realtime,
 	}
-	path, handler = agencyv1connect.NewTerminalServiceHandler(terminalService)
+	path, handler = agencyv1connect.NewTerminalServiceHandler(terminalService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	realtimeService := &realtimegrpc.Server{Bus: appCtx.Realtime}
-	path, handler = agencyv1connect.NewRealtimeServiceHandler(realtimeService)
+	path, handler = agencyv1connect.NewRealtimeServiceHandler(realtimeService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	desktopService := &desktopgrpc.DesktopServer{Hub: appCtx.Hub}
-	path, handler = agencyv1connect.NewDesktopServiceHandler(desktopService)
+	path, handler = agencyv1connect.NewDesktopServiceHandler(desktopService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	notificationService := &notificationsgrpc.NotificationServer{
 		Notifications: appCtx.Notifications,
 	}
-	path, handler = agencyv1connect.NewNotificationServiceHandler(notificationService)
+	path, handler = agencyv1connect.NewNotificationServiceHandler(
+		notificationService,
+		handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	webhookService := &webhookgrpc.WebhookServer{Store: appCtx.Store, Notifier: appCtx.Webhooks}
-	path, handler = agencyv1connect.NewWebhookServiceHandler(webhookService)
+	path, handler = agencyv1connect.NewWebhookServiceHandler(webhookService, handlerOptions()...)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
+	pluginService := &pluginsgrpc.Server{
+		Plugins:  appCtx.Plugins,
+		Projects: appCtx.Projects,
+		Agents:   appCtx.Agents,
+		Accounts: appCtx.Accounts,
+	}
+	path, handler = agencyv1connect.NewPluginServiceHandler(pluginService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	tunnelService := &tunnelServer{appCtx: appCtx}
-	path, handler = tunnelv1connect.NewTunnelServiceHandler(tunnelService)
+	path, handler = tunnelv1connect.NewTunnelServiceHandler(tunnelService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 	mux.Handle(sharedtunnel.WSPath, http.HandlerFunc(tunnelService.WS))
 }

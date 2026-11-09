@@ -46,9 +46,11 @@ type historyMessage struct {
 
 // historyEntry is one line of Pi's session JSONL.
 type historyEntry struct {
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp"`
-	Message   json.RawMessage `json:"message"`
+	Type       string          `json:"type"`
+	Timestamp  string          `json:"timestamp"`
+	Message    json.RawMessage `json:"message"`
+	CustomType string          `json:"customType"`
+	Data       json.RawMessage `json:"data"`
 }
 
 type historyEvent struct {
@@ -132,14 +134,20 @@ func parseHistoryLine(line []byte) []Event {
 	}
 
 	var entry historyEntry
-	if json.Unmarshal(line, &entry) != nil || entry.Type != "message" {
+	if json.Unmarshal(line, &entry) != nil {
+		return nil
+	}
+	at := parseHistoryTime(entry.Timestamp)
+	if entry.Type == "custom" {
+		return parseCustomHistoryEntry(entry, at)
+	}
+	if entry.Type != "message" {
 		return nil
 	}
 	var msg historyMessage
 	if json.Unmarshal(entry.Message, &msg) != nil {
 		return nil
 	}
-	at := parseHistoryTime(entry.Timestamp)
 
 	switch msg.Role {
 	case "user":
@@ -187,6 +195,17 @@ func parseHistoryLine(line []byte) []Event {
 	}
 
 	return nil
+}
+
+func parseCustomHistoryEntry(entry historyEntry, at time.Time) []Event {
+	if entry.CustomType != modelWaitCustomType {
+		return nil
+	}
+	wait, ok := parseModelWait(entry.Data)
+	if !ok {
+		return nil
+	}
+	return []Event{{Kind: EventModelWait, At: at, ModelWait: wait}}
 }
 
 func (s *Session) sessionFilePath() string {

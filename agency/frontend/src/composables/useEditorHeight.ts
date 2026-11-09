@@ -19,9 +19,10 @@ import { ref, watch, type Ref } from "vue";
 
 export function useSessionEditorHeight(
   storageKey: string,
+  fallback?: number,
 ): Ref<number | undefined> {
   const height = ref<number | undefined>(
-    loadEditorHeight(storageKey) ?? undefined,
+    loadEditorHeight(storageKey) ?? fallback,
   );
 
   watch(height, (value) => {

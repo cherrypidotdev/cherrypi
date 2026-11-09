@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/attachments"
+	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/settings"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	"connectrpc.com/connect"
@@ -47,6 +48,13 @@ func (s *SettingsServer) UpdateSettings(
 	ctx context.Context,
 	req *agencyv1.UpdateSettingsRequest,
 ) (*agencyv1.UpdateSettingsResponse, error) {
+
+	if !auth.IsAdmin(ctx) {
+		return nil, connect.NewError(
+			connect.CodePermissionDenied,
+			errors.New("only administrators may change organization settings"),
+		)
+	}
 	in := req.Settings
 	if in == nil {
 
@@ -56,16 +64,33 @@ func (s *SettingsServer) UpdateSettings(
 			NotificationSoundSet: settings.DefaultNotificationSoundSet,
 		}
 	}
+	cur, err := s.Settings.Get(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	voice := cur
+	if in.VoiceInput != nil {
+		voice.VoiceInputEnabled = in.VoiceInput.Enabled
+		voice.STTBaseURL = in.VoiceInput.BaseUrl
+		voice.STTModel = in.VoiceInput.Model
+	}
 	updated, err := s.Settings.Update(ctx, settings.Settings{
 		AgencyName:           in.AgencyName,
 		PrimaryColor:         in.PrimaryColor,
 		ShowUsageKPI:         in.ShowUsageKpi,
 		ShowConcurrencyKPI:   in.ShowConcurrencyKpi,
 		NotificationSoundSet: in.NotificationSoundSet,
+		VoiceInputEnabled:    voice.VoiceInputEnabled,
+		STTBaseURL:           voice.STTBaseURL,
+		STTModel:             voice.STTModel,
+		STTAPIKey:            req.GetVoiceInputApiKey(),
+		ClearSTTAPIKey:       req.GetClearApiKey(),
 	})
 	if err != nil {
 		if errors.Is(err, settings.ErrInvalidColor) ||
-			errors.Is(err, settings.ErrInvalidSoundSet) {
+			errors.Is(err, settings.ErrInvalidSoundSet) ||
+			errors.Is(err, settings.ErrInvalidSTTBaseURL) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -85,6 +110,13 @@ func (s *SettingsServer) toProto(
 		NotificationSoundSet: in.NotificationSoundSet,
 		Logo:                 s.attachment(ctx, in.LogoAttachmentID),
 		Favicon:              s.attachment(ctx, in.FaviconAttachmentID),
+		VoiceInput: &agencyv1.VoiceInput{
+			Enabled:          in.VoiceInputEnabled,
+			BaseUrl:          in.STTBaseURL,
+			Model:            in.STTModel,
+			HasApiKey:        in.HasSTTAPIKey(),
+			ServerConfigured: in.ServerTranscription(),
+		},
 	}
 }
 

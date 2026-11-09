@@ -27,6 +27,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :aria-label="ariaLabel"
     :title="title"
   )
+    .absolute.inset-y-0.border-l(
+      v-if="reservedPercent > 0"
+      class="border-amber-500/40 bg-amber-500/20"
+      :style="{ left: `${100 - reservedPercent}%`, width: `${reservedPercent}%` }"
+      :title="reservedTitle"
+    )
     .h-full.rounded-full.transition-all.duration-300(
       :class="fillClass"
       :style="{ width: `${percent}%` }"
@@ -52,6 +58,8 @@ const props = withDefaults(
     used: number;
     cap: number;
     waiting?: number;
+
+    reserved?: number;
     label?: string;
     size?: "sm" | "md" | "lg";
     showCount?: boolean;
@@ -59,11 +67,21 @@ const props = withDefaults(
   }>(),
   {
     waiting: 0,
+    reserved: 0,
     label: "Capacity",
     size: "md",
     showCount: true,
     showWaiting: true,
   },
+);
+
+const reservedPercent = computed(() => {
+  if (props.cap <= 0 || props.reserved <= 0) return 0;
+  return Math.max(0, Math.min(100, (props.reserved / props.cap) * 100));
+});
+
+const reservedTitle = computed(
+  () => `${props.reserved} of ${props.cap} slot(s) reserved`,
 );
 
 const percent = computed(() => {

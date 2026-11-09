@@ -18,7 +18,7 @@ package protocol
 
 import "golang.org/x/mod/semver"
 
-const Version = "v0.1.4"
+const Version = "v0.1.6"
 
 type Compatibility int64
 

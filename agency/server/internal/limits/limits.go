@@ -98,6 +98,17 @@ func (s *Service) Get(ctx context.Context, agentID ids.AgentID) (Limits, error) 
 	return out, nil
 }
 
+func (l Limits) Declares(projectID, tagName, tagID string) bool {
+	if _, ok := l.Tags[strings.ToLower(strings.TrimSpace(tagName))]; ok {
+		return true
+	}
+	if projectID == "" || tagID == "" {
+		return false
+	}
+	_, ok := l.ProjectTags[projectID][tagID]
+	return ok
+}
+
 func (s *Service) Update(ctx context.Context, agentID ids.AgentID, in Limits) (Limits, error) {
 	if in.MaxConcurrent < 0 || in.MaxConcurrentPerProject < 0 {
 		return Limits{}, ErrInvalidLimit

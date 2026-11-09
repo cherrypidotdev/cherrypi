@@ -15,8 +15,8 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 -- name: CreateTag :one
-INSERT INTO tags (id, project_id, name, description, color, is_default, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO tags (id, project_id, name, description, color, is_default, is_required, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetTag :one
@@ -50,8 +50,8 @@ SELECT tags.*, (
 FROM tags WHERE id = $1;
 
 -- name: UpdateTag :one
-UPDATE tags SET name = $1, description = $2, color = $3, is_default = $4, updated_at = $5
-WHERE id = $6
+UPDATE tags SET name = $1, description = $2, color = $3, is_default = $4, is_required = $5, updated_at = $6
+WHERE id = $7
 RETURNING *;
 
 -- name: SetTagArchived :one

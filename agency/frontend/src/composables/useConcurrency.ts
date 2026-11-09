@@ -24,7 +24,11 @@ import {
   type ProjectConcurrencyBoard,
 } from "@/lib/concurrency";
 import { agency } from "@/lib/sdk";
-import type { AgentTaskLimits, Project } from "@cherrypi/sdk";
+import type {
+  AgentTaskLimits,
+  Project,
+  ProjectTagReservation,
+} from "@cherrypi/sdk";
 import { ref, toValue, watch, type MaybeRefOrGetter } from "vue";
 
 export function useAgentConcurrency(agentId: MaybeRefOrGetter<string>) {
@@ -48,11 +52,30 @@ export function useAgentConcurrency(agentId: MaybeRefOrGetter<string>) {
       await Promise.all([loadAgents(), refreshTags()]);
       const agent = agents.value.find((item) => item.id === id);
       if (!agent) throw new Error("Agent not found");
-      const [tasks, limits, projects] = await Promise.all([
+      const [tasks, limits, projects, memberships] = await Promise.all([
         agency.listTasks({ agentId: id }),
         agency.getAgentTaskLimits(id),
+
         agency.listAgentProjects(id),
+
+        agency.listAgentMemberships(id),
       ]);
+
+      const reservable = new Set(
+        memberships
+          .filter((membership) => membership.canCreateTasks)
+          .map((membership) => membership.project?.id ?? ""),
+      );
+
+      const flat = await agency.listProjectTagReservationsFor(
+        projects.map((project) => project.id),
+      );
+      const reservations = new Map<string, ProjectTagReservation[]>();
+      for (const reservation of flat) {
+        const list = reservations.get(reservation.projectId) ?? [];
+        list.push(reservation);
+        reservations.set(reservation.projectId, list);
+      }
       if (current !== generation) return;
       board.value = buildAgentBoard({
         agent,
@@ -60,6 +83,8 @@ export function useAgentConcurrency(agentId: MaybeRefOrGetter<string>) {
         limits,
         tasks,
         allTags: tags.value,
+        reservations,
+        reservableProjectIds: reservable,
       });
       error.value = "";
     } catch (err) {
@@ -100,9 +125,10 @@ export function useProjectConcurrency(
     loading.value = true;
     try {
       await Promise.all([loadAgents(), refreshTags()]);
-      const [memberList, tasks] = await Promise.all([
+      const [memberList, tasks, reservations] = await Promise.all([
         agency.listProjectAgents(currentProject.id),
         agency.listTasks(),
+        agency.listProjectTagReservations(currentProject.id),
       ]);
       const memberAgents = memberList
         .map((member) =>
@@ -119,9 +145,16 @@ export function useProjectConcurrency(
       board.value = buildProjectBoard({
         project: currentProject,
         members: memberAgents,
+
+        capacityAgentIds: new Set(
+          memberList
+            .filter((member) => member.canCreateTasks)
+            .map((member) => member.agentId),
+        ),
         tasks,
         limitsByAgent: new Map<string, AgentTaskLimits>(limits),
         allTags: tags.value,
+        reservations,
       });
       error.value = "";
     } catch (err) {

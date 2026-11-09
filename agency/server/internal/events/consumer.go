@@ -61,6 +61,8 @@ type Consumer struct {
 
 	OnTaskFailed func()
 
+	OnTaskEvent func(ctx context.Context, event, taskID string, extra map[string]any)
+
 	Artifacts *artifacts.Service
 
 	Realtime *realtime.Bus
@@ -157,20 +159,28 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 			OutputTokens: int64Value(msg.Payload["output_tokens"]),
 			Cost:         floatValue(msg.Payload["cost"]),
 			ActiveMs:     int64Value(msg.Payload["active_ms"]),
+			ToolMs:       int64Value(msg.Payload["tool_ms"]),
+			ModelWaitMs:  int64Value(msg.Payload["model_wait_ms"]),
+			TtftMs:       int64Value(msg.Payload["ttft_ms"]),
 			At:           int64Value(msg.Payload["at"]),
 		})
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_USAGE)
 
 	case "user_input_requested":
+		taskID := c.taskID(ctx, agentID, sessionID)
+		title := stringValue(msg.Payload["title"])
 		c.notifyTask(
 			ctx,
 			agentID,
-			c.taskID(ctx, agentID, sessionID),
+			taskID,
 			"input_requested",
 			"warning",
 			"Input requested",
-			stringValue(msg.Payload["title"]),
+			title,
 		)
+		if c.OnTaskEvent != nil && taskID != "" {
+			c.OnTaskEvent(ctx, "task_requested_input", taskID, map[string]any{"title": title})
+		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
 
@@ -222,10 +232,11 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 	case "agent_state_changed":
 		if stringValue(msg.Payload["state"]) == "failed" {
 			errMsg := stringValue(msg.Payload["error"])
+			taskID := c.taskID(ctx, agentID, sessionID)
 			c.notifyTask(
 				ctx,
 				agentID,
-				c.taskID(ctx, agentID, sessionID),
+				taskID,
 				"failed",
 				"error",
 				"Task failed",
@@ -234,8 +245,13 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 			if c.Tasks != nil {
 				if err := c.Tasks.FailBySession(ctx, agentID, sessionID, errMsg); err != nil {
 					log.Printf("[events %d] fail task %s: %v", agentID, sessionID, err)
-				} else if c.OnTaskFailed != nil {
-					c.OnTaskFailed()
+				} else {
+					if c.OnTaskFailed != nil {
+						c.OnTaskFailed()
+					}
+					if c.OnTaskEvent != nil && taskID != "" {
+						c.OnTaskEvent(ctx, "task_failed", taskID, map[string]any{"error": errMsg})
+					}
 				}
 			}
 		}

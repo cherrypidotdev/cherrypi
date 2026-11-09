@@ -44,6 +44,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           size="sm"
           :used="board.held"
           :cap="board.capSum"
+          :reserved="reservedTotal"
           :waiting="board.waiting.length"
           :show-count="false"
         )
@@ -116,6 +117,80 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
         Card
           CardHeader
+            CardTitle Reserved slots
+            CardDescription
+              | Slots kept free for one tag class. A task without the tag starts
+              | only while the project and its member agents have more than the
+              | reserved count to spare; a task with the tag may use them.
+          CardContent.flex.flex-col.gap-3.px-4.pb-4
+            p.text-muted-foreground.text-xs(v-if="!reservationRows.length")
+              | Nothing is reserved. Every member agent's slots are available to
+              | any task.
+            .flex.flex-col.gap-2(v-else)
+              .flex.flex-wrap.items-center.gap-2.border-b.pb-2(
+                v-for="row in reservationRows"
+                :key="row.tagName"
+              )
+                span.text-3xs.inline-flex.items-center.gap-1.rounded-full.border(
+                  class="px-1.5 py-0.5"
+                  :style="tagStyle(row.color)"
+                )
+                  span.size-1.rounded-full.bg-current
+                  span {{ "#" + row.tagName }}
+                span.text-2xs.text-muted-foreground.font-mono.tabular-nums
+                  | {{ row.held }} held
+                .ml-auto.flex.items-center.gap-2
+                  Input.w-20(
+                    v-if="editable"
+                    v-model.number="draft[row.tagName]"
+                    type="number"
+                    min="0"
+                    :aria-label="`Reserved slots for #${row.tagName}`"
+                  )
+                  span.text-2xs(v-else) {{ row.reserved }} reserved
+                  Button(
+                    v-if="editable"
+                    variant="ghost"
+                    size="icon-sm"
+                    title="Remove"
+                    @click="removeReservation(row.tagName)"
+                  )
+                    Trash2Icon.size-4
+            .flex.flex-wrap.items-center.gap-2(v-if="editable")
+              Select(v-model="newTag")
+                SelectTrigger.w-40
+                  SelectValue(placeholder="Add a tag")
+                SelectContent
+                  SelectItem(
+                    v-for="tag in reservableTags"
+                    :key="tag.id"
+                    :value="tag.name"
+                  ) {{ "#" + tag.name }}
+              Input.w-20(
+                v-model.number="newReserved"
+                type="number"
+                min="1"
+                aria-label="Reserved slots"
+              )
+              Button(
+                size="sm"
+                variant="outline"
+                @click="addReservation"
+                :disabled="!newTag || newReserved < 1 || saving"
+              ) Add
+              Button.ml-auto(
+                size="sm"
+                @click="saveReservations"
+                :disabled="!dirty || saving"
+              ) {{ saving ? "Saving…" : "Save" }}
+            p.text-destructive.text-3xs(v-if="saveError") {{ saveError }}
+            .flex.flex-col.gap-1(v-if="warnings.length")
+              p.text-3xs.dark_text-amber-400.text-amber-600(
+                v-for="warning in warnings"
+                :key="warning"
+              ) {{ warning }}
+        Card
+          CardHeader
             CardTitle Tag caps in this project
             CardDescription Global tag caps apply in every project; a project × tag cap narrows one tag here.
           CardContent.px-0.pb-2
@@ -182,6 +257,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import ConcurrencyWaitingList from "@/components/concurrency/ConcurrencyWaitingList.vue";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -189,18 +265,165 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectConcurrency } from "@/composables/useConcurrency";
+import { useTags } from "@/composables/useTags";
+import { currentAccount } from "@/lib/account";
 import { agentStatusClass, agentStatusLabel } from "@/lib/agent";
+import { reservedSlots } from "@/lib/concurrency";
+import { agency } from "@/lib/sdk";
 import { tagStyle } from "@/lib/task";
 import type { Agent, Project } from "@cherrypi/sdk";
-import { SettingsIcon } from "@lucide/vue";
+import { SettingsIcon, Trash2Icon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
+import { computed, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
-const props = defineProps<{ project: Project }>();
+const props = defineProps<{ project: Project; canManage: boolean }>();
 
-const { board, loading, error } = useProjectConcurrency(() => props.project);
+const { board, loading, error, refresh } = useProjectConcurrency(
+  () => props.project,
+);
+const { all: tags } = useTags(() => props.project?.id);
+
+const isAdmin = computed(() => currentAccount.value?.is_admin === true);
+const editable = computed(() => props.canManage || isAdmin.value);
+
+const saved = ref<Record<string, number>>({});
+
+const draft = ref<Record<string, number>>({});
+let loadedProjectId = "";
+const newTag = ref("");
+const newReserved = ref(1);
+const saving = ref(false);
+const saveError = ref("");
+
+function differs(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const name of names) {
+    if ((a[name] ?? 0) !== (b[name] ?? 0)) return true;
+  }
+  return false;
+}
+
+const dirty = computed(() => differs(draft.value, saved.value));
+
+watch(
+  board,
+  (value) => {
+    const next: Record<string, number> = {};
+    for (const reservation of value?.reservations ?? []) {
+      next[reservation.tagName.toLowerCase()] = reservation.reserved;
+    }
+    const projectId = value?.project.id ?? "";
+
+    if (projectId === loadedProjectId && dirty.value) {
+      saved.value = next;
+      return;
+    }
+    loadedProjectId = projectId;
+    saved.value = next;
+    draft.value = { ...next };
+  },
+  { immediate: true },
+);
+
+const reservedTotal = computed(() => reservedSlots(draft.value));
+
+const capacity = computed(() => board.value?.capSum ?? 0);
+
+const smallestAgentCap = computed(() => {
+  const caps = (board.value?.members ?? []).map(
+    (member) => member.board.overall.cap,
+  );
+  return caps.length ? Math.min(...caps) : 0;
+});
+
+const warnings = computed(() => {
+  const out: string[] = [];
+  const total = reservedTotal.value;
+  if (total <= 0) return out;
+  if (capacity.value > 0 && total >= capacity.value) {
+    out.push(
+      `The project keeps ${total} of its ${capacity.value} slots reserved, so a ` +
+        `task without these tags can never start here.`,
+    );
+  }
+  for (const row of reservationRows.value) {
+    if (smallestAgentCap.value > 0 && row.reserved > smallestAgentCap.value) {
+      out.push(
+        `#${row.tagName} reserves ${row.reserved}, more than the smallest member ` +
+          `agent's ${smallestAgentCap.value} slots: that agent can then run no ` +
+          `task without #${row.tagName}, in any project.`,
+      );
+    }
+  }
+  return out;
+});
+
+const tagByName = computed(
+  () =>
+    new Map(tags.value.map((tag) => [tag.name.toLowerCase(), tag] as const)),
+);
+
+const reservationRows = computed(() =>
+  Object.entries(draft.value)
+    .filter(([, reserved]) => reserved > 0)
+    .map(([tagName, reserved]) => ({
+      tagName,
+      reserved,
+      color: tagByName.value.get(tagName)?.color ?? "",
+      held: board.value?.floor.byClass[tagName] ?? 0,
+    }))
+    .sort((a, b) => a.tagName.localeCompare(b.tagName)),
+);
+
+const reservableTags = computed(() =>
+  tags.value.filter((tag) => !(tag.name.toLowerCase() in draft.value)),
+);
+
+function addReservation() {
+  const name = newTag.value.trim().toLowerCase();
+  if (!name) return;
+  draft.value = { ...draft.value, [name]: Math.max(1, newReserved.value || 1) };
+  newTag.value = "";
+  newReserved.value = 1;
+}
+
+function removeReservation(name: string) {
+  const next = { ...draft.value };
+  delete next[name];
+  draft.value = next;
+}
+
+async function saveReservations() {
+  saving.value = true;
+  saveError.value = "";
+  try {
+    await agency.updateProjectTagReservations(
+      props.project.id,
+      Object.entries(draft.value)
+        .filter(([, reserved]) => reserved > 0)
+        .map(([tagName, reserved]) => ({ tagName, reserved })),
+    );
+    await refresh();
+  } catch (err) {
+    saveError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    saving.value = false;
+  }
+}
 
 function avatar(agent: Agent): string {
   return toSvg(agent.id, 24);

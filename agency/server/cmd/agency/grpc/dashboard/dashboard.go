@@ -113,6 +113,11 @@ func (s *DashboardServer) GetUsage(
 			OutputTokens: row.OutputTokens,
 			Cost:         row.Cost,
 			ActiveMs:     row.ActiveMs,
+			ThinkingMs:   thinkingMs(row.ActiveMs, row.ToolMs),
+			ToolMs:       row.ToolMs,
+			ModelWaitMs:  row.ModelWaitMs,
+			TtftMs:       row.TtftMs,
+			TtftRuns:     row.TtftRuns,
 			Runs:         row.Runs,
 		})
 		resp.InputTokens += row.InputTokens
@@ -151,6 +156,11 @@ func (s *DashboardServer) GetUsage(
 			Cost:         row.Cost,
 			Runs:         row.Runs,
 			Tasks:        row.Tasks,
+			ActiveMs:     row.ActiveMs,
+			ToolMs:       row.ToolMs,
+			ModelWaitMs:  row.ModelWaitMs,
+			TtftMs:       row.TtftMs,
+			TtftRuns:     row.TtftRuns,
 		})
 	}
 
@@ -170,6 +180,13 @@ func (s *DashboardServer) GetUsage(
 	}
 
 	return resp, nil
+}
+
+func thinkingMs(activeMs, toolMs int64) int64 {
+	if thinking := activeMs - toolMs; thinking > 0 {
+		return thinking
+	}
+	return 0
 }
 
 func usageKey(agentID ids.AgentID, sessionID string) string {
@@ -268,6 +285,11 @@ func mergeLiveUsage(
 		OutputTokens: bucket.OutputTokens,
 		Cost:         bucket.Cost,
 		ActiveMs:     bucket.ActiveMs,
+		ThinkingMs:   bucket.ThinkingMs,
+		ToolMs:       bucket.ToolMs,
+		ModelWaitMs:  bucket.ModelWaitMs,
+		TtftMs:       bucket.TtftMs,
+		TtftRuns:     bucket.TtftRuns,
 		Runs:         1,
 	}
 	key := usageKey(agentID, bucket.TaskId)
@@ -340,7 +362,28 @@ func (s *DashboardServer) GetTaskUsage(
 	if len(res.Tasks) > 0 {
 		usage = res.Tasks[0]
 	}
-	return &agencyv1.GetTaskUsageResponse{Usage: usage}, nil
+
+	runs, err := s.Store.ListAgentUsageRuns(ctx, req.TaskId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	out := make([]*agencyv1.AgentUsageRun, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, &agencyv1.AgentUsageRun{
+			Provider:     run.Provider,
+			Model:        run.Model,
+			InputTokens:  run.InputTokens,
+			OutputTokens: run.OutputTokens,
+			Cost:         run.Cost,
+			ActiveMs:     run.ActiveMs,
+			ThinkingMs:   thinkingMs(run.ActiveMs, run.ToolMs),
+			ToolMs:       run.ToolMs,
+			ModelWaitMs:  run.ModelWaitMs,
+			TtftMs:       run.TtftMs,
+			At:           timestamppb.New(time.UnixMilli(run.At)),
+		})
+	}
+	return &agencyv1.GetTaskUsageResponse{Usage: usage, Runs: out}, nil
 }
 
 func (s *DashboardServer) GetDiskUsage(

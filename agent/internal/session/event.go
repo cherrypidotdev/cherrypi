@@ -73,7 +73,30 @@ const (
 	EventExtensionUI
 	EventUser
 	EventQueue
+
+	EventPending
+
+	EventModelWait
 )
+
+type PendingKind int
+
+const (
+	PendingModelRequest PendingKind = 1
+
+	PendingRetry PendingKind = 2
+
+	PendingCompaction PendingKind = 3
+)
+
+type PendingActivityEvent struct {
+	Kind        PendingKind
+	Model       string
+	Error       string
+	Attempt     uint32
+	MaxAttempts uint32
+	Reason      string
+}
 
 type Event struct {
 	Kind      EventKind
@@ -86,6 +109,18 @@ type Event struct {
 	Line      string
 	Extension *ExtensionUIEvent
 	Queue     *QueueEvent
+	Pending   *PendingActivityEvent
+	ModelWait *ModelWaitEvent
+}
+
+type ModelWaitEvent struct {
+	Kind       PendingKind
+	Model      string
+	DurationMs int64
+	FirstToken bool
+	Error      string
+	Attempt    uint32
+	Reason     string
 }
 
 type QueueEvent struct {

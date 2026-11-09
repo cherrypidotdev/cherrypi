@@ -27,6 +27,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/actorid"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/promptaccess"
 	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
@@ -299,22 +300,41 @@ func (h *Handler) agentPromptTarget(
 		if projectID == "" {
 			return promptaccess.Target{}, errProjectRequired
 		}
+		resolved, err := h.resolvePromptProject(ctx, projectID)
+		if err != nil {
+			return promptaccess.Target{}, err
+		}
 		return promptaccess.Target{
 			Scope:     prompts.ScopeAgentProject,
 			AgentID:   agent.ID,
-			ProjectID: projectID,
+			ProjectID: resolved,
 		}, nil
 	case "project":
 		if projectID == "" {
 			return promptaccess.Target{}, errProjectRequired
 		}
+		resolved, err := h.resolvePromptProject(ctx, projectID)
+		if err != nil {
+			return promptaccess.Target{}, err
+		}
 		return promptaccess.Target{
 			Scope:     prompts.ScopeProject,
-			ProjectID: projectID,
+			ProjectID: resolved,
 		}, nil
 	default:
 		return promptaccess.Target{}, errInvalidPromptScope
 	}
+}
+
+func (h *Handler) resolvePromptProject(
+	ctx context.Context,
+	projectID string,
+) (string, error) {
+	project, err := h.Projects.Get(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	return project.ID, nil
 }
 
 var (
@@ -399,6 +419,8 @@ func (h *Handler) promptActor(ctx context.Context, id ids.ActorID) *promptActorJ
 
 func writePromptError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, projects.ErrProjectMissing):
+		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, promptflow.ErrForbidden):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, prompts.ErrInvalidScope),

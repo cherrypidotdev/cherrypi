@@ -52,8 +52,20 @@ Card
             @click="sortBy('tokens')"
           ) Tokens
           TableHead.cursor-pointer.text-right.select-none(
+            title="Time from the first queue to completion"
+            @click="sortBy('ttc')"
+          ) TTC
+          TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('active')"
           ) Active
+          TableHead.cursor-pointer.text-right.select-none(
+            title="The model's own working time: active time minus tool calls"
+            @click="sortBy('thinking')"
+          ) Thinking
+          TableHead.cursor-pointer.text-right.select-none(
+            title="Run start to first token, averaged over the runs that measured one"
+            @click="sortBy('ttft')"
+          ) TTFT
           TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('cost')"
           ) Cost
@@ -102,7 +114,10 @@ Card
               | {{ taskStateLabel(row.state) }}
           TableCell.text-right.tabular-nums {{ row.runs || "—" }}
           TableCell.text-right.tabular-nums {{ formatTokens(row.inputTokens + row.outputTokens) }}
+          TableCell.text-right.tabular-nums {{ row.task ? formatDuration(ttcOf(row)) : "—" }}
           TableCell.text-right.tabular-nums {{ formatDuration(row.activeMs) }}
+          TableCell.text-right.tabular-nums {{ formatDuration(row.thinkingMs) }}
+          TableCell.text-right.tabular-nums {{ ttftOf(row) }}
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
           TableCell
             .flex.justify-end
@@ -149,9 +164,14 @@ import type {
   UsageContext,
   UsageTaskRow,
 } from "@/composables/useUsageAnalytics";
-import { formatCost, formatDuration, formatTokens } from "@/lib/format";
+import {
+  formatCost,
+  formatDuration,
+  formatDurationPrecise,
+  formatTokens,
+} from "@/lib/format";
 import { taskStateClass, taskStateLabel } from "@/lib/task";
-import { usageAccent } from "@/lib/usage";
+import { averageTtftMs, usageAccent } from "@/lib/usage";
 import { TaskState } from "@cherrypi/sdk";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -169,10 +189,12 @@ const STATE_FILTERS: { value: StateFilter; label: string }[] = [
 ];
 
 const router = useRouter();
-const columnCount = computed(() => 9 + (props.context === "agency" ? 1 : 0));
+const columnCount = computed(() => 12 + (props.context === "agency" ? 1 : 0));
 const stateFilter = ref<StateFilter>("all");
 const search = ref("");
-const sortKey = ref<"runs" | "tokens" | "active" | "cost">("runs");
+const sortKey = ref<
+  "runs" | "tokens" | "active" | "thinking" | "ttc" | "ttft" | "cost"
+>("runs");
 const sortDir = ref<"asc" | "desc">("desc");
 
 const filtered = computed(() => {
@@ -200,14 +222,24 @@ const filtered = computed(() => {
     );
   }
   return [...rows].sort((a, b) => {
-    const value = (row: UsageTaskRow) =>
-      sortKey.value === "runs"
-        ? row.runs
-        : sortKey.value === "tokens"
-          ? row.inputTokens + row.outputTokens
-          : sortKey.value === "active"
-            ? row.activeMs
-            : row.cost;
+    const value = (row: UsageTaskRow) => {
+      switch (sortKey.value) {
+        case "runs":
+          return row.runs;
+        case "tokens":
+          return row.inputTokens + row.outputTokens;
+        case "active":
+          return row.activeMs;
+        case "thinking":
+          return row.thinkingMs;
+        case "ttc":
+          return ttcOf(row);
+        case "ttft":
+          return averageTtftMs(row);
+        default:
+          return row.cost;
+      }
+    };
     const delta = value(a) - value(b);
     return sortDir.value === "desc" ? -delta : delta;
   });
@@ -215,7 +247,18 @@ const filtered = computed(() => {
 
 const visible = computed(() => filtered.value.slice(0, 20));
 
-function sortBy(key: "runs" | "tokens" | "active" | "cost") {
+function ttcOf(row: UsageTaskRow): number {
+  return Number(row.task?.ttcMs ?? 0);
+}
+
+function ttftOf(row: UsageTaskRow): string {
+  if (!row.ttftRuns) return "—";
+  return formatDurationPrecise(averageTtftMs(row));
+}
+
+function sortBy(
+  key: "runs" | "tokens" | "active" | "thinking" | "ttc" | "ttft" | "cost",
+) {
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === "desc" ? "asc" : "desc";
   } else {

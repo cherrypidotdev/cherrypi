@@ -32,10 +32,42 @@ Agency настраивается переменными окружения и, 
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Вложений на сообщение. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Сколько process-логов хранить. |
 | `CHERRYPI_H2C` | выкл. | Cleartext HTTP/2 для диагностики/прямого агента. |
+| `CHERRYPI_OTEL_ENABLED` | авто | Включить OTLP-трейсы, метрики и логи. Автовключение при заданном OTLP-endpoint. |
 | `CHERRYPI_FRONTEND_PROXY_URL` | — | Только dev: проксировать SPA в Vite. |
 | `CHERRYPI_DOCS_PROXY_URL` | — | Только dev: проксировать `/docs` в VitePress. |
 
 Полный список — в [справочнике окружения](/ru/reference/environment).
+
+## Наблюдаемость
+
+Agency может экспортировать трейсы, метрики и логи в любой OpenTelemetry
+collector по OTLP. Используются стандартные переменные `OTEL_*`, поэтому
+подключение — это одно изменение окружения:
+
+```sh
+CHERRYPI_OTEL_ENABLED=1
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=cherrypi-agency
+```
+
+Для локального бэкенда запустите опциональный стек Grafana LGTM (Grafana,
+Tempo, Prometheus и Loki с OTLP-collector'ом) рядом с agency:
+
+```sh
+docker compose -f compose.yaml -f compose.telemetry.yaml up -d --build
+```
+
+Grafana доступна на <http://localhost:3000>; agency обращается к collector'у по
+адресу `otel-lgtm:4317`.
+
+Для collector'а за обычным HTTP-прокси используйте
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` и endpoint на порту `4318`.
+Трейсы покрывают каждый унарный Connect/gRPC вызов, каждый REST-запрос под
+`/api/` и `/plugins/`, и каждый SQL-запрос, поэтому у медленного запроса
+видно, какой именно запрос к базе тормозит. Полный список переменных, включая
+sampling и отключение отдельных сигналов, — в
+[справочнике окружения](/ru/reference/environment#наблюдаемость-opentelemetry).
 
 ## База данных
 

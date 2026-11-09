@@ -34,6 +34,33 @@ export function editorOf(wrapper: VueWrapper): MarkdownEditorHandle {
   return editor.vm as unknown as MarkdownEditorHandle;
 }
 
+export function editorByTestId(
+  wrapper: VueWrapper,
+  testId: string,
+): MarkdownEditorHandle {
+  const matches = wrapper
+    .findAllComponents(MarkdownEditor)
+    .filter((candidate) => candidate.props("testId") === testId);
+  if (matches.length === 0) {
+    throw new Error(`no MarkdownEditor with test-id "${testId}"`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `${matches.length} MarkdownEditors share test-id "${testId}"`,
+    );
+  }
+  return matches[0]!.vm as unknown as MarkdownEditorHandle;
+}
+
+export async function setEditorTextById(
+  wrapper: VueWrapper,
+  testId: string,
+  text: string,
+) {
+  editorByTestId(wrapper, testId).setValue(text);
+  await nextTick();
+}
+
 export function editorRoot(wrapper: VueWrapper): HTMLElement {
   return wrapper.findComponent(MarkdownEditor).element as HTMLElement;
 }

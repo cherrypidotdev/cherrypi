@@ -41,8 +41,12 @@ type Notification struct {
 	Severity  string
 	Title     string
 	Body      string
-	CreatedAt time.Time
-	ReadAt    time.Time
+
+	PromptScope     string
+	PromptProjectID string
+	PromptTeamID    int64
+	CreatedAt       time.Time
+	ReadAt          time.Time
 }
 
 type Service struct {
@@ -110,6 +114,9 @@ func (s *Service) Create(ctx context.Context, n Notification) error {
 		Body:             n.Body,
 		CreatedAt:        createdAt.UnixMilli(),
 		RecipientActorID: nullActorID(n.RecipientActorID),
+		PromptScope:      n.PromptScope,
+		PromptProjectID:  nullString(n.PromptProjectID),
+		PromptTeamID:     sql.NullInt64{Int64: n.PromptTeamID, Valid: n.PromptTeamID != 0},
 	})
 	if err != nil {
 		return err
@@ -227,6 +234,13 @@ func (s *Service) List(
 		if row.RecipientActorID.Valid {
 			n.RecipientActorID = ids.ActorID(row.RecipientActorID.Int64)
 		}
+		n.PromptScope = row.PromptScope
+		if row.PromptProjectID.Valid {
+			n.PromptProjectID = row.PromptProjectID.String
+		}
+		if row.PromptTeamID.Valid {
+			n.PromptTeamID = row.PromptTeamID.Int64
+		}
 		if row.ReadAt.Valid {
 			n.ReadAt = time.UnixMilli(row.ReadAt.Int64)
 		}
@@ -276,4 +290,8 @@ func (s *Service) DeleteAll(ctx context.Context, recipient ids.ActorID) error {
 
 func nullActorID(actorID ids.ActorID) sql.NullInt64 {
 	return sql.NullInt64{Int64: int64(actorID), Valid: actorID != 0}
+}
+
+func nullString(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
 }

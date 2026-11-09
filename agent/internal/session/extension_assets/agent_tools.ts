@@ -14,9 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { readFile } from "node:fs/promises";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  agentTokens,
+  credentialNote,
+  credentialsLine,
+  fetchWithAgentToken,
+} from "./agent_token.ts";
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
@@ -42,6 +47,11 @@ export default function (pi: ExtensionAPI) {
           description: "Match task names, prompts, task ids, or numbers.",
         }),
       ),
+      parentTaskId: Type.Optional(
+        Type.String({
+          description: "Only this task's sub-tasks.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, params) => {
       const query = new URLSearchParams();
@@ -49,6 +59,8 @@ export default function (pi: ExtensionAPI) {
       if (params.agentId) query.set("agent_id", String(params.agentId));
       if (params.state) query.set("state", String(params.state));
       if (params.search) query.set("search", String(params.search));
+      if (params.parentTaskId)
+        query.set("parent_task_id", String(params.parentTaskId));
       return request("GET", `/tasks?${query.toString()}`);
     },
   });
@@ -57,7 +69,7 @@ export default function (pi: ExtensionAPI) {
     name: "getTask",
     label: "Get Task",
     description:
-      "Get one CherryPi task by id: its prompt, state, priority, size, tags, references, links, and assignee. The conversation history is not included; read it with getTaskHistory. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
+      "Get one CherryPi task by id: its prompt, state, priority, size, tags, references, links, assignee, parent, and sub-tasks. The conversation history is not included; read it with getTaskHistory. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
     parameters: Type.Object({
       taskId: Type.String({ description: "The task id to read." }),
     }),
@@ -123,7 +135,7 @@ export default function (pi: ExtensionAPI) {
     name: "createTask",
     label: "Create Task",
     description:
-      "Create a CherryPi task in a project this agent can create in. `state` is required and must be `backlog`: an agent cannot queue work directly. Optionally create it from a project task template with `templateId` and `templateArgs`; an explicit `prompt` is then appended as extra instructions, and explicit fields override the template defaults. Otherwise assign it to a member agent, add tags or references, name it, and set its priority or size.",
+      "Create a CherryPi task in a project this agent can create in. `state` is required and must be `backlog` or `queued`; queuing asks the scheduler to start it immediately. Optionally create it from a project task template with `templateId` and `templateArgs`; an explicit `prompt` is then appended as extra instructions, and explicit fields override the template defaults. Otherwise assign it to a member agent, add tags or references, name it, and set its priority or size.",
     parameters: Type.Object({
       projectId: Type.String({ description: "Project id or slug." }),
       prompt: Type.Optional(
@@ -149,9 +161,9 @@ export default function (pi: ExtensionAPI) {
             "Template argument values, keyed by argument key. Strings, numbers and booleans are accepted.",
         }),
       ),
-      state: Type.Literal("backlog", {
+      state: Type.Union([Type.Literal("backlog"), Type.Literal("queued")], {
         description:
-          "Required initial state. `backlog` is likely to run but not queued yet.",
+          "Required initial state. `backlog` is the editable pre-queue state; `queued` starts it as soon as an agent has a slot.",
       }),
       assigneeId: Type.Optional(
         Type.String({
@@ -188,26 +200,40 @@ export default function (pi: ExtensionAPI) {
             kind: Type.Optional(
               Type.Union(
                 [
-                  Type.Literal("blocking"),
                   Type.Literal("informational"),
+                  Type.Literal("blocked_by"),
+                  Type.Literal("blocks"),
                   Type.Literal("supersedes"),
+                  Type.Literal("superseded_by"),
+                  Type.Literal("blocking"),
                 ],
                 {
                   description:
-                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in backlog, queued, or failed. Defaults to informational.",
+                    "Edge kind from this task's perspective: `blocked_by` gates this task's queuing, `blocks` makes the referenced task wait for this one, `supersedes` cancels the referenced task, and `superseded_by` cancels this one. Defaults to informational.",
                 },
               ),
             ),
           }),
           {
             description:
-              "Tasks this task references; blocking references gate queuing.",
+              "Tasks this task references. `blocked_by` and `blocks` gate queuing; the inverse kinds store the edge on the referenced task.",
           },
         ),
       ),
+      parentTaskId: Type.Optional(
+        Type.String({
+          description:
+            "Make this a sub-task of the given task. Defaults to this agent's own task (CHERRYPI_TASK_ID), so a sub-agent call nests automatically. Pass an empty string to create a top-level task.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, params) => {
-      return request("POST", "/tasks", {
+      const ownTask = process.env.CHERRYPI_TASK_ID ?? "";
+      const parentTaskId =
+        params.parentTaskId !== undefined
+          ? String(params.parentTaskId)
+          : ownTask;
+      const body: Record<string, unknown> = {
         project_id: String(params.projectId ?? ""),
         prompt: String(params.prompt ?? ""),
         template_id: params.templateId ? String(params.templateId) : "",
@@ -223,7 +249,9 @@ export default function (pi: ExtensionAPI) {
           kind: ref.kind ? String(ref.kind) : "informational",
         })),
         state: String(params.state ?? ""),
-      });
+        parent_task_id: parentTaskId,
+      };
+      return request("POST", "/tasks", body);
     },
   });
 
@@ -256,20 +284,23 @@ export default function (pi: ExtensionAPI) {
             kind: Type.Optional(
               Type.Union(
                 [
-                  Type.Literal("blocking"),
                   Type.Literal("informational"),
+                  Type.Literal("blocked_by"),
+                  Type.Literal("blocks"),
                   Type.Literal("supersedes"),
+                  Type.Literal("superseded_by"),
+                  Type.Literal("blocking"),
                 ],
                 {
                   description:
-                    "Edge kind. `blocking` gates this task's queuing; `supersedes` cancels the referenced task when it is in backlog, queued, or failed.",
+                    "Edge kind from this task's perspective: `blocked_by` gates this task's queuing, `blocks` makes the referenced task wait for this one, `supersedes` cancels the referenced task, and `superseded_by` cancels this one.",
                 },
               ),
             ),
           }),
           {
             description:
-              "The complete reference list; an empty list clears it.",
+              "The complete outgoing reference list; an empty list clears it. Incoming edges belong to the task that created them, so an inverse kind here adds an edge this list does not replace.",
           },
         ),
       ),
@@ -295,9 +326,16 @@ export default function (pi: ExtensionAPI) {
             "Pin the task to this actor id; empty clears the pin. Use the member's `actor_id` from listProjects.",
         }),
       ),
+      state: Type.Optional(
+        Type.Union([Type.Literal("completed"), Type.Literal("cancelled")], {
+          description:
+            "Close the task out: `completed` or `cancelled`. Only a lead or an administrator may close out. Queueing is a separate `queueTask` call.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, params) => {
       const body: Record<string, unknown> = {};
+      if (params.state !== undefined) body.state = String(params.state);
       if (params.name !== undefined) body.name = String(params.name);
       if (params.links !== undefined) body.links = params.links;
       if (params.tagIds !== undefined) body.tag_ids = params.tagIds;
@@ -315,6 +353,46 @@ export default function (pi: ExtensionAPI) {
         "PATCH",
         `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}`,
         body,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "queueTask",
+    label: "Queue Task",
+    description:
+      "Move a CherryPi task to queued so the scheduler starts it as soon as an agent has a free slot. The agent may queue the task it is running; queueing any other task needs the can-update permission in its project. Queuing a task that holds an incomplete blocking reference or an unfinished sub-task parks it in `waiting` instead (slot-free), and it is queued again automatically when the last blocker finishes — this is how a task waits for the sub-tasks it just created. Without a blocker, a task that already started is queued by sending it a follow-up instead.",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "The task id to queue." }),
+    }),
+    execute: async (_toolCallId, params) => {
+      return request(
+        "POST",
+        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/queue`,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "closeOutTask",
+    label: "Close Out Task",
+    description:
+      "Complete or cancel a CherryPi task. Only a lead or an administrator may close out; an agent-created task adds its creator agent as a lead, so an agent can close out the work it spawned. A running task must settle or be stopped first.",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "The task id to close out." }),
+      outcome: Type.Union(
+        [Type.Literal("completed"), Type.Literal("cancelled")],
+        {
+          description:
+            "`completed` when the work is done, `cancelled` when abandoned.",
+        },
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      return request(
+        "POST",
+        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/close-out`,
+        { outcome: String(params.outcome ?? "") },
       );
     },
   });
@@ -613,17 +691,6 @@ function agencyUrl(): string {
   return (process.env.CHERRYPI_AGENCY_URL ?? "").replace(/\/+$/, "");
 }
 
-async function token(): Promise<string> {
-  const file = process.env.CHERRYPI_AGENT_TOKEN_FILE ?? "";
-  if (file) {
-    try {
-      const raw = (await readFile(file, "utf8")).trim();
-      if (raw) return raw;
-    } catch {}
-  }
-  return process.env.CHERRYPI_AGENT_TOKEN ?? "";
-}
-
 function priorityValue(value: unknown): number | undefined {
   switch (value) {
     case "low":
@@ -648,23 +715,25 @@ async function request(
   structured = false,
 ) {
   const base = agencyUrl();
-  const bearer = await token();
-  if (!base || !bearer) {
+  const tokens = await agentTokens();
+  if (!base || tokens.length === 0) {
     return text("CherryPi task tools are not configured for this task.");
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`${base}/api/rest/agent-tools${path}`, {
+  const outcome = await fetchWithAgentToken(
+    `${base}/api/rest/agent-tools${path}`,
+    {
       method,
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
+      headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (err) {
-    return text(`Request failed: ${String(err)}`);
+    },
+    tokens,
+  );
+  const res = outcome.res;
+  if (!res) {
+    return text(
+      `Request failed: ${outcome.error ?? "unknown error"}${credentialsLine(outcome)}`,
+    );
   }
 
   const raw = await res.text();
@@ -673,19 +742,22 @@ async function request(
     try {
       message = (JSON.parse(raw) as { error?: string }).error ?? raw;
     } catch {}
-    return text(`CherryPi request failed (${res.status}): ${message}`);
+    return text(
+      `CherryPi request failed (${res.status}): ${message}${credentialsLine(outcome)}`,
+    );
   }
+  const note = credentialNote(outcome);
   if (structured) {
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       return {
-        content: [{ type: "text" as const, text: raw || "OK" }],
+        content: [{ type: "text" as const, text: (raw || "OK") + note }],
         details: parsed,
         structuredContent: parsed,
       };
     } catch {}
   }
-  return text(raw || "OK");
+  return text((raw || "OK") + note);
 }
 
 function text(value: string) {

@@ -21,9 +21,14 @@ package main
 import (
 	"embed"
 	"io/fs"
+	"net/http"
+
+	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
 )
 
 const devBuild = false
+
+func serveDev(*http.ServeMux, *appcontext.AppContext) {}
 
 //go:embed frontenddist/index.html
 var _ string

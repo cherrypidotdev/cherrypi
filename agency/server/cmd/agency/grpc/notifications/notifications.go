@@ -50,16 +50,19 @@ func (s *NotificationServer) ListNotifications(
 	out := make([]*agencyv1.Notification, len(list))
 	for i, n := range list {
 		out[i] = &agencyv1.Notification{
-			Id:        n.ID,
-			AgentId:   actorid.Format(n.AgentID),
-			TaskId:    n.TaskID,
-			ProjectId: n.ProjectID,
-			Kind:      n.Kind,
-			Severity:  n.Severity,
-			Title:     n.Title,
-			Body:      n.Body,
-			CreatedAt: timestamppb.New(n.CreatedAt),
-			ReadAt:    timestampOrNil(n.ReadAt),
+			Id:              n.ID,
+			AgentId:         actorid.Format(n.AgentID),
+			TaskId:          n.TaskID,
+			ProjectId:       n.ProjectID,
+			Kind:            n.Kind,
+			Severity:        n.Severity,
+			Title:           n.Title,
+			Body:            n.Body,
+			PromptScope:     n.PromptScope,
+			PromptProjectId: n.PromptProjectID,
+			PromptTeamId:    n.PromptTeamID,
+			CreatedAt:       timestamppb.New(n.CreatedAt),
+			ReadAt:          timestampOrNil(n.ReadAt),
 		}
 	}
 	return &agencyv1.ListNotificationsResponse{Notifications: out}, nil

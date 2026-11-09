@@ -1,0 +1,342 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+// actor themselves; a project surface needs the plugin actor invited to the
+
+service PluginService {
+  
+  
+  
+  rpc ListPlugins(ListPluginsRequest) returns (ListPluginsResponse);
+  rpc GetPlugin(GetPluginRequest) returns (GetPluginResponse);
+
+  
+  
+  
+  rpc InspectPlugin(InspectPluginRequest) returns (InspectPluginResponse);
+
+  
+  
+  rpc InstallPlugin(InstallPluginRequest) returns (InstallPluginResponse);
+  rpc SetPluginEnabled(SetPluginEnabledRequest) returns (SetPluginEnabledResponse);
+  rpc UninstallPlugin(UninstallPluginRequest) returns (UninstallPluginResponse);
+
+  
+  
+  rpc ListPluginLogs(ListPluginLogsRequest) returns (ListPluginLogsResponse);
+  
+  
+  rpc ListPluginRuntimeLogs(ListPluginRuntimeLogsRequest) returns (ListPluginRuntimeLogsResponse);
+
+  
+  
+  rpc GetPluginSettings(GetPluginSettingsRequest) returns (GetPluginSettingsResponse);
+  rpc UpdatePluginSettings(UpdatePluginSettingsRequest) returns (UpdatePluginSettingsResponse);
+  rpc SetPluginSettingsEnabled(SetPluginSettingsEnabledRequest) returns (SetPluginSettingsEnabledResponse);
+
+  
+  
+  
+  rpc ListSurfacePlugins(ListSurfacePluginsRequest) returns (ListSurfacePluginsResponse);
+
+  
+  rpc GetProjectPlugin(GetProjectPluginRequest) returns (GetProjectPluginResponse);
+  rpc UpdateProjectPlugin(UpdateProjectPluginRequest) returns (UpdateProjectPluginResponse);
+  rpc InvitePluginToProject(InvitePluginToProjectRequest) returns (InvitePluginToProjectResponse);
+}
+
+message Plugin {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  bool enabled = 5;
+  string runtime = 6;
+  string entry = 7;
+  string checksum = 8;
+  // The plugin's actor, used to invite it to projects and to attribute the
+  
+  string actor_id = 9;
+  string actor_username = 10;
+  string actor_name = 11;
+  
+  
+  string manifest_json = 12;
+  repeated string settings_surfaces = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+
+message PluginSettings {
+  string plugin_id = 1;
+  
+  string scope = 2;
+  
+  
+  string target_id = 3;
+  
+  
+  string settings_json = 4;
+  repeated string secret_keys = 5;
+  bool enabled = 6;
+  
+  string schema_json = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  reserved 9; 
+              
+}
+
+
+message PluginSettingError {
+  
+  string path = 1;
+  string error_text = 2;
+}
+
+
+
+
+message PluginSettingErrors {
+  repeated PluginSettingError errors = 1;
+}
+
+
+
+message ProjectPlugin {
+  Plugin plugin = 1;
+  
+  // enabled; the actor is invited through InvitePluginToProject.
+  bool member = 2;
+  bool enabled = 3;
+  bool allow_task_creation = 4;
+  
+  
+  int32 max_priority = 5;
+  string settings_json = 6;
+  repeated string secret_keys = 7;
+  string schema_json = 8;
+  
+  bool can_manage = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  reserved 11; 
+}
+
+message ListPluginsRequest {}
+
+message ListPluginsResponse {
+  repeated Plugin plugins = 1;
+}
+
+message GetPluginRequest {
+  string id = 1;
+}
+
+message GetPluginResponse {
+  Plugin plugin = 1;
+}
+
+message InspectPluginRequest {
+  
+  
+  bytes bundle = 1;
+}
+
+
+message PluginPreview {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  string runtime = 5;
+  string entry = 6;
+  string checksum = 7;
+  
+  string manifest_json = 8;
+  repeated string handlers = 9;
+  repeated string settings_surfaces = 10;
+  
+  bool installed = 11;
+  string installed_version = 12;
+  
+  
+  repeated string warnings = 13;
+  
+  bool compatible = 14;
+}
+
+message InspectPluginResponse {
+  PluginPreview preview = 1;
+}
+
+message InstallPluginRequest {
+  
+  
+  bytes bundle = 1;
+}
+
+message InstallPluginResponse {
+  Plugin plugin = 1;
+}
+
+message SetPluginEnabledRequest {
+  string id = 1;
+  bool enabled = 2;
+}
+
+message SetPluginEnabledResponse {
+  Plugin plugin = 1;
+}
+
+message UninstallPluginRequest {
+  string id = 1;
+  
+  bool purge = 2;
+}
+
+message UninstallPluginResponse {}
+
+message ListPluginLogsRequest {
+  string id = 1;
+  int32 limit = 2;
+}
+
+message PluginLog {
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  string level = 3;
+  string kind = 4;
+  string invocation_id = 5;
+  string message = 6;
+  string data_json = 7;
+  // The settings surfaces a runtime line was emitted for. Empty for Activity
+  
+  repeated PluginLogSurface surfaces = 8;
+}
+
+message PluginLogSurface {
+  string scope = 1;
+  string target_id = 2;
+}
+
+message ListPluginLogsResponse {
+  repeated PluginLog logs = 1;
+}
+
+message ListPluginRuntimeLogsRequest {
+  string plugin_id = 1;
+  // Empty returns every runtime line (plugin log readers only: human
+  
+  
+  string scope = 2;
+  string target_id = 3;
+  
+  string min_level = 4;
+  
+  string search = 5;
+  int32 limit = 6;
+}
+
+message ListPluginRuntimeLogsResponse {
+  repeated PluginLog logs = 1;
+}
+
+message GetPluginSettingsRequest {
+  string plugin_id = 1;
+  string scope = 2;
+  string target_id = 3;
+}
+
+message GetPluginSettingsResponse {
+  PluginSettings settings = 1;
+}
+
+message UpdatePluginSettingsRequest {
+  string plugin_id = 1;
+  string scope = 2;
+  string target_id = 3;
+  string settings_json = 4;
+}
+
+message UpdatePluginSettingsResponse {
+  PluginSettings settings = 1;
+}
+
+message SetPluginSettingsEnabledRequest {
+  string plugin_id = 1;
+  string scope = 2;
+  string target_id = 3;
+  bool enabled = 4;
+}
+
+message SetPluginSettingsEnabledResponse {
+  PluginSettings settings = 1;
+}
+
+message ListSurfacePluginsRequest {
+  string scope = 1;
+  string target_id = 2;
+}
+
+message ListSurfacePluginsResponse {
+  repeated PluginSettings settings = 1;
+  
+  repeated ProjectPlugin project_plugins = 2;
+}
+
+message GetProjectPluginRequest {
+  string plugin_id = 1;
+  string project_id = 2;
+}
+
+message GetProjectPluginResponse {
+  ProjectPlugin project_plugin = 1;
+}
+
+message UpdateProjectPluginRequest {
+  string plugin_id = 1;
+  string project_id = 2;
+  bool enabled = 3;
+  bool allow_task_creation = 4;
+  int32 max_priority = 5;
+  
+  optional string settings_json = 6;
+}
+
+message UpdateProjectPluginResponse {
+  ProjectPlugin project_plugin = 1;
+}
+
+message InvitePluginToProjectRequest {
+  string plugin_id = 1;
+  string project_id = 2;
+  
+  string role = 3;
+}
+
+message InvitePluginToProjectResponse {
+  ProjectPlugin project_plugin = 1;
+}

@@ -89,7 +89,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     TabsContent.flex-1.overflow-auto(value="concurrency")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
-        ProjectConcurrency(v-if="project" :project="project")
+        ProjectConcurrency(
+          v-if="project"
+          :project="project"
+          :can-manage="canManageProject"
+        )
 
     TabsContent(value="settings")
       ProjectSettingsView(
@@ -149,6 +153,8 @@ const tab = ref(
 );
 const project = ref<Project>();
 const canPrompt = ref(false);
+
+const canManageProject = ref(false);
 const error = ref("");
 
 const ancestors = computed(() => {
@@ -191,8 +197,10 @@ async function load() {
     try {
       const access = await projectAccessApi.access(project.value.id);
       canPrompt.value = access.role !== "viewer";
+      canManageProject.value = access.can_manage_access;
     } catch {
       canPrompt.value = false;
+      canManageProject.value = false;
     }
     error.value = "";
   } catch (err) {

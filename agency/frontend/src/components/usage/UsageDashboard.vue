@@ -70,7 +70,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
 
-  UsageKpis(:summary="summary" :daily="daily" :range="range")
+  UsageKpis(
+    :summary="summary"
+    :daily="daily"
+    :insight-daily="insightDaily"
+    :range="range"
+    :context="context"
+  )
 
   UsageInsights(
     v-model:tag-ids="insightTagIds"

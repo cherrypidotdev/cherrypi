@@ -92,9 +92,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             class="relative flex items-start justify-between gap-3 rounded-md border p-3"
             :class="[
               !item.readAt ? 'bg-muted/40' : '',
-              item.taskId || item.kind === 'team_invitation'
-                ? 'transition-colors hover:bg-muted/60'
-                : '',
+              isLinked(item) ? 'transition-colors hover:bg-muted/60' : '',
             ]"
           >
             <div class="flex min-w-0 flex-1 items-start gap-3">
@@ -162,16 +160,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               v-if="isLinked(item)"
               class="absolute inset-0 rounded-md"
               :to="linkFor(item)"
-              :aria-label="
-                item.taskId
-                  ? `Open task for: ${item.title}`
-                  : `Open teams for: ${item.title}`
-              "
-              :title="
-                item.taskId
-                  ? `Open task ${item.taskId.slice(0, 8)}`
-                  : 'Open Teams'
-              "
+              :aria-label="linkLabel(item)"
+              :title="linkTitle(item)"
               @click="openNotification(item)"
             />
           </div>
@@ -211,6 +201,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useNotifications } from "@/composables/useNotifications";
 import { formatTimestamp } from "@/lib/format";
+import { loadPromptRouteTargets, promptRoute } from "@/lib/notificationLink";
 import { plainNotificationText } from "@/lib/notificationText";
 import type { AgencyNotification } from "@cherrypi/sdk";
 import { CheckCheckIcon, CheckIcon, Trash2Icon } from "@lucide/vue";
@@ -270,7 +261,11 @@ function openNotification(item: AgencyNotification) {
 }
 
 function isLinked(item: AgencyNotification): boolean {
-  return Boolean(item.taskId) || item.kind === "team_invitation";
+  return (
+    Boolean(item.taskId) ||
+    item.kind === "team_invitation" ||
+    promptRoute(item) !== null
+  );
 }
 
 function linkFor(item: AgencyNotification): RouteLocationRaw {
@@ -285,8 +280,23 @@ function linkFor(item: AgencyNotification): RouteLocationRaw {
     return { name: "task", params: { id: item.taskId } };
   }
   if (item.kind === "team_invitation") return { name: "teams" };
-  return { name: "inbox" };
+  return promptRoute(item) ?? { name: "inbox" };
 }
 
-onMounted(() => void refresh());
+function linkLabel(item: AgencyNotification): string {
+  if (item.taskId) return `Open task for: ${item.title}`;
+  if (item.kind === "team_invitation") return `Open teams for: ${item.title}`;
+  return `Open prompt for: ${item.title}`;
+}
+
+function linkTitle(item: AgencyNotification): string {
+  if (item.taskId) return `Open task ${item.taskId.slice(0, 8)}`;
+  if (item.kind === "team_invitation") return "Open Teams";
+  return "Open prompt";
+}
+
+onMounted(() => {
+  void refresh();
+  void loadPromptRouteTargets();
+});
 </script>

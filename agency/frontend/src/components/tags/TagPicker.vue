@@ -46,6 +46,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :style="{ backgroundColor: tagColor(tag.color) }"
           )
           span {{ tag.name }}
+          LockIcon.size-3.shrink-0.text-amber-500(
+            v-if="tag.isRequired"
+            title="Only runs on agents that declare this tag"
+          )
       DropdownMenuSeparator
       DropdownMenuItem(@click="openEditor" :disabled="disabled || !projectId")
         PlusIcon
@@ -59,6 +63,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   )
     span.rounded-full.bg-current(class="size-1.5")
     span {{ tag.name }}
+    LockIcon.size-3.shrink-0.text-amber-500(
+      v-if="tag.isRequired"
+      title="Only runs on agents that declare this tag"
+    )
     button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
       type="button"
       class="p-0.5 hover:opacity-100"
@@ -89,7 +97,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { tagColor, tagStyle } from "@/lib/task";
 import type { Tag } from "@cherrypi/sdk";
-import { PlusIcon, TagIcon, XIcon } from "@lucide/vue";
+import { LockIcon, PlusIcon, TagIcon, XIcon } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
 
 const props = defineProps<{

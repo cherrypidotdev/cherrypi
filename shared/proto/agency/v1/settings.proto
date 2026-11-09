@@ -49,6 +49,28 @@ message Settings {
   
   
   string notification_sound_set = 7;
+  
+  VoiceInput voice_input = 8;
+}
+
+
+
+
+message VoiceInput {
+  
+  bool enabled = 1;
+  
+  
+  string base_url = 2;
+  
+  string model = 3;
+  
+  
+  
+  bool has_api_key = 4;
+  
+  
+  bool server_configured = 5;
 }
 
 message GetSettingsRequest {}
@@ -59,6 +81,13 @@ message GetSettingsResponse {
 
 message UpdateSettingsRequest {
   Settings settings = 1;
+  
+  
+  string voice_input_api_key = 2;
+  
+  
+  
+  bool clear_api_key = 3;
 }
 
 message UpdateSettingsResponse {

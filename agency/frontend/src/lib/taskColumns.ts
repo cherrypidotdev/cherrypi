@@ -21,6 +21,7 @@ export type TaskColumnKey =
   | "progress"
   | "links"
   | "tags"
+  | "badges"
   | "references"
   | "priority"
   | "size"
@@ -68,6 +69,13 @@ export const TASK_COLUMNS: TaskColumn[] = [
     sortKey: "progress",
     hint: "The agent's reported plan: completed steps out of total",
     skeleton: "w-16",
+  },
+  {
+    key: "badges",
+    label: "Badges",
+    widthClass: "w-40",
+    hint: "Status an installed plugin reports for the task (the pull request, CI)",
+    skeleton: "w-20",
   },
   { key: "links", label: "Links", widthClass: "w-28", skeleton: "w-12" },
   { key: "tags", label: "Tags", widthClass: "w-40", skeleton: "w-24" },

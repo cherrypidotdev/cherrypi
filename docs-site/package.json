@@ -12,6 +12,7 @@
     "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "devDependencies": {
+    "mermaid": "^11.17.2",
     "playwright": "^1.63.0",
     "vitepress": "1.6.4"
   },

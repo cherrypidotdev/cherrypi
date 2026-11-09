@@ -56,6 +56,14 @@ message Notification {
   
   
   string project_id = 10;
+  
+  
+  
+  
+  
+  string prompt_scope = 11;
+  string prompt_project_id = 12;
+  int64 prompt_team_id = 13;
 }
 
 message ListNotificationsRequest {

@@ -58,6 +58,53 @@ service ProjectService {
   
   
   rpc RemoveProjectAgent(RemoveProjectAgentRequest) returns (RemoveProjectAgentResponse);
+
+  
+  
+  
+  
+  
+  
+  rpc ListProjectTagReservations(ListProjectTagReservationsRequest)
+      returns (ListProjectTagReservationsResponse);
+  rpc UpdateProjectTagReservations(UpdateProjectTagReservationsRequest)
+      returns (UpdateProjectTagReservationsResponse);
+}
+
+
+message ProjectTagReservation {
+  
+  
+  string tag_name = 1;
+  
+  int32 reserved = 2;
+  
+  
+  string project_id = 3;
+}
+
+message ListProjectTagReservationsRequest {
+  
+  string project_id = 1;
+  
+  
+  
+  repeated string project_ids = 2;
+}
+
+message ListProjectTagReservationsResponse {
+  repeated ProjectTagReservation reservations = 1;
+}
+
+message UpdateProjectTagReservationsRequest {
+  string project_id = 1;
+  
+  
+  repeated ProjectTagReservation reservations = 2;
+}
+
+message UpdateProjectTagReservationsResponse {
+  repeated ProjectTagReservation reservations = 1;
 }
 
 

@@ -31,6 +31,23 @@ export function formatClock(ms: number | undefined): string {
   });
 }
 
+export function formatClockPrecise(ms: number | undefined): string {
+  if (ms === undefined) return "";
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+export function formatInstant(ms: number | undefined): string {
+  return ms === undefined ? "" : new Date(ms).toLocaleString();
+}
+
+export function isoInstant(ms: number | undefined): string {
+  return ms === undefined ? "" : new Date(ms).toISOString();
+}
+
 export function formatRelativeTimestamp(ts: TimestampLike | undefined): string {
   if (!ts || ts.seconds === 0n) return "—";
   return formatRelativeTime(Number(ts.seconds) * 1000);
@@ -73,6 +90,12 @@ export function formatDuration(ms: number | bigint): string {
   if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
   if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
   return `${seconds}s`;
+}
+
+export function formatDurationPrecise(ms: number | bigint): string {
+  const value = Math.max(0, Number(ms));
+  if (value >= 60_000) return formatDuration(value);
+  return `${(value / 1000).toFixed(1)}s`;
 }
 
 export function formatCount(n: number | bigint): string {

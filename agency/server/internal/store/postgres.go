@@ -26,9 +26,11 @@ import (
 	"time"
 
 	pgdb "cherrypi.vladfaust.com/agency/internal/gen/pg"
+	"cherrypi.vladfaust.com/agency/internal/telemetry"
 	_sql "cherrypi.vladfaust.com/agency/sql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 func NewPgStore(dsn string) (Store, error) {
@@ -49,7 +51,7 @@ func NewPgStore(dsn string) (Store, error) {
 }
 
 func openPostgres(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", dsn)
+	db, err := telemetry.SQLOpen("pgx", dsn, semconv.DBSystemNamePostgreSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +67,7 @@ func openPostgres(dsn string) (*sql.DB, error) {
 
 		return nil, err
 	}
+	telemetry.RegisterDBStats(db, dsn, semconv.DBSystemNamePostgreSQL)
 
 	return db, nil
 }

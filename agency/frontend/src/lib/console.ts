@@ -20,7 +20,7 @@ import {
   type QuestionnaireQuestion,
   type QuestionnaireReview,
 } from "@/lib/questionnaire";
-import { ToolPhase, type TaskEvent } from "@cherrypi/sdk";
+import { ModelWait_Kind, ToolPhase, type TaskEvent } from "@cherrypi/sdk";
 
 export function timestampMs(
   at: { seconds: bigint; nanos?: number } | undefined,
@@ -63,6 +63,23 @@ export type Item =
     }
   | { id: number; kind: "text"; text: string; at?: number }
   | ({ id: number; kind: "thinking"; text: string } & ActivityTiming)
+  | ({
+      id: number;
+      kind: "wait";
+
+      waitKind: ModelWait_Kind;
+
+      model: string;
+
+      durationMs: number;
+
+      firstToken: boolean;
+
+      error: string;
+      attempt: number;
+
+      reason: string;
+    } & ActivityTiming)
   | ({
       id: number;
       kind: "tool";
@@ -216,13 +233,19 @@ export function queuedMessageParts(text: string): UserMessageParts {
   return parsePromptEnvelope(text) ?? userMessageParts({ text });
 }
 
+export function isBlankDelta(delta: string): boolean {
+  return delta.trim() === "";
+}
+
 export function newItem(event: TaskEvent): NewItem | null {
   const payload = event.event;
   const at = timestampMs(event.at);
   switch (payload.case) {
     case "text":
+      if (isBlankDelta(payload.value.delta)) return null;
       return { kind: "text", text: payload.value.delta, at };
     case "thinking":
+      if (isBlankDelta(payload.value.delta)) return null;
       return {
         kind: "thinking",
         text: payload.value.delta,
@@ -240,6 +263,23 @@ export function newItem(event: TaskEvent): NewItem | null {
     }
     case "log":
       return { kind: "log", text: payload.value.line, at };
+    case "modelWait": {
+      const wait = payload.value;
+      const durationMs = Number(wait.durationMs);
+      if (durationMs <= 0) return null;
+      return {
+        kind: "wait",
+        waitKind: wait.kind,
+        model: wait.model,
+        durationMs,
+        firstToken: wait.firstToken,
+        error: wait.error,
+        attempt: wait.attempt,
+        reason: wait.reason,
+        startedAt: at !== undefined ? at - durationMs : undefined,
+        endedAt: at,
+      };
+    }
     case "tool": {
       const tool = payload.value;
       return {
@@ -260,11 +300,17 @@ export function newItem(event: TaskEvent): NewItem | null {
   }
 }
 
-export type ActivityItem = Extract<Item, { kind: "thinking" | "tool" }>;
+export type ActivityItem = Extract<
+  Item,
+  { kind: "thinking" | "tool" | "wait" }
+>;
+export type WaitItem = Extract<Item, { kind: "wait" }>;
 export type PlainItem = Extract<Item, { kind: "user" | "text" | "log" }>;
 
 function isActivity(item: Item): item is ActivityItem {
-  return item.kind === "thinking" || item.kind === "tool";
+  return (
+    item.kind === "thinking" || item.kind === "tool" || item.kind === "wait"
+  );
 }
 
 export function questionnaireReview(item: Item): QuestionnaireReview | null {
@@ -311,6 +357,48 @@ export function groupItems(
     }
   }
   return groups;
+}
+
+export interface RunUsage {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  activeMs: number;
+
+  thinkingMs: number;
+
+  modelWaitMs: number;
+
+  ttftMs: number;
+
+  at?: number;
+}
+
+export function runUsageByMessage(
+  items: Item[],
+  runs: RunUsage[],
+): Map<number, RunUsage> {
+  const texts = items.filter(
+    (item): item is Extract<Item, { kind: "text" }> =>
+      item.kind === "text" && item.at !== undefined,
+  );
+  const settled = runs
+    .filter((run): run is RunUsage & { at: number } => run.at !== undefined)
+    .sort((a, b) => a.at - b.at);
+
+  const byMessage = new Map<number, RunUsage>();
+  let cursor = 0;
+  for (const run of settled) {
+    let last: Extract<Item, { kind: "text" }> | undefined;
+    while (cursor < texts.length && (texts[cursor]?.at ?? 0) <= run.at) {
+      last = texts[cursor];
+      cursor++;
+    }
+    if (last) byMessage.set(last.id, run);
+  }
+  return byMessage;
 }
 
 export function pinnedUserIndex(
@@ -383,6 +471,18 @@ export function itemElapsed(
   if (end === undefined) return undefined;
   return end - item.startedAt;
 }
+
+export function groupWaitingMs(items: ActivityItem[]): number {
+  let total = 0;
+  for (const item of items) {
+    if (item.kind === "wait" && item.durationMs >= WAIT_RENDER_MS) {
+      total += item.durationMs;
+    }
+  }
+  return total;
+}
+
+export const WAIT_RENDER_MS = 1000;
 
 export function groupElapsed(
   items: ActivityItem[],

@@ -39,14 +39,18 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/agenttools"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
+	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/sites"
+	"cherrypi.vladfaust.com/agency/internal/speech"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/teams"
+	"cherrypi.vladfaust.com/agency/internal/telemetry"
 	connectcors "connectrpc.com/cors"
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -68,6 +72,21 @@ func main() {
 
 	log.Printf("CherryPi Agency %s starting", buildinfo.Version)
 
+	var otelProvider *telemetry.Provider
+	if config.OTelEnabled {
+		provider, err := telemetry.Setup(context.Background(), telemetry.Config{
+			ServiceName:    "cherrypi-agency",
+			ServiceVersion: buildinfo.Version,
+		})
+		if err != nil {
+			log.Printf("OpenTelemetry disabled: %v", err)
+		} else {
+			otelProvider = provider
+			defer flushTelemetry(otelProvider)
+			provider.LogStartup()
+		}
+	}
+
 	appCtx := appcontext.NewAppContext(config, processLog)
 
 	if count, err := appCtx.Accounts.CountUsers(context.Background()); err == nil && count == 0 {
@@ -84,12 +103,15 @@ func main() {
 	serveAgentOwners(mux, appCtx)
 	serveEvents(mux, appCtx)
 	serveAttachments(mux, appCtx)
+	serveSpeech(mux, appCtx)
 	serveSites(mux, appCtx)
 	serveAgentTools(mux, appCtx)
 	serveTaskHistory(mux, appCtx)
 	serveTerminals(mux, appCtx)
 	serveRealtime(mux, appCtx)
 	serveProcessLogs(mux, appCtx)
+	servePlugins(mux, appCtx)
+	serveDev(mux, appCtx)
 
 	if devBuild && appCtx.Config.FrontendProxyUrl != nil {
 		serveFrontendProxy(mux, appCtx.Config.FrontendProxyUrl)
@@ -103,6 +125,11 @@ func main() {
 		serveEmbeddedDocs(mux)
 	}
 
+	apiHandler := withAuth(appCtx.Accounts, mux)
+	if telemetry.Enabled() {
+		apiHandler = instrumentHTTP(mux, apiHandler)
+	}
+
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: connectcors.AllowedMethods(),
@@ -110,7 +137,7 @@ func main() {
 		AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization", "X-CSRF-Token"),
 		ExposedHeaders: connectcors.ExposedHeaders(),
 		MaxAge:         7200,
-	}).Handler(withAuth(appCtx.Accounts, mux))
+	}).Handler(apiHandler)
 
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
@@ -136,6 +163,8 @@ func main() {
 	case <-sig:
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+
+			flushTelemetry(otelProvider)
 			log.Fatal(err)
 		}
 		return
@@ -144,6 +173,74 @@ func main() {
 	log.Println("Shutting down")
 	_ = server.Shutdown(context.Background())
 	_ = server.Close()
+}
+
+func flushTelemetry(provider *telemetry.Provider) {
+	if provider == nil {
+		return
+	}
+
+	ctx, cancel := telemetry.ShutdownContext()
+	defer cancel()
+
+	if err := provider.Shutdown(ctx); err != nil {
+		log.Printf("OpenTelemetry shutdown: %v", err)
+	}
+}
+
+func instrumentHTTP(mux *http.ServeMux, next http.Handler) http.Handler {
+	instrumented := otelhttp.NewHandler(
+		next,
+		"http.server",
+		otelhttp.WithFilter(tracedHTTPRequest),
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return httpSpanName(r)
+		}),
+	)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		r.Pattern = httpRoutePattern(mux, r)
+		instrumented.ServeHTTP(w, r)
+	})
+}
+
+func tracedHTTPRequest(r *http.Request) bool {
+	path := r.URL.Path
+
+	if strings.HasPrefix(path, "/api/grpc/") || path == "/api/grpc" {
+		return false
+	}
+
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") ||
+		path == "/api/tunnel/ws" {
+		return false
+	}
+
+	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/plugins/")
+}
+
+func httpRoutePattern(mux *http.ServeMux, r *http.Request) string {
+	_, pattern := mux.Handler(r)
+	if pattern == "/" {
+		return ""
+	}
+
+	return pattern
+}
+
+func httpSpanName(r *http.Request) string {
+
+	if r.Pattern == "" || r.Pattern == "/" {
+		return r.Method + " <unmatched>"
+	}
+
+	if index := strings.IndexRune(r.Pattern, '/'); index > 0 &&
+		strings.ContainsRune(r.Pattern[:index], ' ') {
+		return r.Pattern
+	}
+
+	return r.Method + " " + r.Pattern
 }
 
 func serveAPI(mux *http.ServeMux) {
@@ -273,6 +370,12 @@ func serveSites(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("GET /sites/{siteID}/bridge.js", content)
 }
 
+func serveSpeech(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	handler := &speech.Handler{Service: appCtx.Speech}
+	mux.Handle(speech.Prefix, handler)
+	mux.Handle(speech.Prefix+"/", handler)
+}
+
 func serveTerminals(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/agents/", appCtx.Hub.WSHandler())
 }
@@ -289,6 +392,8 @@ func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			ProcessLogs: appCtx.ProcessLogs,
 			PromptFlow:  appCtx.PromptFlow,
 			Templates:   appCtx.Templates,
+			Plugins:     appCtx.Plugins,
+			Wake:        appCtx.Scheduler.Wake,
 		},
 	)
 	mux.Handle(agenttools.Prefix, handler)
@@ -307,6 +412,25 @@ func serveTaskHistory(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 
 func serveRealtime(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/rest/notifications/ws", appCtx.Notifications.WSHandler())
+}
+
+func servePlugins(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	handler := &pluginhost.Handler{
+		Service: appCtx.Plugins,
+		Auth: func(r *http.Request) (pluginhost.Caller, bool) {
+			identity, _, ok := resolveIdentity(appCtx.Accounts, r)
+			if !ok {
+				return pluginhost.Caller{}, false
+			}
+			return pluginhost.Caller{
+				Kind:     identity.Kind,
+				ActorID:  int64(identity.ActorID),
+				Username: identity.Username,
+				Admin:    identity.IsAdmin(),
+			}, true
+		},
+	}
+	mux.Handle("/plugins/", handler)
 }
 
 func serveProcessLogs(mux *http.ServeMux, appCtx *appcontext.AppContext) {

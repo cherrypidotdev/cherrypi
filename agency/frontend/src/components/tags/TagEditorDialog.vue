@@ -22,7 +22,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
     DialogHeader
       DialogTitle {{ tag ? "Edit tag" : "Add tag" }}
       DialogDescription(v-if="tag")
-        | Rename the tag or adjust its colour.
+        | Rename the tag, adjust its colour, or change its agent routing.
       DialogDescription(v-else)
         | Create a label for this project's tasks.
     form.flex.flex-col.gap-4(@submit.prevent="save")
@@ -47,6 +47,19 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         FieldLabel Colour
         TagColorPicker(v-model="color" :disabled="saving")
         FieldDescription Pick a palette colour or enter a custom hex value.
+
+      Field
+        .flex.items-center.justify-between.gap-3
+          .flex.flex-col
+            FieldLabel(for="tag-editor-required") Required by agent
+            FieldDescription
+              | Tasks with this tag only run on agents whose concurrency
+              | limits declare it. A 0 cap still declares the tag.
+          Switch#tag-editor-required(
+            v-model="isRequired"
+            :disabled="saving"
+            data-test="tag-required"
+          )
 
       Field(v-if="!tag && presets.length")
         FieldLabel Suggested tags
@@ -91,6 +104,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { withProgress } from "@/composables/useProgress";
 import { useTags } from "@/composables/useTags";
 import { suggestTagColor, TAG_PRESETS, type TagPreset } from "@/lib/tag";
@@ -116,6 +130,7 @@ const { active, createTag, updateTag } = useTags(() => props.projectId);
 const name = ref("");
 const description = ref("");
 const color = ref("");
+const isRequired = ref(false);
 const error = ref("");
 const saving = ref(false);
 
@@ -131,6 +146,7 @@ function reset() {
   name.value = tag?.name ?? "";
   description.value = tag?.description ?? "";
   color.value = tag?.color || suggestTagColor(active.value);
+  isRequired.value = tag?.isRequired ?? false;
   error.value = "";
 }
 
@@ -161,6 +177,7 @@ async function save() {
             description: description.value.trim(),
             color: color.value,
             isDefault: tag.isDefault,
+            isRequired: isRequired.value,
           }),
         )
       : await withProgress(() =>
@@ -168,6 +185,7 @@ async function save() {
             name: name.value.trim(),
             description: description.value.trim(),
             color: color.value,
+            isRequired: isRequired.value,
           }),
         );
     toast.success(tag ? "Tag updated" : "Tag created");

@@ -171,6 +171,14 @@ func (s *Service) ReferenceAllowed(
 	if descendant {
 		return true, nil
 	}
+
+	ancestor, err := s.store.IsProjectDescendant(ctx, fromProjectID, toProjectID)
+	if err != nil {
+		return false, err
+	}
+	if ancestor {
+		return true, nil
+	}
 	from, err := s.Get(ctx, fromProjectID)
 	if err != nil {
 		return false, err
@@ -194,12 +202,17 @@ func (s *Service) ReferenceProjectIDs(
 	if err != nil {
 		return nil, err
 	}
+	ancestors, err := s.store.ListProjectAncestorIDs(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
 	all, err := s.store.ListProjects(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := []string{p.ID}
 	out = append(out, descendants...)
+	out = append(out, ancestors...)
 
 	if p.ParentID != "" {
 		siblings := make([]string, 0, len(all))
@@ -823,7 +836,7 @@ func referenceAllowedInTree(parents map[string]string, from, to string) bool {
 	if from == "" || to == "" || from == to {
 		return true
 	}
-	if descendantInTree(parents, to, from) {
+	if descendantInTree(parents, to, from) || descendantInTree(parents, from, to) {
 		return true
 	}
 

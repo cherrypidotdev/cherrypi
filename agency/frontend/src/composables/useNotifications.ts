@@ -21,6 +21,7 @@ import {
   showAttentionNotification,
 } from "@/lib/attention";
 import { navigateAttention, showAttentionToast } from "@/lib/attentionToast";
+import { loadPromptRouteTargets, promptRoute } from "@/lib/notificationLink";
 import { agency } from "@/lib/sdk";
 import type {
   AgencyNotification,
@@ -120,6 +121,9 @@ function openFromToast(n: AttentionNotification) {
     });
   } else if (n.kind === "team_invitation") {
     navigateAttention({ name: "teams" });
+  } else {
+    const route = promptRoute(n);
+    if (route) navigateAttention(route);
   }
 }
 
@@ -189,6 +193,8 @@ function start() {
   active = true;
   retryDelay = BASE_RETRY_MS;
   void refresh();
+
+  void loadPromptRouteTargets();
   connect();
 }
 

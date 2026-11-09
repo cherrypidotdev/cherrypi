@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { isPromptTarget } from "@/lib/notificationLink";
 import { plainNotificationText } from "@/lib/notificationText";
 import type { AttentionNotification } from "@cherrypi/sdk";
 import { h, type VNode } from "vue";
@@ -81,17 +82,15 @@ function toastType(severity: string): ToastType {
   }
 }
 
-function toastBody(
-  n: AttentionNotification,
-  sticky: boolean,
-  open: () => void,
-  dismiss: () => void,
-): VNode {
-  const hint = n.taskId
-    ? "Open task"
-    : n.kind === "team_invitation"
-      ? "Open teams"
-      : "";
+function toastHint(n: AttentionNotification): string {
+  if (n.taskId) return "Open task";
+  if (n.kind === "team_invitation") return "Open teams";
+  if (isPromptTarget(n)) return "Open prompt";
+  return "";
+}
+
+function toastBody(n: AttentionNotification, open: () => void): VNode {
+  const hint = toastHint(n);
   return h(
     "div",
     {
@@ -121,31 +120,6 @@ function toastBody(
             `${hint} →`,
           )
         : null,
-
-      sticky
-        ? h("span", { class: "mt-1 flex items-center justify-between gap-3" }, [
-            h(
-              "span",
-              { class: "text-muted-foreground text-xs" },
-              "Stays until dismissed",
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                class:
-                  "text-muted-foreground rounded-md border px-2 py-0.5 text-xs transition-colors hover:text-foreground hover:bg-muted",
-                onClick: (event: MouseEvent) => {
-                  event.stopPropagation();
-                  event.preventDefault();
-                  dismiss();
-                },
-                "data-testid": "attention-toast-dismiss",
-              },
-              "Dismiss",
-            ),
-          ])
-        : null,
     ],
   );
 }
@@ -154,22 +128,20 @@ export function showAttentionToast(
   n: AttentionNotification,
   onOpen: () => void,
 ) {
-  const sticky = isAttentionToastSticky(n.kind);
   const id = `attention-${n.id}-${n.createdAt}`;
   const open = () => {
     onOpen();
     toast.remove(id);
   };
-  const dismiss = () => toast.remove(id);
   makeRoom();
   live.push(id);
 
-  toast(toastBody(n, sticky, open, dismiss), {
+  toast(toastBody(n, open), {
     toastId: id,
     type: toastType(n.severity),
     position: "top-right",
 
-    closeButton: false,
+    closeButton: true,
 
     clearOnUrlChange: false,
     closeOnClick: false,

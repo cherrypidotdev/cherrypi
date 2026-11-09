@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-UsageKpis(:summary="summary" :daily="daily" :range="RANGE")
+UsageKpis(:summary="summary" :daily="daily" :range="RANGE" :context="context")
 </template>
 
 <script setup lang="ts">

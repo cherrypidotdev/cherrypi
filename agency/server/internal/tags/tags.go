@@ -45,7 +45,9 @@ type Tag struct {
 	Color       string
 	Archived    bool
 	IsDefault   bool
-	TaskCount   int
+
+	IsRequired bool
+	TaskCount  int
 }
 
 type Service struct {
@@ -73,6 +75,7 @@ func (s *Service) List(
 			Color:       row.Color,
 			Archived:    row.ArchivedAt.Valid,
 			IsDefault:   row.IsDefault != 0,
+			IsRequired:  row.IsRequired != 0,
 			TaskCount:   int(row.TaskCount),
 		}
 	}
@@ -95,6 +98,7 @@ func (s *Service) Get(ctx context.Context, id string) (Tag, error) {
 		Color:       row.Color,
 		Archived:    row.ArchivedAt.Valid,
 		IsDefault:   row.IsDefault != 0,
+		IsRequired:  row.IsRequired != 0,
 		TaskCount:   int(row.TaskCount),
 	}, nil
 }
@@ -102,7 +106,7 @@ func (s *Service) Get(ctx context.Context, id string) (Tag, error) {
 func (s *Service) Create(
 	ctx context.Context,
 	projectID, name, description, color string,
-	isDefault bool,
+	isDefault, isRequired bool,
 ) (Tag, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -124,6 +128,7 @@ func (s *Service) Create(
 		Description: strings.TrimSpace(description),
 		Color:       strings.TrimSpace(color),
 		IsDefault:   boolInt(isDefault),
+		IsRequired:  boolInt(isRequired),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	})
@@ -136,7 +141,7 @@ func (s *Service) Create(
 func (s *Service) Update(
 	ctx context.Context,
 	id, name, description, color string,
-	isDefault bool,
+	isDefault, isRequired bool,
 ) (Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -154,6 +159,7 @@ func (s *Service) Update(
 		Description: strings.TrimSpace(description),
 		Color:       strings.TrimSpace(color),
 		IsDefault:   boolInt(isDefault),
+		IsRequired:  boolInt(isRequired),
 		UpdatedAt:   time.Now().UnixMilli(),
 		ID:          id,
 	}); err != nil {

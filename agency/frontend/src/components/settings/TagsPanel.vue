@@ -28,7 +28,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       CardDescription
         | Labels for this project's tasks, used for organization and scheduling
         | limits. A default tag is pre-selected in the task composer; it can
-        | still be removed for any one task.
+        | still be removed for any one task. A required tag only runs on agents
+        | whose concurrency limits declare it.
     CardContent.flex.flex-col.gap-4
       p.text-destructive.text-sm(v-if="loadError")
         | {{ loadError }}
@@ -40,6 +41,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableHead Color
             TableHead Description
             TableHead.w-24 Default
+            TableHead.w-28 Required
             TableHead.w-20 Tasks
             TableHead.w-40
         TableBody
@@ -50,6 +52,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :style="{ background: tagColor(tag.color) }"
                 )
                 span.font-medium {{ tag.name }}
+                LockIcon.size-3.text-amber-500(
+                  v-if="tag.isRequired"
+                  title="Tasks with this tag only run on agents that declare it"
+                )
             TableCell.text-muted-foreground.font-mono.text-xs
               | {{ tag.color || tagColor(tag.color) }}
             TableCell.text-muted-foreground.text-sm {{ tag.description || "—" }}
@@ -59,6 +65,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :model-value="tag.isDefault"
                 @update:model-value="setDefault(tag, $event)"
                 :disabled="busy === tag.id"
+              )
+            TableCell
+              Switch(
+                title="Only run tasks with this tag on agents that declare it"
+                :model-value="tag.isRequired"
+                @update:model-value="setRequired(tag, $event)"
+                :disabled="busy === tag.id"
+                data-test="tag-required-toggle"
               )
             TableCell.text-muted-foreground {{ tag.taskCount }}
             TableCell
@@ -70,7 +84,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   ArchiveIcon(data-icon="inline-start")
                   span Archive
           TableRow(v-if="!active.length")
-            TableCell.text-muted-foreground(:colspan="6")
+            TableCell.text-muted-foreground(:colspan="7")
               | No tags yet. Add one to organize this project's tasks.
 
   Card(v-if="archived.length")
@@ -93,6 +107,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :style="{ background: tagColor(tag.color) }"
                 )
                 span {{ tag.name }}
+                LockIcon.size-3(
+                  v-if="tag.isRequired"
+                  title="Required by tasks that carry it"
+                )
             TableCell.text-muted-foreground {{ tag.taskCount }}
             TableCell
               .flex.justify-end
@@ -140,6 +158,7 @@ import type { Tag } from "@cherrypi/sdk";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  LockIcon,
   PencilIcon,
   PlusIcon,
 } from "@lucide/vue";
@@ -177,9 +196,34 @@ async function setDefault(tag: Tag, value: boolean) {
         description: tag.description,
         color: tag.color,
         isDefault: value,
+        isRequired: tag.isRequired,
       }),
     );
     toast.success(value ? "Tag is a composer default" : "Tag default removed");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    busy.value = "";
+  }
+}
+
+async function setRequired(tag: Tag, value: boolean) {
+  busy.value = tag.id;
+  try {
+    await withProgress(() =>
+      updateTag(tag.id, {
+        name: tag.name,
+        description: tag.description,
+        color: tag.color,
+        isDefault: tag.isDefault,
+        isRequired: value,
+      }),
+    );
+    toast.success(
+      value
+        ? "Tag now requires a declaring agent"
+        : "Tag no longer requires a declaring agent",
+    );
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {

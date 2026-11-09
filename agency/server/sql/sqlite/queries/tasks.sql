@@ -16,7 +16,8 @@
 
 -- name: CreateTask :one
 INSERT INTO tasks (
-  id, seq, prompt, name, project_id, assignee_actor_id, assignee_pinned, priority, size, state,
+  id, seq, prompt, name, project_id, parent_task_id,
+  assignee_actor_id, assignee_pinned, priority, size, state,
   creator_actor_id,
   session_id, org_prompt_id, agent_prompt_id, project_prompt_id, agent_project_prompt_id,
   error, model_provider, model_id, thinking_level, interactive, workspace, auto_title,
@@ -27,6 +28,7 @@ INSERT INTO tasks (
   sqlc.arg(prompt),
   sqlc.arg(name),
   NULLIF(CAST(sqlc.arg(project_id) AS TEXT), ''),
+  NULLIF(CAST(sqlc.arg(parent_task_id) AS TEXT), ''),
   sqlc.narg(assignee_actor_id),
   sqlc.arg(assignee_pinned),
   sqlc.arg(priority),
@@ -73,6 +75,10 @@ WITH reference_scope AS (
   FROM project_ancestors pa
   WHERE pa.ancestor_id = sqlc.narg(reference_project_id)
   UNION
+  SELECT pa.ancestor_id
+  FROM project_ancestors pa
+  WHERE pa.project_id = sqlc.narg(reference_project_id)
+  UNION
   SELECT p.id
   FROM projects p
   JOIN projects origin ON origin.id = sqlc.narg(reference_project_id)
@@ -98,6 +104,10 @@ WHERE (
   AND (
     (CAST(sqlc.arg(archived) AS INTEGER) = 1 AND t.archived_at IS NOT NULL)
     OR (CAST(sqlc.arg(archived) AS INTEGER) = 0 AND t.archived_at IS NULL)
+  )
+  AND (
+    CAST(sqlc.narg(parent_task_id) AS TEXT) IS NULL
+    OR t.parent_task_id = sqlc.narg(parent_task_id)
   )
   AND (
     CAST(sqlc.narg(tag_id) AS TEXT) IS NULL
@@ -146,6 +156,7 @@ OFFSET sqlc.arg(page_offset);
 
 
 
+
 SELECT * FROM tasks
 WHERE state = 'queued' AND archived_at IS NULL
   AND NOT EXISTS (
@@ -154,6 +165,11 @@ WHERE state = 'queued' AND archived_at IS NULL
     WHERE r.task_rowid = tasks.rowid
       AND r.kind = 'blocking'
       AND dep.state <> 'completed'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM tasks child
+    WHERE child.parent_task_id = tasks.id
+      AND child.state NOT IN ('settled', 'failed', 'completed', 'cancelled')
   )
 ORDER BY priority DESC, created_at ASC;
 
@@ -206,10 +222,25 @@ RETURNING *;
 UPDATE tasks SET state = 'queued', queued_at = COALESCE(queued_at, ?), updated_at = ?, error = ''
 WHERE id = ? AND state = 'backlog';
 
+-- name: WaitTask :execrows
+
+
+
+
+UPDATE tasks SET state = 'waiting', queued_at = COALESCE(queued_at, ?),
+  updated_at = ?, error = ''
+WHERE id = ? AND state IN ('backlog', 'queued', 'running', 'input', 'settled', 'failed');
+
+-- name: UnwaitTask :execrows
+
+UPDATE tasks SET state = 'queued', queued_at = COALESCE(queued_at, ?),
+  updated_at = ?, error = ''
+WHERE id = ? AND state = 'waiting';
+
 -- name: DequeueTask :execrows
 
 UPDATE tasks SET state = 'backlog', updated_at = ?, error = ''
-WHERE id = ? AND state = 'queued';
+WHERE id = ? AND state IN ('queued', 'waiting');
 
 
 
@@ -232,8 +263,37 @@ UPDATE tasks SET
 WHERE id = sqlc.arg(id) AND state = 'queued';
 
 -- name: SettleTask :execrows
-UPDATE tasks SET state = 'settled', settled_at = ?, updated_at = ?, error = ''
-WHERE id = ? AND state IN ('running', 'input');
+
+
+
+
+
+
+UPDATE tasks SET
+  state = CASE
+    WHEN EXISTS (SELECT 1 FROM task_holds WHERE task_id = sqlc.arg(id))
+      THEN 'waiting'
+    ELSE 'settled'
+  END,
+  settled_at = sqlc.arg(settled_at),
+  updated_at = sqlc.arg(updated_at),
+  error = ''
+WHERE id = sqlc.arg(id) AND state IN ('running', 'input');
+
+-- name: ReleaseSettleTask :execrows
+
+
+UPDATE tasks SET state = 'settled', settled_at = COALESCE(settled_at, ?),
+  updated_at = ?, error = ''
+WHERE id = ? AND state = 'waiting';
+
+-- name: ReleaseQueueTask :execrows
+
+
+UPDATE tasks SET state = 'queued', pending_prompt = ?,
+  pending_prompt_actor_id = ?, queued_at = COALESCE(queued_at, ?),
+  updated_at = ?, error = ''
+WHERE id = ? AND state = 'waiting';
 
 -- name: MarkTaskInput :execrows
 
@@ -261,14 +321,14 @@ WHERE id = ? AND state IN ('running', 'input');
 
 UPDATE tasks SET state = 'completed', settled_at = ?, updated_at = ?, error = '',
   pending_prompt = '', pending_prompt_actor_id = NULL
-WHERE id = ? AND state IN ('backlog', 'queued', 'settled', 'failed', 'cancelled');
+WHERE id = ? AND state IN ('backlog', 'waiting', 'queued', 'settled', 'failed', 'cancelled');
 
 -- name: CancelTask :execrows
 
 
 UPDATE tasks SET state = 'cancelled', settled_at = ?, updated_at = ?,
   pending_prompt = '', pending_prompt_actor_id = NULL
-WHERE id = ? AND state IN ('backlog', 'queued', 'settled', 'failed', 'completed');
+WHERE id = ? AND state IN ('backlog', 'waiting', 'queued', 'settled', 'failed', 'completed');
 
 -- name: ArchiveTask :execrows
 
@@ -286,9 +346,14 @@ WHERE id = ? AND archived_at IS NOT NULL;
 
 
 
+
+
 UPDATE tasks SET
   state = 'queued', error = '', pending_prompt = sqlc.arg(pending_prompt),
-  pending_prompt_actor_id = sqlc.narg(pending_prompt_actor_id),
+  pending_prompt_actor_id = CASE
+    WHEN pending_prompt = '' THEN sqlc.narg(pending_prompt_actor_id)
+    ELSE COALESCE(pending_prompt_actor_id, sqlc.narg(pending_prompt_actor_id))
+  END,
   queued_at = COALESCE(queued_at, sqlc.arg(queued_at)), updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
   AND state IN ('completed', 'cancelled', 'settled', 'failed', 'backlog');
@@ -328,7 +393,7 @@ UPDATE tasks SET error = ?, updated_at = ? WHERE id = ?;
 -- name: ReopenTask :execrows
 UPDATE tasks SET state = ?, settled_at = NULL, error = '', pending_prompt = '',
   pending_prompt_actor_id = NULL, updated_at = ?
-WHERE id = ? AND state IN ('settled', 'failed', 'completed', 'cancelled');
+WHERE id = ? AND state IN ('settled', 'failed', 'completed', 'cancelled', 'waiting');
 
 -- name: SetTaskSession :execrows
 
@@ -456,3 +521,64 @@ UPDATE tasks SET
   name = CASE WHEN name = '' THEN sqlc.arg(name) ELSE name END,
   prompt = CASE WHEN prompt = '' THEN sqlc.arg(prompt) ELSE prompt END
 WHERE id = sqlc.arg(id) AND (name = '' OR prompt = '');
+
+-- name: ListTaskChildren :many
+
+SELECT * FROM tasks WHERE parent_task_id = sqlc.arg(parent_task_id) ORDER BY rowid;
+
+-- name: CountIncompleteChildTasks :one
+
+
+
+SELECT count(*) FROM tasks
+WHERE parent_task_id = sqlc.arg(parent_task_id)
+  AND state NOT IN ('settled', 'failed', 'completed', 'cancelled');
+
+-- name: DetachTaskChildren :exec
+
+UPDATE tasks SET parent_task_id = NULL, updated_at = sqlc.arg(updated_at)
+WHERE parent_task_id = sqlc.arg(parent_task_id);
+
+-- name: FailRestingTask :execrows
+
+
+UPDATE tasks SET state = 'failed', error = ?, settled_at = ?, updated_at = ?
+WHERE id = ?
+  AND state IN ('backlog', 'queued', 'waiting', 'settled', 'failed');
+
+-- name: SetTaskPendingSteering :execrows
+
+
+UPDATE tasks SET pending_steering = ?, updated_at = ? WHERE id = ?;
+
+-- name: SetTaskPendingPromptAny :execrows
+
+
+
+
+
+
+UPDATE tasks SET pending_prompt = sqlc.arg(pending_prompt),
+  pending_prompt_actor_id = CASE
+    WHEN pending_prompt = '' THEN sqlc.narg(pending_prompt_actor_id)
+    ELSE COALESCE(pending_prompt_actor_id, sqlc.narg(pending_prompt_actor_id))
+  END,
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: ListRunningTasksByProject :many
+
+
+SELECT t.* FROM tasks t
+WHERE t.project_id = sqlc.arg(project_id)
+  AND t.archived_at IS NULL
+  AND t.state IN ('running', 'input', 'settled', 'failed');
+
+-- name: ListRunningTaskTagsByProject :many
+SELECT t.id AS task_id, tt.tag_id, tags.name
+FROM task_tags tt
+JOIN tasks t ON t.rowid = tt.task_rowid
+JOIN tags ON tags.id = tt.tag_id
+WHERE t.project_id = sqlc.arg(project_id)
+  AND t.archived_at IS NULL
+  AND t.state IN ('running', 'input', 'settled', 'failed');
