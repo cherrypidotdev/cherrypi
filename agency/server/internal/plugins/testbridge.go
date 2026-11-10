@@ -509,6 +509,7 @@ func (b *TestBridge) CreateTask(_ context.Context, p tasks.CreateParams) (tasks.
 		AssigneeActorID: p.AssigneeActorID,
 		Priority:        p.Priority,
 		Size:            p.Size,
+		Interactive:     p.Interactive == nil || *p.Interactive,
 		State:           tasks.StateBacklog,
 	}
 	for _, tagID := range p.TagIDs {

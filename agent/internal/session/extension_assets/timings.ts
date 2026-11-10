@@ -23,8 +23,7 @@ const COMPACTION = 3;
 export default function (pi: ExtensionAPI) {
   let requestStartedAt = 0;
   let requestModel = "";
-
-  let runFirstToken = false;
+  let requestProvider = "";
 
   let retryStartedAt = 0;
   let retryError = "";
@@ -43,23 +42,21 @@ export default function (pi: ExtensionAPI) {
     pi.appendEntry("cherrypi_model_wait", { kind, durationMs, ...extra });
   }
 
-  function closeRequest(produced: boolean) {
+  function closeRequest(answered: boolean) {
     if (requestStartedAt <= 0) return;
-    const firstToken = produced && !runFirstToken;
-    if (firstToken) runFirstToken = true;
-
-    if (produced) requestAttempt = 0;
+    if (answered) requestAttempt = 0;
     record(MODEL_REQUEST, requestStartedAt, Date.now() - requestStartedAt, {
       model: requestModel,
-      firstToken,
+      provider: requestProvider,
     });
     requestStartedAt = 0;
-    requestModel = "";
   }
 
   function closeRetry() {
     if (retryStartedAt <= 0) return;
     record(RETRY, retryStartedAt, Date.now() - retryStartedAt, {
+      model: requestModel,
+      provider: requestProvider,
       error: retryError,
       attempt: requestAttempt,
     });
@@ -70,6 +67,8 @@ export default function (pi: ExtensionAPI) {
   function closeCompaction() {
     if (compactionStartedAt <= 0) return;
     record(COMPACTION, compactionStartedAt, Date.now() - compactionStartedAt, {
+      model: requestModel,
+      provider: requestProvider,
       reason: compactionReason,
     });
     compactionStartedAt = 0;
@@ -79,7 +78,7 @@ export default function (pi: ExtensionAPI) {
   function resetRun() {
     requestStartedAt = 0;
     requestModel = "";
-    runFirstToken = false;
+    requestProvider = "";
     retryStartedAt = 0;
     retryError = "";
     requestAttempt = 0;
@@ -89,11 +88,17 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     resetRun();
-    if (ctx.model) requestModel = ctx.model.id;
+    if (ctx.model) {
+      requestModel = ctx.model.id;
+      requestProvider = ctx.model.provider;
+    }
   });
 
   pi.on("model_select", async (event) => {
-    if (event.model) requestModel = event.model.id;
+    if (event.model) {
+      requestModel = event.model.id;
+      requestProvider = event.model.provider;
+    }
   });
 
   pi.on("turn_start", async (_event, ctx) => {
@@ -101,6 +106,7 @@ export default function (pi: ExtensionAPI) {
     closeRequest(false);
     requestStartedAt = Date.now();
     requestModel = ctx.model?.id ?? requestModel;
+    requestProvider = ctx.model?.provider ?? requestProvider;
   });
 
   pi.on("message_end", async (event) => {

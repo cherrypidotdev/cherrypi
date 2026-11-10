@@ -88,8 +88,8 @@ const busy = ref(false);
 const choice = ref(TaskState.COMPLETED);
 
 watch(
-  () => [props.open, props.task?.id] as const,
-  ([open]) => {
+  () => props.open,
+  (open) => {
     if (!open || !props.task) return;
     choice.value = defaultCloseOutOutcome(props.task.state);
   },

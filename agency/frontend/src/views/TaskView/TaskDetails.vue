@@ -146,6 +146,15 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
             :to="{ name: 'project', params: { slug: projectSlug(task.projectId) } }"
           ) {{ projectName(task.projectId) }}
           span.text-muted-foreground.text-sm(v-else) No project
+      .flex.flex-col(v-if="!task.interactive" class="gap-0.5")
+        span.text-muted-foreground.text-xs Mode
+        span.inline-flex.w-fit.items-center.gap-1.rounded-full.border.px-2.text-xs(
+          class="py-0.5"
+          title="The agent cannot show questionnaires or extension dialogs"
+          data-testid="task-non-interactive-detail"
+        )
+          MessageSquareOffIcon.size-3
+          | Non-interactive
 
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
@@ -159,6 +168,34 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :to="{ name: 'task', params: { id: task.parentTaskId } }"
           data-testid="task-parent-breadcrumb"
         ) {{ task.parentTaskId }}
+      .flex.flex-col(
+        v-if="task.originTaskId"
+        class="gap-0.5"
+        data-testid="task-origin"
+      )
+        span.text-muted-foreground.text-xs Origin
+        .flex.flex-wrap.items-center.gap-1
+          template(v-if="task.originChain.length")
+            template(
+              v-for="(origin, index) in task.originChain"
+              :key="origin.id"
+            )
+              RouterLink.font-mono.text-xs(
+                class="hover:underline"
+                :to="{ name: 'task', params: { id: origin.id } }"
+                :title="origin.name || origin.prompt || origin.id"
+              ) {{ origin.id }}
+              ArrowRightIcon.text-muted-foreground.size-3.shrink-0(
+                v-if="index < task.originChain.length - 1"
+              )
+          RouterLink.font-mono.text-xs(
+            v-else
+            class="hover:underline"
+            :to="{ name: 'task', params: { id: task.originTaskId } }"
+          ) {{ task.originTaskId }}
+        span.text-muted-foreground.text-xs(
+          title="Set once when the task was created and never changed"
+        ) The task this one was created from.
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs Created
         span.text-xs {{ formatTimestamp(task.createdAt) }}
@@ -491,28 +528,22 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           span.font-medium.tabular-nums(v-else) {{ formatDuration(ttcMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
-            title="The agent's work time: idle gaps and user-input waits excluded."
+            title="The agent's work time: idle gaps and user-input waits excluded, tool calls included."
           ) Active time
           Skeleton.h-3.w-16(v-if="!taskUsage")
-          span.font-medium.tabular-nums(v-else) {{ formatDuration(taskUsage.activeMs) }}
+          span.font-medium.tabular-nums(v-else) {{ formatDuration(activeMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
             title="The model's own working time: active time minus tool calls, model waits included."
           ) Thinking time
           Skeleton.h-3.w-16(v-if="!taskUsage")
-          span.font-medium.tabular-nums(v-else) {{ measured(thinkingMs) }}
+          span.font-medium.tabular-nums(v-else) {{ measured(thinkingTotalMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
             title="The part of the thinking time spent waiting for a provider response."
           ) Model wait
           Skeleton.h-3.w-16(v-if="!taskUsage")
-          span.font-medium.tabular-nums(v-else) {{ measured(modelWaitMs) }}
-        .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground(
-            title="Run start to first token, summed over every run and averaged per run."
-          ) TTFT
-          Skeleton.h-3.w-16(v-if="!taskUsage")
-          span.font-medium.tabular-nums(v-else) {{ ttftLabel }}
+          span.font-medium.tabular-nums(v-else) {{ measured(modelWaitTotalMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
             title="Output tokens over the time the model spent generating them: thinking time minus model waits."
@@ -552,9 +583,18 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         @open="$emit('open-media', $event)"
       )
 
-    .flex.flex-col.gap-1(v-if="detailsTab === 'logs'")
-      span.text-muted-foreground.text-xs Activity
-      TaskLogs(:logs="task.logs")
+    .flex.flex-col.gap-2(v-if="detailsTab === 'logs'")
+      .flex.items-center.gap-1
+        button.rounded-md.px-2.py-1.text-xs.font-medium(
+          v-for="option in LOGS_TABS"
+          :key="option.value"
+          type="button"
+          :class="logsTab === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'"
+          @click="logsTab = option.value"
+          :data-testid="`logs-tab-${option.value}`"
+        ) {{ option.label }}
+      TaskLogs(v-if="logsTab === 'activity'" :logs="task.logs")
+      TaskToolCalls(v-else :task-id="task.id")
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'prompts'")
       Disclosure(v-slot="{ open }")
@@ -735,6 +775,7 @@ import TaskComments from "@/components/tasks/TaskComments.vue";
 import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
 import TaskReferences from "@/components/tasks/TaskReferences.vue";
+import TaskToolCalls from "@/components/tasks/TaskToolCalls.vue";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
@@ -762,7 +803,6 @@ import {
   formatBytes,
   formatCost,
   formatDuration,
-  formatDurationPrecise,
   formatRate,
   formatTimestamp,
   formatTokens,
@@ -782,6 +822,7 @@ import {
   type NewTaskRelation,
 } from "@/lib/task";
 import { formatArgValue, parseArgsJSON } from "@/lib/taskTemplates";
+import { tickUsage } from "@/lib/usage";
 import {
   PromptScope,
   TaskPriority,
@@ -801,6 +842,7 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowLeftRightIcon,
+  ArrowRightIcon,
   CheckIcon,
   ChevronRightIcon,
   EraserIcon,
@@ -809,6 +851,7 @@ import {
   InboxIcon,
   LockIcon,
   LockOpenIcon,
+  MessageSquareOffIcon,
   PauseIcon,
   PencilIcon,
   PinIcon,
@@ -849,6 +892,7 @@ const props = defineProps<{
   leadCandidates: LeadCandidate[];
   unattachedTags: Tag[];
   taskUsage?: TaskUsage;
+  liveTiming?: { toolRunning: boolean; modelWaiting: boolean };
   taskDiskBytes?: bigint;
   taskDiskLoading: boolean;
   systemPrompt: SystemPromptSection[];
@@ -905,6 +949,13 @@ const detailsTabs = computed(() => {
     { value: "logs", label: "Logs" },
   ];
 });
+
+const LOGS_TABS = [
+  { value: "activity", label: "Activity" },
+  { value: "tool-calls", label: "Tool calls" },
+] as const;
+const logsTab = ref<"activity" | "tool-calls">("activity");
+
 const detailsTab = computed({
   get: () => props.tab ?? "general",
   set: (value: string) => emit("update:tab", value),
@@ -958,54 +1009,84 @@ const ttcCounts = computed(() => {
     state !== TaskState.CANCELLED
   );
 });
-const ttcFetchedAt = ref(Date.now());
-const ttcNow = ref(Date.now());
-let ttcTimer: ReturnType<typeof setInterval> | undefined;
-function stopTtcClock() {
-  if (ttcTimer !== undefined) {
-    clearInterval(ttcTimer);
-    ttcTimer = undefined;
+
+const liveNow = ref(Date.now());
+let liveTimer: ReturnType<typeof setInterval> | undefined;
+function stopLiveClock() {
+  if (liveTimer !== undefined) {
+    clearInterval(liveTimer);
+    liveTimer = undefined;
   }
 }
+const ttcFetchedAt = ref(Date.now());
 watch(
   [() => props.task?.ttcMs, ttcCounts],
   () => {
     ttcFetchedAt.value = Date.now();
-    ttcNow.value = ttcFetchedAt.value;
-    stopTtcClock();
+    liveNow.value = ttcFetchedAt.value;
+    stopLiveClock();
     if (ttcCounts.value) {
-      ttcTimer = setInterval(() => {
-        ttcNow.value = Date.now();
+      liveTimer = setInterval(() => {
+        liveNow.value = Date.now();
       }, 1000);
     }
   },
   { immediate: true },
 );
-onBeforeUnmount(stopTtcClock);
+onBeforeUnmount(stopLiveClock);
 const ttcMs = computed(() => {
   const task = props.task;
   if (!task) return 0;
   const base = Number(task.ttcMs);
   if (!ttcCounts.value) return base;
-  return base + Math.max(0, ttcNow.value - ttcFetchedAt.value);
+  return base + Math.max(0, liveNow.value - ttcFetchedAt.value);
 });
 
 const timingMeasured = computed(
-  () => Number(props.taskUsage?.ttftRuns ?? 0) > 0,
+  () => Number(props.taskUsage?.activeMs ?? 0) > 0,
 );
 const thinkingMs = computed(() => Number(props.taskUsage?.thinkingMs ?? 0));
+
+const usageFetchedAt = ref(Date.now());
+const usageCounts = computed(
+  () =>
+    props.task?.runtime?.runInProgress === true &&
+    props.task?.runtime?.waitingForInput !== true,
+);
+const usageExtraMs = computed(() =>
+  usageCounts.value ? Math.max(0, liveNow.value - usageFetchedAt.value) : 0,
+);
+
+const liveUsage = computed(() =>
+  tickUsage(
+    {
+      activeMs: Number(props.taskUsage?.activeMs ?? 0),
+      thinkingMs: thinkingMs.value,
+      modelWaitMs: modelWaitMs.value,
+    },
+    usageExtraMs.value,
+    {
+      toolRunning: props.liveTiming?.toolRunning === true,
+      modelWaiting: props.liveTiming?.modelWaiting === true,
+    },
+  ),
+);
+const activeMs = computed(() => liveUsage.value.activeMs);
+const thinkingTotalMs = computed(() => liveUsage.value.thinkingMs);
+const modelWaitTotalMs = computed(() => liveUsage.value.modelWaitMs);
+watch(
+  [() => props.taskUsage, usageCounts],
+  () => {
+    usageFetchedAt.value = Date.now();
+    liveNow.value = usageFetchedAt.value;
+  },
+  { immediate: true },
+);
 
 function measured(ms: number): string {
   return timingMeasured.value ? formatDuration(ms) : "—";
 }
 const modelWaitMs = computed(() => Number(props.taskUsage?.modelWaitMs ?? 0));
-const ttftLabel = computed(() => {
-  const usage = props.taskUsage;
-  if (!usage || Number(usage.ttftRuns) === 0) return "—";
-  const total = Number(usage.ttftMs);
-  const average = total / Number(usage.ttftRuns);
-  return `${formatDurationPrecise(average)} avg · ${formatDuration(total)} total`;
-});
 const generationLabel = computed(() => {
   const usage = props.taskUsage;
   if (!usage) return "—";

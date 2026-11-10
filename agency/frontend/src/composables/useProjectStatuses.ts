@@ -17,14 +17,29 @@
 import { useRealtime } from "@/composables/useRealtime";
 import { projectStatuses, type ProjectStatus } from "@/lib/project";
 import { agency } from "@/lib/sdk";
+import type { Task } from "@cherrypi/sdk";
 import { onMounted, ref } from "vue";
 
 const statuses = ref<Map<string, ProjectStatus>>(new Map());
 
+const tasks = ref<Task[]>([]);
+
+function patch(list: Task[], task: Task): Task[] {
+  const index = list.findIndex((item) => item.id === task.id);
+  if (task.archivedAt) {
+    return index < 0 ? list : list.filter((item) => item.id !== task.id);
+  }
+  if (index < 0) return [...list, task];
+  const next = list.slice();
+  next[index] = task;
+  return next;
+}
+
 export function useProjectStatuses() {
   async function refresh() {
     try {
-      statuses.value = projectStatuses(await agency.listTasks());
+      tasks.value = await agency.listTasks();
+      statuses.value = projectStatuses(tasks.value);
     } catch {}
   }
 
@@ -32,7 +47,18 @@ export function useProjectStatuses() {
     void refresh();
   });
 
-  useRealtime(["tasks"], () => void refresh());
+  useRealtime(
+    ["tasks"],
+    (event) => {
+      if (!event.task) {
+        void refresh();
+        return;
+      }
+      tasks.value = patch(tasks.value, event.task);
+      statuses.value = projectStatuses(tasks.value);
+    },
+    { rows: true },
+  );
 
   return { statuses, refresh };
 }

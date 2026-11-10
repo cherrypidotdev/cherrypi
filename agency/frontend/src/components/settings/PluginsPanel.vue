@@ -148,23 +148,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           Button(
             variant="outline"
             size="sm"
-            @click="loadLogs"
+            @click="reloadLogs"
             :disabled="loadingLogs"
           )
             | Refresh
         CardContent
-          Table(v-if="logs.length")
-            TableHeader
-              TableRow
-                TableHead Time
-                TableHead Level
-                TableHead Message
-            TableBody
-              TableRow(v-for="line in logs" :key="String(line.id)")
-                TableCell.text-xs.whitespace-nowrap {{ formatTime(line.at) }}
-                TableCell.text-xs {{ line.level }}
-                TableCell.text-xs.break-all {{ line.message }}
-          p.text-muted-foreground.text-sm(v-else) No activity lines yet.
+          .max-h-80.overflow-auto.rounded-md.border(v-if="logs.length")
+            Table
+              TableHeader
+                TableRow
+                  TableHead Time
+                  TableHead Level
+                  TableHead Message
+              TableBody
+                TableRow(v-for="line in logs" :key="String(line.id)")
+                  TableCell.text-xs.whitespace-nowrap {{ formatTime(line.at) }}
+                  TableCell.text-xs {{ line.level }}
+                  TableCell.text-xs.break-all
+                    p {{ line.message }}
+                    PluginLogData(:data-json="line.dataJson")
+            PluginLogLoadMore(
+              :has-more="logsHasMore"
+              :auto="logsAuto"
+              :loaded="logsLoaded"
+              @load="loadMoreLogs"
+              :loading="loadingMoreLogs"
+            )
+          p.text-destructive.text-sm(v-if="logsError" role="alert") {{ logsError }}
+          p.text-muted-foreground.text-sm(
+            v-else-if="!loadingLogs && !logs.length"
+          )
+            | No activity lines yet.
 
       Card
         CardHeader
@@ -314,6 +328,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import PluginLogData from "@/components/plugins/PluginLogData.vue";
+import PluginLogLoadMore from "@/components/plugins/PluginLogLoadMore.vue";
 import PluginRuntimeLogs from "@/components/plugins/PluginRuntimeLogs.vue";
 import PluginSettingsForm from "@/components/plugins/PluginSettingsForm.vue";
 import { Badge } from "@/components/ui/badge";
@@ -344,6 +360,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { usePluginLogPager } from "@/composables/usePluginLogPager";
 import {
   PLUGIN_SCOPE_LABELS,
   allowsAnyHost,
@@ -389,8 +406,22 @@ const selectedId = ref(
 const plugin = ref<Plugin | null>(null);
 const loadingDetail = ref(false);
 const orgSettings = ref<PluginSettings | null>(null);
-const logs = ref<PluginLog[]>([]);
-const loadingLogs = ref(false);
+const {
+  logs,
+  loading: loadingLogs,
+  loadingMore: loadingMoreLogs,
+  error: logsError,
+  hasMore: logsHasMore,
+  auto: logsAuto,
+  loaded: logsLoaded,
+  load: loadLogs,
+  loadMore: loadMoreLogs,
+  reset: resetLogs,
+} = usePluginLogPager((beforeId, limit) => {
+  const id = plugin.value?.id;
+  if (!id) return Promise.resolve([]);
+  return agency.listPluginLogs(id, { limit, beforeId });
+});
 const busy = ref("");
 const error = ref("");
 const installOpen = ref(false);
@@ -472,7 +503,7 @@ watch(selectedId, (value) => {
   } else {
     plugin.value = null;
     orgSettings.value = null;
-    logs.value = [];
+    resetLogs();
   }
 });
 
@@ -515,6 +546,7 @@ async function loadDetail(id: string) {
     if (hasSurface(parseManifest(plugin.value), "org")) {
       orgSettings.value = await agency.getPluginSettings(id, "org");
     }
+    resetLogs();
     await loadLogs();
   } catch (err) {
     error.value = message(err);
@@ -523,16 +555,9 @@ async function loadDetail(id: string) {
   }
 }
 
-async function loadLogs() {
-  if (!plugin.value) return;
-  loadingLogs.value = true;
-  try {
-    logs.value = await agency.listPluginLogs(plugin.value.id, 100);
-  } catch (err) {
-    error.value = message(err);
-  } finally {
-    loadingLogs.value = false;
-  }
+function reloadLogs() {
+  resetLogs();
+  void loadLogs();
 }
 
 function openDetail(id: string) {

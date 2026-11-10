@@ -63,6 +63,8 @@ type Consumer struct {
 
 	OnTaskEvent func(ctx context.Context, event, taskID string, extra map[string]any)
 
+	OnInputRequested func(ctx context.Context, taskID, requestID string)
+
 	Artifacts *artifacts.Service
 
 	Realtime *realtime.Bus
@@ -181,8 +183,13 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 		if c.OnTaskEvent != nil && taskID != "" {
 			c.OnTaskEvent(ctx, "task_requested_input", taskID, map[string]any{"title": title})
 		}
+		if c.OnInputRequested != nil && taskID != "" {
+			c.OnInputRequested(
+				ctx, taskID, stringValue(msg.Payload["request_id"]),
+			)
+		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
-		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		c.Realtime.PublishTask(taskID)
 
 	case "task_link":
 		if c.Tasks != nil {
@@ -195,7 +202,7 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				log.Printf("[events %d] set task links %s: %v", agentID, sessionID, err)
 			}
 		}
-		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		c.Realtime.PublishTask(c.taskID(ctx, agentID, sessionID))
 
 	case "task_progress":
 
@@ -210,7 +217,7 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				log.Printf("[events %d] set task progress %s: %v", agentID, sessionID, err)
 			}
 		}
-		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		c.Realtime.PublishTask(c.taskID(ctx, agentID, sessionID))
 
 	case "task_artifact":
 
@@ -225,14 +232,14 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				); err != nil {
 					log.Printf("[events %d] set task artifacts %s: %v", agentID, sessionID, err)
 				}
-				c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+				c.Realtime.PublishTask(taskID)
 			}
 		}
 
 	case "agent_state_changed":
+		taskID := c.taskID(ctx, agentID, sessionID)
 		if stringValue(msg.Payload["state"]) == "failed" {
 			errMsg := stringValue(msg.Payload["error"])
-			taskID := c.taskID(ctx, agentID, sessionID)
 			c.notifyTask(
 				ctx,
 				agentID,
@@ -256,7 +263,7 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 			}
 		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
-		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		c.Realtime.PublishTask(taskID)
 	}
 }
 

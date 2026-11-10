@@ -318,5 +318,11 @@ onMounted(() => {
   void load();
 });
 
-useRealtime(["tasks"], () => void load());
+useRealtime(
+  ["tasks"],
+  (event) => {
+    if (!event.task || event.task.id === props.taskId) void load();
+  },
+  { rows: true },
+);
 </script>

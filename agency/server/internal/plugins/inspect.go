@@ -103,6 +103,15 @@ func (s *Service) Inspect(ctx context.Context, data []byte) (Preview, error) {
 			fmt.Sprintf("It subscribes to %d agency events.", len(manifest.Events)),
 		)
 	}
+	if manifest.Schedule != nil {
+		preview.Warnings = append(
+			preview.Warnings,
+			fmt.Sprintf(
+				"It calls handle_tick every %d seconds while enabled.",
+				manifest.Schedule.EverySeconds,
+			),
+		)
+	}
 	if len(manifest.Tools) > 0 {
 		preview.Warnings = append(
 			preview.Warnings,

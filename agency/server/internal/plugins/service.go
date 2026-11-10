@@ -45,6 +45,8 @@ type Config struct {
 	RequirePGDatabase bool
 
 	AllowPrivateNetwork bool
+
+	DisableTicks bool
 }
 
 type Service struct {
@@ -63,6 +65,16 @@ type Service struct {
 	mu    sync.Mutex
 	dbs   map[string]*PluginDB
 	slots map[string]chan struct{}
+
+	taskToolWarned map[string]string
+
+	tickers        map[string]*tickLoop
+	tickBusy       map[string]bool
+	tickSkipLogged map[string]bool
+	rootCtx        context.Context
+	rootCancel     context.CancelFunc
+	Clock          TickClock
+	Jitter         func(time.Duration) time.Duration
 
 	FollowUp func(
 		ctx context.Context,
@@ -84,17 +96,24 @@ type Service struct {
 
 func NewService(cfg Config, st *Store) *Service {
 	return &Service{
-		Config:  cfg,
-		Store:   st,
-		Runtime: NewRuntime(),
-		dbs:     map[string]*PluginDB{},
-		slots:   map[string]chan struct{}{},
-		events:  make(chan eventJob, 256),
+		Config:         cfg,
+		Store:          st,
+		Runtime:        NewRuntime(),
+		dbs:            map[string]*PluginDB{},
+		slots:          map[string]chan struct{}{},
+		tickers:        map[string]*tickLoop{},
+		tickBusy:       map[string]bool{},
+		tickSkipLogged: map[string]bool{},
+		events:         make(chan eventJob, 256),
+		taskToolWarned: map[string]string{},
 	}
 }
 
 func (s *Service) Start(ctx context.Context) {
 	s.eventsOnce.Do(func() {
+
+		_, cancel := s.root()
+		context.AfterFunc(ctx, cancel)
 		for i := 0; i < 2; i++ {
 			go s.eventWorker(ctx)
 		}
@@ -121,7 +140,9 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 				"failed to load plugin",
 				map[string]any{"error": err.Error()},
 			)
+			continue
 		}
+		s.startTicker(p)
 	}
 	return nil
 }
@@ -221,6 +242,7 @@ func (s *Service) Install(
 	if err := s.ensureRuntime(ctx, p); err != nil {
 		return Plugin{}, err
 	}
+	s.startTicker(p)
 	s.Store.Log(
 		ctx,
 		p.ID,
@@ -248,6 +270,8 @@ func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error
 		if err := s.Store.SetEnabled(ctx, id, false); err != nil {
 			return err
 		}
+
+		s.stopTicker(id)
 		if err := s.releasePluginHolds(ctx, id); err != nil {
 			s.Store.Log(ctx, id, "error", "lifecycle", "", "failed to release task holds",
 				map[string]any{"error": err.Error()})
@@ -258,6 +282,7 @@ func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error
 		if err := s.Store.SetEnabled(ctx, id, true); err != nil {
 			return err
 		}
+		s.startTicker(p)
 		return nil
 	}
 	s.closeDB(id)
@@ -270,6 +295,7 @@ func (s *Service) Uninstall(ctx context.Context, id string, purge bool) error {
 	if err := s.Store.SetEnabled(ctx, id, false); err != nil {
 		return err
 	}
+	s.stopTicker(id)
 
 	if err := s.releasePluginHolds(ctx, id); err != nil {
 		s.Store.Log(ctx, id, "error", "lifecycle", "", "failed to release task holds",
@@ -604,8 +630,13 @@ func (s *Service) AgentSettings(ctx context.Context, id string) ([]Settings, err
 	return s.Store.ListSettings(ctx, id, ScopeAgent)
 }
 
-func (s *Service) Logs(ctx context.Context, id string, limit int) ([]LogLine, error) {
-	return s.Store.Logs(ctx, id, limit)
+func (s *Service) Logs(
+	ctx context.Context,
+	id string,
+	limit int,
+	beforeID int64,
+) ([]LogLine, error) {
+	return s.Store.Logs(ctx, id, limit, beforeID)
 }
 
 func (s *Service) RuntimeLogs(
@@ -644,6 +675,7 @@ func (s *Service) Invoke(ctx context.Context, p Plugin, inv Invocation) (Respons
 		serviceBridge{svc: s, pluginID: p.ID},
 		s.Config.AllowPrivateNetwork,
 	)
+	host.TaskID = inv.TaskID
 	return s.Runtime.Call(ctx, p, host, inv)
 }
 

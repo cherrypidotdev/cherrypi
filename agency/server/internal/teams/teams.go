@@ -39,6 +39,8 @@ const (
 	RoleMember = "member"
 )
 
+const actorKindPlugin = "plugin"
+
 // InviteTTL is the locked invitation lifetime.
 const InviteTTL = 7 * 24 * time.Hour
 
@@ -61,6 +63,7 @@ var (
 	ErrInvitationExpired  = errors.New("invitation has expired")
 	ErrInviteeNotFound    = errors.New("actor not found")
 	ErrInviteeSelf        = errors.New("cannot invite yourself")
+	ErrPluginInvitee      = errors.New("installed plugins cannot join teams")
 	ErrAgentNeedsOwner    = errors.New("only an owner of the agent may respond")
 	ErrTeamNotEmpty       = errors.New("a team with members cannot be deleted")
 	ErrTeamOwnsProjects   = errors.New("a team that owns projects cannot be deleted")
@@ -487,6 +490,10 @@ func (s *Service) Invite(
 	if inviteeID == actorID {
 		return Invitation{}, ErrInviteeSelf
 	}
+
+	if invitee.Kind == actorKindPlugin {
+		return Invitation{}, ErrPluginInvitee
+	}
 	if _, err := s.store.GetTeamMember(ctx, store.GetTeamMemberParams{
 		TeamID:  teamID,
 		ActorID: int64(inviteeID),
@@ -677,6 +684,11 @@ func (s *Service) Respond(
 	invitee, err := s.store.GetActorByID(ctx, inviteeID)
 	if err != nil {
 		return Invitation{}, err
+	}
+	// Invite already refuses a plugin, so this only covers an invitation that
+
+	if invitee.Kind == actorKindPlugin {
+		return Invitation{}, ErrPluginInvitee
 	}
 
 	if !isAdmin {

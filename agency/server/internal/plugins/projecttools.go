@@ -18,7 +18,9 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 
@@ -32,6 +34,20 @@ type ProjectTool struct {
 }
 
 func (s *Service) ProjectTools(ctx context.Context, projectID string) []ProjectTool {
+	return s.ProjectToolsForTask(ctx, "", projectID)
+}
+
+func (s *Service) ProjectToolsForTask(
+	ctx context.Context,
+	taskID, projectID string,
+) []ProjectTool {
+	return s.projectToolsForTask(ctx, taskID, projectID, "")
+}
+
+func (s *Service) projectToolsForTask(
+	ctx context.Context,
+	taskID, projectID, onlyTool string,
+) []ProjectTool {
 	if s == nil || s.Store == nil || !s.Store.ready() || projectID == "" {
 		return nil
 	}
@@ -47,6 +63,9 @@ func (s *Service) ProjectTools(ctx context.Context, projectID string) []ProjectT
 		if !p.Enabled || len(p.Manifest.ProjectTools) == 0 {
 			continue
 		}
+		if onlyTool != "" && !p.Manifest.declaresProjectTool(onlyTool) {
+			continue
+		}
 		row, err := s.Store.ProjectSettings(ctx, p.ID, projectID)
 		if err != nil || !row.Enabled {
 			continue
@@ -59,7 +78,7 @@ func (s *Service) ProjectTools(ctx context.Context, projectID string) []ProjectT
 				continue
 			}
 		}
-		for _, name := range p.Manifest.ProjectTools {
+		for _, name := range s.taskToolNames(ctx, p, taskID) {
 			tool, ok := p.Manifest.Tool(name)
 			if !ok {
 				continue
@@ -80,6 +99,123 @@ func (s *Service) ProjectTools(ctx context.Context, projectID string) []ProjectT
 		}
 	}
 	return out
+}
+
+func (s *Service) taskToolNames(
+	ctx context.Context,
+	p Plugin,
+	taskID string,
+) []string {
+	declared := p.Manifest.ProjectTools
+	if taskID == "" || !p.Manifest.HasHandler(HandlerTaskTools) {
+		return declared
+	}
+	inv := Invocation{
+		ID:     newInvocationID(),
+		Kind:   HandlerTaskTools,
+		Caller: Caller{Kind: "agency"},
+		TaskID: taskID,
+	}
+	names, err := s.taskToolsFromHook(ctx, p, inv)
+	if err == nil {
+		return names
+	}
+
+	level, message := LevelDebug, "handle_task_tools failed again; every declared project tool is attached"
+	if s.markTaskToolWarning(p.ID, taskID) {
+		level = LevelWarn
+		message = "handle_task_tools failed; every declared project tool is attached"
+		log.Printf(
+			"[plugins] %s handle_task_tools for task %s: %v", p.ID, taskID, err,
+		)
+	}
+	if s.Store != nil {
+		s.Store.Log(
+			ctx,
+			p.ID,
+			level,
+			"task_tools",
+			inv.ID,
+			message,
+			map[string]any{"task_id": taskID, "error": err.Error()},
+		)
+	}
+	return declared
+}
+
+func (s *Service) markTaskToolWarning(pluginID, taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.taskToolWarned == nil {
+		s.taskToolWarned = map[string]string{}
+	}
+	if s.taskToolWarned[pluginID] == taskID {
+		return false
+	}
+	s.taskToolWarned[pluginID] = taskID
+	return true
+}
+
+func (s *Service) taskToolsFromHook(
+	ctx context.Context,
+	p Plugin,
+	inv Invocation,
+) ([]string, error) {
+	resp, err := s.Invoke(ctx, p, inv)
+	if err != nil {
+		return nil, err
+	}
+	return parseTaskToolNames(resp.Body, p.Manifest.ProjectTools)
+}
+
+func parseTaskToolNames(body []byte, declared []string) ([]string, error) {
+	if len(body) == 0 {
+		return declared, nil
+	}
+	var shape any
+	if err := json.Unmarshal(body, &shape); err != nil {
+		return nil, fmt.Errorf(
+			"handle_task_tools must return a list of tool names: %w", err,
+		)
+	}
+	switch value := shape.(type) {
+	case nil:
+		return declared, nil
+	case map[string]any:
+		if len(value) == 0 {
+			return []string{}, nil
+		}
+	case []any:
+		declaredSet := make(map[string]bool, len(declared))
+		for _, name := range declared {
+			declaredSet[name] = true
+		}
+		allowed := make(map[string]bool, len(value))
+		for _, item := range value {
+			name, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf(
+					"handle_task_tools returned a non-string tool name: %v",
+					item,
+				)
+			}
+			if !declaredSet[name] {
+				return nil, fmt.Errorf(
+					"handle_task_tools returned %q, which is not a project tool",
+					name,
+				)
+			}
+			allowed[name] = true
+		}
+		out := make([]string, 0, len(allowed))
+		for _, name := range declared {
+			if allowed[name] {
+				out = append(out, name)
+			}
+		}
+		return out, nil
+	}
+	return nil, errors.New("handle_task_tools must return a list of tool names")
 }
 
 func (s *Service) ResolveTool(ctx context.Context, taskID, tool string) (string, error) {
@@ -104,10 +240,16 @@ func (s *Service) ResolveTool(ctx context.Context, taskID, tool string) (string,
 	if err != nil {
 		return "", err
 	}
-	for _, projectTool := range s.ProjectTools(ctx, t.ProjectID) {
+	for _, projectTool := range s.projectToolsForTask(
+		ctx, taskID, t.ProjectID, tool,
+	) {
 		if projectTool.Tool.Name == tool {
 			return projectTool.PluginID, nil
 		}
+	}
+
+	if len(s.projectToolsForTask(ctx, "", t.ProjectID, tool)) > 0 {
+		return "", errors.New("the tool is not available to this task")
 	}
 	return "", errors.New("the tool is not attached to this task")
 }

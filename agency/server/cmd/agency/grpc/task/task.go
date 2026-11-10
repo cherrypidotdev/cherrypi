@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/agents"
@@ -36,6 +38,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/tags"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
+	"cherrypi.vladfaust.com/agency/internal/taskinput"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/templates"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
@@ -76,6 +79,29 @@ type TaskServer struct {
 	TeamName func(ctx context.Context, id int64) (string, error)
 
 	Plugins *plugins.Service
+
+	Input *taskinput.Service
+
+	EnrichTimeout time.Duration
+
+	toolCallMu    sync.Mutex
+	toolCallCache map[string]cachedToolCalls
+}
+
+type cachedToolCalls struct {
+	tip   string
+	calls []taskhistory.ToolCall
+}
+
+const maxToolCallCache = 64
+
+const defaultEnrichTimeout = 2 * time.Second
+
+func (s *TaskServer) enrichTimeout() time.Duration {
+	if s.EnrichTimeout > 0 {
+		return s.EnrichTimeout
+	}
+	return defaultEnrichTimeout
 }
 
 func (s *TaskServer) ListTasks(
@@ -115,6 +141,7 @@ func (s *TaskServer) ListTasks(
 	for i, t := range list {
 		out[i] = toProtoTask(t)
 		out[i].CanCloseOut = s.canCloseOut(ctx, t)
+		out[i].CanAnswerInput = s.canAnswerInput(ctx, t)
 	}
 	stripProgressItems(out)
 	s.enrichRuntime(ctx, list, out)
@@ -148,11 +175,7 @@ func (s *TaskServer) GetTask(
 	if err != nil {
 		return nil, err
 	}
-	list := []tasks.Task{t}
-	s.enrichNames(ctx, list)
-	t = list[0]
-	out := toProtoTask(t)
-	out.CanCloseOut = s.canCloseOut(ctx, t)
+	out := s.protoTask(ctx, t)
 	if at, ok := s.runtime(ctx, t); ok {
 		rt := &agencyv1.TaskRuntime{
 			RunInProgress:   at.GetRunInProgress(),
@@ -164,17 +187,78 @@ func (s *TaskServer) GetTask(
 		if state, changed := s.materializeRuntime(ctx, t, at); changed {
 			out.State = state
 			if refreshed, err := s.Tasks.Get(ctx, t.ID); err == nil {
-				out = toProtoTask(refreshed)
-				out.CanCloseOut = s.canCloseOut(ctx, refreshed)
+				out = s.protoTask(ctx, refreshed)
 				out.Runtime = rt
 			}
 		}
 	}
+	return &agencyv1.GetTaskResponse{Task: out}, nil
+}
+
+func (s *TaskServer) ProtoTask(ctx context.Context, id string) *agencyv1.Task {
+	t, err := s.visibleTask(ctx, id)
+	if err != nil {
+		return nil
+	}
+
+	enrichCtx, cancel := context.WithTimeout(ctx, s.enrichTimeout())
+	defer cancel()
+	out := s.protoTask(enrichCtx, t)
+	s.enrichRuntime(enrichCtx, []tasks.Task{t}, []*agencyv1.Task{out})
+	return out
+}
+
+func (s *TaskServer) protoTask(ctx context.Context, t tasks.Task) *agencyv1.Task {
+	list := []tasks.Task{t}
+	s.enrichNames(ctx, list)
+	t = list[0]
+	out := toProtoTask(t)
+	out.CanCloseOut = s.canCloseOut(ctx, t)
+	out.CanAnswerInput = s.canAnswerInput(ctx, t)
 	s.enrichWaitingReasons(ctx, list, []*agencyv1.Task{out})
 	s.enrichAttachments(ctx, out.Id, out)
 	s.enrichAttribution(ctx, out)
 	s.enrichBadges(ctx, []*agencyv1.Task{out})
-	return &agencyv1.GetTaskResponse{Task: out}, nil
+	out.OriginChain = s.originChain(ctx, t)
+	return out
+}
+
+func (s *TaskServer) originChain(
+	ctx context.Context,
+	t tasks.Task,
+) []*agencyv1.TaskReference {
+	chain, err := s.Tasks.OriginChain(ctx, t.ID)
+	if err != nil {
+
+		// timeout), not a fault worth a line per pushed row.
+		if !errors.Is(err, context.Canceled) &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("[task %s] origin chain: %v", t.ID, err)
+		}
+		return nil
+	}
+	actorID, signedIn := auth.ActorID(ctx)
+	admin := auth.IsAdmin(ctx)
+	out := make([]*agencyv1.TaskReference, 0, len(chain))
+	for _, ancestor := range chain {
+		ref := &agencyv1.TaskReference{Id: ancestor.ID}
+		visible := true
+		if signedIn && actorID != 0 && !admin {
+			allowed, err := s.Tasks.CanView(ctx, ancestor.ProjectID, actorID, false)
+			if err != nil {
+				log.Printf("[task %s] origin visibility %s: %v", t.ID, ancestor.ID, err)
+				visible = false
+			} else {
+				visible = allowed
+			}
+		}
+		if visible {
+			ref.Name = ancestor.Name
+			ref.State = stateToProto(ancestor.State)
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func (s *TaskServer) enrichBadges(ctx context.Context, tasks []*agencyv1.Task) {
@@ -385,6 +469,26 @@ func (s *TaskServer) CreateTask(
 			)
 		}
 	}
+
+	if origin := strings.TrimSpace(req.OriginTaskId); origin != "" {
+		if actorID, ok := auth.ActorID(ctx); ok && actorID != 0 && !auth.IsAdmin(ctx) {
+			visible, err := s.Tasks.OriginVisible(ctx, origin, actorID, false)
+			if err != nil {
+				return nil, mapError(err)
+			}
+			if !visible {
+				return nil, connect.NewError(connect.CodeNotFound, tasks.ErrNotFound)
+			}
+		}
+	}
+
+	if req.Interactive != nil && !req.GetInteractive() &&
+		strings.TrimSpace(req.ParentTaskId) == "" {
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("a non-interactive task must be a sub-task"),
+		)
+	}
 	params := tasks.CreateParams{
 		Prompt:          req.Prompt,
 		Name:            req.Name,
@@ -397,12 +501,14 @@ func (s *TaskServer) CreateTask(
 		ModelProvider:   req.ModelProvider,
 		ModelID:         req.ModelId,
 		ThinkingLevel:   req.ThinkingLevel,
+		Interactive:     req.Interactive,
 		Workspace:       req.Workspace,
 		AutoTitle:       req.AutoTitle,
 		State:           stateFromProto(req.State),
 		TeamIDs:         int32sToInt64s(req.TeamIds),
 		LeadActorIDs:    actorIDsFromStrings(req.LeadActorIds),
 		ParentTaskID:    req.ParentTaskId,
+		OriginTaskID:    req.OriginTaskId,
 	}
 	if req.TemplateId != "" {
 		if s.Templates == nil {
@@ -461,7 +567,7 @@ func (s *TaskServer) CreateTask(
 	if t.State == tasks.StateQueued {
 		s.wake()
 	}
-	return &agencyv1.CreateTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.CreateTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) UpdateTask(
@@ -510,7 +616,7 @@ func (s *TaskServer) UpdateTask(
 		}
 
 		s.wake()
-		return &agencyv1.UpdateTaskResponse{Task: toProtoTask(t)}, nil
+		return &agencyv1.UpdateTaskResponse{Task: s.protoTask(ctx, t)}, nil
 	}
 	if err := s.checkAssignee(ctx, actorid.ParseActor(req.AssigneeActorId)); err != nil {
 		return nil, err
@@ -537,7 +643,7 @@ func (s *TaskServer) UpdateTask(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.UpdateTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.UpdateTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) QueueTask(
@@ -549,7 +655,7 @@ func (s *TaskServer) QueueTask(
 		return nil, mapError(err)
 	}
 	s.wake()
-	return &agencyv1.QueueTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.QueueTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) ListTaskReferences(
@@ -588,7 +694,7 @@ func (s *TaskServer) AddTaskReference(
 	}
 
 	s.wake()
-	return &agencyv1.AddTaskReferenceResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.AddTaskReferenceResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) RemoveTaskReference(
@@ -605,7 +711,7 @@ func (s *TaskServer) RemoveTaskReference(
 	}
 
 	s.wake()
-	return &agencyv1.RemoveTaskReferenceResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.RemoveTaskReferenceResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) DequeueTask(
@@ -616,7 +722,7 @@ func (s *TaskServer) DequeueTask(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.DequeueTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.DequeueTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) CloseOutTask(
@@ -647,7 +753,7 @@ func (s *TaskServer) CloseOutTask(
 	}
 
 	s.wake()
-	return &agencyv1.CloseOutTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.CloseOutTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) ReopenTask(
@@ -661,7 +767,7 @@ func (s *TaskServer) ReopenTask(
 	if t.State == tasks.StateQueued {
 		s.wake()
 	}
-	return &agencyv1.ReopenTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.ReopenTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) ReleaseTaskHold(
@@ -689,7 +795,7 @@ func (s *TaskServer) ReleaseTaskHold(
 	if t.State == tasks.StateQueued {
 		s.wake()
 	}
-	return &agencyv1.ReleaseTaskHoldResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.ReleaseTaskHoldResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) DeleteTask(
@@ -721,7 +827,7 @@ func (s *TaskServer) MergeTasks(
 	}
 
 	s.wake()
-	return &agencyv1.MergeTasksResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.MergeTasksResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) ArchiveTask(
@@ -746,7 +852,7 @@ func (s *TaskServer) ArchiveTask(
 		t = refreshed
 	}
 	s.wake()
-	return &agencyv1.ArchiveTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.ArchiveTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) UnarchiveTask(
@@ -765,7 +871,7 @@ func (s *TaskServer) UnarchiveTask(
 		return nil, mapError(err)
 	}
 	s.wake()
-	return &agencyv1.UnarchiveTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.UnarchiveTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) CleanupTaskSession(
@@ -788,7 +894,7 @@ func (s *TaskServer) CleanupTaskSession(
 	if refreshed, err := s.Tasks.Get(ctx, t.ID); err == nil {
 		t = refreshed
 	}
-	return &agencyv1.CleanupTaskSessionResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.CleanupTaskSessionResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) cleanupTaskSession(ctx context.Context, t tasks.Task) error {
@@ -833,7 +939,7 @@ func (s *TaskServer) RenameTask(
 			}
 		}
 	}
-	return &agencyv1.RenameTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.RenameTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) SetTaskPriority(
@@ -844,7 +950,7 @@ func (s *TaskServer) SetTaskPriority(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.SetTaskPriorityResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.SetTaskPriorityResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) SetTaskSize(
@@ -855,7 +961,7 @@ func (s *TaskServer) SetTaskSize(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.SetTaskSizeResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.SetTaskSizeResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) SetTaskLinks(
@@ -870,7 +976,7 @@ func (s *TaskServer) SetTaskLinks(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.SetTaskLinksResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.SetTaskLinksResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) SetTaskTeams(
@@ -881,7 +987,7 @@ func (s *TaskServer) SetTaskTeams(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := toProtoTask(t)
+	out := s.protoTask(ctx, t)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.SetTaskTeamsResponse{Task: out}, nil
 }
@@ -901,7 +1007,7 @@ func (s *TaskServer) SetTaskLeads(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := toProtoTask(t)
+	out := s.protoTask(ctx, t)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.SetTaskLeadsResponse{Task: out}, nil
 }
@@ -918,7 +1024,7 @@ func (s *TaskServer) SetTaskSubscription(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := toProtoTask(t)
+	out := s.protoTask(ctx, t)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.SetTaskSubscriptionResponse{Task: out}, nil
 }
@@ -935,7 +1041,7 @@ func (s *TaskServer) SetTaskFavorite(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := toProtoTask(t)
+	out := s.protoTask(ctx, t)
 	s.enrichAttribution(ctx, out)
 	return &agencyv1.SetTaskFavoriteResponse{Task: out}, nil
 }
@@ -1141,7 +1247,7 @@ func (s *TaskServer) BulkUpdateTask(
 		if r.Error != nil {
 			item.Error = r.Error.Error()
 		} else {
-			item.Task = toProtoTask(r.Task)
+			item.Task = s.protoTask(ctx, r.Task)
 		}
 		out = append(out, item)
 	}
@@ -1326,7 +1432,7 @@ func (s *TaskServer) RetryTask(
 		}
 		t, _ = s.Tasks.Get(ctx, t.ID)
 	}
-	return &agencyv1.RetryTaskResponse{Task: toProtoTask(t)}, nil
+	return &agencyv1.RetryTaskResponse{Task: s.protoTask(ctx, t)}, nil
 }
 
 func (s *TaskServer) WatchTask(
@@ -1444,6 +1550,114 @@ func (s *TaskServer) GetTaskHistory(
 	}, nil
 }
 
+func (s *TaskServer) cachedToolCalls(id, tip string) ([]taskhistory.ToolCall, bool) {
+	s.toolCallMu.Lock()
+	defer s.toolCallMu.Unlock()
+	entry, ok := s.toolCallCache[id]
+	if !ok || entry.tip != tip {
+		return nil, false
+	}
+	return entry.calls, true
+}
+
+func (s *TaskServer) storeToolCalls(
+	id, tip string,
+	calls []taskhistory.ToolCall,
+) {
+	s.toolCallMu.Lock()
+	defer s.toolCallMu.Unlock()
+	if s.toolCallCache == nil || len(s.toolCallCache) >= maxToolCallCache {
+		s.toolCallCache = make(map[string]cachedToolCalls, maxToolCallCache)
+	}
+	s.toolCallCache[id] = cachedToolCalls{tip: tip, calls: calls}
+}
+
+func (s *TaskServer) ListTaskToolCalls(
+	ctx context.Context,
+	req *agencyv1.ListTaskToolCallsRequest,
+) (*agencyv1.ListTaskToolCallsResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	calls, err := s.taskToolCalls(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	page, total := taskhistory.FilterToolCalls(calls, taskhistory.ToolCallFilter{
+		Names:           req.ToolNames,
+		ErrorsOnly:      req.ErrorsOnly,
+		InterruptedOnly: req.InterruptedOnly,
+		Search:          req.Search,
+		Limit:           int(req.Limit),
+		Offset:          int(req.Offset),
+	})
+	out := &agencyv1.ListTaskToolCallsResponse{
+		Total: int32(total),
+		Names: taskhistory.ToolCallNames(calls),
+	}
+	for _, call := range page {
+		out.Calls = append(out.Calls, &agencyv1.TaskToolCall{
+			CallId:      call.CallID,
+			Name:        call.Name,
+			IsError:     call.IsError,
+			Interrupted: call.Interrupted(),
+			StartedAt:   call.StartedAt,
+			EndedAt:     call.EndedAt,
+			DurationMs:  call.DurationMs(),
+			ArgsJson:    call.ArgsPreview(),
+			ResultBytes: int64(call.ResultBytes()),
+		})
+	}
+	return out, nil
+}
+
+func (s *TaskServer) taskToolCalls(
+	ctx context.Context,
+	t tasks.Task,
+) ([]taskhistory.ToolCall, error) {
+
+	tip, _, err := s.Tasks.SessionHistoryTip(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if tip != "" {
+		if calls, ok := s.cachedToolCalls(t.ID, tip); ok {
+			return calls, nil
+		}
+	}
+	entries, err := s.Tasks.SessionHistory(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if len(entries) > 0 {
+		calls := taskhistory.CollectToolCalls(entries)
+		s.storeToolCalls(t.ID, tip, calls)
+		return calls, nil
+	}
+	if !t.SessionDeletedAt.IsZero() {
+		return nil, nil
+	}
+	var events []*agentv1.TaskEvent
+	before := ""
+	for {
+		page, err := s.GetTaskHistory(ctx, &agencyv1.GetTaskHistoryRequest{
+			Id:     t.ID,
+			Before: before,
+			Limit:  1000,
+		})
+		if err != nil {
+			return nil, err
+		}
+		events = append(page.Events, events...)
+		if page.NextBefore == "" {
+			break
+		}
+		before = page.NextBefore
+	}
+	return taskhistory.CollectToolCallsFromEvents(events), nil
+}
+
 func (s *TaskServer) GetTaskConfig(
 	ctx context.Context,
 	req *agencyv1.GetTaskConfigRequest,
@@ -1524,47 +1738,34 @@ func (s *TaskServer) RespondToExtensionUi(
 	ctx context.Context,
 	req *agencyv1.RespondToExtensionUiRequest,
 ) (*agencyv1.RespondToExtensionUiResponse, error) {
-	t, conn, err := s.sessionTask(ctx, req.Id)
+	t, err := s.Tasks.Get(ctx, req.Id)
 	if err != nil {
+		return nil, mapError(err)
+	}
+	if err := s.requireAnswerInput(ctx, t); err != nil {
 		return nil, err
 	}
-	inner := &agentv1.RespondToExtensionUiRequest{
-		Id:        t.SessionID,
-		RequestId: req.RequestId,
-	}
+	answer := taskinput.Answer{RequestID: req.RequestId}
 	switch resp := req.Response.(type) {
 	case *agencyv1.RespondToExtensionUiRequest_Value:
-		inner.Response = &agentv1.RespondToExtensionUiRequest_Value{Value: resp.Value}
+		answer.Value = resp.Value
 	case *agencyv1.RespondToExtensionUiRequest_Confirmed:
-		inner.Response = &agentv1.RespondToExtensionUiRequest_Confirmed{
-			Confirmed: resp.Confirmed,
-		}
+		confirmed := resp.Confirmed
+		answer.Confirmed = &confirmed
 	case *agencyv1.RespondToExtensionUiRequest_Cancelled:
-		inner.Response = &agentv1.RespondToExtensionUiRequest_Cancelled{
-			Cancelled: resp.Cancelled,
-		}
+		answer.Cancelled = resp.Cancelled
 	}
-	if len(req.Questionnaire) > 0 {
-		inner.Questionnaire = make([]*agentv1.QuestionnaireAnswer, 0, len(req.Questionnaire))
-		for _, qa := range req.Questionnaire {
-			inner.Questionnaire = append(inner.Questionnaire, &agentv1.QuestionnaireAnswer{
+	for _, qa := range req.Questionnaire {
+		answer.Questionnaire = append(
+			answer.Questionnaire,
+			taskinput.QuestionnaireAnswer{
 				Question: qa.Question,
 				Answer:   qa.Answer,
-			})
-		}
+			},
+		)
 	}
-
-	s.stampQuestionnaireAnswer(ctx, inner)
-	if _, err := conn.Tasks.RespondToExtensionUi(ctx, inner); err != nil {
-		return nil, err
-	}
-
-	if len(req.Questionnaire) > 0 {
-		s.recordQuestionnaireAnswer(ctx, t, req.RequestId, len(req.Questionnaire))
-	}
-
-	if _, err := s.Tasks.ClearInput(ctx, t.ID); err != nil {
-		log.Printf("[task %s] clear input: %v", t.ID, err)
+	if err := s.Input.Answer(ctx, t, answer); err != nil {
+		return nil, mapError(err)
 	}
 	return &agencyv1.RespondToExtensionUiResponse{}, nil
 }
@@ -1672,6 +1873,27 @@ func (s *TaskServer) requireTaskControl(
 	}
 	if !allowed {
 		return connect.NewError(connect.CodePermissionDenied, errors.New(message))
+	}
+	return nil
+}
+
+func (s *TaskServer) requireAnswerInput(
+	ctx context.Context,
+	t tasks.Task,
+) error {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return nil
+	}
+	allowed, err := s.Tasks.CanAnswerInput(ctx, t, actorID, auth.IsAdmin(ctx))
+	if err != nil {
+		return mapError(err)
+	}
+	if !allowed {
+		return connect.NewError(
+			connect.CodePermissionDenied,
+			errors.New("only a lead or an administrator may answer this task"),
+		)
 	}
 	return nil
 }
@@ -1958,6 +2180,15 @@ func (s *TaskServer) canCloseOut(ctx context.Context, t tasks.Task) bool {
 	return err == nil && allowed
 }
 
+func (s *TaskServer) canAnswerInput(ctx context.Context, t tasks.Task) bool {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return false
+	}
+	allowed, err := s.Tasks.CanAnswerInput(ctx, t, actorID, auth.IsAdmin(ctx))
+	return err == nil && allowed
+}
+
 func (s *TaskServer) requireCanCloseOut(ctx context.Context, t tasks.Task) error {
 	actorID, ok := auth.ActorID(ctx)
 	if !ok || actorID == 0 {
@@ -2024,7 +2255,8 @@ func mapError(err error) *connect.Error {
 		errors.Is(err, tasks.ErrProjectHasNoAgents),
 		errors.Is(err, tasks.ErrMergeProjectMismatch),
 		errors.Is(err, tasks.ErrMergeAssigneeConflict),
-		errors.Is(err, tasks.ErrMergeState):
+		errors.Is(err, tasks.ErrMergeState),
+		errors.Is(err, taskinput.ErrNoPendingDialog):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, tasks.ErrMergeTooFew):
 		return connect.NewError(connect.CodeInvalidArgument, err)
@@ -2193,6 +2425,7 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		Prompt:               t.Prompt,
 		ProjectId:            t.ProjectID,
 		ParentTaskId:         t.ParentTaskID,
+		OriginTaskId:         t.OriginTaskID,
 		PendingChildren:      int32(t.PendingChildren),
 		PendingSteering:      t.PendingSteering,
 		AssigneeActorId:      actorid.Format(t.AssigneeActorID),

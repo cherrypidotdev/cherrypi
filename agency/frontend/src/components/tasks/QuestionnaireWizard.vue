@@ -17,21 +17,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-section.d-card.bg-base-100.border-base-300.border
+section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
   .d-card-body.gap-3
     header.flex.flex-col
-      h2.d-card-title.text-sm
-        | {{ readonly ? readonlyTitle : "Need your input" }}
-      p.text-muted-foreground.flex.items-center.gap-1.text-xs(
+      h2.d-card-title.text-sm {{ title }}
+
+      p.text-muted-foreground.flex.flex-wrap.items-center.gap-1.text-xs(
         v-if="readonly && answeredBy"
         data-test="questionnaire-answered-by"
       )
-        UserRoundIcon.size-3
-        span Answered by {{ answeredByLabel(answeredBy) }}
+        span Answered by
+
+        span.d-inline-flex.border-base-300.items-center.rounded-full.border.px-2(
+          class="bg-base-200/60 py-0.5"
+        )
+          MessageSender(
+            :sender="answeredBySender"
+            :picture="answeredByPicture"
+          )
+        template(v-if="answeredAt !== undefined")
+          span at
+          time.tabular-nums(
+            :datetime="isoInstant(answeredAt)"
+            :title="formatInstant(answeredAt)"
+            data-test="questionnaire-answered-at"
+          ) {{ formatClock(answeredAt) }}
       p.text-muted-foreground.text-sm(v-if="readonly && unavailable")
         | This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text.
       p.text-muted-foreground.text-sm(v-else-if="readonly && cancelled")
         | The questionnaire was declined.
+      p.text-muted-foreground.text-sm(v-else-if="blockedReason")
+        | {{ blockedReason }}
       p.text-muted-foreground.text-sm(v-else-if="readonly")
         | Review the answers that were sent; they can no longer be changed.
       p.text-muted-foreground.text-sm(v-else-if="submitting")
@@ -41,7 +57,7 @@ section.d-card.bg-base-100.border-base-300.border
       p.text-muted-foreground.text-sm(v-else)
         | Answer the question below, then submit.
 
-    .flex.items-center.gap-3(v-if="multiple && !readonly" data-test="progress")
+    .flex.items-center.gap-3(v-if="multiple && !locked" data-test="progress")
       progress.d-progress.d-progress-primary.flex-1(
         :value="answeredCount"
         aria-label="Questions answered"
@@ -51,9 +67,8 @@ section.d-card.bg-base-100.border-base-300.border
         | {{ answeredCount }} / {{ questions.length }} answered
 
     template(v-if="multiple")
-      .w-full.overflow-x-auto.overflow-y-hidden.overscroll-none(
+      .w-full.overflow-x-auto.overflow-y-hidden.overscroll-x-none(
         ref="tabStrip"
-        class="[&::-webkit-scrollbar-thumb]:bg-border [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
       )
         .d-tabs.d-tabs-box.d-tabs-sm.w-max(role="tablist")
           button.d-tab.shrink-0(
@@ -84,7 +99,7 @@ section.d-card.bg-base-100.border-base-300.border
           v-if="active === String(index + 1)"
           :question="question"
           :answer="answerAt(index)"
-          :readonly="readonly"
+          :readonly="locked"
           @toggle="toggleOption(question, index, $event)"
           @toggle-custom="toggleCustom(index)"
           @notes="setNotes(index, $event)"
@@ -95,7 +110,7 @@ section.d-card.bg-base-100.border-base-300.border
       v-else-if="single"
       :question="single"
       :answer="answerAt(0)"
-      :readonly="readonly"
+      :readonly="locked"
       @toggle="toggleOption(single, 0, $event)"
       @toggle-custom="toggleCustom(0)"
       @notes="setNotes(0, $event)"
@@ -109,7 +124,7 @@ section.d-card.bg-base-100.border-base-300.border
       CircleAlertIcon(:size="14")
       span {{ errors }}
 
-  template(v-if="!readonly")
+  template(v-if="!locked")
     .d-collapse.d-collapse-arrow.rounded-none.border-t(
       :class="{ 'd-collapse-open': finalNoteOpen }"
     )
@@ -180,15 +195,17 @@ section.d-card.bg-base-100.border-base-300.border
 <script setup lang="ts">
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
+import MessageSender from "@/components/MessageSender.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
 import { useSessionEditorHeight } from "@/composables/useEditorHeight";
+import type { MessageSender as ChatSender } from "@/lib/console";
 import {
   COMPACT_EDITOR_HEIGHT,
   QUESTIONNAIRE_FINAL_NOTE_HEIGHT_KEY,
 } from "@/lib/editorHeight";
+import { formatClock, formatInstant, isoInstant } from "@/lib/format";
 import { INHERIT_PROSE } from "@/lib/markdown";
 import {
-  answeredByLabel,
   emptyAnswer,
   isAnswered,
   type QuestionnaireAnswer,
@@ -199,13 +216,12 @@ import {
   EMPTY_TASK_MODEL_SELECTION,
   type TaskModelSelection,
 } from "@/lib/task";
-import type { TaskConfig } from "@cherrypi/sdk";
+import type { Attachment, TaskConfig } from "@cherrypi/sdk";
 import {
   CheckIcon,
   CircleAlertIcon,
   HourglassIcon,
   SendIcon,
-  UserRoundIcon,
   XIcon,
 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
@@ -229,6 +245,12 @@ const props = withDefaults(
 
     answeredBy?: QuestionnaireAnsweredBy;
 
+    answeredByPicture?: Attachment;
+
+    answeredAt?: number;
+
+    blockedReason?: string;
+
     unavailable?: boolean;
 
     agentId?: string;
@@ -242,6 +264,9 @@ const props = withDefaults(
   {
     agentId: "",
     answeredBy: undefined,
+    answeredByPicture: undefined,
+    answeredAt: undefined,
+    blockedReason: undefined,
     modelConfig: undefined,
     modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
     modelDisabled: false,
@@ -259,6 +284,27 @@ const readonlyTitle = computed(() => {
   }
   return props.cancelled ? "Questionnaire declined" : "Questions answered";
 });
+
+const locked = computed(
+  () => props.readonly || props.blockedReason !== undefined,
+);
+
+const title = computed(() => {
+  if (props.readonly) {
+    return readonlyTitle.value;
+  }
+  return props.blockedReason === undefined
+    ? "Need your input"
+    : "Questionnaire";
+});
+
+const answeredBySender = computed<ChatSender>(() => ({
+  id: props.answeredBy?.id,
+  username: props.answeredBy?.username ?? "",
+  name: props.answeredBy?.name ?? "",
+
+  kind: props.answeredBy?.kind ?? "user",
+}));
 
 function draftKey(): string | null {
   return props.storageKey
@@ -326,9 +372,9 @@ function clearDraft() {
   } catch {}
 }
 
-const initialDraft = props.readonly ? null : loadDraft();
+const initialDraft = locked.value ? null : loadDraft();
 const answers = ref<QuestionnaireAnswer[]>(
-  props.readonly
+  locked.value
     ? (props.reviewAnswers?.map((answer) => ({
         ...answer,
         selected: [...answer.selected],
@@ -336,7 +382,7 @@ const answers = ref<QuestionnaireAnswer[]>(
     : (initialDraft?.answers ?? props.questions.map(() => emptyAnswer())),
 );
 const finalNote = ref(
-  props.readonly
+  locked.value
     ? (props.reviewFinalNote ?? "")
     : (initialDraft?.finalNote ?? ""),
 );
@@ -364,7 +410,7 @@ function focusUnanswered() {
 watch(
   () => props.questions,
   () => {
-    if (props.readonly) {
+    if (locked.value) {
       return;
     }
     const signature = currentSignature();
@@ -382,7 +428,7 @@ watch(
 
 function saveDraft() {
   const key = draftKey();
-  if (props.readonly || !key || props.submitting) {
+  if (locked.value || !key || props.submitting) {
     return;
   }
   try {
@@ -541,7 +587,7 @@ watch(active, () => {
 });
 
 questionsSignature = currentSignature();
-if (props.readonly) {
+if (locked.value) {
   active.value = "1";
 } else {
   focusUnanswered();

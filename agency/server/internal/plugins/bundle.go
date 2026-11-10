@@ -106,6 +106,9 @@ func ReadBundle(data []byte) (Bundle, error) {
 	if files[manifest.Entry] == nil {
 		return Bundle{}, fmt.Errorf("bundle needs %s", manifest.Entry)
 	}
+	if err := validateEntryHandlers(files, manifest); err != nil {
+		return Bundle{}, err
+	}
 	sum := sha256.Sum256(data)
 	return Bundle{
 		Manifest:    manifest,
@@ -199,6 +202,9 @@ func LoadBundleDir(dir string) (Bundle, error) {
 	}
 	if files[manifest.Entry] == nil {
 		return Bundle{}, fmt.Errorf("bundle needs %s", manifest.Entry)
+	}
+	if err := validateEntryHandlers(files, manifest); err != nil {
+		return Bundle{}, err
 	}
 	return Bundle{Manifest: manifest, ManifestRaw: manifestRaw, Files: files}, nil
 }
@@ -299,6 +305,24 @@ func checkBundlePath(name string) error {
 	if name == "" || strings.HasPrefix(name, "/") || strings.Contains(name, "..") ||
 		strings.ContainsRune(name, '\\') {
 		return fmt.Errorf("unsafe bundle path %q", name)
+	}
+	return nil
+}
+
+func validateEntryHandlers(files map[string][]byte, m Manifest) error {
+	if m.Schedule == nil {
+		return nil
+	}
+	body := files[m.Entry]
+	proto, err := compileLua(body, m.Entry)
+	if err != nil {
+		return fmt.Errorf("%s: %w", m.Entry, err)
+	}
+	if !protoDefinesGlobal(proto, "handle_tick") {
+		return fmt.Errorf(
+			"%s does not define handle_tick, which the manifest's schedule needs",
+			m.Entry,
+		)
 	}
 	return nil
 }

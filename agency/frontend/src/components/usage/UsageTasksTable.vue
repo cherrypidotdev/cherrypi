@@ -63,10 +63,6 @@ Card
             @click="sortBy('thinking')"
           ) Thinking
           TableHead.cursor-pointer.text-right.select-none(
-            title="Run start to first token, averaged over the runs that measured one"
-            @click="sortBy('ttft')"
-          ) TTFT
-          TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('cost')"
           ) Cost
           TableHead
@@ -117,7 +113,6 @@ Card
           TableCell.text-right.tabular-nums {{ row.task ? formatDuration(ttcOf(row)) : "—" }}
           TableCell.text-right.tabular-nums {{ formatDuration(row.activeMs) }}
           TableCell.text-right.tabular-nums {{ formatDuration(row.thinkingMs) }}
-          TableCell.text-right.tabular-nums {{ ttftOf(row) }}
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
           TableCell
             .flex.justify-end
@@ -164,14 +159,9 @@ import type {
   UsageContext,
   UsageTaskRow,
 } from "@/composables/useUsageAnalytics";
-import {
-  formatCost,
-  formatDuration,
-  formatDurationPrecise,
-  formatTokens,
-} from "@/lib/format";
+import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { taskStateClass, taskStateLabel } from "@/lib/task";
-import { averageTtftMs, usageAccent } from "@/lib/usage";
+import { usageAccent } from "@/lib/usage";
 import { TaskState } from "@cherrypi/sdk";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -189,12 +179,12 @@ const STATE_FILTERS: { value: StateFilter; label: string }[] = [
 ];
 
 const router = useRouter();
-const columnCount = computed(() => 12 + (props.context === "agency" ? 1 : 0));
+const columnCount = computed(() => 11 + (props.context === "agency" ? 1 : 0));
 const stateFilter = ref<StateFilter>("all");
 const search = ref("");
-const sortKey = ref<
-  "runs" | "tokens" | "active" | "thinking" | "ttc" | "ttft" | "cost"
->("runs");
+const sortKey = ref<"runs" | "tokens" | "active" | "thinking" | "ttc" | "cost">(
+  "runs",
+);
 const sortDir = ref<"asc" | "desc">("desc");
 
 const filtered = computed(() => {
@@ -234,8 +224,6 @@ const filtered = computed(() => {
           return row.thinkingMs;
         case "ttc":
           return ttcOf(row);
-        case "ttft":
-          return averageTtftMs(row);
         default:
           return row.cost;
       }
@@ -251,13 +239,8 @@ function ttcOf(row: UsageTaskRow): number {
   return Number(row.task?.ttcMs ?? 0);
 }
 
-function ttftOf(row: UsageTaskRow): string {
-  if (!row.ttftRuns) return "—";
-  return formatDurationPrecise(averageTtftMs(row));
-}
-
 function sortBy(
-  key: "runs" | "tokens" | "active" | "thinking" | "ttc" | "ttft" | "cost",
+  key: "runs" | "tokens" | "active" | "thinking" | "ttc" | "cost",
 ) {
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === "desc" ? "asc" : "desc";

@@ -20,11 +20,14 @@ package taskwake
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 
+	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/shared/protocol"
 )
 
 const DefaultMaxConsecutive = 20
@@ -45,6 +48,10 @@ type Waker struct {
 	Wake func()
 
 	MaxConsecutive int
+
+	LeadOf func(ctx context.Context, taskID string, actorID ids.ActorID) (bool, error)
+
+	AgentProtocol func(ctx context.Context, actorID ids.ActorID) (string, error)
 }
 
 func (w *Waker) maxConsecutive() int {
@@ -107,7 +114,66 @@ func (w *Waker) OnChildFinished(
 	if parent.PendingChildren > 0 {
 		return
 	}
-	w.deliver(ctx, parent, state)
+	w.deliver(ctx, parent, state, deliverSummary)
+}
+
+func (w *Waker) OnInputRequested(ctx context.Context, taskID, requestID string) {
+	if w.Tasks == nil || w.LeadOf == nil || w.AgentProtocol == nil {
+		return
+	}
+	child, err := w.Tasks.Get(ctx, taskID)
+	if err != nil || child.ParentTaskID == "" {
+		return
+	}
+	parent, err := w.Tasks.Get(ctx, child.ParentTaskID)
+	if err != nil {
+		log.Printf("[taskwake] load parent %s: %v", child.ParentTaskID, err)
+		return
+	}
+
+	switch parent.State {
+	case tasks.StateCompleted, tasks.StateCancelled, tasks.StateBacklog:
+		return
+	}
+	actorID := parent.AssigneeActorID
+	if actorID == 0 {
+
+		return
+	}
+	lead, err := w.LeadOf(ctx, child.ID, actorID)
+	if err != nil || !lead {
+		return
+	}
+	version, err := w.AgentProtocol(ctx, actorID)
+	if err != nil {
+		return
+	}
+	if protocol.Compare(version, protocol.TaskInputAnswersVersion) !=
+		protocol.Current {
+		log.Printf(
+			"[taskwake] parent %s agent protocol %q predates the input tools; "+
+				"leaving %s's question to a human",
+			parent.ID, version, child.ID,
+		)
+		return
+	}
+
+	state, err := w.Tasks.WakeState(ctx, parent.ID)
+	if err != nil {
+		log.Printf("[taskwake] read wake state %s: %v", parent.ID, err)
+		return
+	}
+
+	if state.SeenInputWake(child.ID, requestID) {
+		return
+	}
+	state.RememberInputWake(child.ID, requestID)
+	state.Lines = append(state.Lines, inputWakeLine(child))
+	if err := w.Tasks.SetWakeState(ctx, parent.ID, state); err != nil {
+		log.Printf("[taskwake] store wake state %s: %v", parent.ID, err)
+		return
+	}
+	w.deliver(ctx, parent, state, deliverQuestion)
 }
 
 func (w *Waker) OnInputCleared(ctx context.Context, t tasks.Task) {
@@ -115,10 +181,23 @@ func (w *Waker) OnInputCleared(ctx context.Context, t tasks.Task) {
 	if err != nil || len(state.Lines) == 0 {
 		return
 	}
-	w.deliver(ctx, t, state)
+	w.deliver(ctx, t, state, deliverSummary)
 }
 
-func (w *Waker) deliver(ctx context.Context, parent tasks.Task, state tasks.WakeState) {
+type delivery int
+
+const (
+	deliverSummary delivery = iota
+
+	deliverQuestion
+)
+
+func (w *Waker) deliver(
+	ctx context.Context,
+	parent tasks.Task,
+	state tasks.WakeState,
+	reason delivery,
+) {
 	if len(state.Lines) == 0 {
 		return
 	}
@@ -140,9 +219,31 @@ func (w *Waker) deliver(ctx context.Context, parent tasks.Task, state tasks.Wake
 	case tasks.StateInput:
 
 		return
-	case tasks.StateQueued, tasks.StateWaiting:
+	case tasks.StateQueued:
 
 		if err := w.Tasks.AppendPendingPrompt(ctx, parent.ID, summary, 0); err != nil {
+			log.Printf("[taskwake] append pending prompt %s: %v", parent.ID, err)
+			return
+		}
+	case tasks.StateWaiting:
+
+		if reason == deliverQuestion {
+			_, err := w.Tasks.WakeWaitingWithPrompt(
+				ctx, parent.ID, summary, 0,
+			)
+			if err == nil {
+				break
+			}
+
+			if !errors.Is(err, tasks.ErrHeld) &&
+				!errors.Is(err, tasks.ErrWrongState) {
+				log.Printf("[taskwake] wake waiting parent %s: %v", parent.ID, err)
+				return
+			}
+		}
+		if err := w.Tasks.AppendPendingPrompt(
+			ctx, parent.ID, summary, 0,
+		); err != nil {
 			log.Printf("[taskwake] append pending prompt %s: %v", parent.ID, err)
 			return
 		}
@@ -178,15 +279,29 @@ func (w *Waker) failParent(ctx context.Context, parent tasks.Task, state tasks.W
 	log.Printf("[taskwake] parent %s failed: %s", parent.ID, msg)
 }
 
-func wakeLine(child tasks.Task, outcome tasks.ChildOutcome) string {
-	name := strings.TrimSpace(child.Name)
+func inputWakeLine(child tasks.Task) string {
+	return fmt.Sprintf(
+		"Sub-task %s is waiting for input — read the dialog with "+
+			"getTaskInput %s and answer it with respondToTaskInput.",
+		taskLabel(child), child.ID,
+	)
+}
+
+// taskLabel names a task the way a wake line refers to it: its id, plus its
+
+func taskLabel(task tasks.Task) string {
+	name := strings.TrimSpace(task.Name)
 	if name == "" {
-		name = firstLine(child.Prompt)
+		name = firstLine(task.Prompt)
 	}
-	label := child.ID
-	if name != "" && name != child.ID {
-		label = fmt.Sprintf("%s (%s)", child.ID, name)
+	if name == "" || name == task.ID {
+		return task.ID
 	}
+	return fmt.Sprintf("%s (%s)", task.ID, name)
+}
+
+func wakeLine(child tasks.Task, outcome tasks.ChildOutcome) string {
+	label := taskLabel(child)
 	switch outcome {
 	case tasks.ChildFailed:
 		detail := strings.TrimSpace(child.Error)

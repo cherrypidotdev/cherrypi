@@ -92,6 +92,7 @@ const (
 type PendingActivityEvent struct {
 	Kind        PendingKind
 	Model       string
+	Provider    string
 	Error       string
 	Attempt     uint32
 	MaxAttempts uint32
@@ -116,8 +117,8 @@ type Event struct {
 type ModelWaitEvent struct {
 	Kind       PendingKind
 	Model      string
+	Provider   string
 	DurationMs int64
-	FirstToken bool
 	Error      string
 	Attempt    uint32
 	Reason     string

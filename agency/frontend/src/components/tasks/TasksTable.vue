@@ -143,15 +143,24 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
                 title="The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency"
               )
                 CircleSlashIcon.size-3
-            span.text-muted-foreground.font-mono.text-xs(:title="task.id")
-              | {{ shortTaskId(task.id) }}
-            span.text-muted-foreground.inline-flex.shrink-0.items-center.text-xs(
-              v-if="task.parentTaskId"
-              class="gap-0.5"
-              title="Sub-task"
-              data-testid="task-subtask-badge"
-            )
-              GitBranchIcon.size-3
+            .flex.flex-wrap.items-center(class="gap-1.5")
+              span.text-muted-foreground.font-mono.text-xs(:title="task.id")
+                | {{ shortTaskId(task.id) }}
+              span.text-muted-foreground.inline-flex.shrink-0.items-center.text-xs(
+                v-if="task.parentTaskId"
+                class="gap-0.5"
+                title="Sub-task"
+                data-testid="task-subtask-badge"
+              )
+                GitBranchIcon.size-3
+              span.text-muted-foreground.inline-flex.shrink-0.items-center.rounded-full.border.text-xs(
+                v-if="!task.interactive"
+                class="gap-0.5 px-1.5"
+                title="Non-interactive: the agent cannot show questionnaires or extension dialogs"
+                data-testid="task-non-interactive-badge"
+              )
+                MessageSquareOffIcon.size-3
+                | Non-interactive
         TableCell(v-else-if="column.key === 'progress'")
           .flex.flex-col.gap-1(v-if="taskProgressHasPlan(task.progress)")
             .flex.items-center(class="gap-1.5")
@@ -347,6 +356,7 @@ import {
   InfoIcon,
   LockIcon,
   MessageSquareIcon,
+  MessageSquareOffIcon,
   MinusSquareIcon,
   PinIcon,
   PlayIcon,

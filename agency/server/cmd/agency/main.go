@@ -393,6 +393,7 @@ func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			PromptFlow:  appCtx.PromptFlow,
 			Templates:   appCtx.Templates,
 			Plugins:     appCtx.Plugins,
+			Input:       appCtx.Input,
 			Wake:        appCtx.Scheduler.Wake,
 		},
 	)

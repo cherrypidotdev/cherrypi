@@ -40,7 +40,6 @@ import {
   formatCost,
   formatCount,
   formatDuration,
-  formatDurationPrecise,
   formatRate,
   formatTokens,
 } from "@/lib/format";
@@ -84,9 +83,6 @@ const title = computed(() => {
   parts.push(`thinking ${formatDuration(usage.thinkingMs)}`);
   if (usage.modelWaitMs > 0) {
     parts.push(`waiting ${formatDuration(usage.modelWaitMs)}`);
-  }
-  if (usage.ttftMs > 0) {
-    parts.push(`TTFT ${formatDurationPrecise(usage.ttftMs)}`);
   }
   if (usage.at !== undefined) {
     parts.push(`settled ${new Date(usage.at).toLocaleString()}`);

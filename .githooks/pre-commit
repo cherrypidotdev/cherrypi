@@ -28,6 +28,7 @@ git diff --cached --name-only --diff-filter=ACMR -z > "$staged"
 
 
 
+echo "Running formatter..."
 if ! make format > "$log" 2>&1; then
   echo "Formatting failed. Please run 'make format' manually:" >&2
   echo >&2

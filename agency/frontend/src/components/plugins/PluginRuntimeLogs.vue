@@ -33,9 +33,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       v-model="search"
       placeholder="Filter messages…"
       aria-label="Filter runtime log messages"
-      @keyup.enter="load"
+      @keyup.enter="reload"
     )
-    Button(variant="outline" size="sm" @click="load" :disabled="loading")
+    Button(variant="outline" size="sm" @click="reload" :disabled="loading")
       Spinner(v-if="loading" data-icon="inline-start")
       RefreshCwIcon(v-else data-icon="inline-start")
       span Refresh
@@ -53,14 +53,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TableCell.text-xs.whitespace-nowrap {{ formatTime(line.at) }}
           TableCell
             Badge(:variant="levelVariant(line.level)") {{ line.level }}
-          TableCell.text-xs.break-all {{ line.message }}
-          TableCell.text-muted-foreground.text-xs
-            | {{ surfaceText(line) || "—" }}
-  p.text-muted-foreground.text-sm(v-else-if="!loading")
+          TableCell.text-xs.break-all
+            p {{ line.message }}
+            PluginLogData(:data-json="line.dataJson")
+          TableCell.text-xs
+            .flex.flex-wrap.gap-1(v-if="surfaceEntries(line).length")
+              template(
+                v-for="surface in surfaceEntries(line)"
+                :key="surface.key"
+              )
+                RouterLink.surface-chip(
+                  v-if="surface.to"
+                  :to="surface.to"
+                  :title="surface.title"
+                ) {{ surface.label }}
+                span.surface-chip(v-else :title="surface.title") {{ surface.label }}
+            span.text-muted-foreground(v-else) —
+    PluginLogLoadMore(
+      :has-more="hasMore"
+      :auto="auto"
+      :loaded="loaded"
+      @load="loadMore"
+      :loading="loadingMore"
+    )
+  p.text-muted-foreground.text-sm(v-else-if="!loading && !error")
     | No runtime log lines{{ scope ? " for this surface" : "" }} yet.
 </template>
 
 <script setup lang="ts">
+import PluginLogData from "@/components/plugins/PluginLogData.vue";
+import PluginLogLoadMore from "@/components/plugins/PluginLogLoadMore.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,16 +102,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  PLUGIN_LOG_LEVELS,
-  PLUGIN_LOG_LEVEL_LABELS,
-  PLUGIN_SCOPE_LABELS,
-  type PluginScope,
-} from "@/lib/plugins";
+import { useAgents } from "@/composables/useAgents";
+import { usePluginLogPager } from "@/composables/usePluginLogPager";
+import { useProjects } from "@/composables/useProjects";
+import { useUsers } from "@/composables/useUsers";
+import { currentAccount } from "@/lib/account";
+import { PLUGIN_LOG_LEVELS, PLUGIN_LOG_LEVEL_LABELS } from "@/lib/plugins";
 import { agency } from "@/lib/sdk";
 import type { PluginLog } from "@cherrypi/sdk";
 import { RefreshCwIcon } from "@lucide/vue";
 import { onMounted, ref, watch } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 
 const props = defineProps<{
   pluginId: string;
@@ -97,40 +120,65 @@ const props = defineProps<{
   targetId?: string;
 }>();
 
-const logs = ref<PluginLog[]>([]);
-const loading = ref(false);
-const error = ref("");
+interface SurfaceChip {
+  key: string;
+  label: string;
+  to?: RouteLocationRaw;
+  title?: string;
+}
+
+const { projects, loadProjects } = useProjects();
+const { agents, loadAgents } = useAgents();
+const { users, loadUsers } = useUsers();
+
 const minLevel = ref("all");
 const search = ref("");
 
-onMounted(() => void load());
-watch(
-  () => [props.pluginId, props.scope, props.targetId],
-  () => void load(),
+const {
+  logs,
+  loading,
+  loadingMore,
+  error,
+  hasMore,
+  auto,
+  loaded,
+  load,
+  loadMore,
+  reset,
+} = usePluginLogPager((beforeId, limit) =>
+  agency.listPluginRuntimeLogs(props.pluginId, {
+    scope: props.scope ?? "",
+    targetId: props.targetId ?? "",
+    minLevel: minLevel.value === "all" ? "" : minLevel.value,
+    search: search.value,
+    limit,
+    beforeId,
+  }),
 );
 
-function setLevel(value: unknown) {
-  minLevel.value = String(value ?? "");
+onMounted(() => {
+  void loadProjects();
+  void loadAgents();
+  void loadUsers();
+  void load();
+});
+
+watch(
+  () => [props.pluginId, props.scope, props.targetId],
+  () => {
+    reset();
+    void load();
+  },
+);
+
+function reload() {
+  reset();
   void load();
 }
 
-async function load() {
-  if (!props.pluginId) return;
-  loading.value = true;
-  error.value = "";
-  try {
-    logs.value = await agency.listPluginRuntimeLogs(props.pluginId, {
-      scope: props.scope ?? "",
-      targetId: props.targetId ?? "",
-      minLevel: minLevel.value === "all" ? "" : minLevel.value,
-      search: search.value,
-      limit: 200,
-    });
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
+function setLevel(value: unknown) {
+  minLevel.value = String(value ?? "");
+  reload();
 }
 
 function levelVariant(
@@ -149,14 +197,74 @@ function levelVariant(
   }
 }
 
-function surfaceText(line: PluginLog): string {
+function isCurrentSurface(scope: string, targetId: string): boolean {
+  if (!props.scope) return false;
+  return scope === props.scope && targetId === props.targetId;
+}
+
+function surfaceEntries(line: PluginLog): SurfaceChip[] {
   return (line.surfaces ?? [])
-    .map((surface) => {
-      const scope = surface.scope as PluginScope;
-      const label = PLUGIN_SCOPE_LABELS[scope] ?? surface.scope;
-      return surface.targetId ? `${label} ${surface.targetId}` : label;
-    })
-    .join(", ");
+    .filter((surface) => !isCurrentSurface(surface.scope, surface.targetId))
+    .map((surface) => surfaceChip(surface.scope, surface.targetId));
+}
+
+function surfaceChip(scope: string, targetId: string): SurfaceChip {
+  const key = `${scope}:${targetId}`;
+  if (scope === "org") {
+    return {
+      key,
+      label: "Organization",
+      title: "Organization settings",
+      to: currentAccount.value?.is_admin
+        ? { name: "settings", query: { tab: "plugins" } }
+        : undefined,
+    };
+  }
+  if (scope === "project") {
+    const project = projects.value.find((item) => item.id === targetId);
+    return {
+      key,
+      label: project?.name || `Project ${targetId}`,
+      title: project?.slug ? `Project ${project.slug}` : undefined,
+      to: project
+        ? {
+            name: "project",
+            params: { slug: project.slug },
+            query: { tab: "settings", section: "plugins" },
+          }
+        : undefined,
+    };
+  }
+  if (scope === "agent") {
+    const agent = agents.value.find((item) => item.actorId === targetId);
+    return {
+      key,
+      label: agent?.displayName || agent?.username || `Agent ${targetId}`,
+      title: agent ? `Agent @${agent.username}` : undefined,
+      to: agent
+        ? {
+            name: "agent",
+            params: { username: agent.username },
+            query: { tab: "settings", section: "plugins" },
+          }
+        : undefined,
+    };
+  }
+  if (scope === "user") {
+    const user = users.value.find((item) => String(item.id) === targetId);
+    const isSelf = String(currentAccount.value?.id ?? "") === targetId;
+    return {
+      key,
+      label: user?.name || (user ? `@${user.username}` : `User ${targetId}`),
+      title: user ? `User @${user.username}` : undefined,
+      to: isSelf
+        ? { name: "account", query: { tab: "plugins" } }
+        : user
+          ? { name: "user", params: { username: user.username } }
+          : undefined,
+    };
+  }
+  return { key, label: `${scope} ${targetId}` };
 }
 
 function formatTime(value: PluginLog["at"]): string {
@@ -166,3 +274,26 @@ function formatTime(value: PluginLog["at"]): string {
   ).toLocaleTimeString();
 }
 </script>
+
+<style scoped>
+.surface-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  padding: 0.0625rem 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: var(--foreground);
+  text-decoration: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+a.surface-chip:hover {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+}
+</style>

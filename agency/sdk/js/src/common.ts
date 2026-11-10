@@ -25,6 +25,7 @@ import type {
   TaskReferenceKind,
   TaskSize,
   TaskState,
+  TaskToolCall,
 } from "./gen/buf/agency/v1/task_pb.js";
 import type { TaskTemplateArgType } from "./gen/buf/agency/v1/task_templates_pb.js";
 
@@ -48,6 +49,8 @@ export type RealtimeKind =
 
 export interface RealtimeEvent {
   kind: RealtimeKind;
+
+  task?: Task;
 }
 
 export interface ListSitesFilter {
@@ -208,6 +211,32 @@ export interface CreateTaskInput {
   state?: TaskState;
 
   parentTaskId?: string;
+
+  interactive?: boolean;
+
+  originTaskId?: string;
+}
+
+export interface ListTaskToolCallsOptions extends CallOptions {
+  toolNames?: string[];
+
+  errorsOnly?: boolean;
+
+  interruptedOnly?: boolean;
+
+  search?: string;
+
+  limit?: number;
+
+  offset?: number;
+}
+
+export interface ListTaskToolCallsResult {
+  calls: TaskToolCall[];
+
+  total: number;
+
+  names: string[];
 }
 
 export interface TaskReferenceInput {

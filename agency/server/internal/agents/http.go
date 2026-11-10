@@ -474,6 +474,7 @@ func writeTeamError(w http.ResponseWriter, err error) {
 		errors.Is(err, teams.ErrAgentNeedsOwner):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, teams.ErrLastOwner),
+		errors.Is(err, teams.ErrPluginInvitee),
 		errors.Is(err, teams.ErrTeamNotEmpty):
 		writeError(w, http.StatusConflict, err.Error())
 	default:

@@ -56,14 +56,48 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         v-else-if="historyLoaded && !nextBefore && items.length"
       ) Beginning of conversation
 
-      template(v-for="group in groups" :key="group.id")
+      template(v-for="group in groups" :key="groupKey(group)")
         template(v-if="group.kind === 'single'")
+          .flex.w-full(
+            v-if="group.item.kind === 'user' && group.item.system === true"
+            :data-item-id="group.id"
+            data-testid="system-turn"
+          )
+            ConsoleNotice(
+              label="System"
+              :icon="SparklesIcon"
+              :at="group.item.at"
+            )
+              MarkdownText.prose.prose-sm.max-w-none(
+                class="prose-p:my-1 prose-pre:my-2"
+                zoomable
+                :style="INHERIT_PROSE"
+                :text="group.item.text"
+                @open-image="emit('openImage', $event)"
+                @open-diagram="emit('openDiagram', $event)"
+              )
+              AttachmentChips(
+                v-if="group.item.attachmentIds.length"
+                :attachments="attachmentsFor(group.item.attachmentIds)"
+                @open="emit('openAttachment', $event)"
+              )
+              .flex.justify-end
+                button.text-muted-foreground.rounded-md.p-1(
+                  type="button"
+                  class="hover:bg-muted hover:text-foreground"
+                  :aria-label="copiedId === group.id ? 'Copied' : 'Copy message'"
+                  :title="copiedId === group.id ? 'Copied' : 'Copy message'"
+                  @click="copyResponse(group.item.text, group.id)"
+                )
+                  CheckIcon(v-if="copiedId === group.id" class="size-3.5")
+                  CopyIcon(v-else class="size-3.5")
+
           .d-chat.d-chat-end(
-            v-if="group.item.kind === 'user'"
+            v-else-if="group.item.kind === 'user'"
             :data-item-id="group.id"
           )
             ChatAvatar(
-              v-if="group.item.sender && group.item.sender.kind !== 'system'"
+              v-if="group.item.sender"
               :sender="group.item.sender"
               :picture="pictureFor(group.item.sender)"
             )
@@ -182,7 +216,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               ) · {{ waitingLabel(group) }}
 
             .flex.flex-col.gap-2.px-3.pb-3
-              p.text-muted-foreground.text-xs(v-if="group.title") {{ group.title }}
               template(v-for="child in group.items" :key="child.id")
                 p.text-muted-foreground.text-xs.whitespace-pre-wrap(
                   v-if="child.kind === 'thinking'"
@@ -209,10 +242,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   v-else
                   :item="child"
                   :running="isInFlight(child)"
+                  :interrupted="isInterrupted(child)"
                   :duration="childDuration(child)"
                 )
 
               ChangedFiles(:files="changesFor(group)")
+
+        .flex.w-full(
+          v-else-if="group.kind === 'state'"
+          :data-item-id="group.id"
+          :data-state-key="group.change.key"
+        )
+          ConsoleNotice(
+            :label="stateChangeLabel(group.change)"
+            :icon="stateChangeIcon(group.change)"
+            :hint="stateChangeTitle(group.change)"
+            :reason="group.change.reason"
+            :at="group.change.at"
+            data-testid="state-change"
+          )
 
         .d-chat.d-chat-start(v-else-if="group.kind === 'questionnaire-live'")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
@@ -234,6 +282,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :submitting="wizardSubmitting"
             :errors="wizardErrors"
             :storage-key="wizardStorageKey"
+            :blocked-reason="blockedReason"
             :agent-id="agentId"
             :model-config="modelConfig"
             :model-selection="modelSelection"
@@ -246,18 +295,38 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .d-chat.d-chat-start(v-else :data-item-id="group.id")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
-          QuestionnaireWizard.w-full(
-            :key="`review-${group.id}`"
-            readonly
-            :questions="group.questions"
-            :review-answers="questionnaireAnswersFromReview(group.questions, group.answers)"
-            :review-final-note="group.finalNote"
-            :answered-by="group.answeredBy"
-            :cancelled="group.cancelled"
-            :unavailable="group.unavailable"
-            :submitting="false"
+          details.group.w-full.overflow-hidden.rounded-lg.border(
             data-test="questionnaire-review"
           )
+            summary.flex.cursor-pointer.items-center.gap-2.px-3.py-2.text-xs.select-none
+              ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
+                class="group-open:rotate-90"
+              )
+              CheckIcon.size-3.shrink-0.text-emerald-600(
+                v-if="!group.cancelled && !group.unavailable"
+                class="dark:text-emerald-400"
+              )
+              XIcon.text-destructive.size-3.shrink-0(
+                v-else-if="group.cancelled"
+              )
+              InfoIcon.text-muted-foreground.size-3.shrink-0(v-else)
+              span.font-medium {{ reviewTitle(group) }}
+              span.text-muted-foreground {{ reviewDetail(group) }}
+
+            .border-t.p-2
+              QuestionnaireWizard.w-full(
+                :key="`review-${group.id}`"
+                readonly
+                :questions="group.questions"
+                :review-answers="questionnaireAnswersFromReview(group.questions, group.answers)"
+                :review-final-note="group.finalNote"
+                :answered-by="group.answeredBy"
+                :answered-by-picture="pictureForActor(group.answeredBy?.id)"
+                :answered-at="group.answeredAt"
+                :cancelled="group.cancelled"
+                :unavailable="group.unavailable"
+                :submitting="false"
+              )
 
       .d-chat.d-chat-start(
         v-if="showPending"
@@ -278,6 +347,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           ExtensionUiPrompt.w-full(
             :request="dialog"
             :busy="resolving[dialog.requestId]"
+            :blocked-reason="blockedReason"
             @respond="(response) => answer(dialog, response)"
           )
 
@@ -323,13 +393,13 @@ import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
 import ChangedFiles from "@/components/tasks/ChangedFiles.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
+import ConsoleNotice from "@/components/tasks/ConsoleNotice.vue";
 import ExtensionUiPrompt from "@/components/tasks/ExtensionUiPrompt.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
 import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
 import ToolCall from "@/components/tasks/ToolCall.vue";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { pickActivityTitle } from "@/lib/activity";
 import { namedSender } from "@/lib/actors";
 import {
   activeQuestionnaire,
@@ -339,6 +409,7 @@ import {
   groupWaitingMs,
   isBlankDelta,
   itemElapsed,
+  mergeStateChanges,
   mergeTool,
   newItem,
   pinnedUserIndex,
@@ -352,6 +423,7 @@ import {
   type Item,
   type NewItem,
   type RunUsage,
+  type StateChange,
   type WaitItem,
 } from "@/lib/console";
 import {
@@ -374,6 +446,9 @@ import {
 import { agent } from "@/lib/sdk";
 import {
   EMPTY_TASK_MODEL_SELECTION,
+  taskStateFromStored,
+  taskStateIcon,
+  taskStateLabel,
   type TaskModelSelection,
 } from "@/lib/task";
 import { groupChangedFiles, type ChangedFile } from "@/lib/toolPresentation";
@@ -401,7 +476,10 @@ import {
   ChevronUpIcon,
   ClockIcon,
   CopyIcon,
+  InfoIcon,
   RefreshCwIcon,
+  SparklesIcon,
+  XIcon,
 } from "@lucide/vue";
 import {
   computed,
@@ -435,13 +513,19 @@ const props = withDefaults(
 
     modelName?: string;
 
+    modelProvider?: string;
+
     modelSelection?: TaskModelSelection;
 
     modelDisabled?: boolean;
 
     usageRuns?: AgentUsageRun[];
 
+    stateChanges?: StateChange[];
+
     runOver?: boolean;
+
+    canAnswer?: boolean;
   }>(),
   {
     waitingForInput: undefined,
@@ -452,10 +536,13 @@ const props = withDefaults(
     agent: undefined,
     modelConfig: undefined,
     modelName: "",
+    modelProvider: "",
     modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
     modelDisabled: false,
     usageRuns: () => [],
+    stateChanges: () => [],
     runOver: false,
+    canAnswer: true,
   },
 );
 
@@ -464,6 +551,20 @@ type Sender = NonNullable<Extract<Item, { kind: "user" }>["sender"]>;
 function pictureFor(sender: Sender | undefined): Attachment | undefined {
   return sender?.id ? props.actorPictures.get(sender.id) : undefined;
 }
+
+function pictureForActor(actorId: string | undefined): Attachment | undefined {
+  return actorId ? props.actorPictures.get(actorId) : undefined;
+}
+
+const blockedReason = computed(() => {
+  if (props.canAnswer) {
+    return undefined;
+  }
+  return (
+    "Answering takes a lead of this task or an administrator. " +
+    "You can read the questions here."
+  );
+});
 
 function resolveSender(sender: Sender): Sender {
   return namedSender(sender, props.actorNames) ?? sender;
@@ -524,19 +625,17 @@ const emit = defineEmits<{
   openDiagram: [diagram: DiagramSource];
 
   modelChange: [selection: TaskModelSelection];
+
+  liveTiming: [timing: LiveTiming];
 }>();
 
-const items = ref<Item[]>([]);
+export interface LiveTiming {
+  toolRunning: boolean;
 
-const titles = new Map<number, string>();
-function titleFor(id: number): string {
-  let title = titles.get(id);
-  if (!title) {
-    title = pickActivityTitle();
-    titles.set(id, title);
-  }
-  return title;
+  modelWaiting: boolean;
 }
+
+const items = ref<Item[]>([]);
 
 const questionnaire = computed(() => activeQuestionnaire(items.value));
 const wizardAnswers = ref<QuestionnaireAnswer[] | null>(null);
@@ -666,6 +765,7 @@ interface RenderQuestionnaire {
 type RenderGroup =
   | Extract<Group, { kind: "single" }>
   | Extract<Group, { kind: "questionnaire" }>
+  | Extract<Group, { kind: "state" }>
   | RenderActivity
   | RenderQuestionnaire;
 
@@ -679,7 +779,7 @@ function groupHoldsCall(group: RenderGroup, callId: string): boolean {
 }
 
 const groups = computed<RenderGroup[]>(() => {
-  const raw = groupItems(items.value, titleFor);
+  const raw = groupItems(items.value);
   const out: RenderGroup[] = raw.flatMap((group, index): RenderGroup[] => {
     if (group.kind === "activity") {
       const items = group.items.filter(
@@ -717,7 +817,7 @@ const groups = computed<RenderGroup[]>(() => {
       out.push(slot);
     }
   }
-  return out;
+  return mergeStateChanges(out, props.stateChanges, items.value);
 });
 
 // each run reads as one line without duplicating its numbers across the blocks
@@ -732,7 +832,6 @@ const runs = computed<RunUsage[]>(() =>
     activeMs: Number(run.activeMs),
     thinkingMs: Number(run.thinkingMs),
     modelWaitMs: Number(run.modelWaitMs),
-    ttftMs: Number(run.ttftMs),
     at: timestampMs(run.at),
   })),
 );
@@ -772,10 +871,34 @@ const waitingCutoff = computed(() => {
 });
 
 function isInFlight(item: ActivityItem): boolean {
-  if (waitingForInput.value) return false;
+  if (item.kind !== "tool") return false;
+  if (item.phase === ToolPhase.FINISHED || item.interrupted) return false;
+  if (!live.value || waitingForInput.value || pending.value !== null) {
+    return false;
+  }
+  return items.value[items.value.length - 1]?.id === item.id;
+}
+
+function isInterrupted(item: ActivityItem): boolean {
   return (
-    item.kind === "tool" && item.phase !== ToolPhase.FINISHED && live.value
+    item.kind === "tool" &&
+    item.phase !== ToolPhase.FINISHED &&
+    !isInFlight(item)
   );
+}
+
+function interruptOpenTools(at?: number) {
+  const boundary = at ?? Date.now();
+  for (const item of items.value) {
+    if (
+      item.kind === "tool" &&
+      item.phase !== ToolPhase.FINISHED &&
+      item.interrupted !== true
+    ) {
+      item.interrupted = true;
+      item.endedAt ??= boundary;
+    }
+  }
 }
 
 function isRunning(
@@ -840,7 +963,12 @@ function waitingHint(group: RenderActivity): string {
 }
 
 function waitLabel(item: WaitItem): string {
-  const model = item.model || props.modelName;
+  const model = modelLabel(
+    item.provider,
+    item.model,
+    props.modelProvider,
+    props.modelName,
+  );
   const suffix = model ? ` · ${model}` : "";
   switch (item.waitKind) {
     case ModelWait_Kind.RETRY: {
@@ -850,10 +978,19 @@ function waitLabel(item: WaitItem): string {
     case ModelWait_Kind.COMPACTION:
       return `Compacted context${item.reason ? ` · ${compactionReason(item.reason)}` : ""}`;
     default:
-      return item.firstToken
-        ? `First token${suffix}`
-        : `Model request${suffix}`;
+      return `Model request${suffix}`;
   }
+}
+
+function modelLabel(
+  provider: string,
+  model: string,
+  fallbackProvider = "",
+  fallbackModel = "",
+): string {
+  const p = provider || fallbackProvider;
+  const m = model || fallbackModel;
+  return p && m ? `${p}/${m}` : m;
 }
 
 function truncateError(error: string): string {
@@ -871,7 +1008,7 @@ function waitHint(item: WaitItem): string {
     case ModelWait_Kind.COMPACTION:
       return compactionReason(item.reason);
     default:
-      return item.firstToken ? "The run's time to first token" : "";
+      return "";
   }
 }
 
@@ -905,6 +1042,7 @@ interface PendingState {
 
   since: number;
   model: string;
+  provider: string;
   error: string;
   attempt: number;
   maxAttempts: number;
@@ -956,9 +1094,52 @@ const pendingDetail = computed(() => {
     case PendingActivity_Kind.COMPACTION:
       return compactionReason(state.reason);
     default:
-      return state.model || props.modelName;
+      return modelLabel(
+        state.provider,
+        state.model,
+        props.modelProvider,
+        props.modelName,
+      );
   }
 });
+
+function groupKey(group: RenderGroup): string | number {
+  return group.kind === "state" ? `state:${group.change.key}` : group.id;
+}
+
+function stateChangeLabel(change: StateChange): string {
+  const from = taskStateFromStored(change.from);
+  const to = taskStateFromStored(change.to);
+  const label = (state: typeof from, raw: string) =>
+    state === undefined ? raw || "Unknown" : taskStateLabel(state);
+  return `${label(from, change.from)} → ${label(to, change.to)}`;
+}
+
+function stateChangeIcon(change: StateChange) {
+  return taskStateIcon(taskStateFromStored(change.to));
+}
+
+function stateChangeTitle(change: StateChange): string {
+  const parts = [stateChangeLabel(change)];
+  if (change.reason) parts.push(change.reason);
+  if (change.actor) parts.push(`by ${change.actor}`);
+  if (change.at) parts.push(formatInstant(change.at));
+  return parts.join(" · ");
+}
+
+/** The one-line outcome of an answered questionnaire. */
+function reviewTitle(group: Extract<Group, { kind: "questionnaire" }>): string {
+  if (group.unavailable) return "Questionnaire not shown";
+  if (group.cancelled) return "Questionnaire declined";
+  return "Questionnaire answered";
+}
+
+function reviewDetail(
+  group: Extract<Group, { kind: "questionnaire" }>,
+): string {
+  const count = group.questions.length;
+  return `· ${count} question${count === 1 ? "" : "s"}`;
+}
 
 function compactionReason(reason: string): string {
   switch (reason) {
@@ -1001,6 +1182,7 @@ function derivePending() {
     kind: PendingActivity_Kind.MODEL_REQUEST,
     since: lastItemAt(last) ?? Date.now(),
     model: "",
+    provider: "",
     error: "",
     attempt: 0,
     maxAttempts: 0,
@@ -1027,6 +1209,15 @@ watch(
   },
   { immediate: true },
 );
+
+const liveTiming = computed<LiveTiming>(() => ({
+  toolRunning: hasRunningTool.value,
+  modelWaiting: showPending.value,
+}));
+watch(liveTiming, (timing) => emit("liveTiming", timing), {
+  immediate: true,
+  deep: true,
+});
 
 watch(
   () => props.busy,
@@ -1071,8 +1262,10 @@ const pinnedSender = computed(() =>
 
 function updatePinnedUser() {
   const el = scroller.value;
+
   const users = items.value.filter(
-    (item): item is Extract<Item, { kind: "user" }> => item.kind === "user",
+    (item): item is Extract<Item, { kind: "user" }> =>
+      item.kind === "user" && item.system !== true,
   );
   if (!el || !users.length) {
     pinnedUser.value = undefined;
@@ -1350,6 +1543,9 @@ async function loadHistory() {
       applyEvent(event);
     }
 
+    if (!live.value)
+      interruptOpenTools(lastItemAt(items.value[items.value.length - 1]));
+
     derivePending();
     await scrollToBottom();
     if ((scroller.value?.scrollTop ?? 0) < 80) {
@@ -1434,7 +1630,12 @@ function applyEvent(event: TaskEvent) {
       if (item?.kind === "wait") pushWait(item);
       break;
     }
+    case "runStarted":
+      interruptOpenTools(timestampMs(event.at));
+      clearPending();
+      break;
     case "runSettled":
+      interruptOpenTools(timestampMs(event.at));
       clearPending();
       break;
     case "pendingActivity": {
@@ -1444,10 +1645,13 @@ function applyEvent(event: TaskEvent) {
         pending.value = null;
         break;
       }
+
+      interruptOpenTools(timestampMs(event.at));
       pending.value = {
         kind: state.kind,
         since: timestampMs(event.at) ?? Date.now(),
         model: state.model,
+        provider: state.provider,
         error: state.error,
         attempt: state.attempt,
         maxAttempts: state.maxAttempts,

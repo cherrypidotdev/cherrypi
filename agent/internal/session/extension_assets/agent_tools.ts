@@ -69,7 +69,7 @@ export default function (pi: ExtensionAPI) {
     name: "getTask",
     label: "Get Task",
     description:
-      "Get one CherryPi task by id: its prompt, state, priority, size, tags, references, links, assignee, parent, and sub-tasks. The conversation history is not included; read it with getTaskHistory. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
+      "Get one CherryPi task by id: its prompt, state, priority, size, tags, references, links, assignee, parent, origin task, and sub-tasks. The conversation history is not included; read it with getTaskHistory. An agent may always read its own tasks, and another task when it has the can-list permission in the task's project.",
     parameters: Type.Object({
       taskId: Type.String({ description: "The task id to read." }),
     }),
@@ -126,6 +126,111 @@ export default function (pi: ExtensionAPI) {
         "GET",
         `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/history?${query.toString()}`,
         undefined,
+        true,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "getTaskInput",
+    label: "Get Task Input",
+    description:
+      "Read the extension dialog a CherryPi task is blocked on. A task in the `input` state is waiting for an answer: CherryPi's questionnaire (questions, each with option labels) or a plain select/confirm/input/editor dialog. Only a lead of the task may read it, and a task created from an agent's tools always adds its creator agent as a lead, so a parent agent can read its sub-task's question. `waiting` is false when the task is not blocked on a dialog right now. Answer with respondToTaskInput.",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "The task id to read." }),
+    }),
+    execute: async (_toolCallId, params) => {
+      return request(
+        "GET",
+        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/input`,
+        undefined,
+        true,
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "respondToTaskInput",
+    label: "Respond To Task Input",
+    description:
+      "Answer the extension dialog a CherryPi task is blocked on. Only a lead of the task may answer it. For a questionnaire send `answers`: one entry per question, each addressing the question by its header, its 1-based index, or its text, and naming an option label in `options` (or `custom` for a free-form answer, plus an optional `notes`). For a plain select/input/editor dialog send `value`; for a confirm dialog send `confirmed`; for any dialog send `cancelled: true` to decline. Send `requestId` from getTaskInput so a replaced dialog is not answered by mistake. A rejected answer names the exact question or option that did not match and lists the valid ones, so the next call can correct it.",
+    parameters: Type.Object({
+      taskId: Type.String({ description: "The task id to answer." }),
+      requestId: Type.Optional(
+        Type.String({
+          description:
+            "The pending dialog's request_id from getTaskInput. Guards against answering a dialog that was replaced in the meantime.",
+        }),
+      ),
+      answers: Type.Optional(
+        Type.Array(
+          Type.Object({
+            question: Type.String({
+              description:
+                "Which question: its header, its 1-based index, or its full text (matched case-insensitively).",
+            }),
+            options: Type.Optional(
+              Type.Array(Type.String(), {
+                description:
+                  "The chosen option labels. Exactly one unless the question is multi-select.",
+              }),
+            ),
+            custom: Type.Optional(
+              Type.String({
+                description:
+                  'The "Type something." answer. An empty string is a valid deliberate answer.',
+              }),
+            ),
+            notes: Type.Optional(
+              Type.String({
+                description: "An optional free-form note for this answer.",
+              }),
+            ),
+          }),
+          {
+            description:
+              "The questionnaire answers, one per question. Every question must be answered.",
+          },
+        ),
+      ),
+      note: Type.Optional(
+        Type.String({
+          description:
+            "An optional questionnaire-level final note, not tied to any answer.",
+        }),
+      ),
+      value: Type.Optional(
+        Type.String({
+          description:
+            "The answer for a plain select, input, or editor dialog: exactly one of the listed options for a select, the text otherwise.",
+        }),
+      ),
+      confirmed: Type.Optional(
+        Type.Boolean({
+          description: "The answer for a confirm dialog: true or false.",
+        }),
+      ),
+      cancelled: Type.Optional(
+        Type.Boolean({
+          description: "Decline the dialog instead of answering it.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const body: Record<string, unknown> = {};
+      if (params.requestId !== undefined)
+        body.request_id = String(params.requestId);
+      if (params.answers !== undefined) body.answers = params.answers;
+      if (params.note !== undefined) body.note = String(params.note);
+      if (params.value !== undefined) body.value = String(params.value);
+      if (params.confirmed !== undefined)
+        body.confirmed = Boolean(params.confirmed);
+      if (params.cancelled !== undefined)
+        body.cancelled = Boolean(params.cancelled);
+      return request(
+        "POST",
+        `/tasks/${encodeURIComponent(String(params.taskId ?? ""))}/input`,
+        body,
         true,
       );
     },
@@ -226,6 +331,12 @@ export default function (pi: ExtensionAPI) {
             "Make this a sub-task of the given task. Defaults to this agent's own task (CHERRYPI_TASK_ID), so a sub-agent call nests automatically. Pass an empty string to create a top-level task.",
         }),
       ),
+      interactive: Type.Optional(
+        Type.Boolean({
+          description:
+            "Whether the task surfaces questionnaires and extension dialogs. Default true. Set false only for a sub-task (parentTaskId set); a top-level task is always interactive.",
+        }),
+      ),
     }),
     execute: async (_toolCallId, params) => {
       const ownTask = process.env.CHERRYPI_TASK_ID ?? "";
@@ -250,7 +361,11 @@ export default function (pi: ExtensionAPI) {
         })),
         state: String(params.state ?? ""),
         parent_task_id: parentTaskId,
+
+        origin_task_id: ownTask,
       };
+      if (params.interactive !== undefined)
+        body.interactive = Boolean(params.interactive);
       return request("POST", "/tasks", body);
     },
   });

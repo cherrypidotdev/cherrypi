@@ -244,6 +244,41 @@ export const studioComponents: StudioComponent[] = [
             username: "vladfaust",
             name: "Vlad Faust",
           },
+          answeredAt: Date.UTC(2026, 10, 9, 14, 5, 32),
+        },
+        width: 520,
+      },
+      {
+        id: "answered-by-agent",
+        name: "Answered by an agent",
+        description:
+          "Read-only review of a questionnaire a lead agent answered for its sub-task.",
+        props: {
+          questions,
+          submitting: false,
+          readonly: true,
+          reviewAnswers: answered,
+          answeredBy: {
+            id: "9",
+            kind: "agent",
+            username: "reviewer",
+            name: "Reviewer",
+          },
+          answeredAt: Date.UTC(2026, 10, 9, 14, 5, 32),
+        },
+        width: 520,
+      },
+      {
+        id: "blocked",
+        name: "Cannot answer",
+        description:
+          "A viewer who may read the task but is not one of its leads: the questions render read-only, with the rule instead of a form.",
+        props: {
+          questions,
+          submitting: false,
+          blockedReason:
+            "Answering takes a lead of this task or an administrator. " +
+            "You can read the questions here.",
         },
         width: 520,
       },

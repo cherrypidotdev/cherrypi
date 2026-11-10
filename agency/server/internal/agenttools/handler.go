@@ -37,6 +37,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
+	"cherrypi.vladfaust.com/agency/internal/taskinput"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/templates"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
@@ -66,6 +67,8 @@ type Handler struct {
 	Plugins *pluginhost.Service
 
 	Wake func()
+
+	Input *taskinput.Service
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -298,6 +301,14 @@ func (h *Handler) taskByID(w http.ResponseWriter, r *http.Request) {
 		h.queueTask(w, r, id)
 		return
 	}
+	if id, isInput := strings.CutSuffix(rest, "/input"); isInput {
+		if id == "" || strings.ContainsRune(id, '/') {
+			http.NotFound(w, r)
+			return
+		}
+		h.taskInput(w, r, id)
+		return
+	}
 	if id, isHistory := strings.CutSuffix(rest, "/history"); isHistory {
 		if id == "" || strings.ContainsRune(id, '/') {
 			http.NotFound(w, r)
@@ -520,6 +531,10 @@ type createTaskInput struct {
 	TemplateArgs    json.RawMessage `json:"template_args"`
 
 	ParentTaskID string `json:"parent_task_id"`
+
+	Interactive *bool `json:"interactive"`
+
+	OriginTaskID string `json:"origin_task_id"`
 }
 
 func (h *Handler) resolveAssignee(
@@ -574,6 +589,26 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if origin := strings.TrimSpace(input.OriginTaskID); origin != "" {
+		originTask, err := h.Tasks.Get(r.Context(), origin)
+		if errors.Is(err, tasks.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		} else if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if _, isMember, err := h.Projects.Permissions(
+			r.Context(), originTask.ProjectID, caller,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		} else if !isMember {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+	}
+
 	priority := tasks.PriorityNormal
 	if input.Priority != nil {
 		priority = *input.Priority
@@ -593,6 +628,11 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "state must be backlog or queued")
 		return
 	}
+	parentTaskID := strings.TrimSpace(input.ParentTaskID)
+	if input.Interactive != nil && !*input.Interactive && parentTaskID == "" {
+		writeError(w, http.StatusBadRequest, "a non-interactive task must be a sub-task")
+		return
+	}
 	params := tasks.CreateParams{
 		Prompt:          input.Prompt,
 		Name:            input.Name,
@@ -603,7 +643,9 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		Priority:        priority,
 		Size:            input.Size,
 		State:           state,
-		ParentTaskID:    strings.TrimSpace(input.ParentTaskID),
+		Interactive:     input.Interactive,
+		ParentTaskID:    parentTaskID,
+		OriginTaskID:    strings.TrimSpace(input.OriginTaskID),
 	}
 	if strings.TrimSpace(input.TemplateID) != "" {
 		if h.Templates == nil {
@@ -1026,11 +1068,13 @@ type taskJSON struct {
 	Prompt          string          `json:"prompt"`
 	ProjectID       string          `json:"project_id"`
 	ParentTaskID    string          `json:"parent_task_id"`
+	OriginTaskID    string          `json:"origin_task_id"`
 	PendingChildren int             `json:"pending_children"`
 	AssigneeID      string          `json:"assignee_actor_id"`
 	State           string          `json:"state"`
 	Priority        string          `json:"priority"`
 	Size            string          `json:"size"`
+	Interactive     bool            `json:"interactive"`
 	Tags            []string        `json:"tags"`
 	References      []referenceJSON `json:"references"`
 	ReferencedBy    []referenceJSON `json:"referenced_by"`
@@ -1115,11 +1159,13 @@ func toTaskJSON(t tasks.Task) taskJSON {
 		Prompt:          t.Prompt,
 		ProjectID:       t.ProjectID,
 		ParentTaskID:    t.ParentTaskID,
+		OriginTaskID:    t.OriginTaskID,
 		PendingChildren: t.PendingChildren,
 		AssigneeID:      actorid.Format(t.AssigneeActorID),
 		State:           string(t.State),
 		Priority:        priorityName(t.Priority),
 		Size:            t.Size,
+		Interactive:     t.Interactive,
 		Tags:            tags,
 		References:      refs,
 		ReferencedBy:    incoming,

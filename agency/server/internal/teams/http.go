@@ -554,6 +554,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrInvitationExists),
 		errors.Is(err, ErrInvalidTeamName),
 		errors.Is(err, ErrInviteeSelf),
+		errors.Is(err, ErrPluginInvitee),
 		errors.Is(err, ErrLastOwner),
 		errors.Is(err, ErrTeamNotEmpty),
 		errors.Is(err, ErrTeamOwnsProjects),

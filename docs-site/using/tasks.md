@@ -14,10 +14,13 @@ between agents.
 ![Task list with the filters, status chips and the new-task button annotated](/screenshots/tasks-list.png)
 
 The list shows every task you can see. Use the filters to narrow by project,
-agent, state, tag or assignee. The status chip on each row is the task's
-lifecycle state, and the **Progress** column shows the plan the running agent
-published: a bar, the `done/total` count, and a one-line summary. Tasks without
-a plan show a dash. Click the column header to sort by completion.
+agent, state, tag or assignee. Non-interactive tasks are hidden by default; the
+**Show non-interactive** toggle reveals them and names how many the active tab
+hides, while the state counters always include them. The status chip on each
+row is the task's lifecycle state, and the **Progress** column shows the plan
+the running agent published: a bar, the `done/total` count, and a one-line
+summary. Tasks without a plan show a dash. Click the column header to sort by
+completion.
 
 Click the star to the left of the status to favorite a task. Favorites are
 private to your account, follow you across browsers, and always sort to the top
@@ -34,6 +37,10 @@ The composer asks for:
 - **Tags, priority and size** — optional metadata used by filters and the
   scheduler. A tag marked **required** in project settings only runs on agents
   whose concurrency limits declare it; a lock icon marks it in the picker.
+- **Parent** — optional. Pick a task to nest this one as a sub-task. Once a
+  parent is picked, an **Interactive** switch appears: turn it off for
+  background work that must not wait for a questionnaire (the mode is fixed at
+  creation, and a top-level task is always interactive).
 
 Submit it with **Put to Backlog** (park it, still editable) or **Queue**
 (hand it to the scheduler now). A backlog task can still be edited; a queued
@@ -172,6 +179,14 @@ carry a note, and the footer's collapsed **Final note (optional)** section takes
 a comment about the questionnaire as a whole; it is sent to the agent with the
 answers. Questions, option descriptions and the final note are Markdown (tables
 and Mermaid diagrams included) — raw HTML is shown as text.
+
+Only the task's **leads** (or an administrator) can answer: a dialog is the
+task's own question, so it takes the same rule as closing the task out. If you
+can read the task but are not one of its leads, the questionnaire is shown
+read-only with a note saying why, rather than a form you cannot submit. A
+sub-task's lead agent answers through its agent tools, and the console marks
+that answer as an agent's — with a clickable actor pill and the time the
+answers arrived — never as a person's.
 
 While the questionnaire is open you can already type, attach files to and
 preview a follow-up message in the composer, but sending stays disabled until

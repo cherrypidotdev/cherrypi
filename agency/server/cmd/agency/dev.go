@@ -55,6 +55,7 @@ func docsFS() (fs.FS, error) {
 const (
 	devTaskPath  = "/api/dev/plugins/tasks"
 	devEventPath = "/api/dev/plugins/events"
+	devTickPath  = "/api/dev/plugins/tick"
 )
 
 var devSeedStates = map[string]bool{
@@ -72,6 +73,7 @@ func serveDev(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	h := &devHandler{app: appCtx}
 	mux.HandleFunc("POST "+devTaskPath, h.seedTask)
 	mux.HandleFunc("POST "+devEventPath, h.dispatchEvent)
+	mux.HandleFunc("POST "+devTickPath, h.invokeTick)
 }
 
 type devHandler struct {
@@ -203,6 +205,34 @@ func (h *devHandler) dispatchEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeDevJSON(w, http.StatusOK, map[string]any{"delivered": delivered})
+}
+
+func (h *devHandler) invokeTick(w http.ResponseWriter, r *http.Request) {
+	if !h.authorize(w, r) {
+		return
+	}
+	if h.app.Plugins == nil {
+		writeDevError(w, http.StatusServiceUnavailable, errors.New("plugins are not running"))
+		return
+	}
+	var req struct {
+		PluginID string `json:"plugin_id"`
+		NowMs    int64  `json:"now_ms"`
+	}
+	if err := decodeDevBody(r, &req); err != nil {
+		writeDevError(w, http.StatusBadRequest, err)
+		return
+	}
+	pluginID := strings.TrimSpace(req.PluginID)
+	if pluginID == "" {
+		writeDevError(w, http.StatusBadRequest, errors.New("plugin_id is required"))
+		return
+	}
+	if err := h.app.Plugins.InvokeTick(r.Context(), pluginID, req.NowMs); err != nil {
+		writeDevError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeDevJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h *devHandler) authorize(w http.ResponseWriter, r *http.Request) bool {

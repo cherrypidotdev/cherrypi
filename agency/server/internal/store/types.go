@@ -430,5 +430,6 @@ type UpsertTaskReferenceParams = storetypes.UpsertTaskReferenceParams
 type User = storetypes.User
 type UserLog = storetypes.UserLog
 type WaitTaskParams = storetypes.WaitTaskParams
+type WakeWaitingTaskWithPromptParams = storetypes.WakeWaitingTaskWithPromptParams
 type Webhook = storetypes.Webhook
 type WithdrawPromptProposalParams = storetypes.WithdrawPromptProposalParams

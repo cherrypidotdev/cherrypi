@@ -16,7 +16,7 @@
 
 -- name: CreateTask :one
 INSERT INTO tasks (
-  id, seq, prompt, name, project_id, parent_task_id,
+  id, seq, prompt, name, project_id, parent_task_id, origin_task_id,
   assignee_actor_id, assignee_pinned, priority, size, state,
   creator_actor_id,
   session_id, org_prompt_id, agent_prompt_id, project_prompt_id, agent_project_prompt_id,
@@ -29,6 +29,7 @@ INSERT INTO tasks (
   sqlc.arg(name),
   NULLIF(CAST(sqlc.arg(project_id) AS TEXT), ''),
   NULLIF(CAST(sqlc.arg(parent_task_id) AS TEXT), ''),
+  NULLIF(CAST(sqlc.arg(origin_task_id) AS TEXT), ''),
   sqlc.narg(assignee_actor_id),
   sqlc.arg(assignee_pinned),
   sqlc.arg(priority),
@@ -236,6 +237,22 @@ WHERE id = ? AND state IN ('backlog', 'queued', 'running', 'input', 'settled', '
 UPDATE tasks SET state = 'queued', queued_at = COALESCE(queued_at, ?),
   updated_at = ?, error = ''
 WHERE id = ? AND state = 'waiting';
+
+-- name: WakeWaitingTaskWithPrompt :execrows
+
+
+
+
+
+
+
+
+UPDATE tasks SET state = 'queued', pending_prompt = sqlc.arg(pending_prompt),
+  pending_prompt_actor_id = sqlc.narg(pending_prompt_actor_id),
+  queued_at = COALESCE(queued_at, sqlc.arg(queued_at)),
+  updated_at = sqlc.arg(updated_at), error = ''
+WHERE id = sqlc.arg(id) AND state = 'waiting'
+  AND NOT EXISTS (SELECT 1 FROM task_holds WHERE task_id = sqlc.arg(id));
 
 -- name: DequeueTask :execrows
 

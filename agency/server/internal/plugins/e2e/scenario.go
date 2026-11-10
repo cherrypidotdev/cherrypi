@@ -71,6 +71,7 @@ type Step struct {
 	Wait   *WaitStep  `yaml:"wait"`
 	Task   *TaskStep  `yaml:"task"`
 	Event  *EventStep `yaml:"event"`
+	Tick   *TickStep  `yaml:"tick"`
 	Sleep  string     `yaml:"sleep"`
 	Expect Expect     `yaml:"expect"`
 }
@@ -122,6 +123,37 @@ func (e *EventStep) UnmarshalYAML(node *yaml.Node) error {
 	}
 	type plain EventStep
 	return node.Decode((*plain)(e))
+}
+
+type TickStep struct {
+	NowMs int64 `yaml:"now_ms"`
+}
+
+func (t *TickStep) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		switch node.ShortTag() {
+		case "!!null":
+			*t = TickStep{}
+			return nil
+		case "!!bool":
+			var enabled bool
+			if err := node.Decode(&enabled); err != nil {
+				return err
+			}
+			if !enabled {
+				return fmt.Errorf("tick: false is not a step")
+			}
+			*t = TickStep{}
+			return nil
+		default:
+			return node.Decode(&t.NowMs)
+		}
+	}
+	if err := checkKeys(node, "now_ms"); err != nil {
+		return err
+	}
+	type plain TickStep
+	return node.Decode((*plain)(t))
 }
 
 func checkKeys(node *yaml.Node, allowed ...string) error {
@@ -192,6 +224,9 @@ func LoadScenario(path string) (Scenario, error) {
 			actions++
 		}
 		if step.Event != nil {
+			actions++
+		}
+		if step.Tick != nil {
 			actions++
 		}
 		if step.Sleep != "" {

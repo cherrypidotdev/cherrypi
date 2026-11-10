@@ -66,6 +66,8 @@ type Config struct {
 
 	PluginAllowPrivateNetwork bool
 
+	PluginDisableTicks bool
+
 	PluginPGRequireDatabase bool
 
 	OTelEnabled bool
@@ -180,6 +182,7 @@ func ParseConfig() Config {
 		cfg.PluginDataDir = cfg.Dir
 	}
 	cfg.PluginAllowPrivateNetwork = parseEnvBool("CHERRYPI_PLUGIN_ALLOW_PRIVATE_NETWORK")
+	cfg.PluginDisableTicks = parseEnvBool("CHERRYPI_PLUGIN_DISABLE_TICKS")
 	cfg.PluginPGRequireDatabase = parseEnvBool("CHERRYPI_PLUGIN_PG_REQUIRE_DATABASE")
 
 	cfg.OTelEnabled = parseOTelEnabled()

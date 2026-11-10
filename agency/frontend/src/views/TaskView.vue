@@ -119,11 +119,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :saving="saving"
       :can-follow-up="canFollowUp"
       :can-compose="canCompose"
+      :can-answer="canAnswerInput"
       :prompt="prompt"
       :tab="tab"
       :staged-attachments="stagedAttachments"
       :dragging-files="draggingFiles"
       :task-queue="taskQueue"
+      :state-changes="stateChanges"
       :clearing-queue="clearingQueue"
       :sending="sending"
       :stopping="stopping"
@@ -153,6 +155,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @clear-queue="clearQueue"
       @open-plan="openPlan"
       @remind-plan="remindPlan"
+      @live-timing="liveTiming = $event"
     )
 
     SiteVue(
@@ -175,6 +178,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :lead-candidates="leadCandidates"
       :unattached-tags="unattachedTags"
       :task-usage="taskUsage"
+      :live-timing="liveTiming"
       :task-disk-bytes="taskDiskBytes"
       :task-disk-loading="taskDiskLoading"
       :system-prompt="systemPrompt"
@@ -295,7 +299,12 @@ import {
 import { useTags } from "@/composables/useTags";
 import { useTaskDetails } from "@/composables/useTaskDetails";
 import { accountApi, type UserPreferences } from "@/lib/account";
-import { queuedMessageParts, type UserMessageParts } from "@/lib/console";
+import {
+  queuedMessageParts,
+  timestampMs,
+  type StateChange,
+  type UserMessageParts,
+} from "@/lib/console";
 import { chatDraftKey } from "@/lib/draft";
 import {
   attachmentItem,
@@ -460,6 +469,36 @@ const lightboxIndex = ref(0);
 const inlineLightboxItems = ref<LightboxItem[]>([]);
 const taskUsage = ref<TaskUsageWithRuns | undefined>();
 
+const stateChanges = computed<StateChange[]>(() => {
+  const logs = task.value?.logs ?? [];
+  const changes: StateChange[] = [];
+  for (const log of logs) {
+    if (log.kind !== "state") continue;
+    let data: Record<string, unknown> | undefined;
+    if (log.dataJson) {
+      try {
+        const parsed: unknown = JSON.parse(log.dataJson);
+        if (parsed && typeof parsed === "object") {
+          data = parsed as Record<string, unknown>;
+        }
+      } catch {
+        data = undefined;
+      }
+    }
+    changes.push({
+      key: String(log.id),
+      at: timestampMs(log.at),
+      from: String(data?.["old"] ?? ""),
+      to: String(data?.["new"] ?? ""),
+      reason: String(data?.["reason"] ?? ""),
+      actor: log.actor,
+    });
+  }
+  return changes;
+});
+
+const liveTiming = ref({ toolRunning: false, modelWaiting: false });
+
 const taskDiskBytes = ref<bigint | undefined>();
 const taskDiskLoading = ref(false);
 
@@ -572,6 +611,8 @@ const canFollowUp = computed(
 );
 
 const canCompose = computed(() => canFollowUp.value || isInput.value);
+
+const canAnswerInput = computed(() => Boolean(task.value?.canAnswerInput));
 
 function acceptsPrompt(state: TaskState): boolean {
   return (
@@ -984,27 +1025,38 @@ async function load() {
   try {
     const next = await agency.getTask(props.id);
     if (gen !== generation) return;
-    task.value = next;
-
-    if (!config.value) {
-      modelSelection.value = {
-        modelProvider: next.modelProvider,
-        modelId: next.modelId,
-        thinkingLevel: next.thinkingLevel,
-      };
-    }
-    if (next.assigneeActorId) {
-      if (!next.sessionDeletedAt) {
-        void loadUsage(next.sessionId);
-        void loadDiskUsage(next.sessionId);
-        if (hasLiveConfig(next.state) && !saving.model) {
-          void loadConfig();
-        }
-      }
-    }
+    applyTask(next, { refetchSession: true });
   } catch (err) {
     if (gen !== generation) return;
     toast.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function applyTask(next: Task, options: { refetchSession?: boolean } = {}) {
+  const previous = task.value;
+  task.value = next;
+
+  if (!config.value) {
+    modelSelection.value = {
+      modelProvider: next.modelProvider,
+      modelId: next.modelId,
+      thinkingLevel: next.thinkingLevel,
+    };
+  }
+
+  if (!next.assigneeActorId || next.sessionDeletedAt) return;
+  const sessionChanged = next.sessionId !== previous?.sessionId;
+  const stateChanged = next.state !== previous?.state;
+  if (options.refetchSession || sessionChanged) {
+    void loadUsage(next.sessionId);
+    void loadDiskUsage(next.sessionId);
+  }
+  if (
+    (options.refetchSession || sessionChanged || stateChanged) &&
+    hasLiveConfig(next.state) &&
+    !saving.model
+  ) {
+    void loadConfig();
   }
 }
 
@@ -1475,10 +1527,27 @@ onMounted(() => {
     .catch(() => {});
 });
 
-useRealtime(["tasks", "usage", "sites"], () => {
-  void load();
-  void loadSites();
-});
+useRealtime(
+  ["tasks", "usage", "sites"],
+  (event) => {
+    if (event.kind === "sites") {
+      void loadSites();
+      return;
+    }
+    if (event.kind === "usage") {
+      const sessionId = task.value?.sessionId;
+      if (sessionId) void loadUsage(sessionId);
+      return;
+    }
+    if (event.task) {
+      if (event.task.id === props.id) applyTask(event.task);
+      return;
+    }
+    void load();
+    void loadSites();
+  },
+  { rows: true },
+);
 
 watch(
   () => (task.value ? taskName(task.value) : "Task"),
@@ -1496,6 +1565,7 @@ watch(
     modelSelection.value = { ...EMPTY_TASK_MODEL_SELECTION };
     configGeneration += 1;
     taskUsage.value = undefined;
+    liveTiming.value = { toolRunning: false, modelWaiting: false };
     taskDiskBytes.value = undefined;
     taskDiskLoading.value = false;
     diskKey = "";

@@ -92,18 +92,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
       .flex.items-center.justify-between.gap-2
-        span.text-muted-foreground.text-2xs.font-semibold TTFT
-        span.text-muted-foreground.text-10 first token
-      .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ summary.ttftRuns ? formatDurationPrecise(summary.ttftMs / summary.ttftRuns) : "—" }}
-      .text-2xs.text-muted-foreground.mt-1
-        template(v-if="summary.ttftRuns")
-          | avg / run · {{ formatDuration(summary.ttftMs) }} total
-        template(v-else) no measured runs
-      .mt-auto.h-7.pt-1
-        UsageSparkline(color="var(--chart-3)" :values="spark.ttft")
-
-    .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
-      .flex.items-center.justify-between.gap-2
         span.text-muted-foreground.text-2xs.font-semibold Active time
         span.text-muted-foreground.text-10 agent work
       .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatDuration(summary.activeMs) }}
@@ -121,12 +109,7 @@ import type {
   UsageContext,
   UsageSeriesPoint,
 } from "@/composables/useUsageAnalytics";
-import {
-  formatCount,
-  formatDuration,
-  formatDurationPrecise,
-  formatTokens,
-} from "@/lib/format";
+import { formatCount, formatDuration, formatTokens } from "@/lib/format";
 import {
   usageRangePill,
   type UsageInsightDay,
@@ -168,7 +151,6 @@ const spark = computed(() => {
     active: last(insights.map((day) => day.activeMs)),
     ttc: last(insights.map((day) => day.ttcMs)),
     thinking: last(insights.map((day) => day.thinkingMs)),
-    ttft: last(insights.map((day) => day.ttftPerRunMs)),
   };
 });
 </script>

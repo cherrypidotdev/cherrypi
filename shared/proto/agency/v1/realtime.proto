@@ -18,6 +18,9 @@ syntax = "proto3";
 
 package agency.v1;
 
+import "agency/v1/task.proto";
+
+
 
 
 
@@ -42,6 +45,11 @@ message WatchResponse {
 
 message RealtimeEvent {
   RealtimeKind kind = 1;
+  
+  
+  
+  
+  Task task = 2;
 }
 
 

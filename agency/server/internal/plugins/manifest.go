@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Manifest struct {
@@ -39,6 +40,8 @@ type Manifest struct {
 
 	Handlers []string `json:"handlers"`
 
+	Schedule *Schedule `json:"schedule"`
+
 	Settings map[string]json.RawMessage `json:"settings"`
 
 	Tools []Tool `json:"tools"`
@@ -52,6 +55,15 @@ type Manifest struct {
 	Routes []Route `json:"routes"`
 	Limits Limits  `json:"limits"`
 }
+
+type Schedule struct {
+	EverySeconds int `json:"every_seconds"`
+}
+
+const (
+	MinTickIntervalSeconds = 5
+	MaxTickIntervalSeconds = 3600
+)
 
 type Limits struct {
 	TimeoutSeconds int   `json:"timeout_seconds"`
@@ -83,8 +95,11 @@ const (
 	HandlerHTTP  = "http"
 	HandlerTool  = "tool"
 	HandlerEvent = "event"
+	HandlerTick  = "tick"
 
 	HandlerSettings = "settings"
+
+	HandlerTaskTools = "task_tools"
 )
 
 var validEvents = map[string]bool{
@@ -262,6 +277,16 @@ func (m *Manifest) Validate() error {
 		m.Limits.MaxBody < 0 || m.Limits.MaxConcurrent < 0 {
 		return errors.New("limits must not be negative")
 	}
+	if m.Schedule != nil {
+		if m.Schedule.EverySeconds < MinTickIntervalSeconds ||
+			m.Schedule.EverySeconds > MaxTickIntervalSeconds {
+			return fmt.Errorf(
+				"schedule.every_seconds must be between %d and %d",
+				MinTickIntervalSeconds,
+				MaxTickIntervalSeconds,
+			)
+		}
+	}
 	return nil
 }
 
@@ -290,7 +315,8 @@ func (m *Manifest) NormalizeHandlers() {
 	for _, h := range m.Handlers {
 		h = strings.TrimSpace(h)
 		switch h {
-		case HandlerHTTP, HandlerTool, HandlerEvent:
+		case HandlerHTTP, HandlerTool, HandlerEvent, HandlerTick,
+			HandlerTaskTools:
 			if !seen[h] {
 				seen[h] = true
 				out = append(out, h)
@@ -302,6 +328,9 @@ func (m *Manifest) NormalizeHandlers() {
 	}
 	if len(m.Events) > 0 && !seen[HandlerEvent] {
 		out = append(out, HandlerEvent)
+	}
+	if m.Schedule != nil && !seen[HandlerTick] {
+		out = append(out, HandlerTick)
 	}
 	if len(out) == 0 {
 		out = append(out, HandlerHTTP)
@@ -318,6 +347,13 @@ func (m Manifest) RequiresAPIVersion(version string) (bool, error) {
 	return r.Matches(version), nil
 }
 
+func (m Manifest) TickInterval() time.Duration {
+	if m.Schedule == nil || m.Schedule.EverySeconds <= 0 {
+		return 0
+	}
+	return time.Duration(m.Schedule.EverySeconds) * time.Second
+}
+
 func (m Manifest) HasHandler(kind string) bool {
 	for _, h := range m.Handlers {
 		if h == kind {
@@ -330,6 +366,15 @@ func (m Manifest) HasHandler(kind string) bool {
 func (m Manifest) HasSurface(scope string) bool {
 	_, ok := m.Settings[scope]
 	return ok
+}
+
+func (m Manifest) declaresProjectTool(name string) bool {
+	for _, declared := range m.ProjectTools {
+		if declared == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Manifest) Surfaces() []string {

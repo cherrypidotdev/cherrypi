@@ -146,6 +146,8 @@ import {
   type GetDesktopResult,
   type ListSitesFilter,
   type ListTagsFilter,
+  type ListTaskToolCallsOptions,
+  type ListTaskToolCallsResult,
   type ListTaskCommentsResult,
   type ListTasksFilter,
   type QuestionnaireAnswerInput,
@@ -1163,6 +1165,8 @@ export class AgencyClient {
           : "",
         templatePromptOverride: input.templatePromptOverride ?? false,
         parentTaskId: input.parentTaskId ?? "",
+        interactive: input.interactive,
+        originTaskId: input.originTaskId ?? "",
       },
       options,
     );
@@ -1632,10 +1636,17 @@ export class AgencyClient {
 
   async listPluginLogs(
     id: string,
-    limit = 100,
+    query: { limit?: number; beforeId?: number } = {},
     options?: CallOptions,
   ): Promise<PluginLog[]> {
-    const res = await this.plugins.listPluginLogs({ id, limit }, options);
+    const res = await this.plugins.listPluginLogs(
+      {
+        id,
+        limit: query.limit ?? 100,
+        beforeId: BigInt(query.beforeId ?? 0),
+      },
+      options,
+    );
     return res.logs;
   }
 
@@ -1647,6 +1658,7 @@ export class AgencyClient {
       minLevel?: string;
       search?: string;
       limit?: number;
+      beforeId?: number;
     } = {},
     options?: CallOptions,
   ): Promise<PluginLog[]> {
@@ -1658,6 +1670,7 @@ export class AgencyClient {
         minLevel: query.minLevel ?? "",
         search: query.search ?? "",
         limit: query.limit ?? 100,
+        beforeId: BigInt(query.beforeId ?? 0),
       },
       options,
     );
@@ -1857,7 +1870,7 @@ export class AgencyClient {
     for await (const message of stream) {
       if (!message.event) continue;
       const kind = realtimeKindName(message.event);
-      if (kind) onEvent({ kind });
+      if (kind) onEvent({ kind, task: message.event.task });
     }
   }
 
@@ -1870,6 +1883,25 @@ export class AgencyClient {
       { signal: page?.signal },
     );
     return { events: res.events, nextBefore: res.nextBefore };
+  }
+
+  async listTaskToolCalls(
+    taskId: string,
+    options?: ListTaskToolCallsOptions,
+  ): Promise<ListTaskToolCallsResult> {
+    const res = await this.tasks.listTaskToolCalls(
+      {
+        taskId,
+        toolNames: options?.toolNames ?? [],
+        errorsOnly: options?.errorsOnly ?? false,
+        interruptedOnly: options?.interruptedOnly ?? false,
+        search: options?.search ?? "",
+        limit: options?.limit ?? 0,
+        offset: options?.offset ?? 0,
+      },
+      { signal: options?.signal },
+    );
+    return { calls: res.calls, total: res.total, names: res.names };
   }
 
   async getTaskConfig(id: string, options?: CallOptions): Promise<TaskConfig> {

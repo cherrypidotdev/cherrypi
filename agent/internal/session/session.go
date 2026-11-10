@@ -2268,9 +2268,14 @@ func (s *Session) emit(ev Event) {
 }
 
 func (s *Session) emitPending(pending *PendingActivityEvent) {
-	if pending != nil && pending.Model == "" {
+	if pending != nil {
 		s.mu.Lock()
-		pending.Model = s.model
+		if pending.Model == "" {
+			pending.Model = s.model
+		}
+		if pending.Provider == "" {
+			pending.Provider = s.provider
+		}
 		s.mu.Unlock()
 	}
 

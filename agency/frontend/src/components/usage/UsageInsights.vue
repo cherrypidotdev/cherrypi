@@ -59,7 +59,7 @@ Card
               DropdownMenuSeparator
               DropdownMenuItem(@select="clearTags") Clear tag filter
   CardContent
-    .grid.grid-cols-2.gap-3(class="sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8")
+    .grid.grid-cols-2.gap-3(class="sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7")
       .border-border.flex.flex-col.rounded-lg.border.p-3(
         v-for="tile in tiles"
         :key="tile.key"
@@ -101,12 +101,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import UsageSparkline from "@/components/usage/UsageSparkline.vue";
 import type { UsageInsightTag } from "@/composables/useUsageAnalytics";
-import {
-  formatDuration,
-  formatDurationPrecise,
-  formatRate,
-  formatTokens,
-} from "@/lib/format";
+import { formatDuration, formatRate, formatTokens } from "@/lib/format";
 import {
   usageRangeLabel,
   type UsageInsightDay,
@@ -205,20 +200,6 @@ const tiles = computed(() => {
         : "per task",
       color: "var(--chart-3)",
       values: last(props.daily.map((day) => day.thinkingMs)),
-    },
-    {
-      key: "ttft",
-      label: "TTFT",
-      hint: "first token",
-      value:
-        hasTasks && insights.ttftRuns
-          ? formatDurationPrecise(insights.ttftPerRunMs)
-          : "—",
-      sub: insights.ttftRuns
-        ? `avg / run · ${insights.ttftRuns} runs`
-        : "no measured runs",
-      color: "var(--chart-4)",
-      values: last(props.daily.map((day) => day.ttftPerRunMs)),
     },
     {
       key: "rate",

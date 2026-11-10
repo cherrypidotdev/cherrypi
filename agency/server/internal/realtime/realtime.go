@@ -24,23 +24,28 @@ import (
 
 const subscriberBuffer = 16
 
+type Signal struct {
+	Kind   agencyv1.RealtimeKind
+	TaskID string
+}
+
 type Bus struct {
 	mu     sync.Mutex
-	subs   map[int]chan agencyv1.RealtimeKind
+	subs   map[int]chan Signal
 	nextID int
 }
 
 func New() *Bus {
-	return &Bus{subs: map[int]chan agencyv1.RealtimeKind{}}
+	return &Bus{subs: map[int]chan Signal{}}
 }
 
-func (b *Bus) Subscribe() (<-chan agencyv1.RealtimeKind, func()) {
+func (b *Bus) Subscribe() (<-chan Signal, func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	id := b.nextID
 	b.nextID++
-	ch := make(chan agencyv1.RealtimeKind, subscriberBuffer)
+	ch := make(chan Signal, subscriberBuffer)
 	b.subs[id] = ch
 
 	return ch, func() {
@@ -54,7 +59,22 @@ func (b *Bus) Subscribe() (<-chan agencyv1.RealtimeKind, func()) {
 }
 
 func (b *Bus) Publish(kind agencyv1.RealtimeKind) {
-	if b == nil || kind == agencyv1.RealtimeKind_REALTIME_KIND_UNSPECIFIED {
+	b.publish(Signal{Kind: kind})
+}
+
+func (b *Bus) PublishTask(taskID string) {
+	if taskID == "" {
+		b.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		return
+	}
+	b.publish(Signal{
+		Kind:   agencyv1.RealtimeKind_REALTIME_KIND_TASKS,
+		TaskID: taskID,
+	})
+}
+
+func (b *Bus) publish(signal Signal) {
+	if b == nil || signal.Kind == agencyv1.RealtimeKind_REALTIME_KIND_UNSPECIFIED {
 		return
 	}
 
@@ -63,7 +83,7 @@ func (b *Bus) Publish(kind agencyv1.RealtimeKind) {
 
 	for _, ch := range b.subs {
 		select {
-		case ch <- kind:
+		case ch <- signal:
 		default:
 		}
 	}

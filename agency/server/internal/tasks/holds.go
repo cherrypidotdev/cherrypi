@@ -278,6 +278,15 @@ func (s *Service) release(
 	if remaining > 0 {
 		return false, nil
 	}
+
+	name := released.PluginName
+	if name == "" {
+		name = released.PluginID
+	}
+	ctx = WithStateReason(
+		ctx,
+		fmt.Sprintf("Woke up by plugin %s (hold %q released)", name, released.Key),
+	)
 	applied, err := s.applyRelease(ctx, taskID, mode, prompt, opts.ActorID)
 	if err != nil {
 		s.restoreHold(ctx, *released)

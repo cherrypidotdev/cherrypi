@@ -44,6 +44,7 @@ func (s *TaskServer) CreateTask(
 		ModelProvider:      req.ModelProvider,
 		ModelID:            req.ModelId,
 		ThinkingLevel:      req.ThinkingLevel,
+		Interactive:        req.Interactive,
 		Title:              req.Title,
 		AutoTitle:          req.AutoTitle,
 		AppendSystemPrompt: req.AppendSystemPrompt,
@@ -492,6 +493,7 @@ func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
 		if ev.Pending != nil {
 			pending.Kind = agentv1.PendingActivity_Kind(ev.Pending.Kind)
 			pending.Model = ev.Pending.Model
+			pending.Provider = ev.Pending.Provider
 			pending.Error = ev.Pending.Error
 			pending.Attempt = ev.Pending.Attempt
 			pending.MaxAttempts = ev.Pending.MaxAttempts
@@ -503,8 +505,8 @@ func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
 		if ev.ModelWait != nil {
 			wait.Kind = agentv1.ModelWait_Kind(ev.ModelWait.Kind)
 			wait.Model = ev.ModelWait.Model
+			wait.Provider = ev.ModelWait.Provider
 			wait.DurationMs = ev.ModelWait.DurationMs
-			wait.FirstToken = ev.ModelWait.FirstToken
 			wait.Error = ev.ModelWait.Error
 			wait.Attempt = ev.ModelWait.Attempt
 			wait.Reason = ev.ModelWait.Reason

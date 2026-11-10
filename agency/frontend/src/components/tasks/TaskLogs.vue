@@ -32,25 +32,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     )
       component(class="size-3.5" :is="row.icon")
     .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
-      .flex.flex-wrap.items-center(
-        v-if="row.oldState !== undefined || row.newState !== undefined"
-        class="gap-1.5"
-      )
-        span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium.opacity-60(
-          v-if="row.oldState !== undefined"
-          class="py-0.5"
-          :class="taskStateClass(row.oldState)"
-        )
-          component.size-3.shrink-0(:is="taskStateIcon(row.oldState)")
-          | {{ taskStateLabel(row.oldState) }}
-        ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
-        span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium(
-          v-if="row.newState !== undefined"
-          class="py-0.5"
-          :class="taskStateClass(row.newState)"
-        )
-          component.size-3.shrink-0(:is="taskStateIcon(row.newState)")
-          | {{ taskStateLabel(row.newState) }}
+      template(v-if="row.oldState !== undefined || row.newState !== undefined")
+        .flex.flex-wrap.items-center(class="gap-1.5")
+          span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium.opacity-60(
+            v-if="row.oldState !== undefined"
+            class="py-0.5"
+            :class="taskStateClass(row.oldState)"
+          )
+            component.size-3.shrink-0(:is="taskStateIcon(row.oldState)")
+            | {{ taskStateLabel(row.oldState) }}
+          ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
+          span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium(
+            v-if="row.newState !== undefined"
+            class="py-0.5"
+            :class="taskStateClass(row.newState)"
+          )
+            component.size-3.shrink-0(:is="taskStateIcon(row.newState)")
+            | {{ taskStateLabel(row.newState) }}
+        p.text-muted-foreground.text-xs(v-if="row.reason") {{ row.reason }}
 
       .flex.flex-wrap.items-center(
         v-else-if="row.oldPriority !== undefined || row.newPriority !== undefined"
@@ -264,6 +263,7 @@ import {
   taskSizeClass,
   taskSizeLabel,
   taskStateClass,
+  taskStateFromStored,
   taskStateIcon,
   taskStateLabel,
 } from "@/lib/task";
@@ -365,19 +365,6 @@ const KIND_LABELS: Record<string, string> = {
   hold: "Plugin hold",
 };
 
-const STATE_VALUES: Record<string, TaskState> = {
-  draft: TaskState.BACKLOG,
-  backlog: TaskState.BACKLOG,
-  waiting: TaskState.WAITING,
-  queued: TaskState.QUEUED,
-  running: TaskState.RUNNING,
-  input: TaskState.INPUT,
-  settled: TaskState.SETTLED,
-  failed: TaskState.FAILED,
-  completed: TaskState.COMPLETED,
-  cancelled: TaskState.CANCELLED,
-};
-
 const SIZE_VALUES: Record<string, TaskSize> = {
   small: TaskSize.SMALL,
   medium: TaskSize.MEDIUM,
@@ -431,6 +418,8 @@ interface LogRow {
   badges?: LogBadge[];
   oldState?: TaskState;
   newState?: TaskState;
+
+  reason?: string;
   oldPriority?: TaskPriority;
   newPriority?: TaskPriority;
   oldSize?: TaskSize;
@@ -481,8 +470,9 @@ function buildRow(log: TaskLog): LogRow {
 
   switch (log.kind) {
     case "state":
-      row.oldState = STATE_VALUES[data.old];
-      row.newState = STATE_VALUES[data.new];
+      row.oldState = taskStateFromStored(data.old);
+      row.newState = taskStateFromStored(data.new);
+      row.reason = typeof data.reason === "string" ? data.reason : undefined;
       break;
     case "priority":
       row.oldPriority = PRIORITY_VALUES[data.old];
@@ -517,7 +507,7 @@ function buildRow(log: TaskLog): LogRow {
       const withState = (refs: LogReference[]) =>
         refs.map((ref) => ({
           ...ref,
-          state: STATE_VALUES[ref.state as unknown as string],
+          state: taskStateFromStored(ref.state as string | undefined),
         }));
       row.addedRefs = withState((data.added ?? []) as LogReference[]);
       row.removedRefs = withState((data.removed ?? []) as LogReference[]);

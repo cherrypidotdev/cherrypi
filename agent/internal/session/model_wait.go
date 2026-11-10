@@ -25,8 +25,8 @@ const modelWaitCustomType = "cherrypi_model_wait"
 type modelWaitData struct {
 	Kind       int64  `json:"kind"`
 	Model      string `json:"model"`
+	Provider   string `json:"provider"`
 	DurationMs int64  `json:"durationMs"`
-	FirstToken bool   `json:"firstToken"`
 	Error      string `json:"error"`
 	Attempt    uint32 `json:"attempt"`
 	Reason     string `json:"reason"`
@@ -46,8 +46,8 @@ func parseModelWait(raw json.RawMessage) (*ModelWaitEvent, bool) {
 	return &ModelWaitEvent{
 		Kind:       kind,
 		Model:      data.Model,
+		Provider:   data.Provider,
 		DurationMs: data.DurationMs,
-		FirstToken: data.FirstToken,
 		Error:      data.Error,
 		Attempt:    data.Attempt,
 		Reason:     data.Reason,

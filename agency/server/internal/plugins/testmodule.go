@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -285,6 +286,41 @@ func (h *Host) attachTest(L *lua.LState) {
 		}
 		return 1
 	}))
+
+	table.RawSetString("task_tools", L.NewFunction(func(L *lua.LState) int {
+		taskID := L.CheckString(1)
+		declared := h.Plugin.Manifest.ProjectTools
+		fn, ok := L.GetGlobal("handle_task_tools").(*lua.LFunction)
+		if !ok || !h.Plugin.Manifest.HasHandler(HandlerTaskTools) {
+			L.Push(toLua(L, declared))
+			return 1
+		}
+		if err := L.CallByParam(
+			lua.P{Fn: fn, NRet: 1, Protect: true},
+			lua.LString(taskID),
+		); err != nil {
+			L.RaiseError("%v", err)
+			return 0
+		}
+		ret := L.Get(-1)
+		L.Pop(1)
+		if ret == lua.LNil {
+			L.Push(toLua(L, declared))
+			return 1
+		}
+		body, err := json.Marshal(fromLua(ret))
+		if err != nil {
+			L.RaiseError("handle_task_tools must return a list of tool names: %v", err)
+			return 0
+		}
+		names, err := parseTaskToolNames(body, declared)
+		if err != nil {
+			L.RaiseError("%v", err)
+			return 0
+		}
+		L.Push(toLua(L, names))
+		return 1
+	}))
 	table.RawSetString("event", L.NewFunction(func(L *lua.LState) int {
 		fn, err := handler(L, "handle_event")
 		if err != nil {
@@ -299,6 +335,33 @@ func (h *Host) attachTest(L *lua.LState) {
 			return 0
 		}
 		return 0
+	}))
+
+	table.RawSetString("tick", L.NewFunction(func(L *lua.LState) int {
+		fn, err := handler(L, "handle_tick")
+		if err != nil {
+			L.RaiseError("%v", err)
+			return 0
+		}
+		nowMs := L.OptInt64(1, time.Now().UnixMilli())
+		if err := L.CallByParam(
+			lua.P{Fn: fn, NRet: 0, Protect: true},
+			lua.LNumber(nowMs),
+		); err != nil {
+			L.RaiseError("%v", err)
+			return 0
+		}
+		return 0
+	}))
+
+	table.RawSetString("ticks", L.NewFunction(func(L *lua.LState) int {
+		out := L.NewTable()
+		if schedule := h.Plugin.Manifest.Schedule; schedule != nil {
+			out.RawSetString("every_seconds", lua.LNumber(schedule.EverySeconds))
+			out.RawSetString("interval_ms", lua.LNumber(schedule.EverySeconds*1000))
+		}
+		L.Push(out)
+		return 1
 	}))
 
 	table.RawSetString("update_settings", L.NewFunction(func(L *lua.LState) int {
@@ -372,16 +435,17 @@ func (h *Host) attachTest(L *lua.LState) {
 		out := L.NewTable()
 		for _, row := range rows {
 			out.Append(toLua(L, map[string]any{
-				"id":       row.ID,
-				"project":  row.ProjectID,
-				"name":     row.Name,
-				"prompt":   row.Prompt,
-				"assignee": int64(row.AssigneeActorID),
-				"priority": row.Priority,
-				"size":     row.Size,
-				"tags":     tagNames(row.Tags),
-				"tools":    toolNames(fake.Tools(row.ID)),
-				"state":    string(row.State),
+				"id":          row.ID,
+				"project":     row.ProjectID,
+				"name":        row.Name,
+				"prompt":      row.Prompt,
+				"assignee":    int64(row.AssigneeActorID),
+				"priority":    row.Priority,
+				"size":        row.Size,
+				"interactive": row.Interactive,
+				"tags":        tagNames(row.Tags),
+				"tools":       toolNames(fake.Tools(row.ID)),
+				"state":       string(row.State),
 			}))
 		}
 		L.Push(out)

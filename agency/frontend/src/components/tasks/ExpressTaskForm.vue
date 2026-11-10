@@ -177,6 +177,15 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             :disabled="!projectReady"
           )
 
+          label.inline-flex.items-center.text-xs(
+            v-if="parentChoice"
+            class="gap-1.5"
+            title="Surface questionnaires and extension dialogs for this sub-task; turn off for background work that must not wait for the user"
+            data-testid="composer-interactive"
+          )
+            Switch(v-model="interactive" aria-label="Interactive")
+            span Interactive
+
           Button(
             v-if="fixedAgentId"
             type="button"
@@ -399,6 +408,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { useAgents } from "@/composables/useAgents";
 import { useDraft } from "@/composables/useDraft";
 import { useSessionEditorHeight } from "@/composables/useEditorHeight";
@@ -560,7 +570,13 @@ const templateOpen = ref(false);
 
 const parentChoice = ref<Task | null>(null);
 
+const interactive = ref(true);
+
 let seededRelation = "";
+
+watch(parentChoice, (parent) => {
+  if (!parent) interactive.value = true;
+});
 
 const referenceTasks = ref<Task[]>([]);
 
@@ -931,6 +947,7 @@ watch(
     referenceTasks.value = [];
     appliedTemplate.value = null;
     parentChoice.value = null;
+    interactive.value = true;
     selectedTags.value = new Set();
     defaultTagsProject.value = "";
     owningTeamIds.value = [];
@@ -1063,6 +1080,10 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
 
       templatePromptOverride: !!appliedTemplate.value,
       parentTaskId: parentChoice.value?.id,
+
+      interactive: parentChoice.value ? interactive.value : undefined,
+
+      originTaskId: props.relatedTask?.id,
 
       state: hasAttachments ? TaskState.BACKLOG : desired,
     };

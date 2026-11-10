@@ -881,12 +881,15 @@ func (s *Scheduler) contextBlock(ctx context.Context, task tasks.Task, agentID i
 	var b strings.Builder
 	b.WriteString("\n\n## CherryPi context\n\n")
 	b.WriteString("This session is a CherryPi task. The `listTasks`, `getTask`, " +
-		"`getTaskHistory`, `createTask`, `updateTask`, and `listProjects` tools " +
-		"talk to the CherryPi agency; use them to coordinate work when the task " +
-		"calls for it. `listTasks` and `getTask` never return a task's " +
-		"conversation; read it with `getTaskHistory`. You cannot delete tasks, and " +
-		"you can only see tasks in a project you are a member of with the " +
-		"`can_list_tasks` permission. You can always see and update your own tasks.\n\n" +
+		"`getTaskHistory`, `getTaskInput`, `respondToTaskInput`, `createTask`, " +
+		"`updateTask`, and `listProjects` tools talk to the CherryPi agency; use " +
+		"them to coordinate work when the task calls for it. `listTasks` and " +
+		"`getTask` never return a task's conversation; read it with " +
+		"`getTaskHistory`. A task you lead may be blocked on a question: read it " +
+		"with `getTaskInput` and answer it with `respondToTaskInput`. You cannot " +
+		"delete tasks, and you can only see tasks in a project you are a member " +
+		"of with the `can_list_tasks` permission. You can always see and update " +
+		"your own tasks.\n\n" +
 		"Your prompts are versioned. Use `getPrompt` and `listPromptVersions` to " +
 		"read your own agent prompt or a project prompt, and `proposePromptChange` " +
 		"to suggest a complete replacement; an owner approves it (or your " +
@@ -1053,7 +1056,9 @@ func (s *Scheduler) pluginTools(ctx context.Context, task tasks.Task) []*agentv1
 			})
 		}
 	}
-	for _, projectTool := range s.Plugins.ProjectTools(ctx, task.ProjectID) {
+	for _, projectTool := range s.Plugins.ProjectToolsForTask(
+		ctx, task.ID, task.ProjectID,
+	) {
 		if seen[projectTool.Tool.Name] {
 			continue
 		}
@@ -1153,10 +1158,11 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 
 	modelProvider, modelID, thinkingLevel := s.taskModel(ctx, task, agent)
 
+	interactive := task.Interactive
 	sessionID, err := s.CreateTask(ctx, agent.ID, &agentv1.CreateTaskRequest{
 		Prompt:             prompt,
 		Workspace:          task.Workspace,
-		Interactive:        true,
+		Interactive:        &interactive,
 		ModelProvider:      modelProvider,
 		ModelId:            modelID,
 		ThinkingLevel:      thinkingLevel,

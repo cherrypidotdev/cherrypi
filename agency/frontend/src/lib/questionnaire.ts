@@ -119,6 +119,8 @@ export interface QuestionnaireAnswerReview {
 
 export interface QuestionnaireAnsweredBy {
   id: string;
+
+  kind?: "user" | "agent";
   username: string;
   name: string;
 }
@@ -133,6 +135,8 @@ export interface QuestionnaireReview {
   finalNote?: string;
 
   answeredBy?: QuestionnaireAnsweredBy;
+
+  answeredAt?: number;
 }
 
 export function parseQuestionnaireReview(
@@ -203,23 +207,13 @@ function parseAnsweredBy(value: unknown): QuestionnaireAnsweredBy | undefined {
     username: typeof by.username === "string" ? by.username : "",
     name: typeof by.name === "string" ? by.name : "",
   };
+  if (by.kind === "agent" || by.kind === "user") {
+    answeredBy.kind = by.kind;
+  }
   if (!answeredBy.id && !answeredBy.username && !answeredBy.name) {
     return undefined;
   }
   return answeredBy;
-}
-
-export function answeredByLabel(by: QuestionnaireAnsweredBy): string {
-  if (by.name && by.username) {
-    return `${by.name} (@${by.username})`;
-  }
-  if (by.name) {
-    return by.name;
-  }
-  if (by.username) {
-    return `@${by.username}`;
-  }
-  return `actor ${by.id}`;
 }
 
 export function questionnaireAnswersFromReview(

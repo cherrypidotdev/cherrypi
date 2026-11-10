@@ -18,7 +18,9 @@ package protocol
 
 import "golang.org/x/mod/semver"
 
-const Version = "v0.1.6"
+const Version = "v0.1.8"
+
+const TaskInputAnswersVersion = "v0.1.7"
 
 type Compatibility int64
 

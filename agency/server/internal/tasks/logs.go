@@ -103,6 +103,20 @@ func actorIDFrom(ctx context.Context) ids.ActorID {
 	return 0
 }
 
+type stateReasonKey struct{}
+
+func WithStateReason(ctx context.Context, reason string) context.Context {
+	if reason == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, stateReasonKey{}, reason)
+}
+
+func stateReasonFrom(ctx context.Context) string {
+	reason, _ := ctx.Value(stateReasonKey{}).(string)
+	return reason
+}
+
 type suppressLogKey struct{}
 
 func withoutLogging(ctx context.Context) context.Context {
@@ -202,9 +216,13 @@ func marshalData(data any) string {
 }
 
 func (s *Service) logCreated(ctx context.Context, t Task) {
+	var data any
+	if reason := stateReasonFrom(ctx); reason != "" {
+		data = map[string]any{"state": string(t.State), "reason": reason}
+	}
 	s.recordLog(
 		ctx, actorFrom(ctx), time.Now().UnixMilli(),
-		t.ID, LogCreated, "", "", stateLabel(t.State), "Task created", nil,
+		t.ID, LogCreated, "", "", stateLabel(t.State), "Task created", data,
 	)
 }
 
@@ -282,6 +300,10 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 			id, before.State, after.State, after.AssigneeActorID,
 			after.SessionID, after.Error,
 		)
+		stateData := enumChange(string(before.State), string(after.State))
+		if reason := stateReasonFrom(ctx); reason != "" {
+			stateData["reason"] = reason
+		}
 		s.recordLog(
 			ctx, actor, at, id, LogState, "state",
 			stateLabel(before.State), stateLabel(after.State),
@@ -289,7 +311,7 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 				"State changed from %s to %s",
 				stateLabel(before.State), stateLabel(after.State),
 			),
-			enumChange(string(before.State), string(after.State)),
+			stateData,
 		)
 	}
 	if before.Name != after.Name {

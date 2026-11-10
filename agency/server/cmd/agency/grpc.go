@@ -158,6 +158,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			return info, nil
 		},
 		TeamName: appCtx.Teams.Name,
+		Input:    appCtx.Input,
 	}
 
 	actorInterceptor := connect.UnaryInterceptorFunc(
@@ -205,7 +206,10 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler = agencyv1connect.NewTerminalServiceHandler(terminalService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
-	realtimeService := &realtimegrpc.Server{Bus: appCtx.Realtime}
+	realtimeService := &realtimegrpc.Server{
+		Bus:  appCtx.Realtime,
+		Task: taskService.ProtoTask,
+	}
 	path, handler = agencyv1connect.NewRealtimeServiceHandler(realtimeService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 

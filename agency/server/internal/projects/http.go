@@ -853,6 +853,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrNotTeamOwner):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrInvalidRole),
+		errors.Is(err, ErrPluginRoleFixed),
 		errors.Is(err, ErrRoleBelowInherited),
 		errors.Is(err, ErrInvalidName),
 		errors.Is(err, ErrInvalidPrefix):

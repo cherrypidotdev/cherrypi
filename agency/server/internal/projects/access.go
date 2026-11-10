@@ -38,6 +38,8 @@ const (
 	RoleViewer = "viewer"
 )
 
+const actorKindPlugin = "plugin"
+
 // InviteTTL is the locked project-team invitation lifetime.
 const InviteTTL = 7 * 24 * time.Hour
 
@@ -58,6 +60,7 @@ var (
 	ErrActorNotFound      = errors.New("actor not found")
 	ErrMemberNotFound     = errors.New("project member not found")
 	ErrInvalidRole        = errors.New("project role must be owner, member or viewer")
+	ErrPluginRoleFixed    = errors.New("installed plugins always hold the member role")
 	ErrTeamHasNoAccess    = errors.New("team is not attached to the project")
 	ErrRoleBelowInherited = errors.New(
 		"team already has a stronger inherited role on the project",
@@ -578,6 +581,10 @@ func (s *Service) AddMember(
 	if err != nil {
 		return Member{}, err
 	}
+
+	if target.Kind == actorKindPlugin {
+		role = RoleMember
+	}
 	now := time.Now().UnixMilli()
 	if err := s.store.UpsertProjectActorGrant(ctx, store.UpsertProjectActorGrantParams{
 		ProjectID:        p.ID,
@@ -623,6 +630,17 @@ func (s *Service) SetMemberRole(
 	if err != nil {
 		return Member{}, err
 	}
+	target, err := s.store.GetActorByID(ctx, actorID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Member{}, ErrActorNotFound
+	}
+	if err != nil {
+		return Member{}, err
+	}
+
+	if target.Kind == actorKindPlugin && role != RoleMember {
+		return Member{}, ErrPluginRoleFixed
+	}
 	if existing.Role == RoleOwner && role != RoleOwner {
 		if err := s.requireAnotherOwner(ctx, p.ID); err != nil {
 			return Member{}, err
@@ -639,7 +657,6 @@ func (s *Service) SetMemberRole(
 	); err != nil {
 		return Member{}, err
 	}
-	target, _ := s.store.GetActorByID(ctx, actorID)
 	s.writeLog(ctx, p.ID, "member", "role", existing.Role, role,
 		"Set "+target.Username+"'s project role to "+role,
 		map[string]any{"actor_id": actorID, "role": role})

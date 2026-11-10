@@ -93,8 +93,6 @@ export interface UsageTaskRow {
   thinkingMs: number;
   toolMs: number;
   modelWaitMs: number;
-  ttftMs: number;
-  ttftRuns: number;
   runs: number;
   live: boolean;
 }
@@ -310,14 +308,6 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       (sum, bucket) => sum + Number(bucket.toolMs),
       0,
     );
-    const ttftMs = buckets.reduce(
-      (sum, bucket) => sum + Number(bucket.ttftMs),
-      0,
-    );
-    const ttftRuns = buckets.reduce(
-      (sum, bucket) => sum + Number(bucket.ttftRuns),
-      0,
-    );
     return {
       cost: usage.value?.cost ?? 0,
       inputTokens: Number(usage.value?.inputTokens ?? 0),
@@ -331,8 +321,6 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       thinkingMs: thinking,
       modelWaitMs: modelWait,
       toolMs,
-      ttftMs,
-      ttftRuns,
       ttcMs: ttcTotal.value.total,
       ttcSamples: ttcTotal.value.samples,
     };
@@ -370,8 +358,6 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       }),
       toolMs: bucket.toolMs,
       modelWaitMs: bucket.modelWaitMs,
-      ttftMs: bucket.ttftMs,
-      ttftRuns: bucket.ttftRuns,
       runs: bucket.runs,
       live: bucket.live,
     };
@@ -487,8 +473,6 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       runs: bucket?.runs ?? 0,
       toolMs: bucket?.toolMs ?? 0,
       modelWaitMs: bucket?.modelWaitMs ?? 0,
-      ttftMs: bucket?.ttftMs ?? 0,
-      ttftRuns: bucket?.ttftRuns ?? 0,
     };
   }
 

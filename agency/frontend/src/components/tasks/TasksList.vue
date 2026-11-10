@@ -56,6 +56,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :key="option.value"
             :value="option.value"
           ) {{ option.label }}
+    label.inline-flex.cursor-pointer.items-center.gap-2.text-xs(
+      title="Non-interactive tasks never surface questionnaires or extension dialogs"
+      data-testid="task-non-interactive-filter"
+    )
+      Switch(
+        v-model="showNonInteractive"
+        aria-label="Show non-interactive tasks"
+      )
+      span Show non-interactive
+      span.text-muted-foreground(
+        v-if="!showNonInteractive && hiddenNonInteractive.length"
+      )
+        | ({{ hiddenNonInteractive.length }})
     slot(name="actions")
 
   .bg-card.sticky.top-0.z-20.flex.flex-wrap.items-center.gap-2.rounded-xl.border.px-3.py-2.shadow-sm(
@@ -225,6 +238,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :loading="loading"
     )
 
+    button.text-muted-foreground.flex.w-full.items-center.justify-center.gap-1.border-t.px-3.py-2.text-xs.transition-colors(
+      v-if="!showNonInteractive && hiddenNonInteractive.length"
+      type="button"
+      class="hover:bg-muted/50 hover:text-foreground"
+      @click="showNonInteractive = true"
+      data-testid="task-reveal-non-interactive"
+    )
+      EyeIcon.size-3.shrink-0
+      | Reveal {{ hiddenLabel(hiddenNonInteractive.length) }}
+
   .bg-card.overflow-hidden.rounded-xl.border(
     v-if="archivedTasks.length || archivedLoading"
   )
@@ -239,6 +262,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.font-medium Archived
       span.text-muted-foreground
         | {{ archivedTasks.length }}
+      span.text-muted-foreground(
+        v-if="!showNonInteractive && archivedNonInteractiveCount"
+      )
+        | · {{ archivedNonInteractiveCount }} non-interactive hidden
     .border-t(v-if="showArchived")
       .bg-card.sticky.top-0.z-20.flex.flex-wrap.items-center.gap-2.border-b.px-3.py-2(
         v-if="archivedSelectedTasks.length"
@@ -385,6 +412,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @toggle-select-all="toggleArchivedSelectAll"
           :loading="archivedLoading"
         )
+        button.text-muted-foreground.flex.w-full.items-center.justify-center.gap-1.border-t.px-3.py-2.text-xs.transition-colors(
+          v-if="!showNonInteractive && archivedHiddenNonInteractive"
+          type="button"
+          class="hover:bg-muted/50 hover:text-foreground"
+          @click="showNonInteractive = true"
+          data-testid="task-archive-reveal-non-interactive"
+        )
+          EyeIcon.size-3.shrink-0
+          | Reveal {{ hiddenLabel(archivedHiddenNonInteractive) }}
 
   ArchiveTaskDialog(
     :open="archiveDialog"
@@ -416,6 +452,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
 import { useTags } from "@/composables/useTags";
@@ -449,6 +486,7 @@ import {
   BanIcon,
   CheckIcon,
   ChevronRightIcon,
+  EyeIcon,
   FlagIcon,
   InboxIcon,
   MergeIcon,
@@ -548,13 +586,33 @@ const ARCHIVED_TABS: ArchivedTab[] = [
   { key: "cancelled", label: "Cancelled", state: TaskState.CANCELLED },
 ];
 const archivedTab = ref<ArchivedTab["key"]>("all");
-const archivedVisibleTasks = computed(() => {
+const archivedTabTasks = computed(() => {
   const tab = ARCHIVED_TABS.find((item) => item.key === archivedTab.value);
   if (!tab?.state) return archivedTasks.value;
   return archivedTasks.value.filter((task) => task.state === tab.state);
 });
+
+const showNonInteractive = ref(false);
+const archivedNonInteractiveCount = computed(
+  () => archivedTasks.value.filter((task) => !task.interactive).length,
+);
+
+const archivedHiddenNonInteractive = computed(
+  () => archivedTabTasks.value.filter((task) => !task.interactive).length,
+);
+const archivedVisibleTasks = computed(() =>
+  showNonInteractive.value
+    ? archivedTabTasks.value
+    : archivedTabTasks.value.filter((task) => task.interactive),
+);
 const archivedEmptyMessage = computed(() => {
   const tab = ARCHIVED_TABS.find((item) => item.key === archivedTab.value);
+  if (
+    !showNonInteractive.value &&
+    archivedTabTasks.value.some((task) => !task.interactive)
+  ) {
+    return "No interactive archived tasks in this tab.";
+  }
   return tab?.state
     ? `No archived ${tab.label.toLowerCase()} tasks.`
     : "No archived tasks.";
@@ -614,6 +672,11 @@ const sizeFilterActive = computed(
   () => sizeFilter.value !== TaskSize.UNSPECIFIED,
 );
 const emptyMessage = computed(() => {
+  if (!showNonInteractive.value && hiddenNonInteractive.value.length) {
+    return searchActive.value || sizeFilterActive.value
+      ? "No interactive tasks match the current filters."
+      : "No interactive tasks in this tab.";
+  }
   if (searchActive.value) return "No tasks match your search.";
   if (sizeFilterActive.value) return "No tasks match the size filter.";
   return props.emptyText;
@@ -712,13 +775,22 @@ function sortTasks(list: Task[]): Task[] {
   });
 }
 
-const visibleTasks = computed(() => {
+const tabTasks = computed(() => {
   const tab = TASK_STATE_TABS.find((item) => item.key === activeTab.value);
-  const filtered = !tab?.state
+  return !tab?.state
     ? tasks.value
     : tasks.value.filter((task) => task.state === tab.state);
-  return sortTasks(filtered);
 });
+const hiddenNonInteractive = computed(() =>
+  tabTasks.value.filter((task) => !task.interactive),
+);
+const visibleTasks = computed(() =>
+  sortTasks(
+    showNonInteractive.value
+      ? tabTasks.value
+      : tabTasks.value.filter((task) => task.interactive),
+  ),
+);
 
 const selected = ref<Set<string>>(new Set());
 
@@ -1110,6 +1182,10 @@ function countClass(state?: TaskState): string {
 function countFor(state?: TaskState): number {
   if (!state) return tasks.value.length;
   return tasks.value.filter((task) => task.state === state).length;
+}
+
+function hiddenLabel(count: number): string {
+  return `${count} hidden task${count === 1 ? "" : "s"}`;
 }
 
 function projectName(id: string): string {

@@ -136,6 +136,34 @@ export function taskReferenceTitle(
   return title !== ref.id ? `${ref.id} · ${title}` : ref.id;
 }
 
+export function taskStateFromStored(
+  raw: string | undefined,
+): TaskState | undefined {
+  switch (raw) {
+    case "backlog":
+    case "draft":
+      return TaskState.BACKLOG;
+    case "waiting":
+      return TaskState.WAITING;
+    case "queued":
+      return TaskState.QUEUED;
+    case "running":
+      return TaskState.RUNNING;
+    case "input":
+      return TaskState.INPUT;
+    case "settled":
+      return TaskState.SETTLED;
+    case "failed":
+      return TaskState.FAILED;
+    case "completed":
+      return TaskState.COMPLETED;
+    case "cancelled":
+      return TaskState.CANCELLED;
+    default:
+      return undefined;
+  }
+}
+
 export function taskStateLabel(state: TaskState): string {
   switch (state) {
     case TaskState.BACKLOG:

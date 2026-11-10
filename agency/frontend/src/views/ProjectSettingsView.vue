@@ -267,7 +267,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     TableHead
                 TableBody
                   TableRow(
-                    v-for="grant in access?.members ?? []"
+                    v-for="grant in directMembers"
                     :key="grant.actor_id"
                   )
                     TableCell
@@ -299,14 +299,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         )
                           Trash2Icon(data-icon="inline-start")
                           span Remove
-                  TableRow(v-if="!(access?.members ?? []).length")
+                  TableRow(v-if="!directMembers.length")
                     TableCell.text-muted-foreground(:colspan="3")
                       | No direct access.
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
                 ActorCombobox#new-member-actor.w-56(
                   v-model="newMemberUsername"
-                  placeholder="Add an actor or plugin…"
-                  kinds="project"
+                  placeholder="Add a person or agent…"
+                  kinds="all"
                 )
                 Select(v-model="newMemberRole")
                   SelectTrigger.w-36
@@ -319,6 +319,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 )
                   PlusIcon(data-icon="inline-start")
                   span Add
+
+            Separator
+
+            .flex.flex-col.gap-3
+              span.text-sm.font-medium Installed plugins
+              p.text-muted-foreground.text-xs
+                | Installed plugins have direct access to the project, always
+                | 'member' level.
+                Button.h-auto.px-1(
+                  variant="link"
+                  size="xs"
+                  @click="tab = 'plugins'"
+                ) Manage in Plugins
+              Table
+                TableHeader
+                  TableRow
+                    TableHead Plugin
+                    TableHead Access
+                TableBody
+                  TableRow(
+                    v-for="grant in pluginMembers"
+                    :key="grant.actor_id"
+                  )
+                    TableCell
+                      .flex.items-center.gap-2
+                        PlugIcon.text-muted-foreground.size-4
+                        .flex.flex-col
+                          span.font-medium {{ grant.name || grant.username }}
+                          span.text-muted-foreground.text-xs
+                            | plugin · @{{ grant.username }}
+                    TableCell
+                      .flex.items-center.gap-2
+                        Badge(variant="secondary")
+                          | {{ PROJECT_ROLE_LABEL[grant.role] }}
+                        span.text-muted-foreground.text-xs
+                          | always · set by install
+                  TableRow(v-if="!pluginMembers.length")
+                    TableCell.text-muted-foreground(:colspan="2")
+                      | No plugins have access to this project.
 
             Separator
 
@@ -561,6 +600,7 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   CheckIcon,
+  PlugIcon,
   PlusIcon,
   Trash2Icon,
 } from "@lucide/vue";
@@ -610,6 +650,13 @@ const description = ref("");
 const saving = ref(false);
 const savingPrefix = ref(false);
 const error = ref("");
+
+const directMembers = computed(() =>
+  (access.value?.members ?? []).filter((grant) => grant.kind !== "plugin"),
+);
+const pluginMembers = computed(() =>
+  (access.value?.members ?? []).filter((grant) => grant.kind === "plugin"),
+);
 
 // Teams that are neither attached nor already invited, so the picker never
 

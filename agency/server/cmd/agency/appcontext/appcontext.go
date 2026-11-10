@@ -52,6 +52,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/storage"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"cherrypi.vladfaust.com/agency/internal/tags"
+	"cherrypi.vladfaust.com/agency/internal/taskinput"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/taskwake"
 	"cherrypi.vladfaust.com/agency/internal/teams"
@@ -96,6 +97,8 @@ type AppContext struct {
 	Speech *speech.Service
 
 	Plugins *pluginhost.Service
+
+	Input *taskinput.Service
 }
 
 func taskTransitionNotifier(
@@ -400,6 +403,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		DataDir:             config.PluginDataDir,
 		RequirePGDatabase:   config.PluginPGRequireDatabase,
 		AllowPrivateNetwork: config.PluginAllowPrivateNetwork,
+		DisableTicks:        config.PluginDisableTicks,
 	}, pluginStore)
 	pluginsSvc.Projects = projectsSvc
 	pluginsSvc.Agents = agentRegistry
@@ -415,7 +419,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	onTransition := taskTransitionNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	tasksSvc.OnTransition = func(ctx context.Context, tr tasks.Transition) {
 		onTransition(ctx, tr)
-		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+		realtimeBus.PublishTask(tr.TaskID)
 
 		if tr.Held {
 			pluginsSvc.DispatchEvent(ctx, pluginhost.Event{
@@ -441,8 +445,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	tasksSvc.OnHoldReleased = func(ctx context.Context, release tasks.HoldRelease) {
 		pluginsSvc.DispatchEvent(ctx, pluginhost.HoldReleaseEvent(release))
 	}
-	tasksSvc.OnChange = func(context.Context, string) {
-		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TASKS)
+	tasksSvc.OnChange = func(_ context.Context, taskID string) {
+		realtimeBus.PublishTask(taskID)
 	}
 	tasksSvc.OnComment = commentNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	tasksSvc.OnMention = mentionNotifier(notificationsSvc, tasksSvc, agentRegistry)
@@ -507,6 +511,14 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 			return err
 		},
 	}
+	waker.LeadOf = tasksSvc.IsLead
+	waker.AgentProtocol = func(ctx context.Context, actorID ids.ActorID) (string, error) {
+		agent, err := agentRegistry.GetByActor(ctx, actorID)
+		if err != nil {
+			return "", err
+		}
+		return agent.ProtocolVersion, nil
+	}
 	tasksSvc.OnChildFinished = waker.OnChildFinished
 
 	tasksSvc.OnInputCleared = func(ctx context.Context, t tasks.Task) {
@@ -556,6 +568,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 				Extra:  extra,
 			})
 		},
+
+		OnInputRequested: waker.OnInputRequested,
 	}
 	hub.OnConnect = func(ctx context.Context, conn *tunnel.Connection) {
 		go consumer.Run(ctx, conn)
@@ -622,6 +636,22 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Realtime:      realtimeBus,
 		ProcessLogs:   processLog,
 		Plugins:       pluginsSvc,
+		Input: &taskinput.Service{
+			Tasks:  tasksSvc,
+			Agents: agentRegistry,
+			Hub:    hub,
+			Actors: func(ctx context.Context, id ids.ActorID) (taskinput.ActorInfo, error) {
+				actor, err := accountsSvc.GetActor(ctx, id)
+				if err != nil {
+					return taskinput.ActorInfo{}, err
+				}
+				return taskinput.ActorInfo{
+					Username: actor.Username,
+					Name:     actor.Name,
+					Kind:     actor.Kind,
+				}, nil
+			},
+		},
 	}
 }
 

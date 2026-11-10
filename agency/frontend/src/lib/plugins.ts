@@ -44,6 +44,7 @@ export interface PluginManifest {
   runtime: string;
   entry: string;
   handlers: string[];
+  schedule?: { every_seconds?: number };
   settings: Record<string, unknown>;
   tools: PluginTool[];
   events: string[];
@@ -113,6 +114,7 @@ export function parseManifestJSON(
     runtime: parsed.runtime ?? fallback.runtime ?? "lua",
     entry: parsed.entry ?? fallback.entry ?? "main.lua",
     handlers: parsed.handlers ?? [],
+    schedule: parsed.schedule,
     settings: parsed.settings ?? {},
     tools: parsed.tools ?? [],
     events: parsed.events ?? [],
@@ -192,6 +194,10 @@ export function handlerLabel(handler: string): string {
       return "Agent tools";
     case "event":
       return "Agency events";
+    case "tick":
+      return "Scheduled ticks";
+    case "task_tools":
+      return "Task tool filter";
     default:
       return handler;
   }
@@ -244,6 +250,14 @@ export function pluginPermissions(
       tone: "info",
     });
   }
+  if (manifest.schedule?.every_seconds) {
+    out.push({
+      key: "schedule",
+      label: "Scheduled ticks",
+      detail: `Calls handle_tick every ${manifest.schedule.every_seconds}s while the plugin is enabled.`,
+      tone: "info",
+    });
+  }
   const surfaces = manifestSurfaces(manifest);
   if (surfaces.length) {
     out.push({
@@ -258,6 +272,7 @@ export function pluginPermissions(
   if (manifest.tools.length) handlers.add("tool");
   if (manifest.events.length) handlers.add("event");
   if (manifest.routes.length) handlers.add("http");
+  if (manifest.schedule?.every_seconds) handlers.add("tick");
   if (handlers.size > 0) {
     out.push({
       key: "tasks",

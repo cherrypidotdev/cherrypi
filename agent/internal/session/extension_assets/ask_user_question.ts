@@ -116,6 +116,8 @@ interface WireAnswer {
 
 interface WireAnsweredBy {
   id?: string;
+
+  kind?: "user" | "agent";
   username?: string;
   name?: string;
 }
@@ -340,6 +342,7 @@ function parseAnsweredBy(value: string): WireAnsweredBy | null {
   }
   const out: WireAnsweredBy = {};
   if (typeof by.id === "string" && by.id.length > 0) out.id = by.id;
+  if (by.kind === "agent" || by.kind === "user") out.kind = by.kind;
   if (typeof by.username === "string" && by.username.length > 0) {
     out.username = by.username;
   }
@@ -377,9 +380,10 @@ export function buildEnvelope(
   const noteSegment = note.length > 0 ? ` User's final note: ${note}` : "";
 
   const who = answeredByLabel(answeredBy);
+  const role = answeredBy?.kind === "agent" ? "Agent" : "User";
   const lead = who
-    ? `User "${who}" has answered your questions: `
-    : "User has answered your questions: ";
+    ? `${role} "${who}" has answered your questions: `
+    : `${role} has answered your questions: `;
   return `${lead}${segments.join(" ")}${noteSegment} You can now continue with the user's answers in mind.`;
 }
 

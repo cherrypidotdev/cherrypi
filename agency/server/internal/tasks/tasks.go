@@ -255,7 +255,9 @@ type Task struct {
 	Name      string
 	ProjectID string
 
-	ParentTaskID    string
+	ParentTaskID string
+
+	OriginTaskID    string
 	AssigneeActorID ids.ActorID
 
 	CreatorActorID ids.ActorID
@@ -361,7 +363,9 @@ type CreateParams struct {
 	Name      string
 	ProjectID string
 
-	ParentTaskID    string
+	ParentTaskID string
+
+	OriginTaskID    string
 	AssigneeActorID ids.ActorID
 	TagIDs          []string
 	References      []ReferenceInput
@@ -370,9 +374,11 @@ type CreateParams struct {
 	ModelProvider   string
 	ModelID         string
 	ThinkingLevel   string
-	Workspace       string
-	AutoTitle       bool
-	State           State
+
+	Interactive *bool
+	Workspace   string
+	AutoTitle   bool
+	State       State
 
 	TeamIDs []int64
 
@@ -452,6 +458,34 @@ type WakeState struct {
 	PluginWakes map[string]int `json:"plugin_wakes,omitempty"`
 
 	DeliveredPrompt string `json:"delivered_prompt,omitempty"`
+
+	InputWakes []InputWake `json:"input_wakes,omitempty"`
+}
+
+type InputWake struct {
+	ChildID   string `json:"child_id"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+const MaxInputWakes = 8
+
+func (w WakeState) SeenInputWake(childID, requestID string) bool {
+	for _, seen := range w.InputWakes {
+		if seen.ChildID == childID && seen.RequestID == requestID {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *WakeState) RememberInputWake(childID, requestID string) {
+	w.InputWakes = append(w.InputWakes, InputWake{
+		ChildID:   childID,
+		RequestID: requestID,
+	})
+	if over := len(w.InputWakes) - MaxInputWakes; over > 0 {
+		w.InputWakes = w.InputWakes[over:]
+	}
 }
 
 func parseWakeState(raw string) WakeState {
@@ -582,11 +616,21 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 			return Task{}, err
 		}
 	}
+
+	originID := strings.TrimSpace(p.OriginTaskID)
+	if originID != "" {
+		if _, err := s.store.GetTask(ctx, originID); errors.Is(err, sql.ErrNoRows) {
+			return Task{}, ErrNotFound
+		} else if err != nil {
+			return Task{}, err
+		}
+	}
 	number, err := s.store.AllocateTaskNumber(ctx, project.ID)
 	if err != nil {
 		return Task{}, err
 	}
 
+	interactive := p.Interactive == nil || *p.Interactive
 	now := time.Now().UnixMilli()
 	row, err := s.store.CreateTask(ctx, store.CreateTaskParams{
 		ID:              TaskID(project.Prefix, number),
@@ -595,6 +639,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		Name:            strings.TrimSpace(p.Name),
 		ProjectID:       project.ID,
 		ParentTaskID:    parentID,
+		OriginTaskID:    originID,
 		AssigneeActorID: nullID(p.AssigneeActorID),
 		AssigneePinned:  boolInt(p.AssigneeActorID != 0),
 		Priority:        p.Priority,
@@ -604,7 +649,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		ModelProvider:   p.ModelProvider,
 		ModelID:         p.ModelID,
 		ThinkingLevel:   p.ThinkingLevel,
-		Interactive:     1,
+		Interactive:     boolInt(interactive),
 		Workspace:       p.Workspace,
 		AutoTitle:       boolInt(p.AutoTitle),
 		CreatedAt:       now,
@@ -680,6 +725,9 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	t, err := s.Get(ctx, row.ID)
 	if err != nil {
 		return Task{}, err
+	}
+	if t.State == StateWaiting {
+		ctx = WithStateReason(ctx, s.blockedReason(ctx, t))
 	}
 	s.logCreated(ctx, t)
 	if s.OnCreated != nil {
@@ -881,6 +929,58 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 		t.UnreadComments = unread
 	}
 	return t, nil
+}
+
+func (s *Service) OriginChain(ctx context.Context, id string) ([]Task, error) {
+	seen := map[string]struct{}{id: {}}
+	next := id
+	var chain []Task
+	for {
+		row, err := s.store.GetTask(ctx, next)
+		if errors.Is(err, sql.ErrNoRows) {
+			return chain, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		origin := row.OriginTaskID.String
+		if origin == "" {
+			break
+		}
+		if _, ok := seen[origin]; ok {
+			break
+		}
+		seen[origin] = struct{}{}
+		originRow, err := s.store.GetTask(ctx, origin)
+		if errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, toTask(originRow, nil, nil, nil, nil, Progress{}))
+		next = origin
+	}
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain, nil
+}
+
+func (s *Service) OriginVisible(
+	ctx context.Context,
+	id string,
+	actorID ids.ActorID,
+	isAdmin bool,
+) (bool, error) {
+	row, err := s.store.GetTask(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return s.CanView(ctx, row.ProjectID.String, actorID, isAdmin)
 }
 
 func (s *Service) GetByProjectSeq(
@@ -1216,11 +1316,12 @@ func (s *Service) Update(ctx context.Context, id string, p UpdateParams) (Task, 
 		ModelProvider:   p.ModelProvider,
 		ModelID:         p.ModelID,
 		ThinkingLevel:   p.ThinkingLevel,
-		Interactive:     1,
-		Workspace:       p.Workspace,
-		AutoTitle:       boolInt(p.AutoTitle),
-		UpdatedAt:       time.Now().UnixMilli(),
-		ID:              id,
+
+		Interactive: boolInt(cur.Interactive),
+		Workspace:   p.Workspace,
+		AutoTitle:   boolInt(p.AutoTitle),
+		UpdatedAt:   time.Now().UnixMilli(),
+		ID:          id,
 	}); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, ErrNotEditable
@@ -1284,6 +1385,8 @@ func (s *Service) Queue(ctx context.Context, id string) (Task, error) {
 	event := store.TaskQueue
 	if waiting {
 		event = store.TaskWait
+
+		ctx = WithStateReason(ctx, s.blockedReason(ctx, cur))
 	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     event,
@@ -1339,6 +1442,35 @@ func (s *Service) hasIncompleteDependencies(ctx context.Context, t Task) (bool, 
 	return children > 0, nil
 }
 
+func (s *Service) blockedReason(ctx context.Context, t Task) string {
+	blockers := IncompleteBlockerIDs(t.References)
+	children, err := s.store.CountIncompleteChildTasks(ctx, t.ID)
+	if err != nil {
+		children = 0
+	}
+	var parts []string
+	if len(blockers) > 0 {
+		parts = append(
+			parts,
+			"blocking task"+plural(len(blockers))+": "+strings.Join(blockers, ", "),
+		)
+	}
+	if children > 0 {
+		parts = append(parts, fmt.Sprintf("%d open sub-task%s", children, plural(int(children))))
+	}
+	if len(parts) == 0 {
+		return "Blocked"
+	}
+	return "Blocked on " + strings.Join(parts, " and ")
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func (s *Service) ReconcileWaiting(ctx context.Context, id string) error {
 	before, err := s.Get(ctx, id)
 	if err != nil {
@@ -1358,15 +1490,19 @@ func (s *Service) ReconcileWaiting(ctx context.Context, id string) error {
 	}
 	now := time.Now().UnixMilli()
 	var event store.TaskEvent
+	var reason string
 	switch {
 	case waiting && (before.State == StateQueued ||
 		before.State == StateSettled || before.State == StateFailed):
 		event = store.TaskWait
+		reason = s.blockedReason(ctx, before)
 	case !waiting && before.State == StateWaiting:
 		event = store.TaskUnwait
+		reason = "Woke up: every blocking task and sub-task finished"
 	default:
 		return nil
 	}
+	ctx = WithStateReason(ctx, reason)
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     event,
 		QueuedAt:  sql.NullInt64{Int64: now, Valid: true},
@@ -2261,6 +2397,61 @@ func (s *Service) RequeueWithPrompt(
 		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
 	}
 	return s.Get(ctx, id)
+}
+
+func (s *Service) WakeWaitingWithPrompt(
+	ctx context.Context,
+	id, prompt string,
+	actorID ids.ActorID,
+) (Task, error) {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return Task{}, ErrInvalidPrompt
+	}
+	cur, err := s.Get(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	if cur.State != StateWaiting {
+		return Task{}, ErrWrongState
+	}
+	if len(cur.Holds) > 0 {
+		return Task{}, heldError(cur.Holds)
+	}
+	pending := prompt
+	sender := actorID
+	if undelivered := strings.TrimSpace(cur.PendingPrompt); undelivered != "" {
+		pending = undelivered + "\n\n" + prompt
+
+		if cur.PendingPromptActorID != 0 {
+			sender = cur.PendingPromptActorID
+		}
+	}
+	now := time.Now().UnixMilli()
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+		Event:                store.TaskWakeWaiting,
+		PendingPrompt:        pending,
+		PendingPromptActorID: nullID(sender),
+		QueuedAt:             sql.NullInt64{Int64: now, Valid: true},
+		UpdatedAt:            now,
+		ID:                   id,
+	})
+	if err != nil {
+		return Task{}, err
+	}
+	if n == 0 {
+
+		if now, err := s.Get(ctx, id); err == nil && len(now.Holds) > 0 {
+			return Task{}, heldError(now.Holds)
+		}
+		return Task{}, ErrWrongState
+	}
+	after, err := s.Get(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	s.logChanges(ctx, cur, after)
+	return after, nil
 }
 
 func (s *Service) ClearPendingPrompt(ctx context.Context, id string) error {
@@ -3912,13 +4103,30 @@ func (s *Service) CanCloseOut(
 	if isAdmin {
 		return true, nil
 	}
+	return s.IsLead(ctx, t.ID, actorID)
+}
+
+func (s *Service) IsLead(
+	ctx context.Context,
+	taskID string,
+	actorID ids.ActorID,
+) (bool, error) {
 	if actorID == 0 {
 		return false, nil
 	}
 	return s.store.IsActorTaskLead(ctx, store.IsActorTaskLeadParams{
-		TaskID:  t.ID,
+		TaskID:  taskID,
 		ActorID: int64(actorID),
 	})
+}
+
+func (s *Service) CanAnswerInput(
+	ctx context.Context,
+	t Task,
+	actorID ids.ActorID,
+	isAdmin bool,
+) (bool, error) {
+	return s.CanCloseOut(ctx, t, actorID, isAdmin)
 }
 
 func (s *Service) Recipients(ctx context.Context, id string) ([]ids.ActorID, error) {
@@ -3995,6 +4203,7 @@ func toTask(
 		Name:            row.Name,
 		ProjectID:       row.ProjectID.String,
 		ParentTaskID:    row.ParentTaskID.String,
+		OriginTaskID:    row.OriginTaskID.String,
 		AssigneeActorID: ids.ActorID(row.AssigneeActorID.Int64),
 		AssigneePinned:  row.AssigneePinned != 0,
 		Priority:        row.Priority,

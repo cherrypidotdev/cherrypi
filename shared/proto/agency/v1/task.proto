@@ -158,6 +158,12 @@ service TaskService {
   rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
   rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
   rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
+  
+  
+  
+  
+  
+  rpc ListTaskToolCalls(ListTaskToolCallsRequest) returns (ListTaskToolCallsResponse);
   rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
   
   
@@ -310,6 +316,8 @@ message Task {
   string thinking_level = 15;
   
   
+  
+  
   bool interactive = 16;
   string workspace = 17;
   bool auto_title = 18;
@@ -448,6 +456,21 @@ message Task {
   
   
   int64 ttc_ms = 65;
+  
+  
+  
+  
+  
+  bool can_answer_input = 66;
+  
+  
+  
+  
+  string origin_task_id = 67;
+  
+  
+  
+  repeated TaskReference origin_chain = 68;
 }
 
 
@@ -755,8 +778,11 @@ message CreateTaskRequest {
   string model_provider = 7;
   string model_id = 8;
   string thinking_level = 9;
-  reserved 10; 
-               
+  
+  
+  
+  
+  optional bool interactive = 10;
   string workspace = 11;
   bool auto_title = 12;
   
@@ -792,6 +818,10 @@ message CreateTaskRequest {
   
   string parent_task_id = 24;
   reserved 25; 
+  
+  
+  
+  string origin_task_id = 26;
 }
 message CreateTaskResponse {
   Task task = 1;
@@ -1158,6 +1188,49 @@ message GetTaskHistoryRequest {
 message GetTaskHistoryResponse {
   repeated agent.v1.TaskEvent events = 1;
   string next_before = 2;
+}
+
+
+message TaskToolCall {
+  string call_id = 1;
+  string name = 2;
+  
+  bool is_error = 3;
+  
+  
+  bool interrupted = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp ended_at = 6;
+  
+  int64 duration_ms = 7;
+  
+  string args_json = 8;
+  
+  int64 result_bytes = 9;
+}
+
+message ListTaskToolCallsRequest {
+  string task_id = 1;
+  
+  repeated string tool_names = 2;
+  
+  bool errors_only = 3;
+  
+  bool interrupted_only = 4;
+  
+  string search = 5;
+  
+  
+  uint32 limit = 6;
+  uint32 offset = 7;
+}
+message ListTaskToolCallsResponse {
+  repeated TaskToolCall calls = 1;
+  
+  int32 total = 2;
+  
+  
+  repeated string names = 3;
 }
 
 message GetTaskConfigRequest {

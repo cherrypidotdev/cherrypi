@@ -36,9 +36,6 @@ Card
           TableHead.text-right(
             title="Output tokens over the time the model spent generating them"
           ) Speed
-          TableHead.text-right(
-            title="Run start to first token, averaged over the runs that measured one"
-          ) TTFT
           TableHead.text-right Spend
       TableBody
         TableRow(v-for="row in rows" :key="label(row)")
@@ -55,7 +52,6 @@ Card
           TableCell.text-right.tabular-nums {{ formatCount(row.runs) }}
           TableCell.text-right.tabular-nums {{ formatTokens(tokens(row)) }}
           TableCell.text-right.tabular-nums {{ rate(row) }}
-          TableCell.text-right.tabular-nums {{ ttft(row) }}
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
   CardFooter.justify-between.gap-3
     span.text-2xs.text-muted-foreground
@@ -85,7 +81,6 @@ import {
 import {
   formatCost,
   formatCount,
-  formatDurationPrecise,
   formatRate,
   formatTokens,
 } from "@/lib/format";
@@ -131,11 +126,5 @@ function rate(row: AgencyUsageModel): string {
     timing.modelWaitMs,
   );
   return value > 0 ? formatRate(value) : "—";
-}
-
-function ttft(row: AgencyUsageModel): string {
-  const runs = Number(row.ttftRuns);
-  if (!runs) return "—";
-  return formatDurationPrecise(Number(row.ttftMs) / runs);
 }
 </script>

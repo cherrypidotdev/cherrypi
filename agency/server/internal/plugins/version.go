@@ -22,7 +22,7 @@ import (
 	"strings"
 )
 
-const APIVersion = "0.2.1"
+const APIVersion = "0.2.3"
 
 type VersionRange struct {
 	alternatives [][]comparator

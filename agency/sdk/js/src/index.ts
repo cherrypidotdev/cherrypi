@@ -41,6 +41,8 @@ export {
   type GetDesktopResult,
   type ListSitesFilter,
   type ListTagsFilter,
+  type ListTaskToolCallsOptions,
+  type ListTaskToolCallsResult,
   type ListTaskCommentsResult,
   type ListTasksFilter,
   type ProjectLimitInput,

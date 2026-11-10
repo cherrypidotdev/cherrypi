@@ -32,9 +32,9 @@ details.rounded-md.border(class="group/tool")
     )
     span.text-muted-foreground.shrink-0(v-if="running") running…
     span.text-muted-foreground.shrink-0(
-      v-else-if="item.phase !== ToolPhase.FINISHED"
-      title="The transcript ends before this call recorded a result"
-    ) no result recorded
+      v-else-if="interrupted || item.phase !== ToolPhase.FINISHED"
+      title="The call's run ended before it recorded a result"
+    ) interrupted
     span.text-destructive.shrink-0(v-if="item.isError") error
     span.text-muted-foreground.shrink-0(v-if="duration") · {{ duration }}
 
@@ -109,6 +109,8 @@ const props = defineProps<{
   item: ToolItem;
 
   running: boolean;
+
+  interrupted?: boolean;
 
   duration: string;
 }>();

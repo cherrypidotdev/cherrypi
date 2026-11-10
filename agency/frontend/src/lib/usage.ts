@@ -31,9 +31,6 @@ export interface UsageSummary {
 
   toolMs: number;
 
-  ttftMs: number;
-  ttftRuns: number;
-
   ttcMs: number;
 
   ttcSamples: number;
@@ -43,8 +40,6 @@ export interface UsageTiming {
   activeMs: number;
   toolMs: number;
   modelWaitMs: number;
-  ttftMs: number;
-  ttftRuns: number;
 }
 
 export function thinkingMs(timing: Pick<UsageTiming, "activeMs" | "toolMs">) {
@@ -59,12 +54,6 @@ export function generationRate(
   const seconds = (thinking - modelWaitMs) / 1000;
   if (seconds <= 0 || outputTokens <= 0) return 0;
   return outputTokens / seconds;
-}
-
-export function averageTtftMs(
-  timing: Pick<UsageTiming, "ttftMs" | "ttftRuns">,
-) {
-  return timing.ttftRuns > 0 ? timing.ttftMs / timing.ttftRuns : 0;
 }
 
 export interface UsageInsights {
@@ -86,10 +75,6 @@ export interface UsageInsights {
 
   modelWaitMs: number;
 
-  ttftPerRunMs: number;
-
-  ttftRuns: number;
-
   tokensPerSecond: number;
 }
 
@@ -110,8 +95,6 @@ export interface TaskInsightSample {
   runs?: number;
   toolMs?: number;
   modelWaitMs?: number;
-  ttftMs?: number;
-  ttftRuns?: number;
 }
 
 export function taskTtcMs(
@@ -138,8 +121,6 @@ export function summarizeTaskInsights(
   let runs = 0;
   let thinking = 0;
   let modelWait = 0;
-  let ttft = 0;
-  let ttftRuns = 0;
   let generation = 0;
   let generationSamples = 0;
 
@@ -153,8 +134,6 @@ export function summarizeTaskInsights(
       activeMs: sample.activeMs ?? 0,
       toolMs: sample.toolMs ?? 0,
       modelWaitMs: sample.modelWaitMs ?? 0,
-      ttftMs: sample.ttftMs ?? 0,
-      ttftRuns: sample.ttftRuns ?? 0,
     };
     tokens += (sample.inputTokens ?? 0) + (sample.outputTokens ?? 0);
     cost += sample.cost ?? 0;
@@ -162,8 +141,6 @@ export function summarizeTaskInsights(
     runs += sample.runs ?? 0;
     thinking += thinkingMs(timing);
     modelWait += timing.modelWaitMs;
-    ttft += timing.ttftMs;
-    ttftRuns += timing.ttftRuns;
 
     const rate = generationRate(
       sample.outputTokens ?? 0,
@@ -189,9 +166,26 @@ export function summarizeTaskInsights(
     cost: average(cost),
     thinkingMs: average(thinking),
     modelWaitMs: average(modelWait),
-    ttftPerRunMs: ttftRuns ? ttft / ttftRuns : 0,
-    ttftRuns,
     tokensPerSecond: generationSamples ? generation / generationSamples : 0,
+  };
+}
+
+export interface LiveUsageTiming {
+  activeMs: number;
+  thinkingMs: number;
+  modelWaitMs: number;
+}
+
+export function tickUsage(
+  base: Pick<LiveUsageTiming, "activeMs" | "thinkingMs" | "modelWaitMs">,
+  elapsedMs: number,
+  live: { toolRunning: boolean; modelWaiting: boolean },
+): LiveUsageTiming {
+  const elapsed = Math.max(0, elapsedMs);
+  return {
+    activeMs: base.activeMs + elapsed,
+    thinkingMs: base.thinkingMs + (live.toolRunning ? 0 : elapsed),
+    modelWaitMs: base.modelWaitMs + (live.modelWaiting ? elapsed : 0),
   };
 }
 

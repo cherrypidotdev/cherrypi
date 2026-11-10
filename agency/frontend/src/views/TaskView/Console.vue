@@ -102,14 +102,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :agent="assigneeAgent"
       :model-config="config"
       :model-name="config?.modelName ?? ''"
+      :model-provider="config?.modelProvider ?? ''"
       :model-selection="modelSelection"
       :model-disabled="saving.model || !config"
       :usage-runs="taskUsage?.runs ?? []"
+      :can-answer="canAnswer"
+      :state-changes="stateChanges"
       @queue="$emit('queue', $event)"
       @open-attachment="$emit('open-attachment', $event)"
       @open-image="$emit('open-image', $event)"
       @open-diagram="$emit('open-diagram', $event)"
       @model-change="$emit('model-change', $event)"
+      @live-timing="$emit('live-timing', $event)"
     )
 
     .shrink-0.px-4.pt-3.pb-3(v-if="showPendingPrompt")
@@ -351,7 +355,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
 import { namedSender } from "@/lib/actors";
-import type { UserMessageParts } from "@/lib/console";
+import type { StateChange, UserMessageParts } from "@/lib/console";
 import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import {
   taskWaitingReason,
@@ -390,6 +394,8 @@ const props = defineProps<{
   saving: { model: boolean };
   canFollowUp: boolean;
   canCompose: boolean;
+
+  canAnswer: boolean;
   prompt: string;
   tab: "write" | "preview";
   stagedAttachments: Attachment[];
@@ -398,6 +404,8 @@ const props = defineProps<{
   clearingQueue: boolean;
   sending: boolean;
   stopping: boolean;
+
+  stateChanges: StateChange[];
 }>();
 
 defineEmits<{
@@ -418,6 +426,10 @@ defineEmits<{
   (e: "open-new-sketch"): void;
   (e: "open-sketch", attachment: Attachment): void;
   (e: "model-change", selection: TaskModelSelection): void;
+  (
+    e: "live-timing",
+    timing: { toolRunning: boolean; modelWaiting: boolean },
+  ): void;
   (e: "staged-uploaded", attachment: Attachment): void;
   (e: "remove-staged", attachment: Attachment): void;
   (e: "drag-enter", event: DragEvent): void;

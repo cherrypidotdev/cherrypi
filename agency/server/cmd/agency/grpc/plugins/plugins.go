@@ -145,7 +145,7 @@ func (s *Server) ListPluginLogs(
 	if err := s.requirePluginLogReader(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.Plugins.Logs(ctx, req.Id, int(req.Limit))
+	rows, err := s.Plugins.Logs(ctx, req.Id, int(req.Limit), req.BeforeId)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -179,6 +179,7 @@ func (s *Server) ListPluginRuntimeLogs(
 		TargetID: req.TargetId,
 		MinLevel: minLevel,
 		Search:   req.Search,
+		BeforeID: req.BeforeId,
 		Limit:    int(req.Limit),
 	})
 	if err != nil {
@@ -347,11 +348,6 @@ func (s *Server) UpdateProjectPlugin(
 			errors.New("max_priority must be between -1 and 2"),
 		)
 	}
-	if req.Enabled {
-		if err := s.requireMembership(ctx, req.ProjectId, p); err != nil {
-			return nil, err
-		}
-	}
 	var values map[string]any
 	if req.SettingsJson != nil {
 		values = map[string]any{}
@@ -374,6 +370,10 @@ func (s *Server) UpdateProjectPlugin(
 	)
 	if err != nil {
 		return nil, mapPluginError(err)
+	}
+
+	if err := s.syncProjectMembership(ctx, req.ProjectId, p, req.Enabled, identity); err != nil {
+		return nil, err
 	}
 	out, err := s.projectPlugin(ctx, p, req.ProjectId, s.isAdmin(ctx))
 	if err != nil {
@@ -581,22 +581,35 @@ func (s *Server) canReadAllPluginLogs(ctx context.Context) bool {
 	return err == nil && agent.Role == agents.RoleAdmin
 }
 
-func (s *Server) requireMembership(
+func (s *Server) syncProjectMembership(
 	ctx context.Context,
 	projectID string,
 	p pluginhost.Plugin,
+	enabled bool,
+	identity auth.Identity,
 ) error {
-	role, ok, err := s.Projects.EffectiveRole(
-		ctx, projectID, ids.ActorID(p.ActorID), false,
-	)
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
+	pluginActor := ids.ActorID(p.ActorID)
+	if enabled {
+		role, ok, err := s.Projects.EffectiveRole(ctx, projectID, pluginActor, false)
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, err)
+		}
+		if ok && role != "" {
+			return nil
+		}
+		if _, err := s.Projects.AddMember(
+			ctx, projectID, pluginActor, projects.RoleMember,
+			identity.ActorID, identity.IsAdmin(),
+		); err != nil {
+			return connect.NewError(connect.CodeInternal, err)
+		}
+		return nil
 	}
-	if !ok || role == "" {
-		return connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("invite the plugin actor to the project first"),
-		)
+	err := s.Projects.RemoveMember(
+		ctx, projectID, pluginActor, identity.ActorID, identity.IsAdmin(),
+	)
+	if err != nil && !errors.Is(err, projects.ErrMemberNotFound) {
+		return connect.NewError(connect.CodeInternal, err)
 	}
 	return nil
 }

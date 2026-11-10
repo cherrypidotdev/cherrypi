@@ -119,9 +119,8 @@ const holdLabel = computed(() => {
 });
 
 watch(
-  () =>
-    [props.open, props.task?.id, props.hold?.plugin, props.hold?.key] as const,
-  ([open]) => {
+  () => props.open,
+  (open) => {
     if (!open) return;
     choice.value = TaskHoldReleaseMode.SETTLE;
     prompt.value = "";

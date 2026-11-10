@@ -19,6 +19,7 @@ package realtimegrpc
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/realtime"
@@ -28,8 +29,12 @@ import (
 
 const coalesceWindow = 40 * time.Millisecond
 
+const maxPushedTasks = 8
+
 type Server struct {
 	Bus *realtime.Bus
+
+	Task func(ctx context.Context, id string) *agencyv1.Task
 }
 
 func (s *Server) Watch(
@@ -47,7 +52,9 @@ func (s *Server) Watch(
 	signals, unsubscribe := s.Bus.Subscribe()
 	defer unsubscribe()
 
-	if err := writeEvent(stream, agencyv1.RealtimeKind_REALTIME_KIND_SYNC); err != nil {
+	if err := writeEvent(stream, &agencyv1.RealtimeEvent{
+		Kind: agencyv1.RealtimeKind_REALTIME_KIND_SYNC,
+	}); err != nil {
 		return err
 	}
 
@@ -55,12 +62,14 @@ func (s *Server) Watch(
 		select {
 		case <-ctx.Done():
 			return nil
-		case kind, ok := <-signals:
+		case signal, ok := <-signals:
 			if !ok {
 				return nil
 			}
 
-			pending := map[agencyv1.RealtimeKind]struct{}{kind: {}}
+			pending := map[agencyv1.RealtimeKind]map[string]struct{}{
+				signal.Kind: {signal.TaskID: {}},
+			}
 			timer := time.NewTimer(coalesceWindow)
 		drain:
 			for {
@@ -70,7 +79,12 @@ func (s *Server) Watch(
 						timer.Stop()
 						break drain
 					}
-					pending[next] = struct{}{}
+					ids, seen := pending[next.Kind]
+					if !seen {
+						ids = map[string]struct{}{}
+						pending[next.Kind] = ids
+					}
+					ids[next.TaskID] = struct{}{}
 				case <-timer.C:
 					break drain
 				case <-ctx.Done():
@@ -78,20 +92,49 @@ func (s *Server) Watch(
 					return nil
 				}
 			}
-			for next := range pending {
-				if err := writeEvent(stream, next); err != nil {
-					return err
+			for kind, ids := range pending {
+				for _, event := range s.events(ctx, kind, ids) {
+					if err := writeEvent(stream, event); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
 }
 
+func (s *Server) events(
+	ctx context.Context,
+	kind agencyv1.RealtimeKind,
+	ids map[string]struct{},
+) []*agencyv1.RealtimeEvent {
+	bare := func() []*agencyv1.RealtimeEvent {
+		return []*agencyv1.RealtimeEvent{{Kind: kind}}
+	}
+	if kind != agencyv1.RealtimeKind_REALTIME_KIND_TASKS || s.Task == nil {
+		return bare()
+	}
+	if _, ok := ids[""]; ok || len(ids) > maxPushedTasks {
+		return bare()
+	}
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, id)
+	}
+	sort.Strings(ordered)
+	out := make([]*agencyv1.RealtimeEvent, 0, len(ordered))
+	for _, id := range ordered {
+		out = append(out, &agencyv1.RealtimeEvent{
+			Kind: kind,
+			Task: s.Task(ctx, id),
+		})
+	}
+	return out
+}
+
 func writeEvent(
 	stream *connect.ServerStream[agencyv1.WatchResponse],
-	kind agencyv1.RealtimeKind,
+	event *agencyv1.RealtimeEvent,
 ) error {
-	return stream.Send(&agencyv1.WatchResponse{
-		Event: &agencyv1.RealtimeEvent{Kind: kind},
-	})
+	return stream.Send(&agencyv1.WatchResponse{Event: event})
 }

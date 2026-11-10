@@ -15,7 +15,7 @@ CLI поставляется в образе `cherrypi/agency` и как release
 ```sh
 cherrypi-plugin version
 # cherrypi-plugin dev (abc1234)
-# plugin API 0.2.1
+# plugin API 0.2.3
 ```
 
 ## Три уровня
@@ -33,7 +33,7 @@ cherrypi-plugin version
 
 ```sh
 cherrypi-plugin lint .
-# ok acme-git-reviewer 0.1.0 (plugin API 0.2.1)
+# ok acme-git-reviewer 0.1.0 (plugin API 0.2.3)
 ```
 
 `lint` выполняет установочную валидацию (схема манифеста, entry-файл, пути и
@@ -131,8 +131,11 @@ t.equal(#t.http_calls(), 1)
 | `t.http_request(method, path, body, headers)` | Вызывает `handle_http_request`; возвращает три значения. |
 | `t.tool_call(task_id, name, args)` | Вызывает `handle_tool_call`; возвращает значение. |
 | `t.event(name, payload)` | Вызывает `handle_event` с `event` и `task_id`. |
+| `t.tick(now_ms)` | Вызывает `handle_tick` с тем же временем, что передаёт настоящий тик; бандл без обработчика падает. |
+| `t.ticks()` | Расписание из манифеста как `{ every_seconds, interval_ms }`, либо пустая таблица, если плагин не тикает. |
 | `t.update_settings(scope, target, values)` | Прогоняет хук `update_settings` бандла так же, как agency: с сохранённой строкой поверхности в `previous` и с подстановкой сохранённого секрета в пустое поле; возвращает его список `{path, errorText}` (пустой, если хука нет). Результат проверяется как в `parseSettingErrors`, поэтому испорченный список поднимает ошибку. `t.update_settings(scope, values)` работает с безадресной строкой переданной поверхности. Хук, который сам поднимает ошибку, поднимает её и здесь — оберните в `pcall`. |
-| `t.created_tasks()` | Вызовы `create_task` с `project`, `tags`, `tools`, `assignee`, `state`. |
+| `t.task_tools(task_id)` | Прогоняет хук `handle_task_tools` бандла и проверяет его результат так же, как планировщик. Возвращает имена инструментов проекта, доступных задаче (все объявленные, если обработчик `task_tools` не объявлен); испорченный результат или упавший хук поднимает ошибку и здесь. |
+| `t.created_tasks()` | Вызовы `create_task` с `project`, `tags`, `tools`, `assignee`, `state`, `interactive`. |
 | `t.holds(task_id)` | Удержания плагина на задаче (`plugin`, `plugin_name`, `key`, `reason`, `created_at`), от старых к новым. |
 | `t.releases(task_id)` | Вызовы `release_task` (`key`, `mode`, `prompt`) в порядке вызовов. |
 | `t.http_calls()` | Исходящие вызовы (`method`, `url`, `path`, `body`). |
@@ -306,6 +309,26 @@ steps:
 Оба шага вызывают маршруты, существующие только в dev-сборке, поэтому им нужна
 agency, собранная с `-tags dev`; образ `cherrypi/plugin-ci` такой, а
 `cherrypi/agency` — release-сборка.
+
+### Запланированные тики
+
+Бандлу с `schedule` в манифесте нужно прогонять и `handle_tick`. Шаг `tick`
+выполняет один тик через тот же single-flight путь, что и тикер, и возвращается
+после завершения обработчика, поэтому следующий шаг может проверить созданное.
+E2E-agency стартует с выключенным фоновым тикером
+(`CHERRYPI_PLUGIN_DISABLE_TICKS=1`), поэтому интервал не гоняется со сценарием.
+
+```yaml
+- name: тик опрашивает упоминания
+  tick: {} # или `tick: true`
+  expect:
+    tasks:
+      - project: Incident Management
+        prompt_contains: Please look at the queue
+```
+
+`tick: { now_ms: 1700000000000 }` (или краткая форма `tick: 1700000000000`)
+фиксирует время, которое получает `handle_tick`.
 
 ### Два режима e2e
 

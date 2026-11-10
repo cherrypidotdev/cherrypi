@@ -94,8 +94,8 @@ export function useAgentHealth(
   }
 
   watch([agentId, range], () => void refresh(), { immediate: true });
-  useRealtime(["health", "agents"], (kind) => {
-    if (kind === "health") void appendLatest();
+  useRealtime(["health", "agents"], (event) => {
+    if (event.kind === "health") void appendLatest();
     else void refresh();
   });
 

@@ -113,7 +113,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       span.text-muted-foreground.text-xs
                         | Cost, tokens, rounds and time to completion. The agency
                         | Tasks overview and the Usage pages also show completed
-                        | tasks, thinking time, TTFT and active time.
+                        | tasks, thinking time and active time.
                     Switch(
                       :model-value="showUsageKpi"
                       @update:model-value="showUsageKpi = Boolean($event)"

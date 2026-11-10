@@ -15,7 +15,7 @@ agency and agent binaries:
 ```sh
 cherrypi-plugin version
 # cherrypi-plugin dev (abc1234)
-# plugin API 0.2.1
+# plugin API 0.2.3
 ```
 
 ## Three layers
@@ -33,7 +33,7 @@ seconds, and an e2e run boots a real agency.
 
 ```sh
 cherrypi-plugin lint .
-# ok acme-git-reviewer 0.1.0 (plugin API 0.2.1)
+# ok acme-git-reviewer 0.1.0 (plugin API 0.2.3)
 ```
 
 `lint` runs the installation validation (manifest schema, entry file, bundle
@@ -131,8 +131,11 @@ t.equal(#t.http_calls(), 1)
 | `t.http_request(method, path, body, headers)` | Calls `handle_http_request`; returns its three values. A query string in `path` is split off and percent-decoded into `route.query`, exactly as production does. |
 | `t.tool_call(task_id, name, args)` | Calls `handle_tool_call`; returns its value. |
 | `t.event(name, payload)` | Calls `handle_event` with `event` and `task_id` set. |
+| `t.tick(now_ms)` | Calls `handle_tick` with the timestamp a real tick passes; a bundle without the handler raises. |
+| `t.ticks()` | The manifest's `schedule` as `{ every_seconds, interval_ms }`, or an empty table when the bundle does not tick. |
 | `t.update_settings(scope, target, values)` | Runs the bundle's `update_settings` hook the way the agency does: the stored row of that surface as `previous`, a stored secret filled into a blank field, and the return checked by `parseSettingErrors`. Returns the `{path, errorText}` list (empty when the bundle defines no hook); a malformed return raises, as production treats it as a hook bug. `t.update_settings(scope, values)` uses the untargeted row of whichever scope you pass. It only drives the hook — nothing is stored. A hook that raises raises here too, so wrap it in `pcall`. |
-| `t.created_tasks()` | The `create_task` calls, with `project`, `tags`, `tools`, `assignee`, `state`. |
+| `t.task_tools(task_id)` | Runs the bundle's `handle_task_tools` hook and checks its return the way the scheduler does. Returns the project tool names the task may use (every declared tool unless the manifest declares the `task_tools` handler); a malformed return or a raising hook raises here too. |
+| `t.created_tasks()` | The `create_task` calls, with `project`, `tags`, `tools`, `assignee`, `state`, `interactive`. |
 | `t.holds(task_id)` | The plugin's holds on a task (`plugin`, `plugin_name`, `key`, `reason`, `created_at`), oldest first. |
 | `t.releases(task_id)` | The `release_task` calls (`key`, `mode`, `prompt`), in call order. |
 | `t.http_calls()` | Outbound calls (`method`, `url`, `path`, `body`). |
@@ -324,6 +327,26 @@ finish, so the next step cannot race the delivery.
 Both steps call development-only agency routes, so they need an agency built
 with `-tags dev`; the `cherrypi/plugin-ci` image is, the `cherrypi/agency` image
 is a release build.
+
+### Scheduled ticks
+
+A bundle with a manifest `schedule` also needs its `handle_tick` driven. The
+`tick` step runs one tick through the same single-flight path the ticker uses
+and returns once the handler finished, so the next step can assert on what it
+created. The e2e agency starts with its background ticker disabled
+(`CHERRYPI_PLUGIN_DISABLE_TICKS=1`), so an interval cannot race the scenario.
+
+```yaml
+- name: a tick polls the mentions
+  tick: {} # or `tick: true`
+  expect:
+    tasks:
+      - project: Incident Management
+        prompt_contains: Please look at the queue
+```
+
+`tick: { now_ms: 1700000000000 }` (or the shorthand `tick: 1700000000000`)
+fixes the timestamp `handle_tick` receives.
 
 ### The two e2e modes
 

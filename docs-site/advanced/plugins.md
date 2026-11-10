@@ -25,6 +25,7 @@ no WASM toolchain, and no sidecar process.
 | `handle_http_request` | A request arrives at `/plugins/<id>/…` | Provider webhook, OAuth callback |
 | `handle_tool_call` | An agent calls a tool the plugin attached to a task | Approve a merge request, reply in a thread |
 | `handle_event` | The agency emits an event the plugin subscribed to | Notify a user that a task needs input |
+| `handle_tick` | The plugin's manifest schedule fires while it is enabled | Poll a provider that cannot send webhooks |
 
 A plugin can also call back into the agency: read a project or task, create a
 task with a prompt and tools, and read its own settings.
@@ -152,23 +153,27 @@ keeps the stored one.
 | --- | --- |
 | `id` | Lowercase slug, 2–48 characters. Becomes `/plugins/<id>/` and `@plugin-<id>`. |
 | `requires_agency` | Semver range of the plugin API the bundle supports. Empty accepts any. |
-| `handlers` | `http`, `tool`, `event`. Inferred from `tools` and `events` when omitted. |
+| `handlers` | `http`, `tool`, `event`, `tick`, and the optional `task_tools` hook. The first four are inferred from `tools`, `events`, and `schedule` when omitted; `task_tools` is only ever declared. |
 | `settings` | Per-surface JSON Schemas. Only declared surfaces are rendered and readable. |
 | `tools` | Named tools the plugin can attach to a task. |
 | `project_tools` | Names from `tools` that every task started in an enabled project can call. See [Project tools](#project-tools). |
+| `schedule` | Optional periodic trigger for `handle_tick`: `{ "every_seconds": 5…3600 }`. See [Scheduled ticks](#scheduled-ticks). |
 | `events` | Agency events `handle_event` receives. |
 | `network` | Outbound host allowlist: an exact host, a `*.example.com` subdomain wildcard, or `*` for any host. See [Network allowlist](#network-allowlist). |
 | `routes` | Documentation for the paths under `/plugins/<id>/`; dispatch does not require it. |
 | `limits` | Lower the timeout, response size, request size, or concurrency. |
 
 `requires_agency` is the plugin API range the bundle supports. The current API
-is `0.2.1`, which added the `task_hold_released` event on top of `0.2.0`'s task
-holds (`hold_task`, `release_task`, `list_task_holds`, and the `task_held`
-event). Task holds are additive, but a bundle built against them cannot run on a
-`0.1.0` agency, so the range moves with the API. The new event is additive too:
-a bundle that does not subscribe to it keeps its `>=0.2.0 <0.3.0` range, and one
-that does declares `>=0.2.1 <0.3.0`, because an older agency rejects the unknown
-event when the manifest is installed.
+is `0.2.3`, which added the optional `task_tools` handler on top of `0.2.2`'s
+`schedule` field and `handle_tick` and `0.2.1`'s `task_hold_released` event. A
+bundle that ticks declares `>=0.2.2 <0.3.0`, because an older agency rejects the
+unknown manifest field. A bundle that narrows its project tools declares
+`>=0.2.3 <0.3.0`, because an older agency drops the unknown handler kind and
+attaches every project tool. Nothing existing changes, so a bundle that does
+neither keeps `>=0.2.0 <0.3.0` and installs on a `0.2.2` agency unchanged — the
+same rule `0.2.1` followed for its optional event, while `0.2.0`'s task holds
+moved the range because a bundle built against them cannot run on a `0.1.0`
+agency.
 
 ### Network allowlist
 
@@ -234,6 +239,41 @@ end
 verbatim; a table is JSON-encoded. `handle_tool_call` returns text (a table is
 JSON-encoded). `handle_event` returns nothing.
 
+### Scheduled ticks
+
+A provider that offers no inbound push — or whose operator refuses to configure
+a webhook — is reachable only by polling. The optional `schedule` manifest field
+invokes `handle_tick` periodically while the plugin is enabled:
+
+```json
+"schedule": { "every_seconds": 15 }
+```
+
+```lua
+function handle_tick(now_ms)
+  -- now_ms is the tick's scheduled time in Unix milliseconds.
+  local cursor = cherrypi.settings.get("org", "").cursor or "0"
+  local response = cherrypi.http.request(
+    "GET", "https://chat.example.com/api/mentions?since=" .. cursor)
+  -- Create tasks for new mentions, then store the new cursor in the plugin DB.
+end
+```
+
+- `every_seconds` is an integer from 5 to 3600; an absent `schedule` means the
+  plugin is never ticked. Validation rejects an out-of-range value and a
+  schedule on a bundle whose entry file does not define `handle_tick`.
+- The ticker starts after install or enable and on agency boot for every
+  enabled plugin; disable and uninstall stop it. The first tick is offset by a
+  random jitter smaller than one interval, so a fleet does not tick in lockstep.
+- Ticks are **single-flight per plugin**: while one is running the next interval
+  is skipped and a `warn` line is logged. Ticks never queue.
+- A tick that raises or times out is logged at `error` and the ticker keeps its
+  schedule. There is no catch-up after downtime: skipped intervals are skipped,
+  and the plugin keeps its own cursor for what it has processed.
+- A tick is a normal invocation: a fresh `LState`, a `max_concurrent` slot, the
+  manifest `timeout_seconds` (default 10 s), the network allowlist, and
+  `cherrypi.log.*` with whatever surfaces the plugin passes.
+
 ### Settings validation
 
 A plugin that wants to check its settings defines `update_settings`. The agency
@@ -274,6 +314,43 @@ those callers' agency session headers. Treat the handler's `headers` table as
 secret material: never log it, and never forward it to an outbound host. See
 `SECURITY.md` in the repository.
 
+### Task tool filter
+
+A plugin that declares `task_tools` in `handlers` defines `handle_task_tools`.
+The scheduler calls it when a task starts — after the task is claimed, so the
+assignee is known — and asks which of the plugin's declared project tools that
+task may use. `ResolveTool` applies the same filter, so a tool the hook hides
+cannot be called directly either.
+
+```lua
+function handle_task_tools(task_id)
+  local task = cherrypi.get_task(task_id)
+  local settings = cherrypi.settings.get("agent", tostring(task.assignee))
+  if (settings.api_key or "") == "" then
+    return {}
+  end
+  return { "open_merge_request", "reply_in_discussion" }
+end
+```
+
+- Return a list of declared project tool names to narrow the task to them; an
+  empty list hides all of them, and `nil` attaches every declared one.
+- The handler is never inferred: a plugin without it keeps attaching every
+  project tool, exactly as before.
+- A hook that raises, or returns something other than a list of the plugin's
+  declared project tools, logs a warning and falls back to every declared tool
+  (fail open); `handle_tool_call` still validates its own preconditions.
+- Task tools attached with `create_task` are not filtered: the hook narrows
+  project tools only.
+- The filter is evaluated when the scheduler creates a task's Pi session, the
+  only start payload that carries tools. A task resumed on a warm session — a
+  settle followed by a follow-up, or a retry of a live session — keeps the tool
+  list it started with, so a credential stored mid-task takes effect on the next
+  fresh start.
+
+This is how a provider tool that needs an agent credential stays off a task
+whose assignee has none, instead of being offered and failing at call time.
+
 ### Agency methods
 
 | Method | What it does |
@@ -307,6 +384,7 @@ secret material: never log it, and never forward it to an outbound host. See
   assignee = "agent-actor-id",   -- an agent that is a project member
   size = "medium",               -- small | medium | big | epic
   priority = "normal",           -- low | normal | high | critical
+  interactive = true,            -- false runs without extension dialogs
   task_references = {            -- informational unless kind = "blocking"
     "PROJ-1",
     { task_id = "PROJ-2", kind = "blocking" },
@@ -317,6 +395,11 @@ secret material: never log it, and never forward it to an outbound host. See
 
 The project's **maximum task priority** caps the request; a higher priority is
 an error, not a silent downgrade.
+
+`interactive` defaults to `true`. A non-interactive task never surfaces a
+questionnaire or another extension dialog: the agent is told to ask in plain
+text instead. Unlike the task API and the agent tools, a plugin may create a
+non-interactive top-level task. The mode is fixed at creation.
 
 ### Host APIs
 
@@ -361,6 +444,9 @@ records which task it belongs to, instead of the agent hand-rolling API calls.
 - The names must be declared in `tools`; the agency validates them at install.
 - A project tool applies while the plugin is enabled in the project, so
   disabling the plugin removes it from new task runs.
+- A plugin that declares the `task_tools` handler narrows the list per task
+  with `handle_task_tools(task_id)`; see
+  [Task tool filter](#task-tool-filter).
 - `handle_tool_call(task_id, name, args)` receives the task the tool was called
   from, whether or not the plugin created it.
 - A task tool of the same name wins, because it carries task-specific context.

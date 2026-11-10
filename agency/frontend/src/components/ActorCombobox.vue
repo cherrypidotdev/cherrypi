@@ -40,7 +40,6 @@ Combobox(
       span.text-muted-foreground.truncate.text-xs
         | @{{ option.value }}
         template(v-if="actor(option)?.kind === 'agent'") · agent
-        template(v-else-if="actor(option)?.kind === 'plugin'") · plugin
 </template>
 
 <script setup lang="ts">
@@ -48,19 +47,13 @@ import ActorAvatar from "@/components/ActorAvatar.vue";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { useAgents } from "@/composables/useAgents";
 import { useUsers } from "@/composables/useUsers";
-import { agency } from "@/lib/sdk";
-import type { Plugin } from "@cherrypi/sdk";
-import { computed, onMounted, ref, type HTMLAttributes } from "vue";
+import { computed, onMounted, type HTMLAttributes } from "vue";
 
 const props = withDefaults(
   defineProps<{
     modelValue?: string;
-    /**
-     * `all` offers users and agents (team membership); `users` offers only
-     * human accounts (an agent owner must be a person); `project` adds the
-     * installed plugin actors so a project owner can invite one.
-     */
-    kinds?: "all" | "users" | "project";
+
+    kinds?: "all" | "users";
     placeholder?: string;
     emptyText?: string;
     disabled?: boolean;
@@ -84,27 +77,17 @@ const emit = defineEmits<{
 }>();
 
 interface ActorChoice extends ComboboxOption {
-  kind: "user" | "agent" | "plugin";
+  kind: "user" | "agent";
   picture?: string;
 }
 
 const { users, loadUsers } = useUsers();
 const { agents, loadAgents } = useAgents();
-const plugins = ref<Plugin[]>([]);
 
 onMounted(() => {
   void loadUsers();
   if (props.kinds !== "users") void loadAgents();
-  if (props.kinds === "project") void loadPlugins();
 });
-
-async function loadPlugins() {
-  try {
-    plugins.value = await agency.listPlugins();
-  } catch {
-    plugins.value = [];
-  }
-}
 
 const actors = computed<ActorChoice[]>(() => {
   const group = (name: string) => (props.kinds === "users" ? undefined : name);
@@ -130,17 +113,6 @@ const actors = computed<ActorChoice[]>(() => {
           picture: agent.picture?.url,
         }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    );
-  }
-  if (props.kinds === "project") {
-    list.push(
-      ...plugins.value.map((plugin) => ({
-        value: plugin.actorUsername,
-        label: plugin.name,
-        description: `@${plugin.actorUsername}`,
-        group: "Plugins",
-        kind: "plugin" as const,
-      })),
     );
   }
   return list;

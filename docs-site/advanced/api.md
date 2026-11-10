@@ -63,9 +63,12 @@ Unauthenticated requests to `/api/grpc` return `401`. The public auth surface at
 
 ## Streaming
 
-`RealtimeService.Watch` is a Connect server stream that emits coarse
-invalidation events (`tasks`, `agents`, `projects`, `usage`, …). Consumers
-refetch through the owning service; the stream never carries entities.
+`RealtimeService.Watch` is a Connect server stream that emits change events
+(`tasks`, `agents`, `sites`, `usage`, …). A task event carries the changed task
+(`RealtimeEvent.task`), resolved with the caller's visibility, so a consumer
+applies it in place; any other event is a hint and the consumer refetches
+through the owning service. A bulk change, a reconnect's `sync`, or a task the
+caller may not see arrives without a payload.
 
 `TaskService.WatchTask` streams one task's live runtime. Terminals and the
 desktop use dedicated WebSockets because they carry binary data:

@@ -41,8 +41,10 @@ type Host struct {
 	Plugin     Plugin
 	Caller     Caller
 	Invocation string
-	Settings   map[string]any
-	DB         *PluginDB
+
+	TaskID   string
+	Settings map[string]any
+	DB       *PluginDB
 
 	Bridge Bridge
 

@@ -462,9 +462,15 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 		return "", fmt.Errorf("unknown size %q", size)
 	}
 
+	interactive, err := optionalBoolField(input, "interactive")
+	if err != nil {
+		return "", err
+	}
+
 	title := stringField(input, "title")
 	t, err := h.Bridge.CreateTask(h.Ctx, tasks.CreateParams{
 		Prompt:          stringField(input, "prompt"),
+		OriginTaskID:    h.TaskID,
 		Name:            title,
 		ProjectID:       project.ID,
 		AssigneeActorID: assignee,
@@ -472,6 +478,7 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 		References:      refs,
 		Priority:        priority,
 		Size:            size,
+		Interactive:     interactive,
 		State:           tasks.StateBacklog,
 		AutoTitle:       title == "",
 
@@ -796,6 +803,19 @@ func priorityName(priority int64) string {
 
 func stringField(table *lua.LTable, key string) string {
 	return strings.TrimSpace(luaValueString(table.RawGetString(key)))
+}
+
+func optionalBoolField(table *lua.LTable, key string) (*bool, error) {
+	value := table.RawGetString(key)
+	if value == nil || value == lua.LNil {
+		return nil, nil
+	}
+	boolean, ok := value.(lua.LBool)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a boolean", key)
+	}
+	out := bool(boolean)
+	return &out, nil
 }
 
 func luaValueString(value lua.LValue) string {

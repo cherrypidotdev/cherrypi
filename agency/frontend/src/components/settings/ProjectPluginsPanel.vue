@@ -22,16 +22,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     CardHeader
       CardTitle Project plugins
       CardDescription
-        | A plugin works in this project only after it is installed here and one
-        | of the project's owners enables it. These switches also cap what a
-        | plugin may create: whether it may create tasks at all, and the highest
-        | priority it may request. They stay editable while the plugin is
-        | disabled.
+        | A plugin works in this project only while one of its owners has it
+        | enabled here; disabling it removes its access and keeps its settings
+        | and logs. These switches also cap what a plugin may create: whether it
+        | may create tasks at all, and the highest priority it may request. They
+        | stay editable while the plugin is disabled.
     CardContent.flex.flex-col.gap-2
       p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
       p.text-muted-foreground.text-sm(v-if="loading") Loading…
       p.text-muted-foreground.text-sm(v-else-if="!rows.length")
-        | No installed plugin declares a project settings surface.
+        | No plugin declares a project settings surface.
 
   Card(v-for="row in rows" :key="row.plugin?.id")
     CardHeader.flex.flex-row.items-start.justify-between.gap-4
@@ -39,21 +39,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         CardTitle.flex.flex-wrap.items-center.gap-2
           PlugIcon.size-4
           | {{ row.plugin?.name }}
-          Badge(v-if="row.member" variant="outline") installed
-          Badge(v-else variant="secondary") not installed
+          Badge(v-if="row.member" variant="outline") has access
+          Badge(v-else variant="secondary") no access
           Badge(v-if="row.enabled" variant="default") enabled
           Badge(v-else variant="secondary") disabled
         CardDescription {{ row.plugin?.description || "No description" }}
       .flex.items-center.gap-2
         Button(
-          v-if="!row.member"
-          variant="outline"
-          size="sm"
-          @click="invite(row)"
-          :disabled="busy === row.plugin?.id"
-        ) Install plugin
-        Button(
-          v-else
           size="sm"
           :variant="row.enabled ? 'outline' : 'default'"
           @click="setEnabled(row, !row.enabled)"
@@ -194,25 +186,15 @@ function hasSchema(row: ProjectPlugin): boolean {
   return pluginSchemaForm(row.schemaJson) !== "none";
 }
 
-async function invite(row: ProjectPlugin) {
-  if (!row.plugin) return;
-  busy.value = row.plugin.id;
-  error.value = "";
-  try {
-    await agency.invitePluginToProject(
-      row.plugin.id,
-      props.projectId,
-      "member",
-    );
-    await load();
-  } catch (err) {
-    error.value = message(err);
-  } finally {
-    busy.value = "";
-  }
-}
-
 async function setEnabled(row: ProjectPlugin, enabled: boolean) {
+  if (
+    !enabled &&
+    !window.confirm(
+      `Disable ${row.plugin?.name}? It loses access to this project; its settings and logs stay.`,
+    )
+  ) {
+    return;
+  }
   await update(row, { enabled });
 }
 

@@ -129,6 +129,8 @@ func StartAgency(ctx context.Context, opts AgencyOptions) (*Agency, error) {
 		"CHERRYPI_ADMIN_PASSWORD="+password,
 		"CHERRYPI_PUBLIC_URL="+baseURL,
 		"CHERRYPI_PLUGIN_ALLOW_PRIVATE_NETWORK=1",
+
+		"CHERRYPI_PLUGIN_DISABLE_TICKS=1",
 	)
 	if opts.Verbose {
 		cmd.Stdout = opts.Stderr
@@ -557,6 +559,18 @@ func (a *Agency) dispatchEvent(name, taskID string, payload map[string]any) (int
 		return 0, fmt.Errorf("%w (an event: step needs an agency built with -tags dev)", err)
 	}
 	return scalarInt(out["delivered"]), nil
+}
+
+func (a *Agency) invokeTick(pluginID string, nowMs int64) error {
+	payload := map[string]any{"plugin_id": pluginID}
+	if nowMs != 0 {
+		payload["now_ms"] = nowMs
+	}
+	_, err := a.postJSON("/api/dev/plugins/tick", payload)
+	if err != nil {
+		return fmt.Errorf("%w (a tick: step needs an agency built with -tags dev)", err)
+	}
+	return nil
 }
 
 func toTask(tbl map[string]any) Task {

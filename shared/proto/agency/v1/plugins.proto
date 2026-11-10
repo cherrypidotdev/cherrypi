@@ -65,6 +65,10 @@ service PluginService {
   
   rpc GetProjectPlugin(GetProjectPluginRequest) returns (GetProjectPluginResponse);
   rpc UpdateProjectPlugin(UpdateProjectPluginRequest) returns (UpdateProjectPluginResponse);
+  // InvitePluginToProject grants the plugin actor its project grant without
+  
+  
+  
   rpc InvitePluginToProject(InvitePluginToProjectRequest) returns (InvitePluginToProjectResponse);
 }
 
@@ -129,7 +133,8 @@ message PluginSettingErrors {
 message ProjectPlugin {
   Plugin plugin = 1;
   
-  // enabled; the actor is invited through InvitePluginToProject.
+  
+  
   bool member = 2;
   bool enabled = 3;
   bool allow_task_creation = 4;
@@ -222,6 +227,8 @@ message UninstallPluginResponse {}
 message ListPluginLogsRequest {
   string id = 1;
   int32 limit = 2;
+  
+  int64 before_id = 3;
 }
 
 message PluginLog {
@@ -258,6 +265,8 @@ message ListPluginRuntimeLogsRequest {
   
   string search = 5;
   int32 limit = 6;
+  
+  int64 before_id = 7;
 }
 
 message ListPluginRuntimeLogsResponse {
@@ -333,6 +342,7 @@ message UpdateProjectPluginResponse {
 message InvitePluginToProjectRequest {
   string plugin_id = 1;
   string project_id = 2;
+  
   
   string role = 3;
 }

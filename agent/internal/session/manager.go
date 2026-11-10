@@ -108,6 +108,8 @@ type CreateOptions struct {
 
 	ThinkingLevel string
 
+	Interactive *bool
+
 	Title string
 
 	AutoTitle bool
@@ -175,6 +177,7 @@ func (m *Manager) Create(
 		name = string(r[:maxNameLen])
 	}
 
+	interactive := opts.Interactive == nil || *opts.Interactive
 	now := time.Now().UnixMilli()
 	toolsJSON := "[]"
 	if len(opts.PluginTools) > 0 {
@@ -189,7 +192,7 @@ func (m *Manager) Create(
 		Name:               name,
 		Workspace:          ws,
 		PiSessionID:        id,
-		Interactive:        1,
+		Interactive:        boolToInt64(interactive),
 		AppendSystemPrompt: opts.AppendSystemPrompt,
 		AgencyProjectID:    opts.AgencyProjectID,
 		AgencyTaskSeq:      opts.AgencySeq,
@@ -204,7 +207,7 @@ func (m *Manager) Create(
 		"session_id", id,
 		"task_id", opts.AgencyTaskID,
 		"workspace", ws,
-		"interactive", true,
+		"interactive", interactive,
 		"provider", opts.ModelProvider,
 		"model", opts.ModelID,
 	)
@@ -968,7 +971,7 @@ func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 	if s := m.byID[row.ID]; s != nil {
 		return s
 	}
-	s := newSession(m.cfg, m.store, row.ID, row.Workspace, row.PiSessionID, true)
+	s := newSession(m.cfg, m.store, row.ID, row.Workspace, row.PiSessionID, row.Interactive != 0)
 	s.appendSystemPrompt = row.AppendSystemPrompt
 	s.agencyProjectID = row.AgencyProjectID
 	s.agencySeq = row.AgencyTaskSeq

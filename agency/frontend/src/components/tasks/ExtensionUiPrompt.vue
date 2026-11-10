@@ -21,6 +21,11 @@ Card.border-primary
   CardHeader
     CardTitle.text-sm.whitespace-pre-wrap {{ request.title || dialogLabel }}
     CardDescription.whitespace-pre-wrap(v-if="request.message") {{ request.message }}
+
+    CardDescription.whitespace-pre-wrap(
+      v-if="blockedReason"
+      data-test="dialog-blocked"
+    ) {{ blockedReason }}
   CardContent
     template(v-if="request.method === 'select'")
       .flex.flex-col.gap-2
@@ -29,7 +34,7 @@ Card.border-primary
           :key="option.raw"
           variant="outline"
           @click="respond({ value: option.raw })"
-          :disabled="busy"
+          :disabled="disabled"
         )
           .flex.flex-col(class="gap-0.5")
             .flex.items-baseline.gap-2
@@ -40,48 +45,52 @@ Card.border-primary
             p.text-muted-foreground.text-xs(v-if="option.description") {{ option.description }}
     template(v-else-if="request.method === 'confirm'")
       .flex.gap-2
-        Button(@click="respond({ confirmed: true })" :disabled="busy")
+        Button(@click="respond({ confirmed: true })" :disabled="disabled")
           CheckIcon(data-icon="inline-start")
           span Confirm
         Button(
           variant="outline"
           @click="respond({ confirmed: false })"
-          :disabled="busy"
+          :disabled="disabled"
         )
           XIcon(data-icon="inline-start")
           span Decline
     template(v-else-if="request.method === 'input'")
       form.flex.flex-col.gap-2(@submit.prevent="respond({ value: text })")
-        Input(v-model="text" :placeholder="request.placeholder || ''")
+        Input(
+          v-model="text"
+          :placeholder="request.placeholder || ''"
+          :disabled="disabled"
+        )
         .flex.gap-2
-          Button(type="submit" :disabled="busy")
+          Button(type="submit" :disabled="disabled")
             SendIcon(data-icon="inline-start")
             span Submit
           Button(
             type="button"
             variant="outline"
             @click="cancel"
-            :disabled="busy"
+            :disabled="disabled"
           )
             XIcon(data-icon="inline-start")
             span Cancel
     template(v-else-if="request.method === 'editor'")
       form.flex.flex-col.gap-2(@submit.prevent="respond({ value: text })")
-        Textarea(v-model="text" rows="8")
+        Textarea(v-model="text" rows="8" :disabled="disabled")
         .flex.gap-2
-          Button(type="submit" :disabled="busy")
+          Button(type="submit" :disabled="disabled")
             CheckIcon(data-icon="inline-start")
             span Save
           Button(
             type="button"
             variant="outline"
             @click="cancel"
-            :disabled="busy"
+            :disabled="disabled"
           )
             XIcon(data-icon="inline-start")
             span Cancel
-  CardFooter.justify-end.border-t
-    Button(variant="ghost" size="sm" @click="cancel" :disabled="busy")
+  CardFooter.justify-end.border-t(v-if="!blockedReason")
+    Button(variant="ghost" size="sm" @click="cancel" :disabled="disabled")
       XIcon(data-icon="inline-start")
       span Decline
 </template>
@@ -106,10 +115,22 @@ import {
 import { CheckIcon, SendIcon, XIcon } from "@lucide/vue";
 import { computed, ref } from "vue";
 
-const props = defineProps<{ request: ExtensionUiRequest; busy?: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    request: ExtensionUiRequest;
+    busy?: boolean;
+
+    blockedReason?: string;
+  }>(),
+  { busy: false, blockedReason: undefined },
+);
 const emit = defineEmits<{ respond: [response: ExtensionUiResponse] }>();
 
 const text = ref(props.request.prefill ?? "");
+
+const disabled = computed(
+  () => props.busy || props.blockedReason !== undefined,
+);
 
 const options = computed(() => props.request.options.map(parseOption));
 

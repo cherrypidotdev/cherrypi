@@ -1094,6 +1094,17 @@ func (s *SqliteStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskWakeWaiting:
+		return s.q.WakeWaitingTaskWithPrompt(
+			ctx,
+			sqlitedb.WakeWaitingTaskWithPromptParams(WakeWaitingTaskWithPromptParams{
+				PendingPrompt:        p.PendingPrompt,
+				PendingPromptActorID: p.PendingPromptActorID,
+				QueuedAt:             p.QueuedAt,
+				UpdatedAt:            p.UpdatedAt,
+				ID:                   p.ID,
+			}),
+		)
 	case TaskDequeue:
 		return s.q.DequeueTask(ctx, sqlitedb.DequeueTaskParams(DequeueTaskParams{
 			UpdatedAt: p.UpdatedAt,

@@ -49,6 +49,8 @@ type Invocation struct {
 	Event  string         `json:"event,omitempty"`
 	Body   map[string]any `json:"body,omitempty"`
 
+	NowMs int64 `json:"now_ms,omitempty"`
+
 	Scope    string         `json:"scope,omitempty"`
 	TargetID string         `json:"target_id,omitempty"`
 	Values   map[string]any `json:"values,omitempty"`
@@ -160,6 +162,32 @@ func compileLua(body []byte, name string) (*lua.FunctionProto, error) {
 	return lua.Compile(chunk, name)
 }
 
+func protoDefinesGlobal(proto *lua.FunctionProto, name string) bool {
+	if proto == nil {
+		return false
+	}
+	for _, instruction := range proto.Code {
+
+		if int(instruction>>26) != lua.OP_SETGLOBAL {
+			continue
+		}
+		index := int(instruction & 0x3ffff)
+		if index >= len(proto.Constants) {
+			continue
+		}
+		if constant, ok := proto.Constants[index].(lua.LString); ok &&
+			string(constant) == name {
+			return true
+		}
+	}
+	for _, child := range proto.FunctionPrototypes {
+		if protoDefinesGlobal(child, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runtime) Call(
 	ctx context.Context,
 	p Plugin,
@@ -210,6 +238,10 @@ func (r *Runtime) Call(
 		return callEventHandler(L, inv)
 	case HandlerSettings:
 		return callSettingsHandler(L, inv)
+	case HandlerTick:
+		return callTickHandler(L, inv)
+	case HandlerTaskTools:
+		return callTaskToolsHandler(L, inv)
 	default:
 		return Response{}, fmt.Errorf("unknown invocation kind %q", inv.Kind)
 	}
@@ -392,6 +424,29 @@ func callSettingsHandler(L *lua.LState, inv Invocation) (Response, error) {
 	return Response{Body: raw}, nil
 }
 
+func callTaskToolsHandler(L *lua.LState, inv Invocation) (Response, error) {
+	fn, ok := L.GetGlobal("handle_task_tools").(*lua.LFunction)
+	if !ok {
+		return Response{}, errors.New("handle_task_tools is not defined")
+	}
+	if err := L.CallByParam(
+		lua.P{Fn: fn, NRet: 1, Protect: true},
+		lua.LString(inv.TaskID),
+	); err != nil {
+		return Response{}, err
+	}
+	ret := L.Get(-1)
+	L.Pop(1)
+	if ret == lua.LNil {
+		return Response{}, nil
+	}
+	raw, err := json.Marshal(fromLua(ret))
+	if err != nil {
+		return Response{}, err
+	}
+	return Response{Body: raw}, nil
+}
+
 func callEventHandler(L *lua.LState, inv Invocation) (Response, error) {
 	fn, err := handler(L, "handle_event")
 	if err != nil {
@@ -404,6 +459,24 @@ func callEventHandler(L *lua.LState, inv Invocation) (Response, error) {
 	payload.(*lua.LTable).RawSetString("event", lua.LString(inv.Event))
 	payload.(*lua.LTable).RawSetString("task_id", lua.LString(inv.TaskID))
 	if err := L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}, payload); err != nil {
+		return Response{}, err
+	}
+	return Response{}, nil
+}
+
+func callTickHandler(L *lua.LState, inv Invocation) (Response, error) {
+	fn, err := handler(L, "handle_tick")
+	if err != nil {
+		return Response{}, err
+	}
+	nowMs := inv.NowMs
+	if nowMs == 0 {
+		nowMs = time.Now().UnixMilli()
+	}
+	if err := L.CallByParam(
+		lua.P{Fn: fn, NRet: 0, Protect: true},
+		lua.LNumber(nowMs),
+	); err != nil {
 		return Response{}, err
 	}
 	return Response{}, nil

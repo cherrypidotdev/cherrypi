@@ -15,16 +15,22 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { agency } from "@/lib/sdk";
-import type { RealtimeKind } from "@cherrypi/sdk";
+import type { RealtimeEvent, RealtimeKind } from "@cherrypi/sdk";
 import { onBeforeUnmount } from "vue";
 
 interface Listener {
   kinds: Set<RealtimeKind>;
-  run: (kind: RealtimeKind) => void;
+  run: (event: RealtimeEvent) => void;
+
+  rows: boolean;
   timer: number | undefined;
+
+  pending: Map<string, RealtimeEvent>;
 }
 
 const DEBOUNCE_MS = 120;
+
+const MAX_PUSHED_ROWS = 8;
 const BASE_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30_000;
 
@@ -34,19 +40,46 @@ let controller: AbortController | undefined;
 let retryTimer: number | undefined;
 let retryDelay = BASE_RETRY_MS;
 
-function notify(kind: RealtimeKind) {
+function notify(event: RealtimeEvent) {
   for (const listener of listeners) {
-    if (kind !== "sync" && !listener.kinds.has(kind)) continue;
-    schedule(listener, kind);
+    if (event.kind !== "sync" && !listener.kinds.has(event.kind)) continue;
+    schedule(listener, event);
   }
 }
 
-function schedule(listener: Listener, kind: RealtimeKind) {
+function schedule(listener: Listener, event: RealtimeEvent) {
+  listener.pending.set(signalKey(event), event);
   if (listener.timer !== undefined) return;
-  listener.timer = window.setTimeout(() => {
-    listener.timer = undefined;
-    listener.run(kind);
-  }, DEBOUNCE_MS);
+  listener.timer = window.setTimeout(() => flush(listener), DEBOUNCE_MS);
+}
+
+function flush(listener: Listener) {
+  listener.timer = undefined;
+  const burst = [...listener.pending.values()];
+  listener.pending.clear();
+
+  const byKind = new Map<RealtimeKind, RealtimeEvent[]>();
+  for (const event of burst) {
+    const events = byKind.get(event.kind);
+    if (events) events.push(event);
+    else byKind.set(event.kind, [event]);
+  }
+
+  for (const [kind, events] of byKind) {
+    const pushable =
+      listener.rows &&
+      events.length <= MAX_PUSHED_ROWS &&
+      events.every((event) => event.task);
+    if (!pushable) {
+      listener.run({ kind });
+      continue;
+    }
+    for (const event of events) listener.run(event);
+  }
+}
+
+function signalKey(event: RealtimeEvent): string {
+  return `${event.kind}\u0000${event.task?.id ?? ""}`;
 }
 
 function scheduleReconnect() {
@@ -68,7 +101,7 @@ function connect() {
     .watchRealtime(
       (event) => {
         retryDelay = BASE_RETRY_MS;
-        notify(event.kind);
+        notify(event);
       },
       { signal: stream.signal },
     )
@@ -101,19 +134,27 @@ export function stopRealtime() {
   controller = undefined;
 }
 
+export interface RealtimeOptions {
+  rows?: boolean;
+}
+
 export function useRealtime(
   kinds: RealtimeKind[],
-  run: (kind: RealtimeKind) => void,
+  run: (event: RealtimeEvent) => void,
+  options: RealtimeOptions = {},
 ) {
   const listener: Listener = {
     kinds: new Set(kinds),
     run,
+    rows: options.rows ?? false,
     timer: undefined,
+    pending: new Map(),
   };
   listeners.add(listener);
 
   onBeforeUnmount(() => {
     listeners.delete(listener);
+    listener.pending.clear();
     if (listener.timer !== undefined) {
       window.clearTimeout(listener.timer);
     }

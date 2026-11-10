@@ -102,12 +102,14 @@ type LogLine struct {
 	Surfaces     []LogSurface `json:"surfaces,omitempty"`
 }
 
-// runtime line for the plugin.
+// runtime line for the plugin. A BeforeID returns lines older than that id,
+
 type RuntimeLogFilter struct {
 	Scope    string
 	TargetID string
 	MinLevel string
 	Search   string
+	BeforeID int64
 	Limit    int
 }
 
@@ -781,18 +783,24 @@ func (s *Store) Log(
 	)
 }
 
-func (s *Store) Logs(ctx context.Context, id string, limit int) ([]LogLine, error) {
+func (s *Store) Logs(
+	ctx context.Context,
+	id string,
+	limit int,
+	beforeID int64,
+) ([]LogLine, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(
-		ctx,
-		s.q(
-			`SELECT id,at,level,kind,invocation_id,message,data_json FROM plugin_logs WHERE plugin_id=? AND kind<>'runtime' ORDER BY at DESC,id DESC LIMIT ?`,
-		),
-		id,
-		limit,
-	)
+	query := `SELECT id,at,level,kind,invocation_id,message,data_json FROM plugin_logs WHERE plugin_id=? AND kind<>'runtime'`
+	args := []any{id}
+	if beforeID > 0 {
+		query += ` AND id < ?`
+		args = append(args, beforeID)
+	}
+	query += ` ORDER BY at DESC,id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, s.q(query), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -909,6 +917,10 @@ func (s *Store) RuntimeLogs(
 	if search := strings.TrimSpace(filter.Search); search != "" {
 		query += ` AND LOWER(l.message) LIKE ?`
 		args = append(args, "%"+strings.ToLower(search)+"%")
+	}
+	if filter.BeforeID > 0 {
+		query += ` AND l.id < ?`
+		args = append(args, filter.BeforeID)
 	}
 	query += ` ORDER BY l.at DESC,l.id DESC LIMIT ?`
 	args = append(args, limit)

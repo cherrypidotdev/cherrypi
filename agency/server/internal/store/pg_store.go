@@ -980,6 +980,17 @@ func (s *PgStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			ID:        p.ID,
 		}))
+	case TaskWakeWaiting:
+		return s.q.WakeWaitingTaskWithPrompt(
+			ctx,
+			pgdb.WakeWaitingTaskWithPromptParams(WakeWaitingTaskWithPromptParams{
+				PendingPrompt:        p.PendingPrompt,
+				PendingPromptActorID: p.PendingPromptActorID,
+				QueuedAt:             p.QueuedAt,
+				UpdatedAt:            p.UpdatedAt,
+				ID:                   p.ID,
+			}),
+		)
 	case TaskDequeue:
 		return s.q.DequeueTask(ctx, pgdb.DequeueTaskParams(DequeueTaskParams{
 			UpdatedAt: p.UpdatedAt,

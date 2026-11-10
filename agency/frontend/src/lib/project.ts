@@ -33,7 +33,12 @@ export function normalizeTaskPrefix(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export type ProjectStatus = "input" | "running" | "settled";
+export type ProjectStatus =
+  | "input"
+  | "running"
+  | "settled"
+  | "queued"
+  | "waiting";
 
 export function projectStatus(
   tasks: Pick<Task, "state">[],
@@ -41,6 +46,8 @@ export function projectStatus(
   if (tasks.some((task) => task.state === TaskState.INPUT)) return "input";
   if (tasks.some((task) => task.state === TaskState.RUNNING)) return "running";
   if (tasks.some((task) => task.state === TaskState.SETTLED)) return "settled";
+  if (tasks.some((task) => task.state === TaskState.QUEUED)) return "queued";
+  if (tasks.some((task) => task.state === TaskState.WAITING)) return "waiting";
   return undefined;
 }
 
@@ -67,12 +74,16 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   input: "Input required",
   running: "Running",
   settled: "Settled",
+  waiting: "Waiting",
+  queued: "Queued",
 };
 
 export const PROJECT_STATUS_STATE: Record<ProjectStatus, TaskState> = {
   input: TaskState.INPUT,
   running: TaskState.RUNNING,
   settled: TaskState.SETTLED,
+  waiting: TaskState.WAITING,
+  queued: TaskState.QUEUED,
 };
 
 export async function referenceProjectIds(

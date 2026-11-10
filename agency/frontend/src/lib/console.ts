@@ -59,6 +59,8 @@ export type Item =
 
       sender: MessageSender;
 
+      system?: boolean;
+
       at?: number;
     }
   | { id: number; kind: "text"; text: string; at?: number }
@@ -71,9 +73,9 @@ export type Item =
 
       model: string;
 
-      durationMs: number;
+      provider: string;
 
-      firstToken: boolean;
+      durationMs: number;
 
       error: string;
       attempt: number;
@@ -91,6 +93,8 @@ export type Item =
 
       details: string;
       isError: boolean;
+
+      interrupted?: boolean;
     } & ActivityTiming)
   | { id: number; kind: "log"; text: string; at?: number };
 
@@ -106,6 +110,8 @@ export interface UserMessageParts {
   text: string;
   attachmentIds: string[];
   sender?: MessageSender;
+
+  system?: boolean;
 }
 
 function normalizeSender(
@@ -159,10 +165,12 @@ export function userMessageParts(value: {
     const envelope = parsePromptEnvelope(value.text);
     if (envelope) return envelope;
   }
+  const sender = normalizeSender(value.sender);
   return {
     text: value.body || value.text,
     attachmentIds: (value.attachments ?? []).map((a) => String(a.id)),
-    sender: normalizeSender(value.sender),
+    sender,
+    system: sender?.kind === "system",
   };
 }
 
@@ -226,6 +234,7 @@ export function parsePromptEnvelope(text: string): UserMessageParts | null {
     text: typeof body.text === "string" ? body.text : "",
     attachmentIds,
     sender,
+    system: sender.kind === "system",
   };
 }
 
@@ -258,6 +267,7 @@ export function newItem(event: TaskEvent): NewItem | null {
         kind: "user",
         ...parts,
         sender: parts.sender ?? SYSTEM_SENDER,
+        system: parts.system === true,
         at,
       };
     }
@@ -271,8 +281,8 @@ export function newItem(event: TaskEvent): NewItem | null {
         kind: "wait",
         waitKind: wait.kind,
         model: wait.model,
+        provider: wait.provider,
         durationMs,
-        firstToken: wait.firstToken,
         error: wait.error,
         attempt: wait.attempt,
         reason: wait.reason,
@@ -321,18 +331,97 @@ export function questionnaireReview(item: Item): QuestionnaireReview | null {
   ) {
     return null;
   }
-  return parseQuestionnaireReview(item.args, item.details);
+  const review = parseQuestionnaireReview(item.args, item.details);
+  if (!review) {
+    return null;
+  }
+
+  return { ...review, answeredAt: item.endedAt };
+}
+
+export interface StateChange {
+  key: string;
+
+  at?: number;
+
+  from: string;
+  to: string;
+
+  reason: string;
+
+  actor: string;
 }
 
 export type Group =
   | { id: number; kind: "single"; item: PlainItem }
-  | { id: number; kind: "activity"; items: ActivityItem[]; title: string }
+  | { id: number; kind: "activity"; items: ActivityItem[] }
+  | { id: number; kind: "state"; change: StateChange }
   | ({ id: number; kind: "questionnaire" } & QuestionnaireReview);
 
-export function groupItems(
+export function groupStartAt(
+  group: { id: number; kind: string },
   items: Item[],
-  title: (id: number) => string,
-): Group[] {
+): number | undefined {
+  if (group.kind === "activity") {
+    let start: number | undefined;
+    for (const item of (group as Extract<Group, { kind: "activity" }>).items) {
+      if (
+        item.startedAt !== undefined &&
+        (start === undefined || item.startedAt < start)
+      ) {
+        start = item.startedAt;
+      }
+    }
+    return start;
+  }
+  if (group.kind === "state") {
+    return (group as Extract<Group, { kind: "state" }>).change.at;
+  }
+  const item = items.find((candidate) => candidate.id === group.id);
+  if (!item) return undefined;
+  if (
+    item.kind === "thinking" ||
+    item.kind === "tool" ||
+    item.kind === "wait"
+  ) {
+    return item.startedAt;
+  }
+  return item.at;
+}
+
+const STATE_GROUP_ID_BASE = -2;
+
+export function mergeStateChanges<T extends { id: number; kind: string }>(
+  groups: T[],
+  changes: StateChange[],
+  items: Item[],
+): (T | Extract<Group, { kind: "state" }>)[] {
+  if (!changes.length) return groups;
+  const out: (T | Extract<Group, { kind: "state" }>)[] = [...groups];
+  const rows: Extract<Group, { kind: "state" }>[] = changes.map(
+    (change, index) => ({
+      id: STATE_GROUP_ID_BASE - index,
+      kind: "state",
+      change,
+    }),
+  );
+  for (const row of rows) {
+    if (row.kind !== "state") continue;
+    const at = row.change.at;
+    let index = out.length;
+    if (at !== undefined) {
+      index = out.findIndex((group) => {
+        const start = groupStartAt(group, items);
+        return start !== undefined && start > at;
+      });
+      if (index < 0) index = out.length;
+    }
+    out.splice(index, 0, row);
+  }
+  return out;
+}
+
+export function groupItems(items: Item[]): Group[] {
   const groups: Group[] = [];
   for (const item of items) {
     const review = questionnaireReview(item);
@@ -352,7 +441,6 @@ export function groupItems(
         id: item.id,
         kind: "activity",
         items: [item],
-        title: title(item.id),
       });
     }
   }
@@ -370,8 +458,6 @@ export interface RunUsage {
   thinkingMs: number;
 
   modelWaitMs: number;
-
-  ttftMs: number;
 
   at?: number;
 }
@@ -444,6 +530,8 @@ export function mergeTool(existing: ToolItem, incoming: ToolInput) {
   if (incoming.phase > existing.phase) {
     existing.phase = incoming.phase;
   }
+
+  if (incoming.phase === ToolPhase.FINISHED) existing.interrupted = false;
   if (incoming.args) existing.args = incoming.args;
   if (incoming.result) existing.result = incoming.result;
   if (incoming.details) existing.details = incoming.details;
@@ -499,7 +587,9 @@ export function groupElapsed(
     }
     const itemEnd =
       item.endedAt ??
-      (item.kind === "tool" && item.phase !== ToolPhase.FINISHED
+      (item.kind === "tool" &&
+      item.phase !== ToolPhase.FINISHED &&
+      item.interrupted !== true
         ? now
         : undefined);
     if (itemEnd !== undefined && (end === undefined || itemEnd > end)) {

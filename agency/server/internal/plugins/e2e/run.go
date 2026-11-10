@@ -420,6 +420,22 @@ func runStep(
 		_, _ = fmt.Fprintf(stdout, "  event %s -> %d plugin(s)\n", name, delivered)
 		return nil, taskID, nil
 
+	case step.Tick != nil:
+		if err := agency.invokeTick(plugin.ID, step.Tick.NowMs); err != nil {
+			return nil, "", err
+		}
+		after, err := agency.listTasks(project.ID)
+		if err != nil {
+			return nil, "", err
+		}
+		created := diffTasks(after, before)
+		nextTask := ""
+		if len(created) > 0 {
+			nextTask = created[0].ID
+		}
+		_, _ = fmt.Fprintf(stdout, "  tick -> %d task(s)\n", len(created))
+		return created, nextTask, nil
+
 	case step.Sleep != "":
 		delay, err := time.ParseDuration(expand(step.Sleep, vars))
 		if err != nil {
