@@ -20,42 +20,50 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-6
   Card
     CardHeader
-      CardTitle Filters
+      CardTitle {{ $t("settings.events.title") }}
       CardDescription
-        | Every mutation and auth event across the five domain logs. Reads are
-        | never logged.
+        | {{ $t("settings.events.description") }}
     CardContent.flex.flex-col.gap-4
       .grid.gap-3(class="sm:grid-cols-2 lg:grid-cols-3")
         Field
-          FieldLabel Scope
+          FieldLabel {{ $t("settings.events.scope") }}
           Select(v-model="scope")
             SelectTrigger
               SelectValue
             SelectContent
-              SelectItem(value="all") All scopes
+              SelectItem(value="all") {{ $t("settings.events.allScopes") }}
               SelectItem(v-for="s in AUDIT_SCOPES" :key="s" :value="s")
                 | {{ scopeLabel(s) }}
         Field
-          FieldLabel Actor
-          Input(v-model="actor" placeholder="username")
+          FieldLabel {{ $t("settings.events.actor") }}
+          Input(
+            v-model="actor"
+            :placeholder="$t('settings.events.actorPlaceholder')"
+          )
         Field
-          FieldLabel Kind
-          Input(v-model="kind" placeholder="login, created…")
+          FieldLabel {{ $t("common.kind") }}
+          Input(
+            v-model="kind"
+            :placeholder="$t('settings.events.kindPlaceholder')"
+          )
         Field
-          FieldLabel Since
+          FieldLabel {{ $t("settings.events.since") }}
           Input(v-model="since" type="date")
         Field
-          FieldLabel Until
+          FieldLabel {{ $t("settings.events.until") }}
           Input(v-model="until" type="date")
         Field
-          FieldLabel Search
-          Input(v-model="q" placeholder="message text")
+          FieldLabel {{ $t("common.search") }}
+          Input(
+            v-model="q"
+            :placeholder="$t('settings.events.searchPlaceholder')"
+          )
       .flex.flex-wrap.items-center.gap-2
         Button(size="sm" @click="apply" :disabled="loading")
           SearchIcon(data-icon="inline-start")
-          span Apply
+          span {{ $t("common.apply") }}
         Button(variant="outline" size="sm" @click="reset" :disabled="loading")
-          | Reset
+          | {{ $t("common.reset") }}
         .flex-1
         a.inline-flex.h-8.items-center.gap-1.rounded-md.border.px-3.text-sm(
           download
@@ -63,22 +71,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :href="exportUrl('csv')"
         )
           DownloadIcon(class="size-3.5")
-          span CSV
+          span {{ $t("settings.events.csv") }}
         a.inline-flex.h-8.items-center.gap-1.rounded-md.border.px-3.text-sm(
           download
           class="hover:bg-muted"
           :href="exportUrl('json')"
         )
           DownloadIcon(class="size-3.5")
-          span JSON
+          span {{ $t("settings.events.json") }}
 
   Card
     CardHeader
       CardTitle
-        | Activity
+        | {{ $t("activity.title") }}
         span.text-muted-foreground.font-normal(v-if="logs.length")
-          | &nbsp;({{ logs.length }} loaded)
-      CardDescription Newest first.
+          | &nbsp;({{ $t("settings.events.loaded", { count: logs.length }) }})
+      CardDescription {{ $t("settings.events.newestFirst") }}
     CardContent
       p.text-destructive.text-sm(v-if="error") {{ error }}
       DomainLogList(show-scope :logs="logs")
@@ -90,17 +98,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :disabled="loading"
         )
           Spinner(v-if="loading" data-icon="inline-start")
-          span Load more
+          span {{ $t("common.loadMore") }}
 
   Card
     CardHeader
-      CardTitle Retention
+      CardTitle {{ $t("settings.events.retention") }}
       CardDescription
-        | Domain-log entries older than this are pruned by the scheduler.
+        | {{ $t("settings.events.retentionHint") }}
     CardContent
       form.flex.items-end.gap-3(@submit.prevent="saveRetention")
         Field.w-40
-          FieldLabel(for="retention-days") Days
+          FieldLabel(for="retention-days") {{ $t("settings.events.days") }}
           Input#retention-days(
             v-model.number="retentionDays"
             type="number"
@@ -109,7 +117,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
         Button(type="submit" variant="outline" :disabled="savingRetention")
           Spinner(v-if="savingRetention" data-icon="inline-start")
-          span Save
+          span {{ $t("common.save") }}
       p.text-destructive.mt-2.text-sm(v-if="settingsError")
         | {{ settingsError }}
 </template>
@@ -145,6 +153,7 @@ import {
 } from "@/lib/audit";
 import { DownloadIcon, SearchIcon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 const logs = ref<AuditEntry[]>([]);
 const loading = ref(false);
@@ -192,7 +201,8 @@ async function load(reset: boolean) {
     logs.value = reset ? page.logs : [...logs.value, ...page.logs];
     nextCursor.value = page.next_cursor;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Could not load events.";
+    error.value =
+      err instanceof Error ? err.message : t("settings.events.errors.load");
   } finally {
     loading.value = false;
   }
@@ -231,7 +241,7 @@ async function saveRetention() {
     await setEventsSettings(retentionDays.value);
   } catch (err) {
     settingsError.value =
-      err instanceof Error ? err.message : "Could not save settings.";
+      err instanceof Error ? err.message : t("settings.events.errors.save");
   } finally {
     savingRetention.value = false;
   }
@@ -241,4 +251,55 @@ onMounted(() => {
   void load(true);
   void loadSettings();
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  settings:
+    events:
+      actor: "Actor"
+      csv: "CSV"
+      json: "JSON"
+      actorPlaceholder: "username"
+      searchPlaceholder: "message text"
+      title: "Filters"
+      description: "Every mutation and auth event across the five domain logs. Reads are never logged."
+      scope: "Scope"
+      allScopes: "All scopes"
+      since: "Since"
+      until: "Until"
+      newestFirst: "Newest first."
+      retention: "Retention"
+      retentionHint: "Domain-log entries older than this are pruned by the scheduler."
+      days: "Days"
+      kindPlaceholder: "login, created…"
+      errors:
+        load: "Could not load events."
+        save: "Could not save settings."
+      loaded: "{count} loaded"
+ru:
+  settings:
+    events:
+      actor: "Субъект"
+      csv: "CSV"
+      json: "JSON"
+      actorPlaceholder: "имя пользователя"
+      searchPlaceholder: "текст сообщения"
+      title: "Фильтры"
+      description: "Все изменения и события аутентификации в пяти журналах домена. Чтение не записывается."
+      scope: "Область"
+      allScopes: "Все области"
+      since: "С"
+      until: "По"
+      newestFirst: "Сначала новые."
+      retention: "Хранение"
+      retentionHint: "Записи журнала старше этого срока удаляются планировщиком."
+      days: "Дней"
+      kindPlaceholder: "login, created…"
+      errors:
+        load: "Не удалось загрузить события."
+        save: "Не удалось сохранить настройки."
+      loaded: "загружено {count}"
+</i18n>

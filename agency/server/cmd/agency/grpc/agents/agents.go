@@ -30,6 +30,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
@@ -62,6 +63,8 @@ type AgentServer struct {
 	Hub AgentConnector
 
 	Accounts *accounts.Service
+
+	KpiLayouts *kpilayout.Service
 }
 
 const (
@@ -347,8 +350,16 @@ func (s *AgentServer) DeleteAgent(
 	if err := s.requireAgentAccess(ctx, actorid.ParseAgent(req.Id)); err != nil {
 		return nil, err
 	}
-	if err := s.Agents.Delete(ctx, actorid.ParseAgent(req.Id)); err != nil {
+	agentID := actorid.ParseAgent(req.Id)
+	if err := s.Agents.Delete(ctx, agentID); err != nil {
 		return nil, mapError(err)
+	}
+
+	if s.KpiLayouts != nil {
+		_ = s.KpiLayouts.DeletePage(ctx, kpilayout.Page{
+			Kind: kpilayout.KindAgent,
+			ID:   req.Id,
+		})
 	}
 	return &agencyv1.DeleteAgentResponse{}, nil
 }

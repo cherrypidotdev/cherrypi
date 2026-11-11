@@ -17,21 +17,24 @@
 export interface AttentionEventOption {
   kind: string;
 
-  label: string;
+  labelKey: string;
 }
 
 export const ATTENTION_EVENTS: AttentionEventOption[] = [
-  { kind: "task_started", label: "Task started" },
-  { kind: "input_requested", label: "Task needs input" },
-  { kind: "task_finished", label: "Task settled" },
-  { kind: "failed", label: "Task failed" },
-  { kind: "task_completed", label: "Task completed" },
-  { kind: "task_cancelled", label: "Task cancelled" },
-  { kind: "team_invitation", label: "Team invitation" },
-  { kind: "task_comment", label: "New task comment" },
+  { kind: "task_started", labelKey: "attention.event.taskStarted" },
+  { kind: "input_requested", labelKey: "attention.event.needsInput" },
+  { kind: "task_finished", labelKey: "attention.event.settled" },
+  { kind: "failed", labelKey: "attention.event.failed" },
+  { kind: "task_completed", labelKey: "attention.event.completed" },
+  { kind: "task_cancelled", labelKey: "attention.event.cancelled" },
+  { kind: "team_invitation", labelKey: "attention.event.teamInvitation" },
+  { kind: "task_comment", labelKey: "attention.event.comment" },
 
-  { kind: "prompt_proposal_created", label: "Prompt proposal" },
-  { kind: "task_mention", label: "You were mentioned" },
+  {
+    kind: "prompt_proposal_created",
+    labelKey: "attention.event.promptProposal",
+  },
+  { kind: "task_mention", labelKey: "attention.event.mention" },
 ];
 
 export type AttentionChannel = "sound" | "browser" | "toast";

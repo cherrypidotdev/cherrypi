@@ -92,9 +92,17 @@ export function formatDuration(ms: number | bigint): string {
   return `${seconds}s`;
 }
 
-export function formatDurationPrecise(ms: number | bigint): string {
+export function formatChars(count: number): string {
+  return `${Math.max(0, Math.round(count))}c`;
+}
+
+export function formatCharRate(charsPerSecond: number): string {
+  return `${Math.max(0, Math.round(charsPerSecond))}c/s`;
+}
+
+export function formatElapsed(ms: number | bigint): string {
   const value = Math.max(0, Number(ms));
-  if (value >= 60_000) return formatDuration(value);
+  if (value >= 1000) return formatDuration(value);
   return `${(value / 1000).toFixed(1)}s`;
 }
 

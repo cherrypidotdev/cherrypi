@@ -120,7 +120,7 @@ export interface QuestionnaireAnswerReview {
 export interface QuestionnaireAnsweredBy {
   id: string;
 
-  kind?: "user" | "agent";
+  kind?: "user" | "agent" | "plugin";
   username: string;
   name: string;
 }
@@ -207,7 +207,7 @@ function parseAnsweredBy(value: unknown): QuestionnaireAnsweredBy | undefined {
     username: typeof by.username === "string" ? by.username : "",
     name: typeof by.name === "string" ? by.name : "",
   };
-  if (by.kind === "agent" || by.kind === "user") {
+  if (by.kind === "agent" || by.kind === "plugin" || by.kind === "user") {
     answeredBy.kind = by.kind;
   }
   if (!answeredBy.id && !answeredBy.username && !answeredBy.name) {

@@ -32,11 +32,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .flex.min-w-0.flex-col(class="gap-0.5")
       .flex.items-center.gap-2
         h1.truncate.text-lg.font-semibold {{ displayName }}
-        Badge(v-if="user?.role === 'admin'" variant="secondary") Administrator
-        Badge(v-if="user?.status === 'invited'" variant="secondary") Invited
+        Badge(v-if="user?.role === 'admin'" variant="secondary") {{ $t("admin.roleAdmin") }}
+        Badge(v-if="user?.status === 'invited'" variant="secondary") {{ $t("admin.users.statusInvitedLabel") }}
       p.text-muted-foreground.text-sm @{{ user?.username }}
 
-  p.text-muted-foreground.text-sm(v-if="loading") Loading…
+  p.text-muted-foreground.text-sm(v-if="loading") {{ $t("common.loading") }}
   template(v-else-if="user")
     Card(v-if="user.description")
       CardContent.pt-6
@@ -44,26 +44,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     Card
       CardHeader
-        CardTitle Profile
+        CardTitle {{ $t("account.tabs.profile") }}
       CardContent
         dl.grid.grid-cols-2.gap-4.text-sm
           div
-            dt.text-muted-foreground Role
+            dt.text-muted-foreground {{ $t("admin.role") }}
             dd.font-medium {{ user.role === "admin" ? "Administrator" : "Member" }}
           div
-            dt.text-muted-foreground Status
+            dt.text-muted-foreground {{ $t("common.status") }}
             dd.font-medium.capitalize {{ user.status }}
           div
-            dt.text-muted-foreground Member since
+            dt.text-muted-foreground {{ $t("userView.memberSince") }}
             dd.font-medium {{ formatDate(user.created_at) }}
           div
-            dt.text-muted-foreground Last sign-in
+            dt.text-muted-foreground {{ $t("userView.lastSignIn") }}
             dd.font-medium {{ user.last_login_at ? formatDate(user.last_login_at) : "Never" }}
 
     Card(v-if="canEdit")
       CardHeader
-        CardTitle Picture
-        CardDescription Upload a picture shown in the sidebar and on this page.
+        CardTitle {{ $t("projectSettings.general.picture") }}
+        CardDescription {{ $t("userView.pictureHint") }}
       CardContent
         PictureUpload(
           :picture="user.picture"
@@ -74,9 +74,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     Card
       CardHeader
-        CardTitle Teams
-        CardDescription(v-if="teams.length") Teams this user belongs to.
-        CardDescription(v-else) Not a member of any team yet.
+        CardTitle {{ $t("nav.teams") }}
+        CardDescription(v-if="teams.length") {{ $t("userView.teamsHint") }}
+        CardDescription(v-else) {{ $t("userView.noTeams") }}
       CardContent(v-if="teams.length")
         .flex.flex-col(class="gap-0.5")
           RouterLink.flex.items-center.justify-between.gap-2.rounded-md.px-2.text-sm(
@@ -88,15 +88,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             span.truncate {{ team.name }}
             Badge(variant="secondary") {{ team.role }}
       CardContent(v-else)
-        p.text-muted-foreground.text-sm Not a member of any team yet.
+        p.text-muted-foreground.text-sm {{ $t("userView.noTeams") }}
 
     Card
       CardHeader
-        CardTitle Projects
-        CardDescription Projects this user can read.
+        CardTitle {{ $t("nav.projects") }}
+        CardDescription {{ $t("userView.projectsHint") }}
       CardContent
         Empty(v-if="!projects.length")
-          EmptyTitle No projects
+          EmptyTitle {{ $t("team.projects.empty") }}
         .flex.flex-col(v-else class="gap-0.5")
           RouterLink.flex.items-center.justify-between.gap-2.rounded-md.px-2.text-sm(
             v-for="project in projects"
@@ -105,15 +105,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :to="{ name: 'project', params: { slug: project.slug } }"
           )
             span.truncate {{ project.name }}
-            Badge(v-if="project.archived_at" variant="secondary") Archived
+            Badge(v-if="project.archived_at" variant="secondary") {{ $t("domainLog.kind.archived") }}
 
     Card
       CardHeader
-        CardTitle Agents
-        CardDescription Agents this user owns.
+        CardTitle {{ $t("nav.agents") }}
+        CardDescription {{ $t("userView.agentsHint") }}
       CardContent
         Empty(v-if="!ownedAgents.length")
-          EmptyTitle No owned agents
+          EmptyTitle {{ $t("userView.noAgents") }}
         .flex.flex-wrap.gap-2(v-else)
           RouterLink.flex.items-center.gap-2.rounded-lg.border.px-3.py-2.text-sm.transition-colors(
             v-for="agent in ownedAgents"
@@ -131,14 +131,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     Card
       CardHeader
-        CardTitle Lead tasks
-        CardDescription Tasks this user is accountable for.
+        CardTitle {{ $t("userView.leadTasks") }}
+        CardDescription {{ $t("userView.leadTasksHint") }}
       CardContent
         TasksList(
           empty-text="No tasks list this user as a lead."
           :lead-actor-id="String(user.id)"
         )
-  p.text-muted-foreground.text-sm(v-else) User not found.
+  p.text-muted-foreground.text-sm(v-else) {{ $t("userView.notFound") }}
 </template>
 
 <script setup lang="ts">
@@ -237,3 +237,32 @@ function formatDate(value?: string): string {
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  userView:
+    memberSince: "Member since"
+    lastSignIn: "Last sign-in"
+    pictureHint: "Upload a picture shown in the sidebar and on this page."
+    teamsHint: "Teams this user belongs to."
+    noTeams: "Not a member of any team yet."
+    projectsHint: "Projects this user can read."
+    agentsHint: "Agents this user owns."
+    noAgents: "No owned agents"
+    leadTasks: "Lead tasks"
+    leadTasksHint: "Tasks this user is accountable for."
+    notFound: "User not found."
+ru:
+  userView:
+    memberSince: "Участник с"
+    lastSignIn: "Последний вход"
+    pictureHint: "Загрузите изображение, которое показывается в боковой панели и на этой странице."
+    teamsHint: "Команды, в которых состоит пользователь."
+    noTeams: "Пока не состоит ни в одной команде."
+    projectsHint: "Проекты, доступные пользователю для чтения."
+    agentsHint: "Агенты, которыми владеет пользователь."
+    noAgents: "Нет собственных агентов"
+    leadTasks: "Задачи под руководством"
+    leadTasksHint: "Задачи, за которые отвечает пользователь."
+    notFound: "Пользователь не найден."
+</i18n>

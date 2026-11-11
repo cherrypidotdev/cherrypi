@@ -19,45 +19,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Host
+    CardTitle {{ $t("settings.auth.host") }}
     CardDescription {{ sample ? (sample.scope === "host" ? "Host-mounted /proc and /sys." : "Container view of /proc and /sys.") : "No sample yet." }}
   CardContent.flex.flex-col.gap-4
     dl.grid.grid-cols-1.gap-x-4.gap-y-2.text-sm(class="sm:grid-cols-2")
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Hostname
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.hostname") }}
         dd.truncate.font-mono.text-xs {{ sample?.hostname || "—" }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Platform
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("admin.teams.platform") }}
         dd.truncate.text-xs {{ platform }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Kernel
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.kernel") }}
         dd.truncate.font-mono.text-xs {{ kernel }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Uptime
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.uptime") }}
         dd.text-xs {{ formatUptime(Number(sample?.uptimeSeconds ?? 0)) }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Booted
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.booted") }}
         dd.text-xs {{ booted }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Processes
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.processes") }}
         dd.text-xs.tabular-nums {{ formatCount(sample?.processCount ?? 0) }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Agent RSS
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.rss") }}
         dd.text-xs.tabular-nums {{ formatBytes(sample?.agentRssBytes ?? 0) }}
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Agent CPU
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.cpu") }}
         dd.text-xs.tabular-nums {{ (sample?.agentCpuPercent ?? 0).toFixed(1) }}%
       .flex.min-w-0.flex-col
-        dt.text-muted-foreground.text-2xs.font-semibold Go heap
+        dt.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.heap") }}
         dd.text-xs.tabular-nums {{ formatBytes(sample?.goHeapBytes ?? 0) }}
 
     .flex.flex-col.gap-2(v-if="sample?.cpuCores.length")
-      span.text-muted-foreground.text-2xs.font-semibold CPU cores
+      span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.host.cores") }}
       .flex.flex-wrap.gap-1
         .bg-muted.flex.h-12.w-4.items-end.overflow-hidden.rounded-sm(
           v-for="(core, index) in sample.cpuCores"
           :key="index"
-          :title="`Core ${index}: ${core.toFixed(0)}%`"
+          :title="$t('health.host.coreUsage', { index, percent: core.toFixed(0) })"
         )
           .w-full.transition-all(
             :class="healthToneBar(healthTone(core, 70, 90))"
@@ -98,3 +98,32 @@ const booted = computed(() => {
   return new Date(seconds * 1000).toLocaleString();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    host:
+      hostname: "Hostname"
+      kernel: "Kernel"
+      uptime: "Uptime"
+      booted: "Booted"
+      processes: "Processes"
+      rss: "Agent RSS"
+      cpu: "Agent CPU"
+      heap: "Go heap"
+      cores: "CPU cores"
+      coreUsage: "Core {index}: {percent}%"
+ru:
+  health:
+    host:
+      hostname: "Имя хоста"
+      kernel: "Ядро"
+      uptime: "Время работы"
+      booted: "Загружен"
+      processes: "Процессы"
+      rss: "RSS агента"
+      cpu: "CPU агента"
+      heap: "Куча Go"
+      cores: "Ядра CPU"
+      coreUsage: "Ядро {index}: {percent}%"
+</i18n>

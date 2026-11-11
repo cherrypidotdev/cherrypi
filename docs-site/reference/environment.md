@@ -78,6 +78,8 @@ OTLP works without CherryPi-specific settings.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Collector base URL, e.g. `http://otel-collector:4317` (gRPC) or `http://otel-collector:4318` (HTTP). |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` or `http/protobuf`. Per-signal overrides (`OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `..._METRICS_PROTOCOL`, `..._LOGS_PROTOCOL`) win over it. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | Signal-specific endpoint. The same pattern exists for metrics and logs. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | — | Extra headers on every OTLP request, as comma-separated URL-encoded `key=value` pairs, e.g. `Authorization=Bearer%20<token>` or `x-otlp-api-key=<token>`. |
+| `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` | — | Per-signal header override (`..._TRACES_HEADERS`, `..._METRICS_HEADERS`, `..._LOGS_HEADERS`); wins over the generic value. |
 | `OTEL_SERVICE_NAME` | `cherrypi-agency` | Service name on every signal. |
 | `OTEL_RESOURCE_ATTRIBUTES` | — | Extra resource attributes, e.g. `deployment.environment=prod`. |
 | `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Standard sampler (`always_on`, `always_off`, `traceidratio`, `parentbased_traceidratio`, …). |
@@ -93,6 +95,10 @@ CHERRYPI_OTEL_ENABLED=1
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_SERVICE_NAME=cherrypi-agency
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,team=platform
+# A collector with auth enabled ([OtlpDashboard](https://github.com/Adiakys/OtlpDashboard) accepts either form):
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
+# OTEL_EXPORTER_OTLP_HEADERS=x-otlp-api-key=<token>
 ```
 
 The pipeline instruments:
@@ -104,7 +110,10 @@ The pipeline instruments:
 - every REST request under `/api/` and `/plugins/` with an HTTP
   server span and the HTTP duration histogram;
 - every agency SQL statement through `database/sql` (SQLite and PostgreSQL),
-  including the `db.query.text`, plus `sql.DB` pool gauges;
+  including the `db.query.text`, plus `sql.DB` pool gauges. SQL spans and the
+  `db.client.operation.duration` metric carry `db.query.summary` with the sqlc
+  query name (e.g. `store.ListTasks`), so the busiest-operation views identify
+  the store operation rather than only `sql.conn.query`;
 - the process's standard log lines as OTel log records, in addition to the
   on-disk process log.
 

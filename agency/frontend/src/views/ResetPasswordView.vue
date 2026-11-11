@@ -20,13 +20,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .bg-background.text-foreground.flex.min-h-screen.items-center.justify-center.p-6
   Card.w-full.max-w-sm
     CardHeader
-      CardTitle Choose a new password
-      CardDescription Enter a new password for your account.
+      CardTitle {{ $t("resetPassword.title") }}
+      CardDescription {{ $t("resetPassword.description") }}
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="submit")
         FieldGroup
           Field
-            FieldLabel(for="password") New password
+            FieldLabel(for="password") {{ $t("common.newPassword") }}
             Input#password(
               v-model="password"
               type="password"
@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               required
             )
           Field
-            FieldLabel(for="confirm") Confirm password
+            FieldLabel(for="confirm") {{ $t("common.confirmPassword") }}
             Input#confirm(
               v-model="confirm"
               type="password"
@@ -61,7 +61,10 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { accountApi } from "@/lib/account";
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
+
+const { t } = useI18n();
 
 const route = useRoute();
 const router = useRouter();
@@ -73,12 +76,12 @@ const error = ref("");
 async function submit(): Promise<void> {
   error.value = "";
   if (password.value !== confirm.value) {
-    error.value = "Passwords do not match.";
+    error.value = t("auth.passwordsMismatch");
     return;
   }
   const token = typeof route.query.token === "string" ? route.query.token : "";
   if (!token) {
-    error.value = "This reset link is missing its token.";
+    error.value = t("resetPassword.missingToken");
     return;
   }
   busy.value = true;
@@ -86,9 +89,25 @@ async function submit(): Promise<void> {
     await accountApi.resetPassword(token, password.value);
     await router.replace({ name: "login" });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Reset failed";
+    error.value =
+      err instanceof Error ? err.message : t("resetPassword.failed");
   } finally {
     busy.value = false;
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  resetPassword:
+    title: "Choose a new password"
+    description: "Enter a new password for your account."
+    failed: "Reset failed"
+    missingToken: "This reset link is missing its token."
+ru:
+  resetPassword:
+    title: "Выберите новый пароль"
+    description: "Введите новый пароль для своего аккаунта."
+    failed: "Не удалось сбросить пароль"
+    missingToken: "В ссылке для сброса нет токена."
+</i18n>

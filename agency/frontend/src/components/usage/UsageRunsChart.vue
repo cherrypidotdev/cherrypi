@@ -19,13 +19,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Runs per day
-    CardDescription One bar per agent response round: the start, then each follow-up settle.
+    CardTitle {{ $t("usage.runs.title") }}
+    CardDescription {{ $t("usage.runs.hint") }}
     CardAction
-      span.text-11.text-muted-foreground.tabular-nums {{ total }} rounds
+      span.text-11.text-muted-foreground.tabular-nums {{ $t("usage.runs.roundsCount", { count: total }) }}
   CardContent
     p.text-muted-foreground.py-10.text-center.text-sm(v-if="!points.length")
-      | No response rounds in this range.
+      | {{ $t("usage.runs.empty") }}
     ChartContainer.chart.w-full(v-else class="h-[224px]" :config="config")
       VisXYContainer(:data="points")
         VisGroupedBar(
@@ -57,11 +57,11 @@ Card
         i.inline-block.size-2.rounded-sm(
           :style="{ background: USAGE_COLORS.runs }"
         )
-        | Response rounds
+        | {{ $t("usage.kpis.rounds") }}
       span.flex.items-center.gap-1
         i.inline-block.h-1.w-2(:style="{ background: USAGE_COLORS.completed }")
-        | Completed tasks
-    .text-2xs.text-muted-foreground.tabular-nums {{ completed }} completed · {{ rangeLabel }}
+        | {{ $t("usage.kpis.completed") }}
+    .text-2xs.text-muted-foreground.tabular-nums {{ $t("usage.runs.completedRange", { count: completed, range: rangeLabel }) }}
 </template>
 
 <script setup lang="ts">
@@ -86,6 +86,9 @@ import type { UsageSeriesPoint } from "@/composables/useUsageAnalytics";
 import { USAGE_COLORS } from "@/lib/usage";
 import { VisAxis, VisGroupedBar, VisLine, VisXYContainer } from "@unovis/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   points: UsageSeriesPoint[];
@@ -97,20 +100,41 @@ const COLORS = USAGE_COLORS;
 
 const x = (d: UsageSeriesPoint) => d.date.getTime();
 
-const config: ChartConfig = {
+const config = computed<ChartConfig>(() => ({
   runs: {
-    label: "Rounds",
+    label: t("usage.breakdown.rounds"),
     color: USAGE_COLORS.runs,
     format: (value: number) => String(Math.round(value)),
   },
   completed: {
-    label: "Completed tasks",
+    label: t("usage.runs.completed"),
     color: USAGE_COLORS.completed,
     format: (value: number) => String(Math.round(value)),
   },
-};
+}));
 
 const total = computed(() =>
   props.points.reduce((sum, point) => sum + point.runs, 0),
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    runs:
+      title: "Runs per day"
+      hint: "One bar per agent response round: the start, then each follow-up settle."
+      empty: "No response rounds in this range."
+      completed: "Completed tasks"
+      roundsCount: "{count} rounds"
+      completedRange: "{count} completed · {range}"
+ru:
+  usage:
+    runs:
+      title: "Запуски по дням"
+      hint: "Один столбец на раунд ответа агента: старт, затем каждое завершение уточнения."
+      empty: "В этом диапазоне нет раундов ответов."
+      completed: "Завершённые задачи"
+      roundsCount: "раундов: {count}"
+      completedRange: "завершено {count} · {range}"
+</i18n>

@@ -20,32 +20,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(v-model:open="open")
   DialogContent(class="sm:max-w-lg")
     DialogHeader
-      DialogTitle Site settings
+      DialogTitle {{ $t("siteSettings.title") }}
       DialogDescription
-        | Settings apply immediately. Replacing the contents is done by the
-        | agent with publishSite.
+        | {{ $t("siteSettings.description") }}
     FieldGroup
       Field
-        FieldLabel(for="site-title") Title
+        FieldLabel(for="site-title") {{ $t("common.title") }}
         Input#site-title(v-model="title" maxlength="120")
       Field
-        FieldLabel(for="site-description") Description
+        FieldLabel(for="site-description") {{ $t("common.description") }}
         Textarea#site-description(v-model="description" :rows="3")
       Field(orientation="horizontal")
         Switch#site-only-creator(v-model="onlyCreatorMayEdit")
         FieldContent
           FieldLabel(for="site-only-creator")
-            | Only the creator may republish
+            | {{ $t("siteSettings.creatorOnly") }}
           FieldDescription
-            | When off, other agents may publish the same site id. Owners and
-            | admins can always edit these settings.
+            | {{ $t("siteSettings.creatorOnlyHint") }}
       Field(orientation="horizontal")
         Switch#site-agency-wide(v-model="agencyWide")
         FieldContent
-          FieldLabel(for="site-agency-wide") Publish agency-wide
+          FieldLabel(for="site-agency-wide") {{ $t("siteSettings.agencyWide") }}
           FieldDescription
-            | List the site under Sites in the sidebar. Everyone signed in can
-            | still open it from its origin task.
+            | {{ $t("siteSettings.agencyWideHint") }}
       p.text-destructive.text-sm(v-if="error") {{ error }}
     DialogFooter
       Button(
@@ -53,10 +50,10 @@ Dialog(v-model:open="open")
         variant="outline"
         @click="open = false"
         :disabled="saving"
-      ) Cancel
+      ) {{ $t("common.cancel") }}
       Button(type="button" @click="save" :disabled="saving")
         Spinner(v-if="saving" data-icon="inline-start")
-        span Save changes
+        span {{ $t("common.saveChanges") }}
 </template>
 
 <script setup lang="ts">
@@ -127,3 +124,22 @@ async function save() {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  siteSettings:
+    title: "Site settings"
+    description: "Settings apply immediately. Replacing the contents is done by the agent with publishSite."
+    creatorOnly: "Only the creator may republish"
+    creatorOnlyHint: "When off, other agents may publish the same site id. Owners and admins can always edit these settings."
+    agencyWide: "Publish agency-wide"
+    agencyWideHint: "List the site under Sites in the sidebar. Everyone signed in can still open it from its origin task."
+ru:
+  siteSettings:
+    title: "Настройки сайта"
+    description: "Настройки применяются сразу. Содержимое заменяет агент через publishSite."
+    creatorOnly: "Переопубликовать может только автор"
+    creatorOnlyHint: "Если выключено, другие агенты могут публиковать тот же идентификатор сайта. Владельцы и администраторы всегда могут менять эти настройки."
+    agencyWide: "Публиковать для всего агентства"
+    agencyWideHint: "Показывать сайт в разделе «Сайты» в боковой панели. Любой вошедший пользователь всё равно может открыть его из исходной задачи."
+</i18n>

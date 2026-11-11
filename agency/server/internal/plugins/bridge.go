@@ -62,6 +62,8 @@ type Bridge interface {
 
 	AddTaskMessage(ctx context.Context, taskID, text string) error
 
+	RespondTaskInput(ctx context.Context, taskID, requestID string, answer TaskInputAnswer) error
+
 	CloseTask(ctx context.Context, taskID string, outcome tasks.Resolution) error
 
 	SetTaskBadges(ctx context.Context, taskID string, badges []TaskBadge) error
@@ -83,14 +85,16 @@ type serviceBridge struct {
 }
 
 func (b serviceBridge) Org(ctx context.Context) (map[string]any, error) {
+
+	publicURL := b.svc.PublicURL()
 	if b.svc.Settings == nil {
-		return map[string]any{"id": "org", "name": ""}, nil
+		return map[string]any{"id": "org", "name": "", "url": publicURL}, nil
 	}
 	cfg, err := b.svc.Settings.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": "org", "name": cfg.AgencyName}, nil
+	return map[string]any{"id": "org", "name": cfg.AgencyName, "url": publicURL}, nil
 }
 
 func (b serviceBridge) Project(ctx context.Context, ref string) (projects.Project, error) {
@@ -115,7 +119,14 @@ func (b serviceBridge) ProjectSettings(
 	ctx context.Context,
 	projectID string,
 ) (ProjectSettings, error) {
-	return b.svc.Store.ProjectSettings(ctx, b.pluginID, projectID)
+	row, err := b.svc.Store.ProjectSettings(ctx, b.pluginID, projectID)
+	if err != nil {
+		return row, err
+	}
+	if p, err := b.svc.Get(ctx, b.pluginID); err == nil {
+		row.Values = p.Manifest.ApplySettingsDefaults(ScopeProject, row.Values)
+	}
+	return row, nil
 }
 
 func (b serviceBridge) ProjectTags(
@@ -227,6 +238,14 @@ func (b serviceBridge) AddTaskMessage(ctx context.Context, taskID, text string) 
 	return b.svc.AddTaskMessage(ctx, b.pluginID, taskID, text)
 }
 
+func (b serviceBridge) RespondTaskInput(
+	ctx context.Context,
+	taskID, requestID string,
+	answer TaskInputAnswer,
+) error {
+	return b.svc.RespondTaskInput(ctx, b.pluginID, taskID, requestID, answer)
+}
+
 func (b serviceBridge) CloseTask(
 	ctx context.Context,
 	taskID string,
@@ -270,14 +289,32 @@ func (b serviceBridge) Settings(
 	ctx context.Context,
 	scope, target string,
 ) (Settings, error) {
-	return b.svc.Store.Settings(ctx, b.pluginID, scope, target)
+	row, err := b.svc.Store.Settings(ctx, b.pluginID, scope, target)
+	if err != nil {
+		return row, err
+	}
+	if p, err := b.svc.Get(ctx, b.pluginID); err == nil {
+		row.Values = p.Manifest.ApplySettingsDefaults(scope, row.Values)
+	}
+	return row, nil
 }
 
 func (b serviceBridge) ListSettings(
 	ctx context.Context,
 	scope string,
 ) ([]Settings, error) {
-	return b.svc.Store.ListSettings(ctx, b.pluginID, scope)
+	rows, err := b.svc.Store.ListSettings(ctx, b.pluginID, scope)
+	if err != nil {
+		return nil, err
+	}
+	p, err := b.svc.Get(ctx, b.pluginID)
+	if err != nil {
+		return rows, nil
+	}
+	for i := range rows {
+		rows[i].Values = p.Manifest.ApplySettingsDefaults(scope, rows[i].Values)
+	}
+	return rows, nil
 }
 
 func (b serviceBridge) Team(ctx context.Context, id int64) (map[string]any, error) {

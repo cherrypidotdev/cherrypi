@@ -24,28 +24,34 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
         button.text-muted-foreground.flex.items-center.justify-center.rounded-md.transition-colors(
           type="button"
           class="hover:text-foreground"
-          :title="allSelected ? 'Clear selection' : 'Select all in tab'"
-          :aria-label="allSelected ? 'Clear selection' : 'Select all in tab'"
+          :title="allSelected ? $t('tasksTable.clearSelection') : $t('tasksTable.selectAllInTab')"
+          :aria-label="allSelected ? $t('tasksTable.clearSelection') : $t('tasksTable.selectAllInTab')"
           @click="$emit('toggleSelectAll')"
           :disabled="!selectableCount"
         )
           CheckSquareIcon.size-4(v-if="allSelected")
           MinusSquareIcon.size-4(v-else-if="someSelected")
           SquareIcon.size-4(v-else)
-      TableHead.w-8(title="Favorites stay on top of every list")
-        StarIcon.text-muted-foreground(class="size-3.5" aria-label="Favorites")
+      TableHead.w-8(:title="$t('tasksTable.favoritesHint')")
+        StarIcon.text-muted-foreground(
+          class="size-3.5"
+          :aria-label="$t('tasksTable.favorites')"
+        )
       template(v-for="column in visibleColumns" :key="column.key")
-        TableHead(:class="column.widthClass" :title="column.hint")
+        TableHead(
+          :class="column.widthClass"
+          :title="column.hintKey ? $t(column.hintKey) : undefined"
+        )
           button.flex.items-center.gap-1(
             v-if="column.sortKey"
             type="button"
             @click="$emit('sort', column.sortKey ?? '')"
           )
-            span {{ column.label }}
+            span {{ $t(column.labelKey) }}
             component.text-muted-foreground.size-3(
               :is="sortIcon(column.sortKey ?? '')"
             )
-          span(v-else) {{ column.label }}
+          span(v-else) {{ $t(column.labelKey) }}
   TableBody
     TableRowsSkeleton(v-if="loading && !tasks.length" :widths="skeletonWidths")
     TableRow.cursor-pointer(
@@ -57,8 +63,8 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
         button.flex.items-center.justify-center.rounded-md.transition-colors(
           type="button"
           :class="selected.has(task.id) ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'"
-          :title="selected.has(task.id) ? 'Deselect task' : 'Select task'"
-          :aria-label="selected.has(task.id) ? 'Deselect task' : 'Select task'"
+          :title="selected.has(task.id) ? $t('tasksTable.deselectTask') : $t('tasksTable.selectTask')"
+          :aria-label="selected.has(task.id) ? $t('tasksTable.deselectTask') : $t('tasksTable.selectTask')"
           :aria-pressed="selected.has(task.id)"
           @click="$emit('toggleSelect', task.id)"
         )
@@ -68,8 +74,8 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
         button.flex.items-center.justify-center.rounded-md.p-1.transition-colors(
           type="button"
           :class="task.favorite ? 'text-amber-500' : 'text-muted-foreground/60 hover:text-foreground'"
-          :title="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
-          :aria-label="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :title="task.favorite ? $t('tasksTable.removeFavorite') : $t('tasksTable.addFavorite')"
+          :aria-label="task.favorite ? $t('tasksTable.removeFavorite') : $t('tasksTable.addFavorite')"
           :aria-pressed="task.favorite"
           @click="$emit('toggleFavorite', task.id)"
         )
@@ -83,7 +89,7 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               :title="stateUpdatedTitle(task)"
             )
               component.size-3.shrink-0(:is="taskStateIcon(task.state)")
-              | {{ taskStateLabelFor(task) }}
+              | {{ $t(taskStateKeyFor(task)) }}
             span.text-muted-foreground.inline-flex.shrink-0.cursor-help.items-center(
               v-if="taskWaitingReason(task)"
               role="img"
@@ -128,19 +134,19 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               span.inline-flex.shrink-0.items-center.rounded-full.bg-amber-500.px-1.text-xs.font-semibold.text-white(
                 v-if="task.unreadComments > 0"
                 class="gap-0.5"
-                :title="`${task.unreadComments} unread comment${task.unreadComments === 1 ? '' : 's'}`"
+                :title="$t('tasksTable.unreadComments', { count: task.unreadComments })"
                 data-testid="task-unread-comments"
               )
                 MessageSquareIcon.size-3
                 span {{ task.unreadComments > 99 ? "99+" : task.unreadComments }}
               span.text-muted-foreground.shrink-0(
                 v-if="task.archived && task.sessionId && !task.sessionDeletedAt"
-                title="Archived while the agent was offline: its Pi session and workspace still need cleanup"
+                :title="$t('tasksTable.archivedOffline')"
               )
                 HardDriveDownloadIcon.size-3.text-amber-500
               span.text-muted-foreground.shrink-0(
                 v-else-if="task.sessionDeletedAt"
-                title="The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency"
+                :title="$t('tasksTable.sessionGone')"
               )
                 CircleSlashIcon.size-3
             .flex.flex-wrap.items-center(class="gap-1.5")
@@ -149,18 +155,18 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               span.text-muted-foreground.inline-flex.shrink-0.items-center.text-xs(
                 v-if="task.parentTaskId"
                 class="gap-0.5"
-                title="Sub-task"
+                :title="$t('tasksTable.subTask')"
                 data-testid="task-subtask-badge"
               )
                 GitBranchIcon.size-3
               span.text-muted-foreground.inline-flex.shrink-0.items-center.rounded-full.border.text-xs(
                 v-if="!task.interactive"
                 class="gap-0.5 px-1.5"
-                title="Non-interactive: the agent cannot show questionnaires or extension dialogs"
+                :title="$t('tasksTable.nonInteractiveHint')"
                 data-testid="task-non-interactive-badge"
               )
                 MessageSquareOffIcon.size-3
-                | Non-interactive
+                | {{ $t("tasksTable.nonInteractive") }}
         TableCell(v-else-if="column.key === 'progress'")
           .flex.flex-col.gap-1(v-if="taskProgressHasPlan(task.progress)")
             .flex.items-center(class="gap-1.5")
@@ -173,7 +179,7 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               span.animate-pulse.rounded-full.bg-blue-500(
                 v-if="task.state === TaskState.RUNNING && taskProgressInProgress(task.progress)"
                 class="size-1.5"
-                title="A step is in progress"
+                :title="$t('tasksTable.stepInProgress')"
               )
             span.text-muted-foreground.max-w-28.truncate.text-xs(
               v-if="task.progress?.summary"
@@ -181,15 +187,15 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
             ) {{ task.progress.summary }}
           span.text-muted-foreground.text-xs(
             v-else-if="taskPlanFlag(task.progress, task.size, task.state) === 'hint'"
-            title="Planning is optional for small tasks"
-          ) No plan
+            :title="$t('tasksTable.planningOptional')"
+          ) {{ $t("tasksTable.noPlan") }}
           span.inline-flex.items-center.gap-1.text-xs.text-amber-600(
             v-else-if="taskPlanFlag(task.progress, task.size, task.state) === 'missing'"
             class="dark:text-amber-400"
-            title="The agent has not published a plan for this task"
+            :title="$t('tasksTable.noPlanHint')"
           )
             CircleAlertIcon.size-3.shrink-0
-            | No plan
+            | {{ $t("tasksTable.noPlan") }}
           span.text-muted-foreground.text-xs(v-else) —
         TableCell(v-else-if="column.key === 'links'")
           .flex.flex-wrap.items-center.gap-1(v-if="task.links.length")
@@ -220,7 +226,7 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               | {{ tag.name }}
               LockIcon.size-3.shrink-0.text-amber-500(
                 v-if="tag.isRequired"
-                title="Only runs on agents that declare this tag"
+                :title="$t('tasksTable.requiredTagHint')"
               )
             span.text-muted-foreground.text-xs(v-if="task.tags.length > 3")
               | +{{ task.tags.length - 3 }}
@@ -254,13 +260,13 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
             class="py-0.5"
             :class="taskPriorityClass(task.priority)"
           )
-            | {{ taskPriorityLabel(task.priority) }}
+            | {{ $t(taskPriorityKey(task.priority)) }}
         TableCell(v-else-if="column.key === 'size'")
           span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
             class="py-0.5"
             :class="taskSizeClass(task.size)"
           )
-            | {{ taskSizeLabel(task.size) }}
+            | {{ $t(taskSizeKey(task.size)) }}
         TableCell(v-else-if="column.key === 'assignee'")
           .flex.items-center.gap-2(v-if="task.assigneeActorId")
             RouterLink.flex.items-center.gap-2(
@@ -280,10 +286,10 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               span.truncate.text-sm {{ agentName(task.assigneeActorId) }}
             PinIcon.text-muted-foreground.size-3.shrink-0(
               v-if="task.assigneePinned"
-              title="Pinned to this agent"
-              aria-label="Pinned to this agent"
+              :title="$t('tasksTable.pinned')"
+              :aria-label="$t('tasksTable.pinned')"
             )
-          span.text-muted-foreground.text-xs(v-else) Unassigned
+          span.text-muted-foreground.text-xs(v-else) {{ $t("tasks.toasts.unassigned") }}
         TableCell.text-muted-foreground.text-xs(
           v-else-if="column.key === 'cost'"
         )
@@ -322,7 +328,7 @@ import {
   taskNameClass,
   taskPlanFlag,
   taskPriorityClass,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskProgressCount,
   taskProgressHasPlan,
   taskProgressInProgress,
@@ -330,10 +336,10 @@ import {
   taskReferenceName,
   taskReferenceTitle,
   taskSizeClass,
-  taskSizeLabel,
+  taskSizeKey,
   taskStateClassFor,
   taskStateIcon,
-  taskStateLabelFor,
+  taskStateKeyFor,
   taskTitlePending,
   taskWaitingReason,
 } from "@/lib/task";
@@ -368,7 +374,10 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -528,7 +537,7 @@ function rowActionsFor(task: Task): RowAction[] {
     if (task.sessionId && !task.sessionDeletedAt) {
       actions.unshift({
         key: "cleanup",
-        title: "Clean up session",
+        title: t("tasksTable.cleanUpSession"),
         icon: EraserIcon,
       });
     }
@@ -538,14 +547,24 @@ function rowActionsFor(task: Task): RowAction[] {
     case TaskState.BACKLOG:
       return task.startedAt
         ? []
-        : [{ key: "enqueue", title: "Queue", icon: PlayIcon }];
+        : [{ key: "enqueue", title: t("tasks.action.queue"), icon: PlayIcon }];
     case TaskState.QUEUED:
-      return [{ key: "dequeue", title: "Move to Backlog", icon: Undo2Icon }];
+      return [
+        {
+          key: "dequeue",
+          title: t("tasks.action.moveToBacklog"),
+          icon: Undo2Icon,
+        },
+      ];
 
     case TaskState.WAITING:
       return [
-        { key: "dequeue", title: "Move to Backlog", icon: Undo2Icon },
-        { key: "complete", title: "Complete", icon: CheckIcon },
+        {
+          key: "dequeue",
+          title: t("tasks.action.moveToBacklog"),
+          icon: Undo2Icon,
+        },
+        { key: "complete", title: t("tasks.action.complete"), icon: CheckIcon },
         { key: "cancel", title: "Cancel", icon: BanIcon },
       ];
 
@@ -556,13 +575,13 @@ function rowActionsFor(task: Task): RowAction[] {
       ];
     case TaskState.SETTLED:
       return [
-        { key: "complete", title: "Complete", icon: CheckIcon },
+        { key: "complete", title: t("tasks.action.complete"), icon: CheckIcon },
         { key: "cancel", title: "Cancel", icon: BanIcon },
       ];
 
     case TaskState.COMPLETED:
     case TaskState.CANCELLED:
-      return [{ key: "archive", title: "Archive", icon: ArchiveIcon }];
+      return [{ key: "archive", title: t("tags.archive"), icon: ArchiveIcon }];
     default:
       return [];
   }
@@ -597,3 +616,54 @@ function runRowAction(task: Task, action: RowAction) {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  tasksTable:
+    requiredTagHint: "Only runs on agents that declare this tag"
+    stepInProgress: "A step is in progress"
+    noPlanHint: "The agent has not published a plan for this task"
+    nonInteractive: "Non-interactive"
+    noPlan: "No plan"
+    favoritesHint: "Favorites stay on top of every list"
+    favorites: "Favorites"
+    archivedOffline: "Archived while the agent was offline: its Pi session and workspace still need cleanup"
+    sessionGone: "The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency"
+    subTask: "Sub-task"
+    nonInteractiveHint: "Non-interactive: the agent cannot show questionnaires or extension dialogs"
+    planningOptional: "Planning is optional for small tasks"
+    pinned: "Pinned to this agent"
+    cleanUpSession: "Clean up session"
+    unarchive: "Unarchive"
+    clearSelection: "Clear selection"
+    selectAllInTab: "Select all in tab"
+    selectTask: "Select task"
+    deselectTask: "Deselect task"
+    addFavorite: "Add to favorites"
+    removeFavorite: "Remove from favorites"
+    unreadComments: "{count} unread comment | {count} unread comments"
+ru:
+  tasksTable:
+    requiredTagHint: "Выполняется только на агентах, которые объявляют этот тег"
+    stepInProgress: "Шаг выполняется"
+    noPlanHint: "Агент не опубликовал план для этой задачи"
+    nonInteractive: "Неинтерактивная"
+    noPlan: "Плана нет"
+    favoritesHint: "Избранное всегда сверху списка"
+    favorites: "Избранное"
+    archivedOffline: "Архивировано, пока агент был не в сети: сеанс Pi и рабочее пространство всё ещё требуют очистки"
+    sessionGone: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными); переписка хранится в агентстве"
+    subTask: "Подзадача"
+    nonInteractiveHint: "Неинтерактивная: агент не может показывать опросники и диалоги расширений"
+    planningOptional: "Для небольших задач планирование необязательно"
+    pinned: "Закреплена за этим агентом"
+    cleanUpSession: "Очистить сеанс"
+    unarchive: "Разархивировать"
+    clearSelection: "Снять выделение"
+    selectAllInTab: "Выбрать все во вкладке"
+    selectTask: "Выбрать задачу"
+    deselectTask: "Снять выбор задачи"
+    addFavorite: "Добавить в избранное"
+    removeFavorite: "Убрать из избранного"
+    unreadComments: "{count} непрочитанный комментарий | {count} непрочитанных комментария | {count} непрочитанных комментариев"
+</i18n>

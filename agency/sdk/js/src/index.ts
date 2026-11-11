@@ -38,6 +38,7 @@ export {
   type ExtensionUiResponse,
   type GetTaskHistoryOptions,
   type GetTaskHistoryResult,
+  type GetTaskToolCallOptions,
   type GetDesktopResult,
   type ListSitesFilter,
   type ListTagsFilter,
@@ -122,8 +123,20 @@ export {
   type UpdateProjectPluginInput,
   type UpdateSiteInput,
   type SystemPromptSection,
+  type KpiPage,
+  type KpiPageLayout,
+  type KpiWidgetInput,
+  type KpiLayoutDefaults,
+  type KpiLayoutDefaultsInput,
   PromptScope,
 } from "./agency.js";
+
+export {
+  KpiPageKind,
+  KpiWidgetSchema,
+  KpiLayoutSchema,
+} from "./gen/buf/agency/v1/kpi_pb.js";
+export type { KpiLayout, KpiWidget } from "./gen/buf/agency/v1/kpi_pb.js";
 
 export * from "./gen/buf/agency/v1/plugins_pb.js";
 
@@ -174,6 +187,7 @@ export {
   ModelWaitSchema,
   PendingActivity_Kind,
   PendingActivitySchema,
+  QueuedMessageSchema,
   RunSettledSchema,
   RunStartedSchema,
   TaskConfigSchema,
@@ -190,6 +204,7 @@ export {
   type LogLine,
   type ModelWait,
   type PendingActivity,
+  type QueuedMessage,
   type RunSettled,
   type RunStarted,
   type TaskConfig,

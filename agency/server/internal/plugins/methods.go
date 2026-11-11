@@ -27,6 +27,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
+	"cherrypi.vladfaust.com/agency/internal/templates"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -147,6 +148,17 @@ func (h *Host) attachAgency(L *lua.LState, root *lua.LTable) {
 		}
 		return 0
 	}))
+	root.RawSetString("respond_task_input", L.NewFunction(func(L *lua.LState) int {
+		if err := h.respondTaskInput(
+			L.CheckString(1),
+			L.CheckString(2),
+			L.Get(3),
+		); err != nil {
+			L.RaiseError("respond_task_input: %v", err)
+			return 0
+		}
+		return 0
+	}))
 	root.RawSetString("close_task", L.NewFunction(func(L *lua.LState) int {
 		if err := h.closeTask(L.CheckString(1), L.OptString(2, "completed")); err != nil {
 			L.RaiseError("close_task: %v", err)
@@ -186,6 +198,36 @@ func (h *Host) attachAgency(L *lua.LState, root *lua.LTable) {
 		L.Push(toLua(L, out))
 		return 1
 	}))
+	template := L.NewTable()
+	template.RawSetString("render", L.NewFunction(func(L *lua.LState) int {
+		source := L.CheckString(1)
+		data, _ := fromLua(L.OptTable(2, L.NewTable())).(map[string]any)
+		if data == nil {
+			data = map[string]any{}
+		}
+		if len(source) > MaxTemplateSourceBytes {
+			L.RaiseError(
+				"template.render: the template is larger than %d bytes",
+				MaxTemplateSourceBytes,
+			)
+			return 0
+		}
+		out, err := templates.Render(source, data)
+		if err != nil {
+			L.RaiseError("template.render: %v", err)
+			return 0
+		}
+		if len(out) > MaxTemplateOutputBytes {
+			L.RaiseError(
+				"template.render: the rendered text is larger than %d bytes",
+				MaxTemplateOutputBytes,
+			)
+			return 0
+		}
+		L.Push(lua.LString(out))
+		return 1
+	}))
+	root.RawSetString("template", template)
 }
 
 func (h *Host) getProject(ref string) (map[string]any, error) {
@@ -377,7 +419,10 @@ func (h *Host) listSettings(scope string) ([]map[string]any, error) {
 				"enabled":             row.Enabled,
 				"allow_task_creation": row.AllowTaskCreation,
 				"max_priority":        row.MaxPriority,
-				"settings":            row.Values,
+				"settings": h.Plugin.Manifest.ApplySettingsDefaults(
+					ScopeProject,
+					row.Values,
+				),
 			})
 		}
 		return out, nil
@@ -391,7 +436,7 @@ func (h *Host) listSettings(scope string) ([]map[string]any, error) {
 		out = append(out, map[string]any{
 			"target_id": row.TargetID,
 			"enabled":   row.Enabled,
-			"settings":  row.Values,
+			"settings":  h.Plugin.Manifest.ApplySettingsDefaults(scope, row.Values),
 		})
 	}
 	return out, nil

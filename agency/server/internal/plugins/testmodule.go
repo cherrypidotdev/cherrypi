@@ -470,6 +470,29 @@ func (h *Host) attachTest(L *lua.LState) {
 		L.Push(out)
 		return 1
 	}))
+
+	table.RawSetString("input_answers", L.NewFunction(func(L *lua.LState) int {
+		list := L.NewTable()
+		for _, row := range fake.InputAnswers() {
+			item := L.NewTable()
+			item.RawSetString("task_id", lua.LString(row.TaskID))
+			item.RawSetString("request_id", lua.LString(row.RequestID))
+			item.RawSetString("kind", lua.LString(row.Answer.Kind))
+			item.RawSetString("value", lua.LString(row.Answer.Value))
+			item.RawSetString("confirmed", lua.LBool(row.Answer.Confirmed))
+			questions := L.NewTable()
+			for _, qa := range row.Answer.Questionnaire {
+				q := L.NewTable()
+				q.RawSetString("question", lua.LString(qa.Question))
+				q.RawSetString("answer", lua.LString(qa.Answer))
+				questions.Append(q)
+			}
+			item.RawSetString("questionnaire", questions)
+			list.Append(item)
+		}
+		L.Push(list)
+		return 1
+	}))
 	table.RawSetString("closed_tasks", L.NewFunction(func(L *lua.LState) int {
 		out := L.NewTable()
 		for _, row := range fake.ClosedTasks() {

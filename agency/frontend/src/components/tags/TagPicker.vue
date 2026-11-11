@@ -28,12 +28,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="disabled || !projectId"
       )
         TagIcon(data-icon="inline-start")
-        span Tags
+        span {{ $t("domainLog.kind.tags") }}
     DropdownMenuContent.w-56(align="start")
-      DropdownMenuLabel Tags
+      DropdownMenuLabel {{ $t("domainLog.kind.tags") }}
       DropdownMenuSeparator
       p.text-muted-foreground.px-2.py-1.text-xs(v-if="!tags.length")
-        | No tags yet
+        | {{ $t("tagPicker.empty") }}
       DropdownMenuCheckboxItem(
         v-for="tag in tags"
         :key="tag.id"
@@ -48,12 +48,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           span {{ tag.name }}
           LockIcon.size-3.shrink-0.text-amber-500(
             v-if="tag.isRequired"
-            title="Only runs on agents that declare this tag"
+            :title="$t('tasksTable.requiredTagHint')"
           )
       DropdownMenuSeparator
       DropdownMenuItem(@click="openEditor" :disabled="disabled || !projectId")
         PlusIcon
-        span Add tag
+        span {{ $t("tags.add") }}
 
   span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
     v-for="tag in selectedTags"
@@ -65,12 +65,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     span {{ tag.name }}
     LockIcon.size-3.shrink-0.text-amber-500(
       v-if="tag.isRequired"
-      title="Only runs on agents that declare this tag"
+      :title="$t('tasksTable.requiredTagHint')"
     )
     button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
       type="button"
       class="p-0.5 hover:opacity-100"
-      title="Remove tag"
+      :title="$t('taskDetails.removeTag')"
       @click="toggle(tag.id)"
       :disabled="disabled"
     )
@@ -99,6 +99,7 @@ import { tagColor, tagStyle } from "@/lib/task";
 import type { Tag } from "@cherrypi/sdk";
 import { LockIcon, PlusIcon, TagIcon, XIcon } from "@lucide/vue";
 import { computed, nextTick, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   projectId: string;
@@ -119,7 +120,7 @@ const selectedTags = computed(() =>
   props.tags.filter((tag) => selectedIds.value.has(tag.id)),
 );
 const triggerTitle = computed(() =>
-  props.projectId ? "Tags" : "Select a project first",
+  props.projectId ? "Tags" : t("express.selectProjectFirst"),
 );
 
 function toggle(id: string) {
@@ -141,4 +142,15 @@ function onSaved(tag: Tag) {
     emit("update:modelValue", [...props.modelValue, tag.id]);
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  tagPicker:
+    empty: "No tags yet"
+ru:
+  tagPicker:
+    empty: "Тегов пока нет"
+</i18n>

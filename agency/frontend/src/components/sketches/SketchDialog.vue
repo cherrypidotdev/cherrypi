@@ -24,7 +24,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
   )
     DialogHeader.flex.flex-col.gap-1.border-b.px-4.py-3
       DialogTitle {{ title }}
-      DialogDescription(v-if="description") {{ description }}
+      DialogDescription {{ descriptionText }}
     .relative.min-h-0.flex-1
       TldrawCanvas(
         v-if="open"
@@ -35,9 +35,9 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
     DialogFooter.flex.items-center.gap-2.border-t.px-4.py-3(class="sm:justify-between")
       span.text-muted-foreground.text-xs
-        template(v-if="saving") Saving…
-        template(v-else-if="!ready") Loading editor…
-        template(v-else) Draw, then save to attach the sketch.
+        template(v-if="saving") {{ $t("common.saving") }}
+        template(v-else-if="!ready") {{ $t("sketch.loading") }}
+        template(v-else) {{ $t("sketch.hint") }}
       .flex.items-center.gap-2
         Button(
           type="button"
@@ -45,10 +45,10 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           @click="close"
           :disabled="saving"
         )
-          | Cancel
+          | {{ $t("common.cancel") }}
         Button(type="button" @click="save" :disabled="!ready || saving")
           Spinner(v-if="saving" data-icon="inline-start")
-          | Save sketch
+          | {{ $t("sketch.save") }}
 </template>
 
 <script setup lang="ts">
@@ -63,11 +63,14 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import type { TLEditorSnapshot } from "tldraw";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
+import { useI18n } from "vue-i18n";
 import TldrawCanvas, { type SketchBackgroundImage } from "./TldrawCanvas.vue";
 
-withDefaults(
+const { t } = useI18n();
+
+const props = withDefaults(
   defineProps<{
     open: boolean;
     title?: string;
@@ -78,11 +81,15 @@ withDefaults(
   }>(),
   {
     title: "Sketch",
-    description: "Draw with the sketch tools above, then save to attach it.",
+    description: undefined,
     snapshot: undefined,
     backgroundImage: undefined,
     saving: false,
   },
+);
+
+const descriptionText = computed(
+  () => props.description ?? t("sketch.description"),
 );
 
 const emit = defineEmits<{
@@ -103,3 +110,18 @@ async function save() {
   emit("save", captured);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  sketch:
+    loading: "Loading editor…"
+    hint: "Draw, then save to attach the sketch."
+    save: "Save sketch"
+    description: "Draw with the sketch tools above, then save to attach it."
+ru:
+  sketch:
+    loading: "Загружаем редактор…"
+    hint: "Нарисуйте, затем сохраните, чтобы прикрепить набросок."
+    save: "Сохранить набросок"
+    description: "Нарисуйте с помощью инструментов выше, затем сохраните, чтобы прикрепить."
+</i18n>

@@ -56,6 +56,10 @@ service PluginService {
   rpc GetPluginSettings(GetPluginSettingsRequest) returns (GetPluginSettingsResponse);
   rpc UpdatePluginSettings(UpdatePluginSettingsRequest) returns (UpdatePluginSettingsResponse);
   rpc SetPluginSettingsEnabled(SetPluginSettingsEnabledRequest) returns (SetPluginSettingsEnabledResponse);
+  
+  
+  
+  rpc PreviewPluginTemplate(PreviewPluginTemplateRequest) returns (PreviewPluginTemplateResponse);
 
   
   
@@ -293,6 +297,28 @@ message UpdatePluginSettingsRequest {
 message UpdatePluginSettingsResponse {
   PluginSettings settings = 1;
 }
+message PreviewPluginTemplateRequest {
+  string plugin_id = 1;
+  string scope = 2;
+  string target_id = 3;
+  
+  string field = 4;
+  
+  string source = 5;
+  
+  string samples_json = 6;
+}
+
+message PreviewPluginTemplateResponse {
+  
+  string rendered = 1;
+  
+  
+  repeated string errors = 2;
+  
+  repeated string variables = 4;
+}
+
 
 message SetPluginSettingsEnabledRequest {
   string plugin_id = 1;

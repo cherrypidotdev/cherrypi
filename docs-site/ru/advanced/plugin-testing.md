@@ -15,7 +15,7 @@ CLI поставляется в образе `cherrypi/agency` и как release
 ```sh
 cherrypi-plugin version
 # cherrypi-plugin dev (abc1234)
-# plugin API 0.2.3
+# plugin API 0.2.4
 ```
 
 ## Три уровня
@@ -33,7 +33,7 @@ cherrypi-plugin version
 
 ```sh
 cherrypi-plugin lint .
-# ok acme-git-reviewer 0.1.0 (plugin API 0.2.3)
+# ok acme-git-reviewer 0.1.0 (plugin API 0.2.4)
 ```
 
 `lint` выполняет установочную валидацию (схема манифеста, entry-файл, пути и

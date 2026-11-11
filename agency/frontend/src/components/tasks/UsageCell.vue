@@ -19,12 +19,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.text-xs(v-if="usage")
   span
-    | {{ formatTokens(usage.inputTokens) }} in
+    | {{ $t("usageCell.in", { value: formatTokens(usage.inputTokens) }) }}
     span.text-muted-foreground ·
-    | {{ formatTokens(usage.outputTokens) }} out
+    | {{ $t("usageCell.out", { value: formatTokens(usage.outputTokens) }) }}
   span.text-muted-foreground
     | {{ formatCost(usage.cost) }}
-    template(v-if="usage.live") · live
+    template(v-if="usage.live") {{ $t("usageCell.live") }}
 span.text-muted-foreground.text-xs(v-else) —
 </template>
 
@@ -34,3 +34,16 @@ import { formatCost, formatTokens } from "@/lib/format";
 
 defineProps<{ usage?: UsageBucket }>();
 </script>
+
+<i18n lang="yaml">
+en:
+  usageCell:
+    live: "· live"
+    in: "{value} in"
+    out: "{value} out"
+ru:
+  usageCell:
+    live: "· идёт"
+    in: "{value} вх."
+    out: "{value} исх."
+</i18n>

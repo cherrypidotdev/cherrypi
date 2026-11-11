@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-1(v-if="files.length" data-testid="changed-files")
-  span.text-muted-foreground.text-xs.font-medium Changed files
+  span.text-muted-foreground.text-xs.font-medium {{ $t("changedFiles.title") }}
   .flex.flex-col(class="gap-0.5")
     .flex.items-center.gap-2.text-xs(v-for="file in files" :key="file.path")
       FilePenIcon.text-muted-foreground.shrink-0(class="size-3.5")
@@ -33,3 +33,12 @@ import { FilePenIcon } from "@lucide/vue";
 
 defineProps<{ files: ChangedFile[] }>();
 </script>
+
+<i18n lang="yaml">
+en:
+  changedFiles:
+    title: "Changed files"
+ru:
+  changedFiles:
+    title: "Изменённые файлы"
+</i18n>

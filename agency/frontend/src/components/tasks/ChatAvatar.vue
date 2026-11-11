@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 RouterLink.d-chat-image(
   v-if="sender && route"
   :to="route"
-  :title="`View ${label}`"
+  :title="$t('chatAvatar.view', { label })"
 )
   ActorAvatar(
     :src="picture?.url"
@@ -71,3 +71,12 @@ const label = computed(
     "actor",
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  chatAvatar:
+    view: "View {label}"
+ru:
+  chatAvatar:
+    view: "Открыть {label}"
+</i18n>

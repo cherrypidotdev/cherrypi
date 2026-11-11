@@ -21,8 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   aside.bg-sidebar.text-sidebar-foreground.flex.w-64.shrink-0.flex-col.border-r
     header.flex.items-center.gap-2.border-b.px-3.py-3
       PaletteIcon.text-primary.size-4
-      h1.min-w-0.truncate.text-sm.font-semibold Design studio
-      span.d-badge.d-badge-xs.d-badge-soft.ml-auto DEV
+      h1.min-w-0.truncate.text-sm.font-semibold {{ $t("devStudio.title") }}
+      span.d-badge.d-badge-xs.d-badge-soft.ml-auto {{ $t("devStudio.dev") }}
+      LanguageSwitcher
 
       button.d-btn.d-btn-ghost.d-btn-xs.d-btn-square(
         type="button"
@@ -49,9 +50,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     footer.flex.flex-col.gap-1.border-t.p-3
       p.text-muted-foreground.text-xs
-        | Isolated components, real code. Development builds only.
+        | {{ $t("devStudio.hint") }}
       RouterLink.text-xs.underline(:to="{ name: 'agency-tasks' }")
-        | Back to the app
+        | {{ $t("devStudio.back") }}
 
   main.flex.min-w-0.flex-1.flex-col
     header.flex.flex-wrap.items-center.gap-x-4.gap-y-2.border-b.px-4.py-2
@@ -64,7 +65,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         p.text-muted-foreground.font-mono.text-xs {{ item.source }}
 
       .flex.flex-wrap.items-center.gap-3
-        span.text-muted-foreground.text-xs Preview
+        span.text-muted-foreground.text-xs {{ $t("settings.sounds.preview") }}
         .d-join
           button.d-btn.d-btn-xs.d-join-item(
             v-for="option in themes"
@@ -90,11 +91,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
         button.d-btn.d-btn-sm.d-btn-ghost(
           type="button"
-          title="Remount the state with fresh props and no interactions"
+          :title="$t('devStudio.remount')"
           @click="restart"
         )
           RefreshCwIcon(:size="14")
-          span Restart
+          span {{ $t("devStudio.restart") }}
 
     section.bg-base-200.flex-1.overflow-auto.p-6
       .mx-auto.flex.w-full.flex-col.gap-3(:style="{ maxWidth: frameWidth }")
@@ -106,7 +107,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
         .d-card.bg-base-100.border(v-if="controls.length" data-test="controls")
           .d-card-body.gap-2.p-3
-            h3.font-mono.text-xs.font-semibold Props
+            h3.font-mono.text-xs.font-semibold {{ $t("devStudio.props") }}
             .flex.flex-wrap.items-end.gap-4
               template(v-for="control in controls" :key="control.prop")
                 label.flex.cursor-pointer.items-center.gap-2.text-xs(
@@ -145,15 +146,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     footer.flex.shrink-0.flex-col.border-t(data-test="events")
       .flex.items-center.gap-2.px-4.py-2
         ActivityIcon(:size="14")
-        h2.text-xs.font-semibold Events
+        h2.text-xs.font-semibold {{ $t("webhooks.events") }}
         span.d-badge.d-badge-xs.d-badge-soft(v-if="events.length") {{ events.length }}
         p.text-muted-foreground.text-xs(v-if="!events.length")
-          | Interactions with the component are recorded here.
+          | {{ $t("devStudio.interactions") }}
         button.d-btn.d-btn-ghost.d-btn-xs.ml-auto(
           type="button"
           @click="events = []"
           :disabled="!events.length"
-        ) Clear
+        ) {{ $t("common.clear") }}
 
       .max-h-48.overflow-auto.border-t(v-if="events.length")
         .flex.items-start.gap-3.border-b.px-4.py-2.text-xs(
@@ -167,6 +168,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+// i18n:untranslated — the design studio is a development-only surface and
+
+import LanguageSwitcher from "@/components/LanguageSwitcher.vue";
 import { useTheme } from "@/composables/useTheme";
 import { studioComponents } from "@/dev-studio/registry";
 import type {
@@ -317,3 +321,26 @@ function restart() {
   run.value += 1;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  devStudio:
+    title: "Design studio"
+    dev: "DEV"
+    hint: "Isolated components, real code. Development builds only."
+    back: "Back to the app"
+    restart: "Restart"
+    props: "Props"
+    interactions: "Interactions with the component are recorded here."
+    remount: "Remount the state with fresh props and no interactions"
+ru:
+  devStudio:
+    title: "Студия дизайна"
+    dev: "DEV"
+    hint: "Изолированные компоненты, настоящий код. Только в dev-сборках."
+    back: "Вернуться в приложение"
+    restart: "Перезапустить"
+    props: "Свойства"
+    interactions: "Здесь записываются взаимодействия с компонентом."
+    remount: "Перемонтировать состояние с новыми свойствами и без взаимодействий"
+</i18n>

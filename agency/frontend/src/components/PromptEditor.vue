@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.gap-2
   .flex.flex-wrap.items-center.justify-between.gap-2
-    span.text-muted-foreground.text-xs Version {{ version }}
+    span.text-muted-foreground.text-xs {{ $t("promptEditor.version", { version }) }}
     .flex.items-center.gap-2
       Button(
         type="button"
@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="loading"
       )
         HistoryIcon(data-icon="inline-start")
-        span History
+        span {{ $t("promptEditor.history") }}
       Button(
         v-if="canEdit"
         type="button"
@@ -38,15 +38,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         Spinner(v-if="saving" data-icon="inline-start")
         CheckIcon(v-else data-icon="inline-start")
-        span Save
+        span {{ $t("common.save") }}
   Textarea.field-sizing-fixed.resize-y(
     v-model="content"
     :placeholder="placeholder"
     :disabled="loading || !canEdit"
   )
-  Input(v-if="canEdit" v-model="note" placeholder="Change note (optional)")
+  Input(
+    v-if="canEdit"
+    v-model="note"
+    :placeholder="$t('promptEditor.notePlaceholder')"
+  )
   p.text-muted-foreground.text-xs(v-if="!canEdit && !loading")
-    | Only this scope's owners may edit the prompt directly.
+    | {{ $t("promptEditor.ownersOnly") }}
   p.text-destructive.text-sm(v-if="error") {{ error }}
   PromptProposals(
     v-if="!loading && supportsProposals"
@@ -78,6 +82,7 @@ import { usePrompt } from "@/composables/usePrompt";
 import { PromptScope, type PromptTarget } from "@cherrypi/sdk";
 import { CheckIcon, HistoryIcon } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -118,7 +123,28 @@ const supportsProposals = computed(() =>
 async function saveClick() {
   if (await save(note.value)) {
     note.value = "";
-    toast.success("Prompt saved");
+    toast.success(t("promptEditor.toasts.saved"));
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  promptEditor:
+    history: "History"
+    ownersOnly: "Only this scope's owners may edit the prompt directly."
+    notePlaceholder: "Change note (optional)"
+    toasts:
+      saved: "Prompt saved"
+    version: "Version {version}"
+ru:
+  promptEditor:
+    history: "История"
+    ownersOnly: "Напрямую редактировать промпт могут только владельцы этой области."
+    notePlaceholder: "Заметка об изменении (необязательно)"
+    toasts:
+      saved: "Промпт сохранён"
+    version: "Версия {version}"
+</i18n>

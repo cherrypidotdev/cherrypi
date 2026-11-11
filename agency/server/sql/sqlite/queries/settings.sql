@@ -28,3 +28,6 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 
 
 UPDATE settings SET value = '' WHERE key = sqlc.arg(key) AND value = sqlc.arg(value);
+
+-- name: DeleteSetting :exec
+DELETE FROM settings WHERE key = sqlc.arg(key);

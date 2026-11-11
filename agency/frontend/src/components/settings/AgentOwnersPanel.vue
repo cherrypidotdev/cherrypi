@@ -19,17 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Owners
+    CardTitle {{ $t("agentOwners.title") }}
     CardDescription
-      | Owners may edit this agent, approve its team invitations and manage other
-      | owners. An agent with no owner is administrator-only.
+      | {{ $t("agentOwners.description") }}
   CardContent.flex.flex-col.gap-4
     Table
       TableHeader
         TableRow
-          TableHead Owner
-          TableHead Kind
-          TableHead Added
+          TableHead {{ $t("agentOwners.column.owner") }}
+          TableHead {{ $t("common.kind") }}
+          TableHead {{ $t("agentOwners.column.added") }}
           TableHead
       TableBody
         TableRowsSkeleton(
@@ -49,22 +48,22 @@ Card
                 :disabled="busy === owner.actor_id"
               )
                 Trash2Icon(data-icon="inline-start")
-                span Remove
+                span {{ $t("common.remove") }}
         TableRow(v-if="!owners.length && !loading")
           TableCell.text-muted-foreground(:colspan="4")
-            | No owners. Only administrators may manage this agent.
+            | {{ $t("agentOwners.empty") }}
     form.flex.items-end.gap-2(@submit.prevent="add")
       Field.flex-1
-        FieldLabel(for="new-owner") Add owner
+        FieldLabel(for="new-owner") {{ $t("agentOwners.add") }}
         ActorCombobox#new-owner(
           v-model="newOwner"
-          placeholder="Search users…"
+          :placeholder="$t('agentOwners.searchPlaceholder')"
           kinds="users"
         )
       Button(type="submit" :disabled="adding || !newOwner.trim()")
         Spinner(v-if="adding" data-icon="inline-start")
         PlusIcon(v-else data-icon="inline-start")
-        span Add
+        span {{ $t("common.add") }}
     p.text-destructive.text-sm(v-if="error") {{ error }}
 </template>
 
@@ -93,6 +92,7 @@ import { withProgress } from "@/composables/useProgress";
 import { agentOwnerApi, type AgentOwner } from "@/lib/team";
 import { PlusIcon, Trash2Icon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{ agentId: string }>();
@@ -127,7 +127,7 @@ async function add() {
     await withProgress(() =>
       agentOwnerApi.add(props.agentId, newOwner.value.trim()),
     );
-    toast.success("Owner added");
+    toast.success(t("domainLog.kind.ownerAdd"));
     newOwner.value = "";
     await load();
   } catch (err) {
@@ -144,7 +144,7 @@ async function remove(owner: AgentOwner) {
     await withProgress(() =>
       agentOwnerApi.remove(props.agentId, owner.actor_id),
     );
-    toast.success("Owner removed");
+    toast.success(t("domainLog.kind.ownerRemove"));
     await load();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -154,4 +154,29 @@ async function remove(owner: AgentOwner) {
 }
 
 onMounted(load);
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  agentOwners:
+    title: "Owners"
+    description: "Owners may edit this agent, approve its team invitations and manage other owners. An agent with no owner is administrator-only."
+    column:
+      owner: "Owner"
+      added: "Added"
+    empty: "No owners. Only administrators may manage this agent."
+    add: "Add owner"
+    searchPlaceholder: "Search users…"
+ru:
+  agentOwners:
+    title: "Владельцы"
+    description: "Владельцы могут редактировать агента, одобрять приглашения в команды и управлять другими владельцами. Агент без владельца доступен только администраторам."
+    column:
+      owner: "Владелец"
+      added: "Добавлен"
+    empty: "Владельцев нет. Управлять агентом могут только администраторы."
+    add: "Добавить владельца"
+    searchPlaceholder: "Поиск пользователей…"
+</i18n>

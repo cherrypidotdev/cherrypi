@@ -40,7 +40,7 @@ Card
             span.text-3xs.rounded-full.border(
               class="px-1.5"
               :class="taskStateClass(task.state)"
-            ) {{ taskStateLabel(task.state) }}
+            ) {{ $t(taskStateKey(task.state)) }}
           span.truncate.text-sm.font-medium {{ taskName(task) }}
           .flex.flex-wrap.items-center(class="gap-1.5")
             span.text-3xs.text-muted-foreground {{ projectName(task.projectId) }}
@@ -67,7 +67,7 @@ import {
   taskName,
   taskStateClass,
   taskStateIcon,
-  taskStateLabel,
+  taskStateKey,
   taskStateTextClass,
 } from "@/lib/task";
 import type { Project, Task } from "@cherrypi/sdk";

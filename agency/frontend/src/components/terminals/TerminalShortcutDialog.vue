@@ -20,10 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent
     DialogHeader
-      DialogTitle Terminal shortcuts
+      DialogTitle {{ $t("terminalShortcuts.title") }}
       DialogDescription
-        | Available while a terminal is focused. Some Ctrl+Shift combos are
-        | reserved by the browser; the Alt+Shift equivalents always work.
+        | {{ $t("terminalShortcuts.description") }}
     dl.flex.flex-col.gap-2
       .flex.items-center.justify-between.gap-6(
         v-for="shortcut in shortcuts"
@@ -52,3 +51,14 @@ const emit = defineEmits<{ "update:open": [value: boolean] }>();
 
 const shortcuts = ALL_TERMINAL_SHORTCUTS;
 </script>
+
+<i18n lang="yaml">
+en:
+  terminalShortcuts:
+    title: "Terminal shortcuts"
+    description: "Available while a terminal is focused. Some Ctrl+Shift combos are reserved by the browser; the Alt+Shift equivalents always work."
+ru:
+  terminalShortcuts:
+    title: "Сочетания клавиш терминала"
+    description: "Доступны, пока терминал в фокусе. Некоторые сочетания Ctrl+Shift заняты браузером; эквиваленты с Alt+Shift работают всегда."
+</i18n>

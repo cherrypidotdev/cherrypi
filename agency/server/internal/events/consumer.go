@@ -181,7 +181,8 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 			title,
 		)
 		if c.OnTaskEvent != nil && taskID != "" {
-			c.OnTaskEvent(ctx, "task_requested_input", taskID, map[string]any{"title": title})
+			c.OnTaskEvent(ctx, "task_requested_input", taskID,
+				inputRequestedExtra(msg.Payload))
 		}
 		if c.OnInputRequested != nil && taskID != "" {
 			c.OnInputRequested(
@@ -265,6 +266,22 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
 		c.Realtime.PublishTask(taskID)
 	}
+}
+
+func inputRequestedExtra(payload map[string]any) map[string]any {
+	extra := map[string]any{
+		"request_id": stringValue(payload["request_id"]),
+		"method":     stringValue(payload["method"]),
+		"title":      stringValue(payload["title"]),
+		"message":    stringValue(payload["message"]),
+	}
+	if options, ok := payload["options"]; ok {
+		extra["options"] = options
+	}
+	if questions, ok := payload["questions"]; ok {
+		extra["questions"] = questions
+	}
+	return extra
 }
 
 func (c *Consumer) insertHealth(ctx context.Context, agentID ids.AgentID, msg Message) {

@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :key="attachment.url"
     class="hover:bg-muted/60 py-0.5"
     :href="attachment.url"
-    :title="`Preview ${attachment.filename}`"
+    :title="$t('attachments.preview', { filename: attachment.filename })"
     @click.prevent="emit('open', attachment)"
   )
     img.size-4.shrink-0.rounded.object-cover(
@@ -43,3 +43,12 @@ import { FileIcon } from "@lucide/vue";
 defineProps<{ attachments: Attachment[] }>();
 const emit = defineEmits<{ open: [attachment: Attachment] }>();
 </script>
+
+<i18n lang="yaml">
+en:
+  attachments:
+    preview: "Preview {filename}"
+ru:
+  attachments:
+    preview: "Просмотр {filename}"
+</i18n>

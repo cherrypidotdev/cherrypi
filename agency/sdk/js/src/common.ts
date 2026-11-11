@@ -231,6 +231,10 @@ export interface ListTaskToolCallsOptions extends CallOptions {
   offset?: number;
 }
 
+export interface GetTaskToolCallOptions extends CallOptions {
+  full?: boolean;
+}
+
 export interface ListTaskToolCallsResult {
   calls: TaskToolCall[];
 

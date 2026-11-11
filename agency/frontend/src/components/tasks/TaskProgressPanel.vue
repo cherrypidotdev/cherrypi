@@ -20,21 +20,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-3(v-if="hasPlan")
   .flex.items-center.justify-between.gap-2
     .flex.items-center.gap-2
-      span.text-xs.font-semibold Plan
+      span.text-xs.font-semibold {{ $t("taskProgress.title") }}
       span.animate-pulse.rounded-full.bg-blue-500(
         v-if="active"
         class="size-1.5"
-        title="A step is in progress"
+        :title="$t('tasksTable.stepInProgress')"
       )
     span.text-muted-foreground.text-xs.tabular-nums
-      | {{ count }} done · {{ percent }}%
+      | {{ $t("taskProgress.done", { count, percent }) }}
   .bg-muted.w-full.overflow-hidden.rounded-full(
     class="h-1.5"
     role="progressbar"
     :aria-valuemin="0"
     :aria-valuemax="total"
     :aria-valuenow="done"
-    :aria-label="`Plan: ${done} of ${total} steps done`"
+    :aria-label="$t('taskProgress.summary', { done, total })"
   )
     .h-full.rounded-full(
       :class="active ? 'bg-blue-500' : 'bg-emerald-500'"
@@ -43,7 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   .flex.flex-col(class="gap-0.5")
     p.text-xs(v-if="summary") {{ summary }}
     span.text-muted-foreground.text-xs
-      | Updated {{ formatRelativeTimestamp(updatedAt) }}
+      | {{ $t("taskProgress.updated", { when: formatRelativeTimestamp(updatedAt) }) }}
   ul.flex.flex-col(class="gap-0.5")
     li.flex.items-start.gap-2.rounded-md.px-1.py-1(
       v-for="(item, index) in items"
@@ -65,29 +65,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.ml-auto.font-semibold.text-blue-500(
         v-if="item.status === IN_PROGRESS"
         class="text-[10px]"
-      ) now
+      ) {{ $t("taskProgress.now") }}
   span.text-muted-foreground.flex.items-center.gap-1.text-xs
     LockIcon.size-3
-    | Read-only · the agent may revise this plan when input or CI changes
+    | {{ $t("taskProgress.readOnly") }}
 .flex.flex-col.gap-2(v-else)
-  span.text-xs.font-semibold Plan
+  span.text-xs.font-semibold {{ $t("taskProgress.title") }}
   .rounded-lg.border.p-3.text-center(
     :class="missing ? 'border-amber-500/40 bg-amber-500/10' : 'border-dashed'"
   )
     p.text-xs.font-medium(
       :class="missing ? 'text-amber-600 dark:text-amber-400' : ''"
     ) {{ missing ? "No plan reported" : "No plan reported yet" }}
-    p.text-muted-foreground.text-xs(v-if="missing") The agent must publish a plan for this task.
-    p.text-muted-foreground.text-xs(v-else-if="hint") Small tasks do not require a plan; the agent may still publish one with reportTaskProgress.
+    p.text-muted-foreground.text-xs(v-if="missing") {{ $t("taskProgress.required") }}
+    p.text-muted-foreground.text-xs(v-else-if="hint") {{ $t("taskProgress.smallTasks") }}
     p.text-muted-foreground.text-xs(v-else)
-      | The agent publishes its plan with reportTaskProgress.
+      | {{ $t("taskProgress.how") }}
     Button.mt-2(
       v-if="missing && canRemind"
       type="button"
       variant="outline"
       size="sm"
       @click="emit('remind')"
-    ) Remind agent to plan
+    ) {{ $t("taskProgress.remind") }}
 </template>
 
 <script setup lang="ts">
@@ -139,3 +139,30 @@ const active = computed(
     props.state === TaskState.RUNNING && taskProgressInProgress(props.progress),
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskProgress:
+    title: "Plan"
+    now: "now"
+    readOnly: "Read-only · the agent may revise this plan when input or CI changes"
+    required: "The agent must publish a plan for this task."
+    smallTasks: "Small tasks do not require a plan; the agent may still publish one with reportTaskProgress."
+    how: "The agent publishes its plan with reportTaskProgress."
+    remind: "Remind agent to plan"
+    done: "{count} done · {percent}%"
+    updated: "Updated {when}"
+    summary: "Plan: {done} of {total} steps done"
+ru:
+  taskProgress:
+    title: "План"
+    now: "сейчас"
+    readOnly: "Только чтение · агент может пересмотреть план при изменении ввода или CI"
+    required: "Агент должен опубликовать план для этой задачи."
+    smallTasks: "Небольшие задачи не требуют плана; агент всё равно может опубликовать его через reportTaskProgress."
+    how: "Агент публикует план через reportTaskProgress."
+    remind: "Напомнить агенту о плане"
+    done: "выполнено {count} · {percent}%"
+    updated: "Обновлено {when}"
+    summary: "План: выполнено {done} из {total} шагов"
+</i18n>

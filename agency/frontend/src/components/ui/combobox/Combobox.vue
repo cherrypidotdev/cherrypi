@@ -34,6 +34,7 @@ import {
   ComboboxViewport,
 } from "reka-ui";
 import { computed, useAttrs, type HTMLAttributes } from "vue";
+import { useI18n } from "vue-i18n";
 import type { ComboboxOption } from "./types";
 
 defineOptions({ inheritAttrs: false });
@@ -54,10 +55,16 @@ const props = withDefaults(
   {
     modelValue: "",
     placeholder: "",
-    emptyText: "No matches.",
+    emptyText: undefined,
     disabled: false,
     size: "default",
   },
+);
+
+const { t } = useI18n();
+
+const emptyTextValue = computed(
+  () => props.emptyText ?? t("combobox.noMatches"),
 );
 
 const emit = defineEmits<{
@@ -129,7 +136,7 @@ function searchText(option: ComboboxOption): string {
         type="button"
         :disabled="disabled"
         class="text-muted-foreground absolute top-1/2 right-2 flex -translate-y-1/2 items-center justify-center outline-none disabled:pointer-events-none disabled:opacity-50"
-        aria-label="Toggle options"
+        :aria-label="$t('combobox.toggleOptions')"
       >
         <ChevronsUpDownIcon class="size-4 shrink-0 opacity-60" />
       </ComboboxTrigger>
@@ -144,7 +151,7 @@ function searchText(option: ComboboxOption): string {
       >
         <ComboboxViewport class="max-h-72 overflow-y-auto p-1">
           <ComboboxEmpty class="text-muted-foreground py-6 text-center text-sm">
-            {{ emptyText }}
+            {{ emptyTextValue }}
           </ComboboxEmpty>
           <ComboboxGroup
             v-for="group in groups"
@@ -189,3 +196,14 @@ function searchText(option: ComboboxOption): string {
     </ComboboxPortal>
   </ComboboxRoot>
 </template>
+
+<i18n lang="yaml">
+en:
+  combobox:
+    noMatches: "No matches."
+    toggleOptions: "Toggle options"
+ru:
+  combobox:
+    noMatches: "Совпадений нет."
+    toggleOptions: "Показать варианты"
+</i18n>

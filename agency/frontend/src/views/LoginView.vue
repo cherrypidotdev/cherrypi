@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .bg-background.text-foreground.flex.min-h-screen.items-center.justify-center.p-6
+  .absolute.top-4.right-4
+    LanguageSwitcher
   .w-full.max-w-sm
     .mb-6.flex.flex-col.items-center.gap-2
       img.block.size-10.rounded-sm.object-contain(
@@ -25,13 +27,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         alt="CherryPi"
       )
       h1.text-lg.font-semibold {{ agencyName }}
-      p.text-muted-foreground.text-sm Sign in to continue
+      p.text-muted-foreground.text-sm {{ $t("login.subtitle") }}
     Card
       CardHeader
-        CardTitle {{ pendingToken ? "Two-factor verification" : "Sign in" }}
+        CardTitle {{ pendingToken ? $t("login.twoFactor.title") : $t("login.title") }}
         CardDescription(v-if="pendingToken")
-          | Enter the code from your authenticator app to finish signing in.
-        CardDescription(v-else) Use your username or a confirmed e-mail.
+          | {{ $t("login.twoFactor.description") }}
+        CardDescription(v-else) {{ $t("login.description") }}
       CardContent
         form.flex.flex-col.gap-4(
           v-if="pendingToken"
@@ -39,10 +41,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           FieldGroup
             Field
-              FieldLabel(for="pending-totp") Two-factor code
+              FieldLabel(for="pending-totp") {{ $t("login.twoFactor.code") }}
               Input#pending-totp(
                 v-model="totp"
-                placeholder="123456 or a recovery code"
+                :placeholder="$t('login.twoFactor.codePlaceholder')"
                 inputmode="numeric"
                 autocomplete="one-time-code"
                 autofocus
@@ -51,19 +53,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.gap-2
             Button.flex-1(type="submit" :disabled="busy || !totp")
               Spinner(v-if="busy")
-              span Verify
+              span {{ $t("login.twoFactor.verify") }}
             Button.flex-1(
               type="button"
               variant="outline"
               @click="cancelPending"
             )
-              span Cancel
+              span {{ $t("common.cancel") }}
 
         template(v-else)
           form.flex.flex-col.gap-4(@submit.prevent="submit")
             FieldGroup
               Field
-                FieldLabel(for="identifier") Username or e-mail
+                FieldLabel(for="identifier") {{ $t("login.identifier") }}
                 Input#identifier(
                   v-model="identifier"
                   autocomplete="username"
@@ -71,29 +73,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   required
                 )
               Field
-                FieldLabel(for="password") Password
+                FieldLabel(for="password") {{ $t("login.password") }}
                 Input#password(
                   v-model="password"
                   type="password"
                   autocomplete="current-password"
                 )
               Field(v-if="totpRequired")
-                FieldLabel(for="totp") Two-factor code
+                FieldLabel(for="totp") {{ $t("login.twoFactor.code") }}
                 Input#totp(
                   v-model="totp"
-                  placeholder="123456 or a recovery code"
+                  :placeholder="$t('login.twoFactor.codePlaceholder')"
                   inputmode="numeric"
                   autocomplete="one-time-code"
                 )
             p.text-muted-foreground.text-xs(
               v-if="config && config.password_login === false"
             )
-              | Password sign-in is disabled for members; administrators may still use it.
+              | {{ $t("login.passwordDisabled") }}
             p.text-destructive.text-sm(v-if="error") {{ error }}
             p.text-sm(v-if="notice") {{ notice }}
             Button.w-full(type="submit" :disabled="busy || !password")
               Spinner(v-if="busy")
-              span {{ busy ? "Signing in…" : "Sign in" }}
+              span {{ busy ? $t("login.signingIn") : $t("login.title") }}
             .flex.flex-col.gap-1(v-if="config?.magic_link_login !== false")
               Button.w-full(
                 type="button"
@@ -102,10 +104,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :disabled="busy || !identifier"
               )
                 MailIcon(data-icon="inline-start")
-                span Send me a magic link instead
+                span {{ $t("login.magicLink.send") }}
               p.text-muted-foreground.text-xs
-                | You may use a magic link for password-less login or in case you forgot the password.
-              a.text-primary.text-xs(v-if="magicLink" :href="magicLink") Open your sign-in link
+                | {{ $t("login.magicLink.hint") }}
+              a.text-primary.text-xs(v-if="magicLink" :href="magicLink") {{ $t("login.magicLink.open") }}
               p.text-muted-foreground.text-xs(v-if="magicMessage") {{ magicMessage }}
 
           template(v-if="loginProviders.length || ldapProviders.length")
@@ -113,14 +115,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .absolute.inset-0.flex.items-center
                 span.w-full.border-t
               .relative.flex.justify-center.text-xs.uppercase
-                span.bg-background.text-muted-foreground.px-2 Or continue with
+                span.bg-background.text-muted-foreground.px-2 {{ $t("login.orContinue") }}
             .flex.flex-col.gap-2
               a(
                 v-for="provider in loginProviders"
                 :key="provider.slug"
                 :href="providerStartUrl(provider.slug)"
               )
-                Button.w-full(type="button" variant="outline") Sign in with {{ provider.name }}
+                Button.w-full(type="button" variant="outline") {{ $t("login.withProvider", { name: provider.name }) }}
 
               form.flex.flex-col.gap-2(
                 v-if="ldapProviders.length"
@@ -131,7 +133,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @update:model-value="ldapProvider = String($event)"
                 )
                   SelectTrigger.w-full
-                    SelectValue(placeholder="LDAP directory")
+                    SelectValue(:placeholder="$t('login.ldap.directory')")
                   SelectContent
                     SelectItem(
                       v-for="provider in ldapProviders"
@@ -140,13 +142,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     ) {{ provider.name }}
                 Input(
                   v-model="ldapUsername"
-                  placeholder="Directory username"
+                  :placeholder="$t('login.ldap.username')"
                   autocomplete="username"
                 )
                 Input(
                   v-model="ldapPassword"
                   type="password"
-                  placeholder="Directory password"
+                  :placeholder="$t('login.ldap.password')"
                   autocomplete="current-password"
                 )
                 Button.w-full(
@@ -154,7 +156,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   variant="outline"
                   :disabled="busy || !ldapProvider || !ldapUsername || !ldapPassword"
                 )
-                  span Sign in with LDAP
+                  span {{ $t("login.ldap.submit") }}
     p.mt-4.text-center.text-xs
       a.text-muted-foreground.inline-flex.items-center.gap-1.transition-colors(
         href="/docs/"
@@ -163,10 +165,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         target="_blank"
       )
         BookOpenIcon.size-3
-        span Documentation
+        span {{ $t("nav.documentation") }}
 </template>
 
 <script setup lang="ts">
+import LanguageSwitcher from "@/components/LanguageSwitcher.vue";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -195,7 +198,10 @@ import {
 } from "@/lib/account";
 import { BookOpenIcon, MailIcon } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
+
+const { t } = useI18n();
 
 const route = useRoute();
 const router = useRouter();
@@ -226,17 +232,15 @@ const agencyName = computed(
 );
 const logoUrl = computed(() => settings.value?.logo?.url || "/logo.png");
 
-const ERROR_MESSAGES: Record<string, string> = {
-  state: "The sign-in session expired. Please try again.",
-  provider: "The identity provider could not be reached.",
-  unlinked:
-    "No account is linked to that identity. Ask an administrator to invite you, or to enable automatic account creation for this provider.",
-  provision:
-    "Your identity was verified, but CherryPi could not create an account for it. Ask an administrator to invite you.",
-  disabled: "This account is disabled.",
-  denied: "Sign-in was cancelled.",
-  auth: "Please sign in first.",
-  server: "Something went wrong. Please try again.",
+const ERROR_KEYS: Record<string, string> = {
+  state: "login.errors.state",
+  provider: "login.errors.provider",
+  unlinked: "login.errors.unlinked",
+  provision: "login.errors.provision",
+  disabled: "login.errors.disabled",
+  denied: "login.errors.denied",
+  auth: "login.errors.auth",
+  server: "login.errors.server",
 };
 
 onMounted(() => {
@@ -257,8 +261,7 @@ function applyRedirectQuery(): void {
   }
   const code = route.query.error;
   if (typeof code === "string") {
-    error.value =
-      ERROR_MESSAGES[code] ?? "Something went wrong. Please try again.";
+    error.value = t(ERROR_KEYS[code] ?? "login.errors.server");
   }
 }
 
@@ -303,13 +306,13 @@ async function submit(): Promise<void> {
     );
     if (result.totpRequired) {
       totpRequired.value = true;
-      notice.value = "Enter the code from your authenticator app.";
+      notice.value = t("login.twoFactor.notice");
       return;
     }
     resetSession();
     await router.replace(redirectTarget());
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Sign in failed";
+    error.value = err instanceof Error ? err.message : t("login.errors.failed");
     if (totpRequired.value) totp.value = "";
   } finally {
     busy.value = false;
@@ -329,13 +332,13 @@ async function submitLDAP(): Promise<void> {
     );
     if (result.totpRequired) {
       totpRequired.value = true;
-      notice.value = "Enter the code from your authenticator app.";
+      notice.value = t("login.twoFactor.notice");
       return;
     }
     resetSession();
     await router.replace(redirectTarget());
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Sign in failed";
+    error.value = err instanceof Error ? err.message : t("login.errors.failed");
   } finally {
     busy.value = false;
   }
@@ -351,7 +354,8 @@ async function submitSecondFactor(): Promise<void> {
     );
     await router.replace(redirectTarget());
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Verification failed";
+    error.value =
+      err instanceof Error ? err.message : t("login.errors.verificationFailed");
   } finally {
     busy.value = false;
   }
@@ -369,7 +373,7 @@ async function sendMagicLink(): Promise<void> {
   magicMessage.value = "";
   magicLink.value = "";
   if (!identifier.value.trim()) {
-    error.value = "Enter a username or e-mail first.";
+    error.value = t("login.errors.identifierRequired");
     return;
   }
   busy.value = true;
@@ -377,12 +381,97 @@ async function sendMagicLink(): Promise<void> {
     const res = await accountApi.requestMagicLink(identifier.value.trim());
     magicLink.value = res.magic_link ?? "";
     magicMessage.value = magicLink.value
-      ? "SMTP is not configured; use the link below."
-      : "If the account exists, a sign-in link has been sent.";
+      ? t("login.magicLink.noSmtp")
+      : t("login.magicLink.sent");
   } catch {
-    magicMessage.value = "If the account exists, a sign-in link has been sent.";
+    magicMessage.value = t("login.magicLink.sent");
   } finally {
     busy.value = false;
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  login:
+    title: "Sign in"
+    subtitle: "Sign in to continue"
+    description: "Use your username or a confirmed e-mail."
+    identifier: "Username or e-mail"
+    password: "Password"
+    passwordDisabled: "Password sign-in is disabled for members; administrators may still use it."
+    signingIn: "Signing in…"
+    orContinue: "Or continue with"
+    withProvider: "Sign in with {name}"
+    twoFactor:
+      title: "Two-factor verification"
+      description: "Enter the code from your authenticator app to finish signing in."
+      code: "Two-factor code"
+      codePlaceholder: "123456 or a recovery code"
+      verify: "Verify"
+      notice: "Enter the code from your authenticator app."
+    magicLink:
+      send: "Send me a magic link instead"
+      hint: "You may use a magic link for password-less login or in case you forgot the password."
+      open: "Open your sign-in link"
+      noSmtp: "SMTP is not configured; use the link below."
+      sent: "If the account exists, a sign-in link has been sent."
+    ldap:
+      directory: "LDAP directory"
+      username: "Directory username"
+      password: "Directory password"
+      submit: "Sign in with LDAP"
+    errors:
+      state: "The sign-in session expired. Please try again."
+      provider: "The identity provider could not be reached."
+      unlinked: "No account is linked to that identity. Ask an administrator to invite you, or to enable automatic account creation for this provider."
+      provision: "Your identity was verified, but CherryPi could not create an account for it. Ask an administrator to invite you."
+      disabled: "This account is disabled."
+      denied: "Sign-in was cancelled."
+      auth: "Please sign in first."
+      server: "Something went wrong. Please try again."
+      failed: "Sign in failed"
+      verificationFailed: "Verification failed"
+      identifierRequired: "Enter a username or e-mail first."
+ru:
+  login:
+    title: "Вход"
+    subtitle: "Войдите, чтобы продолжить"
+    description: "Используйте имя пользователя или подтверждённый e-mail."
+    identifier: "Имя пользователя или e-mail"
+    password: "Пароль"
+    passwordDisabled: "Вход по паролю отключён для участников; администраторы могут им пользоваться."
+    signingIn: "Вход…"
+    orContinue: "Или продолжите с"
+    withProvider: "Войти через {name}"
+    twoFactor:
+      title: "Двухфакторная проверка"
+      description: "Введите код из приложения-аутентификатора, чтобы завершить вход."
+      code: "Код двухфакторной аутентификации"
+      codePlaceholder: "123456 или код восстановления"
+      verify: "Подтвердить"
+      notice: "Введите код из приложения-аутентификатора."
+    magicLink:
+      send: "Отправить ссылку для входа"
+      hint: "Ссылка для входа подойдёт для входа без пароля или если вы забыли пароль."
+      open: "Открыть ссылку для входа"
+      noSmtp: "SMTP не настроен; воспользуйтесь ссылкой ниже."
+      sent: "Если аккаунт существует, ссылка для входа уже отправлена."
+    ldap:
+      directory: "Каталог LDAP"
+      username: "Имя пользователя в каталоге"
+      password: "Пароль в каталоге"
+      submit: "Войти через LDAP"
+    errors:
+      state: "Сессия входа истекла. Попробуйте ещё раз."
+      provider: "Не удалось связаться с провайдером идентификации."
+      unlinked: "С этой учётной записью не связан ни один аккаунт. Попросите администратора пригласить вас или включить автоматическое создание аккаунтов для этого провайдера."
+      provision: "Учётные данные подтверждены, но CherryPi не смог создать для них аккаунт. Попросите администратора пригласить вас."
+      disabled: "Этот аккаунт отключён."
+      denied: "Вход отменён."
+      auth: "Сначала войдите в систему."
+      server: "Что-то пошло не так. Попробуйте ещё раз."
+      failed: "Не удалось войти"
+      verificationFailed: "Не удалось подтвердить код"
+      identifierRequired: "Сначала введите имя пользователя или e-mail."
+</i18n>

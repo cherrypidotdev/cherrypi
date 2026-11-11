@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     v-if="controlKnown && !controller && !exited"
   )
     span.text-muted-foreground.truncate {{ banner }}
-    Button.shrink-0(variant="outline" size="sm" @click="takeControl") Take control
+    Button.shrink-0(variant="outline" size="sm" @click="takeControl") {{ $t("terminalPane.takeControl") }}
   .relative.min-h-0.flex-1.duration-150(
     class="transition-[filter]"
     :class="controlKnown && !controller ? 'brightness-[0.8] hover:brightness-100' : ''"
@@ -50,6 +50,9 @@ import {
   ref,
   watch,
 } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   terminalId: string;
@@ -72,9 +75,7 @@ const controller = ref(false);
 const takenOver = ref(false);
 
 const banner = computed(() =>
-  takenOver.value
-    ? "Another browser took control of this terminal."
-    : "Read-only — this terminal is controlled in another browser.",
+  takenOver.value ? t("terminalPane.takenOver") : t("terminalPane.readOnly"),
 );
 
 let term: Xterm | undefined;
@@ -314,3 +315,16 @@ onBeforeUnmount(() => {
   term?.dispose();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  terminalPane:
+    takeControl: "Take control"
+    takenOver: "Another browser took control of this terminal."
+    readOnly: "Read-only — this terminal is controlled in another browser."
+ru:
+  terminalPane:
+    takeControl: "Взять управление"
+    takenOver: "Управление этим терминалом перехватил другой браузер."
+    readOnly: "Только чтение — этим терминалом управляют в другом браузере."
+</i18n>

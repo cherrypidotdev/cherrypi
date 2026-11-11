@@ -19,24 +19,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Spend by model
+    CardTitle {{ $t("usage.models.title") }}
     CardDescription {{ subtitle }}
     CardAction
       span.text-11.text-muted-foreground {{ rows.length }} {{ unitLabel }}
   CardContent.p-0
     p.text-muted-foreground.py-10.text-center.text-sm(v-if="!rows.length")
-      | No model usage in this range.
+      | {{ $t("usage.models.empty") }}
     Table(v-else)
       TableHeader
         TableRow
-          TableHead Model
-          TableHead.text-right Tasks
-          TableHead.text-right Rounds
-          TableHead.text-right Tokens
-          TableHead.text-right(
-            title="Output tokens over the time the model spent generating them"
-          ) Speed
-          TableHead.text-right Spend
+          TableHead {{ $t("domainLog.kind.model") }}
+          TableHead.text-right {{ $t("nav.tasks") }}
+          TableHead.text-right {{ $t("usage.breakdown.rounds") }}
+          TableHead.text-right {{ $t("account.tabs.tokens") }}
+          TableHead.text-right(:title="$t('usage.models.speedTitle')") {{ $t("usage.insights.speed") }}
+          TableHead.text-right {{ $t("usage.breakdown.spend") }}
       TableBody
         TableRow(v-for="row in rows" :key="label(row)")
           TableCell
@@ -47,7 +45,7 @@ Card
               .min-w-0
                 strong.text-115.block.truncate.font-semibold {{ label(row) }}
                 span.text-10.text-muted-foreground.block(v-if="!row.model")
-                  | Unknown
+                  | {{ $t("common.unknown") }}
           TableCell.text-right.tabular-nums {{ formatCount(row.tasks) }}
           TableCell.text-right.tabular-nums {{ formatCount(row.runs) }}
           TableCell.text-right.tabular-nums {{ formatTokens(tokens(row)) }}
@@ -55,9 +53,9 @@ Card
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
   CardFooter.justify-between.gap-3
     span.text-2xs.text-muted-foreground
-      | Settled runs only; a running task joins the table when it settles.
+      | {{ $t("usage.models.footnote") }}
     span.text-2xs.text-muted-foreground
-      | Unknown = Pi reported no model for the run.
+      | {{ $t("usage.models.unknownHint") }}
 </template>
 
 <script setup lang="ts">
@@ -128,3 +126,22 @@ function rate(row: AgencyUsageModel): string {
   return value > 0 ? formatRate(value) : "—";
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    models:
+      title: "Spend by model"
+      empty: "No model usage in this range."
+      footnote: "Settled runs only; a running task joins the table when it settles."
+      unknownHint: "Unknown = Pi reported no model for the run."
+      speedTitle: "Output tokens over the time the model spent generating them"
+ru:
+  usage:
+    models:
+      title: "Расход по моделям"
+      empty: "В этом диапазоне нет использования моделей."
+      footnote: "Только завершённые запуски; выполняющаяся задача попадёт в таблицу после завершения."
+      unknownHint: "«Неизвестно» = Pi не сообщил модель запуска."
+      speedTitle: "Выходные токены за время генерации моделью"
+</i18n>

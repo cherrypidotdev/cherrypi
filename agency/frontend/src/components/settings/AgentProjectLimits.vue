@@ -20,21 +20,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-3.rounded-lg.border.p-4
   .flex.items-center.justify-between.gap-3
     .flex.flex-col
-      span.text-sm.font-medium Project limits
+      span.text-sm.font-medium {{ $t("projectLimits.title") }}
       span.text-muted-foreground.text-xs
-        | Caps that apply only inside this project. The overall caps live on the
-        | Tasks tab.
+        | {{ $t("projectLimits.description") }}
     Spinner(v-if="loading" size="sm")
   .flex.flex-col.gap-2
     .flex.items-center.justify-between.gap-3
       .flex.flex-col
-        span.text-sm.font-medium Max concurrent tasks in the project
-        span.text-muted-foreground.text-xs Per-project cap.
+        span.text-sm.font-medium {{ $t("projectLimits.maxConcurrent") }}
+        span.text-muted-foreground.text-xs {{ $t("projectLimits.maxConcurrentHint") }}
       Input.w-24(v-model.number="maxConcurrent" type="number" min="1")
     .flex.flex-col.gap-2
-      span.text-sm.font-medium Per-tag limits in the project
+      span.text-sm.font-medium {{ $t("projectLimits.perTag") }}
       p.text-muted-foreground.text-xs
-        | Further narrows one tag inside this project.
+        | {{ $t("projectLimits.perTagHint") }}
       .flex.items-center.gap-2(
         v-for="(limit, index) in projectTagLimits"
         :key="limit.tagId"
@@ -53,14 +52,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         Button(
           variant="ghost"
           size="icon-sm"
-          title="Remove"
+          :title="$t('common.remove')"
           @click="projectTagLimits.splice(index, 1)"
         )
           XIcon
       .flex.items-center.gap-2
         Select(:model-value="addTagId" @update:model-value="addTagLimit")
           SelectTrigger.w-48
-            SelectValue(placeholder="Add a tag limit…")
+            SelectValue(:placeholder="$t('concurrency.addTagLimit')")
           SelectContent
             SelectGroup
               SelectItem(
@@ -69,14 +68,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :value="tag.id"
               ) {{ tag.name }}
         span.text-muted-foreground.text-xs(v-if="!availableTags.length")
-          | No more tags
+          | {{ $t("concurrency.noMoreTags") }}
 
   p.text-destructive.text-xs(v-if="error") {{ error }}
   .flex.justify-end
     Button(size="sm" @click="save" :disabled="saving || loading")
       Spinner(v-if="saving" data-icon="inline-start")
       CheckIcon(v-else data-icon="inline-start")
-      span Save
+      span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -98,7 +97,10 @@ import { tagStyle } from "@/lib/task";
 import type { AgentTaskLimits, Tag } from "@cherrypi/sdk";
 import { CheckIcon, XIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const props = defineProps<{ agentId: string; projectId: string }>();
 
@@ -182,7 +184,7 @@ async function save() {
         ],
       });
     });
-    toast.success("Project limits saved");
+    toast.success(t("projectLimits.toasts.saved"));
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -194,3 +196,26 @@ async function save() {
 
 watch(() => props.projectId, load, { immediate: true });
 </script>
+
+<i18n lang="yaml">
+en:
+  projectLimits:
+    title: "Project limits"
+    description: "Caps that apply only inside this project. The overall caps live on the Tasks tab."
+    maxConcurrent: "Max concurrent tasks in the project"
+    maxConcurrentHint: "Per-project cap."
+    perTag: "Per-tag limits in the project"
+    perTagHint: "Further narrows one tag inside this project."
+    toasts:
+      saved: "Project limits saved"
+ru:
+  projectLimits:
+    title: "Лимиты проекта"
+    description: "Лимиты, действующие только внутри этого проекта. Общие лимиты находятся на вкладке «Задачи»."
+    maxConcurrent: "Максимум одновременных задач в проекте"
+    maxConcurrentHint: "Лимит для проекта."
+    perTag: "Лимиты по тегам в проекте"
+    perTagHint: "Дополнительно ограничивает тег внутри этого проекта."
+    toasts:
+      saved: "Лимиты проекта сохранены"
+</i18n>

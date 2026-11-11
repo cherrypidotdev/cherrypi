@@ -22,23 +22,23 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
     class="h-[100dvh] bg-black/95 sm:max-w-none"
     :show-close-button="false"
   )
-    DialogTitle.sr-only Task files
-    DialogDescription.sr-only Browse every file attached to or produced by this task.
+    DialogTitle.sr-only {{ $t("taskFiles.title") }}
+    DialogDescription.sr-only {{ $t("taskFiles.description") }}
 
     header.flex.shrink-0.items-center.gap-3.px-4.py-3(class="bg-black/40")
       .flex.min-w-0.flex-col
         span.truncate.text-sm.font-medium {{ active?.filename ?? "Task files" }}
         span.text-xs(v-if="active" class="text-white/60")
-          | {{ active.source }} · {{ activeIndex + 1 }} of {{ items.length }}
+          | {{ $t("taskFiles.position", { source: active.source, index: activeIndex + 1, total: items.length }) }}
       .ml-auto.flex.shrink-0.items-center.gap-1
         Button.text-white(
           v-if="active"
           as-child
           variant="ghost"
           size="icon-sm"
-          title="Open in new tab"
-          aria-label="Open in new tab"
           class="hover:bg-white/10 hover:text-white"
+          :title="$t('taskFiles.openInNewTab')"
+          :aria-label="$t('taskFiles.openInNewTab')"
         )
           a(rel="noopener noreferrer" :href="active.url" target="_blank")
             ExternalLinkIcon.size-4
@@ -46,9 +46,9 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           type="button"
           variant="ghost"
           size="icon-sm"
-          title="Close"
-          aria-label="Close"
           class="hover:bg-white/10 hover:text-white"
+          :title="$t('common.close')"
+          :aria-label="$t('common.close')"
           @click="close"
         )
           XIcon.size-5
@@ -59,9 +59,9 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         type="button"
         variant="ghost"
         size="icon-lg"
-        title="Previous item"
-        aria-label="Previous item"
         class="hover:bg-white/10 hover:text-white"
+        :title="$t('taskFiles.previousItem')"
+        :aria-label="$t('taskFiles.previousItem')"
         @click="move(-1)"
       )
         ChevronLeftIcon.size-7
@@ -95,16 +95,16 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
             target="_blank"
           )
             ExternalLinkIcon.size-3
-            span Open file
+            span {{ $t("taskFiles.openFile") }}
 
       Button.absolute.right-3.z-10.text-white(
         v-if="items.length > 1"
         type="button"
         variant="ghost"
         size="icon-lg"
-        title="Next item"
-        aria-label="Next item"
         class="hover:bg-white/10 hover:text-white"
+        :title="$t('taskFiles.nextItem')"
+        :aria-label="$t('taskFiles.nextItem')"
         @click="move(1)"
       )
         ChevronRightIcon.size-7
@@ -123,7 +123,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         :key="item.key"
         type="button"
         :class="index === activeIndex ? 'border-white' : 'border-transparent hover:border-white/40'"
-        :title="`${item.source} · ${item.filename}`"
+        :title="$t('taskFiles.itemLabel', { source: item.source, filename: item.filename })"
         :aria-label="item.filename"
         @click="activeIndex = index"
       )
@@ -245,3 +245,26 @@ watchEffect((onCleanup) => {
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
+
+<i18n lang="yaml">
+en:
+  taskFiles:
+    openInNewTab: "Open in new tab"
+    title: "Task files"
+    description: "Browse every file attached to or produced by this task."
+    openFile: "Open file"
+    previousItem: "Previous item"
+    nextItem: "Next item"
+    itemLabel: "{source} · {filename}"
+    position: "{source} · {index} of {total}"
+ru:
+  taskFiles:
+    openInNewTab: "Открыть в новой вкладке"
+    title: "Файлы задачи"
+    description: "Все файлы, прикреплённые к задаче или созданные ею."
+    openFile: "Открыть файл"
+    previousItem: "Предыдущий элемент"
+    nextItem: "Следующий элемент"
+    itemLabel: "{source} · {filename}"
+    position: "{source} · {index} из {total}"
+</i18n>

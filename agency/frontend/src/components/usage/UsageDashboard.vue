@@ -20,12 +20,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-5
   .flex.flex-wrap.items-end.justify-between.gap-4
     div
-      p.text-2xs.text-muted-foreground.font-bold.tracking-widest.uppercase Usage
-      h2.mt-1.text-base.font-semibold Cost, tokens &amp; task executions
+      p.text-2xs.text-muted-foreground.font-bold.tracking-widest.uppercase {{ $t("projectView.usage") }}
+      h2.mt-1.text-base.font-semibold {{ $t("usage.dashboard.title3") }}
       p.text-muted-foreground.mt-1.max-w-xl.text-xs {{ subtitle }}
     .flex.flex-wrap.items-end.gap-3
       label.flex.flex-col.gap-1
-        span.text-2xs.text-muted-foreground.font-semibold Time range
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("health.panel.range") }}
         .bg-muted.flex.rounded-lg.p-1
           button.text-115.rounded-md.px-2.py-1.font-medium(
             v-for="option in USAGE_RANGE_OPTIONS"
@@ -34,34 +34,34 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="range = option.value"
           ) {{ option.label }}
       label.flex.flex-col.gap-1(v-if="context !== 'agent'")
-        span.text-2xs.text-muted-foreground.font-semibold Agent
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("admin.agents.columnAgent") }}
         Select(v-model="agentScope")
-          SelectTrigger.w-44(title="Filter by agent")
-            SelectValue(placeholder="All agents")
+          SelectTrigger.w-44(:title="$t('usage.dashboard.agentTitle')")
+            SelectValue(:placeholder="$t('usage.dashboard.allAgents')")
           SelectContent
-            SelectItem(:value="ALL") All agents
+            SelectItem(:value="ALL") {{ $t("usage.dashboard.allAgents") }}
             SelectItem(
               v-for="option in availableAgents"
               :key="option.id"
               :value="option.id"
             ) {{ option.name }}
       label.flex.flex-col.gap-1(v-if="context !== 'project'")
-        span.text-2xs.text-muted-foreground.font-semibold Project
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("admin.projects.columnProject") }}
         Combobox.w-44(
           v-model="projectScope"
-          placeholder="All projects"
+          :placeholder="$t('nav.allProjects')"
           empty-text="No matching project."
-          title="Filter by project"
-          aria-label="Filter by project"
+          :title="$t('usage.dashboard.projectTitle')"
+          :aria-label="$t('usage.dashboard.projectTitle')"
           :options="projectScopeOptions"
         )
       label.flex.flex-col.gap-1
-        span.text-2xs.text-muted-foreground.font-semibold Model
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("domainLog.kind.model") }}
         Select(v-model="modelScope")
-          SelectTrigger.w-44(title="Filter by model")
-            SelectValue(placeholder="All models")
+          SelectTrigger.w-44(:title="$t('usage.dashboard.modelTitle')")
+            SelectValue(:placeholder="$t('usage.dashboard.allModels')")
           SelectContent
-            SelectItem(:value="ALL") All models
+            SelectItem(:value="ALL") {{ $t("usage.dashboard.allModels") }}
             SelectItem(
               v-for="option in modelScopeOptions"
               :key="option.value"
@@ -139,11 +139,12 @@ import {
 } from "@/composables/useUsageAnalytics";
 import {
   USAGE_RANGE_OPTIONS,
-  usageRangeLabel,
+  usageRangeKey,
   type UsageRange,
 } from "@/lib/usage";
 import { UNKNOWN_USAGE_MODEL } from "@cherrypi/sdk";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   context: UsageContext;
@@ -206,9 +207,11 @@ const {
   model: effectiveModel,
 });
 
-const rangeLabel = computed(() => usageRangeLabel(range.value));
+const rangeLabel = computed(() =>
+  t(usageRangeKey(range.value), { days: range.value }),
+);
 const projectScopeOptions = computed<ComboboxOption[]>(() => [
-  { value: ALL, label: "All projects" },
+  { value: ALL, label: t("nav.allProjects") },
   ...availableProjects.value.map((option) => ({
     value: option.id,
     label: option.name,
@@ -236,32 +239,77 @@ const modelScopeOptions = computed(() => {
 });
 const subtitle = computed(() => {
   if (props.context === "project") {
-    return "All agents working in this project. The range and model filter apply to every chart and breakdown below.";
+    return t("usage.dashboard.projectHint");
   }
   if (props.context === "agent") {
-    return "Everything this agent worked on. Filter by project, model or time; the charts reuse the project components.";
+    return t("usage.dashboard.agentHint");
   }
-  return "Every agent and project in the agency. Filter by scope, model or time; the charts reuse the project components.";
+  return t("usage.dashboard.agencyHint");
 });
 
 const breakdownTitle = computed(() =>
-  props.context === "project" ? "By agent" : "By project",
+  props.context === "project"
+    ? t("usage.dashboard.byAgent")
+    : t("usage.dashboard.byProject"),
 );
 const breakdownSubtitle = computed(() =>
   props.context === "project"
-    ? "Average per completed task, by agent. Follows the insights tag filter."
-    : "Average per completed task, by project. Follows the insights tag filter.",
+    ? t("usage.dashboard.perTaskByAgent")
+    : t("usage.dashboard.perTaskByProject"),
 );
 const breakdownUnit = computed(() =>
   props.context === "project" ? "agents" : "projects",
 );
 const modelSubtitle = computed(() => {
   if (props.context === "project") {
-    return "Cost and tokens per model used in this project. The model filter narrows the cards above, not this table.";
+    return t("usage.dashboard.modelsProject");
   }
   if (props.context === "agent") {
-    return "Cost and tokens per model this agent used. The model filter narrows the cards above, not this table.";
+    return t("usage.dashboard.modelsAgent");
   }
-  return "Cost and tokens per model across the agency. The model filter narrows the cards above, not this table.";
+  return t("usage.dashboard.modelsAgency");
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    dashboard:
+      allAgents: "All agents"
+      allModels: "All models"
+      agentTitle: "Filter by agent"
+      projectTitle: "Filter by project"
+      modelTitle: "Filter by model"
+      modelsAgency: "Cost and tokens per model across the agency. The model filter narrows the cards above, not this table."
+      modelsAgent: "Cost and tokens per model this agent used. The model filter narrows the cards above, not this table."
+      modelsProject: "Cost and tokens per model used in this project. The model filter narrows the cards above, not this table."
+      perTaskByProject: "Average per completed task, by project. Follows the insights tag filter."
+      perTaskByAgent: "Average per completed task, by agent. Follows the insights tag filter."
+      byProject: "By project"
+      byAgent: "By agent"
+      agencyHint: "Every agent and project in the agency. Filter by scope, model or time; the charts reuse the project components."
+      agentHint: "Everything this agent worked on. Filter by project, model or time; the charts reuse the project components."
+      projectHint: "All agents working in this project. The range and model filter apply to every chart and breakdown below."
+      title3: "Cost, tokens & task executions"
+ru:
+  usage:
+    dashboard:
+      allAgents: "Все агенты"
+      allModels: "Все модели"
+      agentTitle: "Фильтр по агенту"
+      projectTitle: "Фильтр по проекту"
+      modelTitle: "Фильтр по модели"
+      modelsAgency: "Стоимость и токены по моделям всего агентства. Фильтр по модели сужает карточки выше, но не эту таблицу."
+      modelsAgent: "Стоимость и токены по моделям этого агента. Фильтр по модели сужает карточки выше, но не эту таблицу."
+      modelsProject: "Стоимость и токены по моделям в этом проекте. Фильтр по модели сужает карточки выше, но не эту таблицу."
+      perTaskByProject: "Средние значения на завершённую задачу по проектам. Учитывает фильтр тегов из аналитики."
+      perTaskByAgent: "Средние значения на завершённую задачу по агентам. Учитывает фильтр тегов из аналитики."
+      byProject: "По проектам"
+      byAgent: "По агентам"
+      agencyHint: "Все агенты и проекты агентства. Фильтруйте по области, модели или времени; графики используют компоненты проекта."
+      agentHint: "Всё, над чем работал этот агент. Фильтруйте по проекту, модели или времени; графики используют компоненты проекта."
+      projectHint: "Все агенты, работающие в этом проекте. Диапазон и фильтр по модели применяются ко всем графикам и разбивкам ниже."
+      title3: "Стоимость, токены и выполнения задач"
+</i18n>

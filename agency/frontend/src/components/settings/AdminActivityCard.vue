@@ -24,14 +24,20 @@ Card
   CardContent.flex.flex-col.gap-4
     form.flex.flex-wrap.items-end.gap-2(@submit.prevent="apply")
       Field.w-44
-        FieldLabel(for="activity-actor") Actor
-        Input#activity-actor(v-model="actor" placeholder="username")
+        FieldLabel(for="activity-actor") {{ $t("settings.events.actor") }}
+        Input#activity-actor(
+          v-model="actor"
+          :placeholder="$t('settings.events.actorPlaceholder')"
+        )
       Field.flex-1
-        FieldLabel(for="activity-search") Search
-        Input#activity-search(v-model="q" placeholder="message text")
+        FieldLabel(for="activity-search") {{ $t("common.search") }}
+        Input#activity-search(
+          v-model="q"
+          :placeholder="$t('settings.events.searchPlaceholder')"
+        )
       Button(type="submit" size="sm" :disabled="loading")
         SearchIcon(data-icon="inline-start")
-        span Apply
+        span {{ $t("common.apply") }}
       .flex-1
       a.inline-flex.h-8.items-center.gap-1.rounded-md.border.px-3.text-sm(
         download
@@ -39,20 +45,20 @@ Card
         :href="exportUrl('csv')"
       )
         DownloadIcon(class="size-3.5")
-        span CSV
+        span {{ $t("settings.events.csv") }}
       a.inline-flex.h-8.items-center.gap-1.rounded-md.border.px-3.text-sm(
         download
         class="hover:bg-muted"
         :href="exportUrl('json')"
       )
         DownloadIcon(class="size-3.5")
-        span JSON
+        span {{ $t("settings.events.json") }}
     p.text-destructive.text-sm(v-if="error") {{ error }}
     DomainLogList(:show-scope="!scope" :logs="logs")
     .flex.justify-center.pt-2(v-if="nextCursor")
       Button(variant="outline" size="sm" @click="loadMore" :disabled="loading")
         Spinner(v-if="loading" data-icon="inline-start")
-        span Load more
+        span {{ $t("common.loadMore") }}
 </template>
 
 <script setup lang="ts">
@@ -77,6 +83,7 @@ import {
 } from "@/lib/audit";
 import { DownloadIcon, SearchIcon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -118,7 +125,8 @@ async function load(reset: boolean) {
     logs.value = reset ? page.logs : [...logs.value, ...page.logs];
     nextCursor.value = page.next_cursor;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Could not load events.";
+    error.value =
+      err instanceof Error ? err.message : t("settings.events.errors.load");
   } finally {
     loading.value = false;
   }
@@ -134,4 +142,6 @@ function loadMore() {
 }
 
 onMounted(() => void load(true));
+
+const { t } = useI18n();
 </script>

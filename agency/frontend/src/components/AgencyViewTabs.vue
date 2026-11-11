@@ -19,8 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Tabs(:model-value="active" @update:model-value="navigate")
   TabsList
-    TabsTrigger(value="tasks") Tasks
-    TabsTrigger(value="usage") Usage
+    TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
+    TabsTrigger(value="usage") {{ $t("projectView.usage") }}
 </template>
 
 <script setup lang="ts">

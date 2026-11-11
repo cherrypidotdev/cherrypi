@@ -22,11 +22,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     CardHeader
       .flex.flex-wrap.items-start.justify-between.gap-3
         .flex.flex-col.gap-1
-          CardTitle Agency process log
+          CardTitle {{ $t("settings.processLogs.title") }}
           CardDescription
-            | Everything this agency process wrote to stdout and stderr, captured
-            | on disk with a UTC timestamp before every line. This is the current
-            | run only; older runs stay in the log directory until rotated out.
+            | {{ $t("settings.processLogs.description") }}
         .flex.items-center.gap-2
           Button(
             variant="outline"
@@ -44,24 +42,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :disabled="loading"
           )
             RefreshCwIcon(data-icon="inline-start")
-            span Refresh
+            span {{ $t("common.refresh") }}
           Button(as-child variant="outline" size="sm")
             a(download :href="processLogDownloadUrl()")
               DownloadIcon(data-icon="inline-start")
-              span Download
+              span {{ $t("settings.processLogs.download") }}
 
     CardContent.flex.flex-col.gap-3
       p.text-destructive.text-sm(v-if="error") {{ error }}
-      p.text-muted-foreground.text-sm(v-else-if="loading") Loading the process log…
+      p.text-muted-foreground.text-sm(v-else-if="loading") {{ $t("settings.processLogs.loading") }}
 
       template(v-else)
         .text-muted-foreground.flex.flex-wrap.items-center.gap-x-4.gap-y-1.text-xs
-          span.font-mono {{ meta?.version || "unknown version" }}
-          span(v-if="meta") started {{ formatStarted(meta.started_at) }}
-          span(v-if="meta") pid {{ meta.pid }}
-          span.font-mono(v-if="meta" :title="meta.dir") {{ meta.file }}
-          Badge(v-if="following" variant="secondary") Live
-          span(v-else) Paused
+          span.font-mono {{ meta?.version || $t("common.unknown") }}
+          span(v-if="meta") {{ $t("settings.processLogs.started", { date: formatStarted(meta.started_at) }) }}
+          span(v-if="meta") {{ $t("settings.processLogs.pid", { pid: meta.pid }) }}
+          span.font-mono(
+            v-if="meta"
+            :title="$t('settings.processLogs.dir', { dir: meta.dir })"
+          ) {{ meta.file }}
+          Badge(v-if="following" variant="secondary") {{ $t("settings.processLogs.live") }}
+          span(v-else) {{ $t("settings.processLogs.paused") }}
 
         .relative
           pre.bg-muted.text-foreground.min-h-40.overflow-auto.rounded-md.border.p-3.font-mono.text-xs.leading-relaxed.break-words.whitespace-pre-wrap(
@@ -70,10 +71,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
           p.text-muted-foreground.absolute.top-3.left-3.text-xs(
             v-if="!hasOutput"
-          ) No output captured yet.
+          ) {{ $t("settings.processLogs.empty") }}
         p.text-muted-foreground.text-xs
-          | Lines are raw process output and may contain secrets; the page and the
-          | API are administrator-only.
+          | {{ $t("settings.processLogs.secretsHint") }}
 </template>
 
 <script setup lang="ts">
@@ -198,3 +198,34 @@ function formatStarted(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  settings:
+    processLogs:
+      download: "Download"
+      title: "Agency process log"
+      description: "Everything this agency process wrote to stdout and stderr, captured on disk with a UTC timestamp before every line. This is the current run only; older runs stay in the log directory until rotated out."
+      loading: "Loading the process log…"
+      live: "Live"
+      paused: "Paused"
+      empty: "No output captured yet."
+      secretsHint: "Lines are raw process output and may contain secrets; the page and the API are administrator-only."
+      dir: "Directory: {dir}"
+      started: "started {date}"
+      pid: "pid {pid}"
+ru:
+  settings:
+    processLogs:
+      download: "Скачать"
+      title: "Журнал процесса агентства"
+      description: "Всё, что этот процесс агентства записал в stdout и stderr, с меткой времени UTC перед каждой строкой. Это только текущий запуск; прежние запуски остаются в каталоге журналов, пока не будут вытеснены."
+      loading: "Загружаем журнал процесса…"
+      live: "Онлайн"
+      paused: "Пауза"
+      empty: "Вывод пока не записан."
+      secretsHint: "Строки — это необработанный вывод процесса, в них могут быть секреты; страница и API доступны только администраторам."
+      dir: "Каталог: {dir}"
+      started: "запущен {date}"
+      pid: "pid {pid}"
+</i18n>

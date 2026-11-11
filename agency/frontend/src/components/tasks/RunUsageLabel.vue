@@ -45,12 +45,13 @@ import {
 } from "@/lib/format";
 import { generationRate } from "@/lib/usage";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{ usage?: RunUsage }>();
 
 const modelLabel = computed(() => {
   const usage = props.usage;
-  if (!usage?.model) return "Unknown model";
+  if (!usage?.model) return t("runUsage.unknownModel");
   return usage.provider ? `${usage.provider}/${usage.model}` : usage.model;
 });
 const tokens = computed(() => {
@@ -89,4 +90,15 @@ const title = computed(() => {
   }
   return parts.join(" · ");
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  runUsage:
+    unknownModel: "Unknown model"
+ru:
+  runUsage:
+    unknownModel: "Неизвестная модель"
+</i18n>

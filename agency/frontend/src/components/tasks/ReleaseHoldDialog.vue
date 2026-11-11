@@ -20,11 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent(class="sm:max-w-md")
     DialogHeader
-      DialogTitle Release the hold
+      DialogTitle {{ $t("releaseHold.title") }}
       DialogDescription
-        | Release "{{ holdLabel }}" on "{{ task ? taskName(task) : "" }}" so the
-        | task can go on without it. The plugin that placed the hold is told; it
-        | decides whether to place it again.
+        | {{ $t("releaseHold.description", { hold: holdLabel, name: task ? taskName(task) : "" }) }}
     .grid.gap-2
       button.flex.items-center.gap-2.rounded-lg.border.p-3.text-left.text-sm.transition-colors(
         type="button"
@@ -33,8 +31,8 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         CheckIcon.size-4.shrink-0
         .flex.flex-col
-          span.font-medium Let the task rest
-          span.text-muted-foreground.text-xs The work is done; the task waits for a close-out.
+          span.font-medium {{ $t("releaseHold.letRest") }}
+          span.text-muted-foreground.text-xs {{ $t("releaseHold.completedHint") }}
       button.flex.items-center.gap-2.rounded-lg.border.p-3.text-left.text-sm.transition-colors(
         type="button"
         :class="choice === TaskHoldReleaseMode.QUEUE ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-muted/50'"
@@ -42,8 +40,8 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         PlayIcon.size-4.shrink-0
         .flex.flex-col
-          span.font-medium Run the agent again
-          span.text-muted-foreground.text-xs Queue the task with a follow-up prompt.
+          span.font-medium {{ $t("releaseHold.runAgain") }}
+          span.text-muted-foreground.text-xs {{ $t("releaseHold.runAgainHint") }}
       button.flex.items-center.gap-2.rounded-lg.border.p-3.text-left.text-sm.transition-colors(
         type="button"
         :class="choice === TaskHoldReleaseMode.COMPLETE ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-muted/50'"
@@ -51,13 +49,13 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         CheckCheckIcon.size-4.shrink-0
         .flex.flex-col
-          span.font-medium Close the task out
-          span.text-muted-foreground.text-xs The work is done and needs no close-out.
+          span.font-medium {{ $t("releaseHold.closeOut") }}
+          span.text-muted-foreground.text-xs {{ $t("releaseHold.closeOutHint") }}
     .flex.flex-col.gap-1(v-if="choice === TaskHoldReleaseMode.QUEUE")
-      label.text-xs.font-medium(for="release-hold-prompt") Follow-up prompt
+      label.text-xs.font-medium(for="release-hold-prompt") {{ $t("releaseHold.followUp") }}
       Textarea#release-hold-prompt(
         v-model="prompt"
-        placeholder="What should the agent do now?"
+        :placeholder="$t('releaseHold.followUpPlaceholder')"
         rows="3"
         data-testid="release-hold-prompt"
       )
@@ -66,7 +64,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         type="button"
         variant="outline"
         @click="emit('update:open', false)"
-      ) Cancel
+      ) {{ $t("common.cancel") }}
       Button(
         type="button"
         @click="release"
@@ -74,7 +72,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         Spinner(v-if="busy" data-icon="inline-start")
         LockOpenIcon(v-else data-icon="inline-start")
-        span Release
+        span {{ $t("releaseHold.submit") }}
 </template>
 
 <script setup lang="ts">
@@ -149,3 +147,32 @@ async function release() {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  releaseHold:
+    title: "Release the hold"
+    letRest: "Let the task rest"
+    completedHint: "The work is done; the task waits for a close-out."
+    runAgain: "Run the agent again"
+    runAgainHint: "Queue the task with a follow-up prompt."
+    closeOut: "Close the task out"
+    closeOutHint: "The work is done and needs no close-out."
+    followUp: "Follow-up prompt"
+    submit: "Release"
+    followUpPlaceholder: "What should the agent do now?"
+    description: 'Release "{hold}" on "{name}" so the task can go on without it. The plugin that placed the hold is told; it decides whether to place it again.'
+ru:
+  releaseHold:
+    title: "Снять удержание"
+    letRest: "Оставить задачу в покое"
+    completedHint: "Работа выполнена; задача ждёт закрытия."
+    runAgain: "Запустить агента снова"
+    runAgainHint: "Поставить задачу в очередь с уточняющим промптом."
+    closeOut: "Закрыть задачу"
+    closeOutHint: "Работа выполнена и не требует закрытия."
+    followUp: "Уточняющий промпт"
+    submit: "Снять"
+    followUpPlaceholder: "Что агент должен сделать сейчас?"
+    description: "Снимите «{hold}» с «{name}», чтобы задача могла продолжиться без него. Плагин, установивший удержание, получит уведомление и сам решит, ставить ли его снова."
+</i18n>

@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   )
     Spinner(v-if="loading" data-icon="inline-start")
     span {{ loading ? "Loading…" : "Load more" }}
-  p.text-muted-foreground.text-xs(v-else-if="loaded") End of log
+  p.text-muted-foreground.text-xs(v-else-if="loaded") {{ $t("pluginLog.end") }}
 </template>
 
 <script setup lang="ts">
@@ -84,3 +84,12 @@ function manual() {
   emit("load", true);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  pluginLog:
+    end: "End of log"
+ru:
+  pluginLog:
+    end: "Конец журнала"
+</i18n>

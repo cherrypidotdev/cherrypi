@@ -158,17 +158,17 @@ export interface ProjectLog {
   data_json: string;
 }
 
-export const PROJECT_ROLE_LABEL: Record<ProjectRole, string> = {
-  owner: "Owner",
-  member: "Member",
-  viewer: "Viewer",
+export const PROJECT_ROLE_KEY: Record<ProjectRole, string> = {
+  owner: "projectRole.owner",
+  member: "projectRole.member",
+  viewer: "projectRole.viewer",
 };
 
 /** One-line description of what a role may do, used in pickers. */
-export const PROJECT_ROLE_HINT: Record<ProjectRole, string> = {
-  owner: "Manage access, prompt and edit",
-  member: "Prompt and edit",
-  viewer: "View and comment only",
+export const PROJECT_ROLE_HINT_KEY_KEY_KEY: Record<ProjectRole, string> = {
+  owner: "projectRole.ownerHint",
+  member: "projectRole.memberHint",
+  viewer: "projectRole.viewerHint",
 };
 
 export function projectTeamsWithInherited(

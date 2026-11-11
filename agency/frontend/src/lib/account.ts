@@ -673,4 +673,6 @@ export const accountApi = {
 
 export interface UserPreferences {
   notify_first_archive: boolean;
+
+  locale: string;
 }

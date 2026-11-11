@@ -20,16 +20,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent(class="sm:max-w-md")
     DialogHeader
-      DialogTitle Archive {{ noun }}
+      DialogTitle {{ $t("archiveTask.title", { noun }) }}
       DialogDescription
-        | Archiving removes the {{ possessive }}
-        | agent-side Pi session and workspace. That is safe: the session
-        | history, attachments, and artifacts are stored in the agency.
+        | {{ $t("archiveTask.description", { owner: possessive }) }}
     .flex.flex-col.gap-2
       p.text-muted-foreground.text-xs(v-if="single")
         | {{ taskName(single) }}
       p.text-muted-foreground.text-xs(v-else)
-        | {{ tasks.length }} tasks selected:
+        | {{ $t("archiveTask.selected", { count: tasks.length }) }}
         |
         span.font-mono {{ idsLabel }}
       label.mt-1.flex.items-center.gap-2.text-sm
@@ -37,18 +35,18 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           :model-value="dontShowAgain"
           @update:model-value="dontShowAgain = Boolean($event)"
         )
-        span Do not show this again
+        span {{ $t("archiveTask.dontShow") }}
     DialogFooter
       Button(
         type="button"
         variant="outline"
         @click="emit('update:open', false)"
       )
-        | Cancel
+        | {{ $t("common.cancel") }}
       Button(type="button" @click="confirm" :disabled="busy")
         Spinner(v-if="busy" data-icon="inline-start")
         ArchiveIcon(v-else data-icon="inline-start")
-        span Archive
+        span {{ $t("tags.archive") }}
 </template>
 
 <script setup lang="ts">
@@ -101,3 +99,18 @@ function confirm() {
   emit("confirm", dontShowAgain.value);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  archiveTask:
+    dontShow: "Do not show this again"
+    description: "Archiving removes the {owner} agent-side Pi session and workspace. That is safe: the session history, attachments, and artifacts are stored in the agency."
+    title: "Archive {noun}"
+    selected: "{count} tasks selected:"
+ru:
+  archiveTask:
+    dontShow: "Больше не показывать"
+    description: "Архивация удаляет сеанс Pi и рабочее пространство на стороне агента ({owner}). Это безопасно: история сеанса, вложения и артефакты хранятся в агентстве."
+    title: "Архивировать {noun}"
+    selected: "Выбрано задач: {count}:"
+</i18n>

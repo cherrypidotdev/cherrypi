@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import { isPromptTarget } from "@/lib/notificationLink";
 import { plainNotificationText } from "@/lib/notificationText";
 import type { AttentionNotification } from "@cherrypi/sdk";
@@ -83,9 +84,9 @@ function toastType(severity: string): ToastType {
 }
 
 function toastHint(n: AttentionNotification): string {
-  if (n.taskId) return "Open task";
-  if (n.kind === "team_invitation") return "Open teams";
-  if (isPromptTarget(n)) return "Open prompt";
+  if (n.taskId) return t("attentionToast.openTask");
+  if (n.kind === "team_invitation") return t("attentionToast.openTeams");
+  if (isPromptTarget(n)) return t("attentionToast.openPrompt");
   return "";
 }
 

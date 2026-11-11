@@ -124,8 +124,8 @@ The page has three regions:
   the right opens the details drawer.
 - **Console** — the live Pi transcript. Tool calls are collapsible, questions
   appear inline, and the follow-up composer stays at the bottom.
-- **Details drawer** — assignee, tags, teams, leads, prompt versions, links and
-  usage.
+- **Details drawer** — assignee, tags, teams, leads, prompt versions, the tools
+  the runs declared, links and usage.
 
 ### Progress and planning
 
@@ -256,8 +256,8 @@ The drawer exposes the operational controls:
 | General | Assignee, project, tags, priority, size, teams, leads, links, usage and attachments. |
 | Plan | The plan the running agent published with `reportTaskProgress`: a checklist with `pending`, `in_progress` and `done` steps, the `done/total` count and the current summary. Read-only. |
 | Artifacts | Files published as the task's output. |
-| Prompts | The pinned prompt versions and the composed system prompt. |
-| Logs | The task's change log. |
+| System | The tools the task's runs declared (name, origin, description, arguments) and the pinned prompt versions with the composed system prompt. Clicking a tool's call count filters the Logs to its calls. |
+| Logs | The task's change log, and the tool calls its conversation recorded. A tool call expands into its input and output, fetched when it opens; the download saves the whole call. |
 
 Only project owners and members may prompt. Viewers can read the transcript and
 artifacts.

@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             ChevronRightIcon.size-3.shrink-0
         .flex.items-center.gap-2
           h1.truncate.text-xl.font-semibold {{ project?.name ?? "Project" }}
-          Badge(v-if="project?.archivedAt" variant="secondary") Archived
+          Badge(v-if="project?.archivedAt" variant="secondary") {{ $t("domainLog.kind.archived") }}
         span.text-muted-foreground.truncate.text-sm(
           v-if="project?.description"
         )
@@ -47,35 +47,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         span.text-muted-foreground.font-mono.text-xs {{ project?.slug }}
     Tabs(v-model="tab")
       TabsList
-        TabsTrigger(value="overview") Overview
-        TabsTrigger(value="usage") Usage
-        TabsTrigger(value="concurrency") Concurrency
-        TabsTrigger(value="settings") Settings
+        TabsTrigger(value="overview") {{ $t("projectView.overview") }}
+        TabsTrigger(value="usage") {{ $t("projectView.usage") }}
+        TabsTrigger(value="concurrency") {{ $t("agentConcurrency.title") }}
+        TabsTrigger(value="settings") {{ $t("common.settings") }}
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
 
   Tabs(v-model="tab")
     TabsContent(value="overview")
       .flex.flex-col.gap-6
-        UsageOverview(
-          v-if="project && showUsageKpi"
-          context="project"
-          :project-id="project.id"
-        )
-        ConcurrencyKpis(
-          v-if="project && showConcurrencyKpi"
-          context="project"
-          :project="project"
+        KpiOverview(
+          :page="project ? { kind: 'project', id: project.id } : undefined"
+          :page-context="kpiPageContext"
         )
 
         ExpressTaskForm(v-if="project && canPrompt" :project-id="project.id")
         p.text-muted-foreground.text-sm(v-else-if="project")
-          | You have view-only access to this project.
+          | {{ $t("projectView.viewOnly") }}
 
         Card.overflow-visible
           CardHeader
-            CardTitle Tasks
-            CardDescription Tasks in this project, across agents.
+            CardTitle {{ $t("nav.tasks") }}
+            CardDescription {{ $t("projectView.tasksDescription") }}
           CardContent
             TasksList(
               v-if="project"
@@ -89,6 +83,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     TabsContent.flex-1.overflow-auto(value="concurrency")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
+        ConcurrencyKpis(v-if="project" context="project" :project="project")
         ProjectConcurrency(
           v-if="project"
           :project="project"
@@ -107,6 +102,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import BackButton from "@/components/BackButton.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
 import ProjectConcurrency from "@/components/concurrency/ProjectConcurrency.vue";
+import KpiOverview from "@/components/kpi/KpiOverview.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -119,30 +115,27 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UsageDashboard from "@/components/usage/UsageDashboard.vue";
-import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgents } from "@/composables/useAgents";
 import type { BackFallback } from "@/composables/useBackNavigation";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { useProjects } from "@/composables/useProjects";
-import { useSettings } from "@/composables/useSettings";
+import type { KpiPageContext } from "@/lib/kpiWidgets";
 import { projectAccessApi } from "@/lib/projectAccess";
 import { agency } from "@/lib/sdk";
 import type { Project } from "@cherrypi/sdk";
 import { ChevronRightIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import ProjectSettingsView from "./ProjectSettingsView.vue";
+
+const { t } = useI18n();
 
 const props = defineProps<{ slug: string }>();
 const route = useRoute();
 const router = useRouter();
 const { loadAgents } = useAgents();
-const { settings, loadSettings } = useSettings();
-const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
-const showConcurrencyKpi = computed(
-  () => settings.value?.showConcurrencyKpi !== false,
-);
 const { projects, loadProjects } = useProjects();
 
 const TABS = ["overview", "usage", "concurrency", "settings"];
@@ -152,6 +145,11 @@ const tab = ref(
     : "overview",
 );
 const project = ref<Project>();
+
+const kpiPageContext = computed<KpiPageContext>(() => ({
+  kind: "project",
+  projectId: project.value?.id ?? "",
+}));
 const canPrompt = ref(false);
 
 const canManageProject = ref(false);
@@ -185,7 +183,9 @@ const backFallback = computed<BackFallback>(() => {
 
 const logo = computed(() => toSvg(project.value?.id ?? "project", 48));
 
-watchEffect(() => setPageTitle(project.value?.name || "Project"));
+watchEffect(() =>
+  setPageTitle(project.value?.name || t("admin.projects.columnProject")),
+);
 
 function onProjectChanged(updated: Project) {
   project.value = updated;
@@ -216,6 +216,21 @@ watch(tab, (value) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadAgents(), loadProjects(), loadSettings(), load()]);
+  await Promise.all([loadAgents(), loadProjects(), load()]);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  projectView:
+    usage: "Usage"
+    overview: "Overview"
+    viewOnly: "You have view-only access to this project."
+    tasksDescription: "Tasks in this project, across agents."
+ru:
+  projectView:
+    usage: "Использование"
+    overview: "Обзор"
+    viewOnly: "У вас доступ к этому проекту только для чтения."
+    tasksDescription: "Задачи этого проекта по всем агентам."
+</i18n>

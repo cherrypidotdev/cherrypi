@@ -19,34 +19,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   Alert(v-if="revealed")
-    AlertTitle Personal access token generated
+    AlertTitle {{ $t("admin.agents.tokenTitle") }}
     AlertDescription
-      | Copy the token now — it is shown only once. Set it on the agent as
-      | CHERRYPI_AGENT_TOKEN.
+      | {{ $t("agents.tokenHint") }}
     .mt-3.flex.flex-col.gap-1.font-mono.text-sm
       span {{ revealed }}
     .mt-3.flex.gap-2
       Button(size="sm" variant="outline" @click="copyToken")
         CopyIcon(data-icon="inline-start")
-        span Copy token
-      Button(size="sm" variant="ghost" @click="revealed = undefined") Dismiss
+        span {{ $t("agents.copyToken") }}
+      Button(size="sm" variant="ghost" @click="revealed = undefined") {{ $t("common.dismiss") }}
 
   Card
     CardHeader
-      CardTitle Agents
-      CardDescription Presence is live while an agent's tunnel is connected.
+      CardTitle {{ $t("nav.agents") }}
+      CardDescription {{ $t("admin.agents.description") }}
     CardContent
       p.text-destructive.text-sm(v-if="error") {{ error }}
       Table
         TableHeader
           TableRow
-            TableHead Agent
-            TableHead Username
-            TableHead Status
-            TableHead Concurrency
-            TableHead Version
-            TableHead Address
-            TableHead Last seen
+            TableHead {{ $t("admin.agents.columnAgent") }}
+            TableHead {{ $t("common.username") }}
+            TableHead {{ $t("common.status") }}
+            TableHead {{ $t("agentConcurrency.title") }}
+            TableHead {{ $t("agents.column.version") }}
+            TableHead {{ $t("agents.column.address") }}
+            TableHead {{ $t("admin.agents.lastSeen") }}
             TableHead
         TableBody
           TableRowsSkeleton(
@@ -100,7 +99,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               .flex.justify-end.gap-2
                 Button(variant="outline" size="sm" @click="edit(item)")
                   PencilIcon(data-icon="inline-start")
-                  span Edit
+                  span {{ $t("common.edit") }}
                 Button(
                   variant="outline"
                   size="sm"
@@ -108,45 +107,44 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :disabled="busy === item.id"
                 )
                   Trash2Icon(data-icon="inline-start")
-                  span Delete
+                  span {{ $t("common.delete") }}
           TableRow(v-if="!agents.length && !loading")
-            TableCell.text-muted-foreground(:colspan="8") No agents yet.
+            TableCell.text-muted-foreground(:colspan="8") {{ $t("agents.empty") }}
 
   Card
     CardHeader
-      CardTitle Register agent
+      CardTitle {{ $t("agents.register") }}
       CardDescription
-        | Create an agent before it connects. A personal access token is
-        | generated and shown once.
+        | {{ $t("agents.registerHint") }}
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="create")
         FieldGroup
           Field
-            FieldLabel(for="agent-username") Username
+            FieldLabel(for="agent-username") {{ $t("common.username") }}
             Input#agent-username(
               v-model="username"
-              placeholder="builder-1"
+              :placeholder="$t('admin.agents.usernamePlaceholder')"
               autocomplete="off"
             )
           Field
-            FieldLabel(for="agent-display-name") Display name
+            FieldLabel(for="agent-display-name") {{ $t("admin.agents.displayName") }}
             Input#agent-display-name(
               v-model="displayName"
-              placeholder="Builder"
+              :placeholder="$t('agents.namePlaceholder')"
             )
           Field
-            FieldLabel(for="agent-prompt") Prompt
+            FieldLabel(for="agent-prompt") {{ $t("domainLog.kind.prompt") }}
             Textarea#agent-prompt(
               v-model="prompt"
-              placeholder="Optional instructions for this agent's tasks"
+              :placeholder="$t('agents.promptPlaceholder')"
             )
-            FieldDescription Injected into new tasks on this agent, after the organization prompt.
+            FieldDescription {{ $t("agents.promptHint") }}
         p.text-destructive.text-sm(v-if="createError") {{ createError }}
         .flex.justify-end
           Button(type="submit" :disabled="creating || !username")
             Spinner(v-if="creating" data-icon="inline-start")
             PlusIcon(v-else data-icon="inline-start")
-            span Register
+            span {{ $t("admin.agents.registerSubmit") }}
 </template>
 
 <script setup lang="ts">
@@ -196,8 +194,11 @@ import { type Agent } from "@cherrypi/sdk";
 import { CopyIcon, PencilIcon, PlusIcon, Trash2Icon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const { agents, loading, error, loadAgents, refresh } = useAgents();
 const { stats: fleetStats } = useFleetConcurrency(() => agents.value);
@@ -238,7 +239,7 @@ async function create() {
     );
     revealed.value = result.token;
     if (!result.token) {
-      toast.error("Agent created, but no token was returned.");
+      toast.error(t("agents.errors.noToken"));
     }
     username.value = "";
     displayName.value = "";
@@ -266,7 +267,7 @@ async function remove(item: Agent) {
   busy.value = item.id;
   try {
     await withProgress(() => agency.deleteAgent(item.id));
-    toast.success("Agent deleted");
+    toast.success(t("admin.toasts.agentDeleted"));
     await refresh();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -279,9 +280,42 @@ async function copyToken() {
   if (!revealed.value) return;
   try {
     await navigator.clipboard.writeText(revealed.value);
-    toast.success("Copied");
+    toast.success(t("common.copied"));
   } catch {
-    toast.error("Copy failed");
+    toast.error(t("taskConsole.copyFailed"));
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  agents:
+    tokenHint: "Copy the token now — it is shown only once. Set it on the agent as CHERRYPI_AGENT_TOKEN."
+    copyToken: "Copy token"
+    column:
+      version: "Version"
+      address: "Address"
+    empty: "No agents yet."
+    register: "Register agent"
+    registerHint: "Create an agent before it connects. A personal access token is generated and shown once."
+    promptHint: "Injected into new tasks on this agent, after the organization prompt."
+    namePlaceholder: "Builder"
+    promptPlaceholder: "Optional instructions for this agent's tasks"
+    errors:
+      noToken: "Agent created, but no token was returned."
+ru:
+  agents:
+    tokenHint: "Скопируйте токен сейчас — он показывается только один раз. Задайте его на агенте как CHERRYPI_AGENT_TOKEN."
+    copyToken: "Скопировать токен"
+    column:
+      version: "Версия"
+      address: "Адрес"
+    empty: "Агентов пока нет."
+    register: "Зарегистрировать агента"
+    registerHint: "Создайте агента до его подключения. Персональный токен доступа создаётся и показывается один раз."
+    promptHint: "Добавляется в новые задачи этого агента после промпта организации."
+    namePlaceholder: "Builder"
+    promptPlaceholder: "Необязательные инструкции для задач этого агента"
+    errors:
+      noToken: "Агент создан, но токен не вернулся."
+</i18n>

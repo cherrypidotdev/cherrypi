@@ -36,6 +36,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	agencyevents "cherrypi.vladfaust.com/agency/internal/events"
 	"cherrypi.vladfaust.com/agency/internal/health"
+	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
@@ -99,6 +100,8 @@ type AppContext struct {
 	Plugins *pluginhost.Service
 
 	Input *taskinput.Service
+
+	KpiLayouts *kpilayout.Service
 }
 
 func taskTransitionNotifier(
@@ -403,6 +406,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		DataDir:             config.PluginDataDir,
 		RequirePGDatabase:   config.PluginPGRequireDatabase,
 		AllowPrivateNetwork: config.PluginAllowPrivateNetwork,
+		PublicURL:           config.PublicURL,
 		DisableTicks:        config.PluginDisableTicks,
 	}, pluginStore)
 	pluginsSvc.Projects = projectsSvc
@@ -636,6 +640,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Realtime:      realtimeBus,
 		ProcessLogs:   processLog,
 		Plugins:       pluginsSvc,
+		KpiLayouts:    kpilayout.New(st),
 		Input: &taskinput.Service{
 			Tasks:  tasksSvc,
 			Agents: agentRegistry,

@@ -32,7 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       FileIcon.text-muted-foreground.shrink-0(v-else class="size-3.5")
       span.max-w-40.min-w-0.truncate(:title="item.filename") {{ item.filename }}
       span.text-muted-foreground.shrink-0(v-if="item.kind === 'sketch'")
-        | sketch
+        | {{ $t("stagedAttachments.sketch") }}
       span.text-muted-foreground.shrink-0 {{ size(item) }}
       .flex.shrink-0.items-center.opacity-60.transition-opacity(
         class="gap-0.5 group-hover:opacity-100"
@@ -42,8 +42,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           type="button"
           variant="ghost"
           size="icon-xs"
-          title="Edit sketch"
-          :aria-label="`Edit ${item.filename}`"
+          :title="$t('stagedAttachments.editSketch')"
+          :aria-label="$t('attachments.editNamed', { filename: item.filename })"
           @click="emit('edit', item)"
         )
           PencilIcon.size-3
@@ -52,8 +52,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           as-child
           variant="ghost"
           size="icon-xs"
-          title="Open in new tab"
-          :aria-label="`Open ${item.filename} in a new tab`"
+          :title="$t('taskFiles.openInNewTab')"
+          :aria-label="$t('attachments.openInNewTab', { filename: item.filename })"
         )
           a(rel="noopener noreferrer" :href="item.url" target="_blank")
             ExternalLinkIcon.size-3
@@ -61,13 +61,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           type="button"
           variant="ghost"
           size="icon-xs"
-          title="Delete attachment"
-          :aria-label="`Delete ${item.filename}`"
+          :title="$t('attachments.delete')"
+          :aria-label="$t('attachments.deleteNamed', { filename: item.filename })"
           @click="emit('remove', item.id)"
         )
           Trash2Icon.size-3
   span.text-muted-foreground.text-xs
-    | Uploaded when the task is created.
+    | {{ $t("stagedAttachments.uploadedOnCreate") }}
 </template>
 
 <script setup lang="ts">
@@ -91,3 +91,20 @@ function size(item: StagedAttachment): string {
   return formatFileSize(item.kind === "sketch" ? item.png.size : item.size);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  stagedAttachments:
+    sketch: "sketch"
+    uploadedOnCreate: "Uploaded when the task is created."
+    editSketch: "Edit sketch"
+  attachments:
+    editNamed: "Edit {filename}"
+ru:
+  stagedAttachments:
+    sketch: "набросок"
+    uploadedOnCreate: "Загружается при создании задачи."
+    editSketch: "Изменить набросок"
+  attachments:
+    editNamed: "Изменить {filename}"
+</i18n>

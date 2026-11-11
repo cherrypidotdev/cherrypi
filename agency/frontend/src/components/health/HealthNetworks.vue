@@ -19,19 +19,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Network
-    CardDescription Throughput since the agent's previous sample.
+    CardTitle {{ $t("health.net.title") }}
+    CardDescription {{ $t("health.net.hint") }}
   CardContent
     p.text-muted-foreground.text-sm(v-if="!networks.length")
-      | No network interfaces reported.
+      | {{ $t("health.net.empty") }}
     .overflow-x-auto(v-else)
       table.w-full.text-sm
         thead.text-muted-foreground.text-2xs
           tr.border-b
-            th.pb-2.text-left.font-semibold Interface
-            th.pb-2.text-right.font-semibold Download
-            th.pb-2.text-right.font-semibold Upload
-            th.pb-2.text-right.font-semibold Total in / out
+            th.pb-2.text-left.font-semibold {{ $t("health.net.interface") }}
+            th.pb-2.text-right.font-semibold {{ $t("settings.processLogs.download") }}
+            th.pb-2.text-right.font-semibold {{ $t("health.net.upload") }}
+            th.pb-2.text-right.font-semibold {{ $t("health.net.total") }}
         tbody
           tr.border-b(
             v-for="network in networks"
@@ -59,3 +59,24 @@ import type { AgentNetworkUsage } from "@cherrypi/sdk";
 
 defineProps<{ networks: AgentNetworkUsage[] }>();
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    net:
+      title: "Network"
+      hint: "Throughput since the agent's previous sample."
+      empty: "No network interfaces reported."
+      interface: "Interface"
+      upload: "Upload"
+      total: "Total in / out"
+ru:
+  health:
+    net:
+      title: "Сеть"
+      hint: "Пропускная способность с момента предыдущего замера агента."
+      empty: "Сетевые интерфейсы не сообщены."
+      interface: "Интерфейс"
+      upload: "Отдача"
+      total: "Всего вход / выход"
+</i18n>

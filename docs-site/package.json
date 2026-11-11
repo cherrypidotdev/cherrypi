@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Public CherryPi documentation, served by the agency at /docs.",
   "scripts": {
-    "dev": "vitepress dev --port 5174 --strictPort",
-    "build": "vitepress build && node scripts/check-links.mjs",
+    "dev": "node scripts/generate-llms.mjs && vitepress dev --port 5174 --strictPort",
+    "build": "node scripts/generate-llms.mjs && vitepress build && node scripts/check-links.mjs",
     "preview": "vitepress preview --port 4174",
     "check": "node scripts/check-links.mjs",
     "screenshots": "node scripts/capture-screenshots.mjs"

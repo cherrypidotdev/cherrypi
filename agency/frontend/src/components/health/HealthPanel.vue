@@ -20,14 +20,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-5
   .flex.flex-wrap.items-end.justify-between.gap-4
     div
-      p.text-2xs.text-muted-foreground.font-bold.tracking-widest.uppercase Health
-      h2.mt-1.text-base.font-semibold CPU, memory, disk &amp; devices
+      p.text-2xs.text-muted-foreground.font-bold.tracking-widest.uppercase {{ $t("agentView.tabs.health") }}
+      h2.mt-1.text-base.font-semibold {{ $t("health.panel.title3") }}
       p.text-muted-foreground.mt-1.max-w-xl.text-xs
-        | Host samples pushed by the agent. The latest sample updates live; the
-        | charts read the persisted history.
+        | {{ $t("health.panel.description") }}
     .flex.flex-wrap.items-end.gap-3
       label.flex.flex-col.gap-1
-        span.text-2xs.text-muted-foreground.font-semibold Time range
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("health.panel.range") }}
         .bg-muted.flex.rounded-lg.p-1
           button.text-115.rounded-md.px-2.py-1.font-medium(
             v-for="option in HEALTH_RANGE_OPTIONS"
@@ -36,7 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="range = option.value"
           ) {{ option.label }}
       .flex.flex-col.gap-1.text-right(v-if="current")
-        span.text-2xs.text-muted-foreground.font-semibold Latest sample
+        span.text-2xs.text-muted-foreground.font-semibold {{ $t("health.panel.latest") }}
         span.text-115.font-medium.tabular-nums {{ sampleAgeLabel(current.sampledAt) }}
         Badge.text-2xs(variant="outline" class="mt-0.5") {{ current.scope === "host" ? "host" : "container" }}
 
@@ -45,11 +44,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   .flex.flex-col.items-center.justify-center.rounded-xl.border.border-dashed.py-16.text-center(
     v-if="!loading && !current"
   )
-    span.text-sm.font-medium No health data yet
+    span.text-sm.font-medium {{ $t("health.panel.empty") }}
     p.text-muted-foreground.mt-1.max-w-md.text-xs
-      | The agent reports its first sample shortly after it starts. A binary
-      | older than the agency does not report health, so update it if this
-      | persists.
+      | {{ $t("health.panel.emptyHint") }}
 
   template(v-else)
     HealthKpis(:sample="current" :history="history")
@@ -89,3 +86,24 @@ const range = ref<HealthRange>("24h");
 const agentId = computed(() => props.agentId);
 const { current, history, loading, error } = useAgentHealth(agentId, range);
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    panel:
+      description: "Host samples pushed by the agent. The latest sample updates live; the charts read the persisted history."
+      range: "Time range"
+      latest: "Latest sample"
+      empty: "No health data yet"
+      emptyHint: "The agent reports its first sample shortly after it starts. A binary older than the agency does not report health, so update it if this persists."
+      title3: "CPU, memory, disk & devices"
+ru:
+  health:
+    panel:
+      description: "Замеры хоста, отправленные агентом. Последний замер обновляется в реальном времени; графики используют сохранённую историю."
+      range: "Диапазон времени"
+      latest: "Последний замер"
+      empty: "Данных о здоровье пока нет"
+      emptyHint: "Агент отправляет первый замер вскоре после запуска. Сборка старше агентства не сообщает здоровье — обновите её, если это повторяется."
+      title3: "CPU, память, диск и устройства"
+</i18n>

@@ -29,16 +29,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         variant="ghost"
         size="icon-sm"
         aria-controls="agency-sidebar"
-        :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-        :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        :title="collapsed ? $t('nav.expandSidebar') : $t('nav.collapseSidebar')"
+        :aria-label="collapsed ? $t('nav.expandSidebar') : $t('nav.collapseSidebar')"
         :aria-expanded="!collapsed"
         @click="toggle()"
       )
         PanelLeftOpenIcon(v-if="collapsed")
         PanelLeftCloseIcon(v-else)
       RouterLink.text-primary.flex.min-w-0.flex-1.items-center.gap-2.rounded-md.font-semibold(
-        title="Tasks"
         :to="{ name: 'agency-tasks' }"
+        :title="$t('nav.tasks')"
         :class="collapsed ? 'justify-center py-1' : 'px-1'"
       )
         img.block.size-5.shrink-0.rounded-sm.object-contain(
@@ -49,8 +49,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Button(
         size="icon-sm"
         variant="default"
-        title="New task"
-        aria-label="New task"
+        :title="$t('nav.newTask')"
+        :aria-label="$t('nav.newTask')"
         @click="openNewTask"
       )
         PlusIcon
@@ -61,8 +61,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     )
       SidebarSection(
         :icon="FolderIcon"
-        title="Projects"
         :to="{ name: 'projects' }"
+        :title="$t('nav.projects')"
         :active="isProjectsSectionActive()"
         :open="isSectionOpen('projects')"
         :collapsed="collapsed"
@@ -73,12 +73,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           v-if="!collapsed"
           :to="{ name: 'projects' }"
         )
-          span All projects
+          span {{ $t("nav.allProjects") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="GlobeIcon"
-          title="Sites"
           :to="{ name: 'sites' }"
+          :title="$t('nav.sites')"
           :active="route.name === 'sites' || route.name === 'site'"
           :open="isSectionOpen('sites')"
           :collapsed="collapsed"
@@ -88,7 +88,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.px-3.py-1.text-xs(
             v-if="!sidebarSites.length && !collapsed"
           )
-            | No agency-wide sites
+            | {{ $t("nav.noAgencySites") }}
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
             v-for="site in sidebarSites"
             :key="site.id"
@@ -103,12 +103,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-if="!collapsed"
             :to="{ name: 'sites' }"
           )
-            span All sites
+            span {{ $t("nav.allSites") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="BotIcon"
-          title="Agents"
           :to="{ name: 'agents' }"
+          :title="$t('nav.agents')"
           :active="isAgentsSectionActive()"
           :open="isSectionOpen('agents')"
           :collapsed="collapsed"
@@ -118,7 +118,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.px-3.py-1.text-xs(
             v-if="!sidebarAgents.length && !collapsed"
           )
-            | No agents yet
+            | {{ $t("nav.noAgents") }}
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
             v-for="item in sidebarAgents"
             :key="item.id"
@@ -135,7 +135,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               span.block.size-5(v-else :innerHTML="avatar(item)")
               span.border-sidebar.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
                 :class="item.status === AgentStatus.ONLINE ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-                :title="item.status === AgentStatus.ONLINE ? 'Online' : 'Offline'"
+                :title="item.status === AgentStatus.ONLINE ? $t('nav.online') : $t('nav.offline')"
               )
             span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ item.displayName || item.username }}
             span.ml-auto.inline-flex.shrink-0.items-center(
@@ -160,12 +160,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-if="!collapsed"
             :to="{ name: 'agents' }"
           )
-            span Manage agents
+            span {{ $t("nav.manageAgents") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="UsersIcon"
-          title="Teams"
           :to="{ name: 'teams' }"
+          :title="$t('nav.teams')"
           :active="isTeamsSectionActive()"
           :open="isSectionOpen('teams')"
           :collapsed="collapsed"
@@ -175,7 +175,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.px-3.py-1.text-xs(
             v-if="!sidebarTeams.length && !collapsed"
           )
-            | Not in a team yet
+            | {{ $t("nav.notInTeam") }}
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
             v-for="team in sidebarTeams"
             :key="team.id"
@@ -189,12 +189,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-if="!collapsed"
             :to="{ name: 'teams' }"
           )
-            span All teams
+            span {{ $t("nav.allTeams") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="UserIcon"
-          title="Users"
           :to="{ name: 'users' }"
+          :title="$t('nav.users')"
           :active="isUsersSectionActive()"
           :open="isSectionOpen('users')"
           :collapsed="collapsed"
@@ -204,7 +204,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.px-3.py-1.text-xs(
             v-if="!sidebarUsers.length && !collapsed"
           )
-            | No teammates yet
+            | {{ $t("nav.noTeammates") }}
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
             v-for="person in sidebarUsers"
             :key="person.key"
@@ -243,8 +243,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           as-child
           variant="ghost"
           size="icon-sm"
-          title="Inbox"
-          aria-label="Inbox"
+          :title="$t('nav.inbox')"
+          :aria-label="$t('nav.inbox')"
         )
           RouterLink.relative.flex.items-center.justify-center(
             :to="{ name: 'inbox' }"
@@ -258,8 +258,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           as-child
           variant="ghost"
           size="icon-sm"
-          title="User settings"
-          aria-label="User settings"
+          :title="$t('nav.userSettings')"
+          :aria-label="$t('nav.userSettings')"
         )
           RouterLink.flex.items-center.justify-center(
             :to="{ name: 'account' }"
@@ -269,7 +269,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :class="collapsed ? 'flex-col items-center gap-1 px-1.5 py-2' : 'items-center gap-1 px-2 py-2'"
     )
       span.text-muted-foreground.truncate.font-mono(
-        title="App version"
+        :title="$t('nav.appVersion')"
         :class="collapsed ? 'sr-only' : 'flex-1 text-[10px]'"
       ) {{ appVersion }}
       Button(
@@ -277,8 +277,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         as-child
         variant="ghost"
         size="icon-sm"
-        title="Organization settings"
-        aria-label="Organization settings"
+        :title="$t('nav.orgSettings')"
+        :aria-label="$t('nav.orgSettings')"
       )
         RouterLink.flex.items-center.justify-center(:to="{ name: 'settings' }")
           SlidersHorizontalIcon
@@ -286,8 +286,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         as-child
         variant="ghost"
         size="icon-sm"
-        title="Documentation"
-        aria-label="Documentation"
+        :title="$t('nav.documentation')"
+        :aria-label="$t('nav.documentation')"
       )
         a.flex.items-center.justify-center(
           href="/docs/"
@@ -295,11 +295,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           target="_blank"
         )
           BookOpenIcon
+      LanguageSwitcher
       Button(
         variant="ghost"
         size="icon-sm"
-        :title="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
-        :aria-label="isDark ? 'Switch to light theme' : 'Switch to dark theme'"
+        :title="isDark ? $t('nav.lightTheme') : $t('nav.darkTheme')"
+        :aria-label="isDark ? $t('nav.lightTheme') : $t('nav.darkTheme')"
         @click="toggleDark()"
       )
         MoonIcon(v-if="isDark")
@@ -316,6 +317,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
+import LanguageSwitcher from "@/components/LanguageSwitcher.vue";
 import ProjectsNav from "@/components/ProjectsNav.vue";
 import SidebarSection from "@/components/SidebarSection.vue";
 import TaskComposerDialog from "@/components/tasks/TaskComposerDialog.vue";
@@ -373,7 +375,10 @@ import {
   watch,
   watchEffect,
 } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
+
+const { t } = useI18n();
 
 // vite.config.ts.
 const appVersion = __APP_VERSION__;
@@ -435,7 +440,7 @@ interface SidebarUser {
 
 const username = ref("");
 const displayName = computed(
-  () => currentAccount.value?.name || username.value || "User",
+  () => currentAccount.value?.name || username.value || t("common.user"),
 );
 const userAvatar = computed(() =>
   toSvg(currentAccount.value?.username || username.value || "user", 32),
@@ -501,7 +506,13 @@ function fleetStat(agentId: string) {
 function fleetTitle(agentId: string): string {
   const stat = fleetStat(agentId);
   if (!stat) return "";
-  return `${stat.used}/${stat.cap} slots held${stat.waiting ? ` · ${stat.waiting} waiting` : ""}`;
+  return stat.waiting
+    ? t("nav.fleetBusy", {
+        used: stat.used,
+        cap: stat.cap,
+        waiting: stat.waiting,
+      })
+    : t("nav.fleet", { used: stat.used, cap: stat.cap });
 }
 
 const { section } = usePageTitle();
@@ -611,3 +622,620 @@ function isUsersSectionActive(): boolean {
   return route.name === "users" || route.name === "user";
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  common:
+    user: "User"
+    save: "Save"
+    saveChanges: "Save changes"
+    cancel: "Cancel"
+    close: "Close"
+    delete: "Delete"
+    edit: "Edit"
+    create: "Create"
+    add: "Add"
+    remove: "Remove"
+    search: "Search"
+    loading: "Loading…"
+    saving: "Saving…"
+    none: "None"
+    copy: "Copy"
+    copied: "Copied"
+    refresh: "Refresh"
+    confirm: "Confirm"
+    enabled: "Enabled"
+    disabled: "Disabled"
+    optional: "Optional"
+    name: "Name"
+    description: "Description"
+    title: "Title"
+    status: "Status"
+    actions: "Actions"
+    settings: "Settings"
+    apply: "Apply"
+    reset: "Reset"
+    clear: "Clear"
+    all: "All"
+    dismiss: "Dismiss"
+    open: "Open"
+    unknown: "Unknown"
+    never: "Never"
+    default: "Default"
+    username: "Username"
+    password: "Password"
+    email: "E-mail"
+    newPassword: "New password"
+    confirmPassword: "Confirm password"
+    loadMore: "Load more"
+    enable: "Enable"
+    revoke: "Revoke"
+    verify: "Verify"
+    disable: "Disable"
+    unlink: "Unlink"
+    expiresIn: "Expires in"
+    neverExpires: "Never expires"
+    kind: "Kind"
+    administrator: "an administrator"
+  nav:
+    tasks: "Tasks"
+    projects: "Projects"
+    allProjects: "All projects"
+    sites: "Sites"
+    allSites: "All sites"
+    noAgencySites: "No agency-wide sites"
+    agents: "Agents"
+    noAgents: "No agents yet"
+    manageAgents: "Manage agents"
+    teams: "Teams"
+    notInTeam: "Not in a team yet"
+    allTeams: "All teams"
+    users: "Users"
+    noTeammates: "No teammates yet"
+    inbox: "Inbox"
+    userSettings: "User settings"
+    orgSettings: "Organization settings"
+    documentation: "Documentation"
+    newTask: "New task"
+    expandSidebar: "Expand sidebar"
+    collapseSidebar: "Collapse sidebar"
+    appVersion: "App version"
+    online: "Online"
+    offline: "Offline"
+    lightTheme: "Switch to light theme"
+    darkTheme: "Switch to dark theme"
+    fleet: "{used}/{cap} slots held"
+    fleetBusy: "{used}/{cap} slots held · {waiting} waiting"
+  taskState:
+    backlog: "Backlog"
+    waiting: "Waiting"
+    queued: "Queued"
+    running: "Running"
+    input: "Input"
+    settled: "Settled"
+    failed: "Failed"
+    completed: "Completed"
+    cancelled: "Cancelled"
+    unknown: "Unknown"
+  projectStatus:
+    input: "Input required"
+    running: "Running"
+    settled: "Settled"
+    waiting: "Waiting"
+    queued: "Queued"
+  taskColumns:
+    dragColumn: "Drag to reorder {column}"
+    moveUp: "Move {column} up"
+    moveDown: "Move {column} down"
+    showColumn: "Show {column} column"
+  taskColumn:
+    state: "State"
+    project: "Project"
+    title: "Title"
+    progress: "Progress"
+    badges: "Badges"
+    links: "Links"
+    tags: "Tags"
+    references: "References"
+    priority: "Priority"
+    size: "Size"
+    assignee: "Assignee"
+    cost: "Cost"
+    progressHint: "The agent's reported plan: completed steps out of total"
+    badgesHint: "Status an installed plugin reports for the task (the pull request, CI)"
+    costHint: "Cost across settled and in-flight runs"
+  taskPriority:
+    low: "Low"
+    normal: "Normal"
+    high: "High"
+    critical: "Critical"
+    lowWithDimension: "Low priority"
+    normalWithDimension: "Normal priority"
+    highWithDimension: "High priority"
+    criticalWithDimension: "Critical priority"
+  taskSize:
+    small: "Small"
+    medium: "Medium"
+    big: "Big"
+    epic: "Epic"
+    smallWithDimension: "Small size"
+    mediumWithDimension: "Medium size"
+    bigWithDimension: "Big size"
+    epicWithDimension: "Epic size"
+  projectRole:
+    owner: "Owner"
+    member: "Member"
+    viewer: "Viewer"
+    ownerHint: "Manage access, prompt and edit"
+    memberHint: "Prompt and edit"
+    viewerHint: "View and comment only"
+  usage:
+    range:
+      allTime: "All time"
+      allTimeLower: "all time"
+      lastDays: "last {days} days"
+      lastDaysPill: "Last {days} days"
+    unknownAgent: "Unknown agent"
+    unknownProject: "Unknown project"
+    agentFallback: "Agent {id}"
+    projectFallback: "Project {id}"
+  promptHistory:
+    version: "Version {version}"
+  soundSet:
+    classic: "Classic"
+    classicHint: "The original CherryPi chime, note for note."
+    cherry: "Cherry"
+    cherryHint: "Warm, rounded chimes. The default."
+    wood: "Wood"
+    woodHint: "Marimba and woodblock: a short knock with an organic body."
+    glass: "Glass"
+    glassHint: "Bell and glass partials with a short room around them."
+    arcade: "Arcade"
+    arcadeHint: "Dry chiptune blips: square waves, fast and bright."
+  agentVersion:
+    current: "Up to date"
+    outdated: "Binary should be updated"
+    incompatible: "Binary incompatible"
+    none: "No version reported"
+  attentionToast:
+    openTask: "Open task"
+    openTeams: "Open teams"
+    openPrompt: "Open prompt"
+  concurrency:
+    agentNotFound: "Agent not found"
+  sketch:
+    new: "New sketch"
+  lightbox:
+    taskAttachment: "Task attachment"
+    artifactFile: "Artifact file"
+    artifactSource: "Artifact · {name}"
+    mermaidDiagram: "Mermaid diagram"
+    taskTranscript: "Task transcript"
+    unsentAttachment: "Unsent attachment"
+    inlineImage: "Inline image"
+    inlineImageHost: "Inline image · {host}"
+  mermaid:
+    controls: "Diagram controls"
+    panLeft: "Pan left"
+    panUp: "Pan up"
+    panDown: "Pan down"
+    panRight: "Pan right"
+    zoomOut: "Zoom out"
+    zoomIn: "Zoom in"
+    resetZoom: "Reset zoom"
+    copySource: "Copy diagram source"
+    openEnlarged: "Open diagram enlarged"
+  wait:
+    blocker:
+      reservedLabel: "Reserved for #{tag}"
+      reservedDetail: "{slots} slot(s) are kept for #{tag} tasks ({used} held); a task without #{tag} needs more room than that leaves."
+      offlineLabel: "Agent offline"
+      offlineDetail: "The agent has no tunnel connection."
+      overallLabel: "Overall {used}/{cap}"
+      overallDetail: "Every agent slot is held."
+      projectLabel: "Project {used}/{cap}"
+      projectDetail: "The project cap is full."
+      tagLabel: "#{tag} {used}/{cap}"
+      tagDetail: "The global #{tag} cap is full."
+      projectTagLabel: "#{tag} in project {used}/{cap}"
+      projectTagDetail: "The project × tag cap for #{tag} is full."
+      referenceLabelOne: "Waiting for {task}"
+      referenceLabelMany: "Waiting for {count} tasks"
+      aTask: "a task"
+    row:
+      allProjects: "All projects"
+      agentCap: "agent cap {cap}"
+      globalNameCap: "global name cap {cap}"
+      projectTag: "{project} × #{tag}"
+      projectTagCap: "project × tag cap {cap}"
+    reason:
+      blockersPrefix: "Waiting for tasks to become completed:"
+      blockingTasks: "Waiting for blocking tasks to become completed"
+      freeSlot: "Waiting for free agent slot"
+  tagPreset:
+    feature: "New functionality"
+    bug: "Defect or regression"
+    chore: "Maintenance and housekeeping"
+    docs: "Documentation"
+    refactor: "Restructuring without behaviour change"
+    test: "Test coverage"
+    perf: "Performance work"
+    design: "Design and UX"
+    infra: "Build, CI and infrastructure"
+    question: "Needs an answer or decision"
+  taskProgress:
+    allComplete: "All steps complete"
+  pluginHandler:
+    http: "HTTP requests"
+    tool: "Agent tools"
+    event: "Agency events"
+    tick: "Scheduled ticks"
+    taskTools: "Task tool filter"
+  pluginPermission:
+    network: "Outbound network"
+    networkAnyHost: "Outbound network: any host"
+    routes: "Public HTTP routes"
+    events: "Agency events"
+    tools: "Agent tools"
+    schedule: "Scheduled ticks"
+    scheduleDetail: "Calls handle_tick every {seconds}s while the plugin is enabled."
+    settings: "Settings surfaces"
+    tasks: "Task creation"
+    tasksDetail: "May create tasks in projects where it is installed, capped by each project's switches."
+  pluginScope:
+    org: "Organization"
+    project: "Project"
+    agent: "Agent"
+    user: "User"
+  speech:
+    errors:
+      denied: "Microphone access was denied. Allow it in the browser settings, then try again."
+      network: "Browser speech recognition needs a network connection."
+      noMicrophone: "No microphone was found. Check the system input device and try again."
+      language: "Browser speech recognition does not support this language."
+      failed: "Speech recognition failed: {error}"
+  terminalShortcuts:
+    closeTab: "Close active tab"
+    nextTab: "Next tab"
+    prevTab: "Previous tab"
+    showShortcuts: "Show these shortcuts"
+    switchTabN: "Switch to tab N"
+  pageTitle:
+    designStudio: "Design studio"
+    signIn: "Sign in"
+    signingIn: "Signing in"
+    resetPassword: "Reset password"
+    acceptInvitation: "Accept invitation"
+    orgSettings: "Organization settings"
+    agents: "Agents"
+    tasks: "Tasks"
+    task: "Task"
+    sites: "Sites"
+    site: "Site"
+    usage: "Usage"
+    inbox: "Inbox"
+    projects: "Projects"
+    teams: "Teams"
+    team: "Team"
+    project: "Project"
+    account: "Account"
+    agent: "Agent"
+    users: "Users"
+    user: "User"
+  argType:
+    text: "Text"
+    multiline: "Multiline text"
+    number: "Number"
+    boolean: "Boolean"
+    select: "Select"
+  desktop:
+    fullscreenHint: "Enter fullscreen and send every shortcut (Ctrl+W, Ctrl+T, …) to the desktop. Esc exits."
+    fullscreenHintNoLock: "Enter fullscreen. This browser cannot capture shortcuts it reserves for itself."
+ru:
+  common:
+    user: "Пользователь"
+    save: "Сохранить"
+    saveChanges: "Сохранить изменения"
+    cancel: "Отмена"
+    close: "Закрыть"
+    delete: "Удалить"
+    edit: "Редактировать"
+    create: "Создать"
+    add: "Добавить"
+    remove: "Убрать"
+    search: "Поиск"
+    loading: "Загрузка…"
+    saving: "Сохранение…"
+    none: "Нет"
+    copy: "Скопировать"
+    copied: "Скопировано"
+    refresh: "Обновить"
+    confirm: "Подтвердить"
+    enabled: "Включено"
+    disabled: "Отключено"
+    optional: "Необязательно"
+    name: "Название"
+    description: "Описание"
+    title: "Заголовок"
+    status: "Статус"
+    actions: "Действия"
+    settings: "Настройки"
+    apply: "Применить"
+    reset: "Сбросить"
+    clear: "Очистить"
+    all: "Все"
+    dismiss: "Скрыть"
+    open: "Открыть"
+    unknown: "Неизвестно"
+    never: "Никогда"
+    default: "По умолчанию"
+    username: "Имя пользователя"
+    password: "Пароль"
+    email: "E-mail"
+    newPassword: "Новый пароль"
+    confirmPassword: "Подтвердите пароль"
+    loadMore: "Показать ещё"
+    enable: "Включить"
+    revoke: "Отозвать"
+    verify: "Подтвердить"
+    disable: "Отключить"
+    unlink: "Отвязать"
+    expiresIn: "Срок действия"
+    neverExpires: "Бессрочно"
+    kind: "Тип"
+    administrator: "администратор"
+  nav:
+    tasks: "Задачи"
+    projects: "Проекты"
+    allProjects: "Все проекты"
+    sites: "Сайты"
+    allSites: "Все сайты"
+    noAgencySites: "Нет сайтов агентства"
+    agents: "Агенты"
+    noAgents: "Агентов пока нет"
+    manageAgents: "Управление агентами"
+    teams: "Команды"
+    notInTeam: "Пока нет команды"
+    allTeams: "Все команды"
+    users: "Пользователи"
+    noTeammates: "Коллег пока нет"
+    inbox: "Уведомления"
+    userSettings: "Настройки пользователя"
+    orgSettings: "Настройки организации"
+    documentation: "Документация"
+    newTask: "Новая задача"
+    expandSidebar: "Развернуть панель"
+    collapseSidebar: "Свернуть панель"
+    appVersion: "Версия приложения"
+    online: "В сети"
+    offline: "Не в сети"
+    lightTheme: "Переключить на светлую тему"
+    darkTheme: "Переключить на тёмную тему"
+    fleet: "Занято слотов: {used}/{cap}"
+    fleetBusy: "Занято слотов: {used}/{cap} · в очереди: {waiting}"
+  taskState:
+    backlog: "Бэклог"
+    waiting: "Ожидает"
+    queued: "В очереди"
+    running: "Выполняется"
+    input: "Нужен ввод"
+    settled: "Завершена"
+    failed: "Ошибка"
+    completed: "Выполнена"
+    cancelled: "Отменена"
+    unknown: "Неизвестно"
+  projectStatus:
+    input: "Нужен ввод"
+    running: "Выполняется"
+    settled: "Завершён"
+    waiting: "Ожидает"
+    queued: "В очереди"
+  taskColumns:
+    dragColumn: "Потяните, чтобы изменить порядок: {column}"
+    moveUp: "Переместить {column} выше"
+    moveDown: "Переместить {column} ниже"
+    showColumn: "Показывать колонку {column}"
+  taskColumn:
+    state: "Состояние"
+    project: "Проект"
+    title: "Название"
+    progress: "Прогресс"
+    badges: "Значки"
+    links: "Ссылки"
+    tags: "Теги"
+    references: "Связи"
+    priority: "Приоритет"
+    size: "Размер"
+    assignee: "Исполнитель"
+    cost: "Стоимость"
+    progressHint: "План, опубликованный агентом: выполненные шаги из общего числа"
+    badgesHint: "Статус, который установленный плагин сообщает для задачи (pull request, CI)"
+    costHint: "Стоимость по завершённым и текущим запускам"
+  taskPriority:
+    low: "Низкий"
+    normal: "Обычный"
+    high: "Высокий"
+    critical: "Критический"
+    lowWithDimension: "Низкий приоритет"
+    normalWithDimension: "Обычный приоритет"
+    highWithDimension: "Высокий приоритет"
+    criticalWithDimension: "Критический приоритет"
+  taskSize:
+    small: "Малый"
+    medium: "Средний"
+    big: "Большой"
+    epic: "Огромный"
+    smallWithDimension: "Малый размер"
+    mediumWithDimension: "Средний размер"
+    bigWithDimension: "Большой размер"
+    epicWithDimension: "Огромный размер"
+  projectRole:
+    owner: "Владелец"
+    member: "Участник"
+    viewer: "Наблюдатель"
+    ownerHint: "Управляет доступом, отправляет промпты и редактирует"
+    memberHint: "Отправляет промпты и редактирует"
+    viewerHint: "Только просмотр и комментарии"
+  usage:
+    range:
+      allTime: "За всё время"
+      allTimeLower: "за всё время"
+      lastDays: "последние {days} дн."
+      lastDaysPill: "Последние {days} дн."
+    unknownAgent: "Неизвестный агент"
+    unknownProject: "Неизвестный проект"
+    agentFallback: "Агент {id}"
+    projectFallback: "Проект {id}"
+  promptHistory:
+    version: "Версия {version}"
+  soundSet:
+    classic: "Классика"
+    classicHint: "Оригинальный звон CherryPi, нота в ноту."
+    cherry: "Вишня"
+    cherryHint: "Тёплые, мягкие звоны. По умолчанию."
+    wood: "Дерево"
+    woodHint: "Маримба и деревянный блок: короткий стук с живым телом."
+    glass: "Стекло"
+    glassHint: "Колокол и стеклянные обертоны с коротким залом."
+    arcade: "Аркада"
+    arcadeHint: "Сухие чиптюн-сигналы: прямоугольные волны, быстро и ярко."
+  agentVersion:
+    current: "Актуально"
+    outdated: "Сборку нужно обновить"
+    incompatible: "Сборка несовместима"
+    none: "Версия не сообщена"
+  attentionToast:
+    openTask: "Открыть задачу"
+    openTeams: "Открыть команды"
+    openPrompt: "Открыть промпт"
+  concurrency:
+    agentNotFound: "Агент не найден"
+  sketch:
+    new: "Новый набросок"
+  lightbox:
+    taskAttachment: "Вложение задачи"
+    artifactFile: "Файл артефакта"
+    artifactSource: "Артефакт · {name}"
+    mermaidDiagram: "Диаграмма Mermaid"
+    taskTranscript: "Переписка задачи"
+    unsentAttachment: "Неотправленное вложение"
+    inlineImage: "Встроенное изображение"
+    inlineImageHost: "Встроенное изображение · {host}"
+  mermaid:
+    controls: "Управление диаграммой"
+    panLeft: "Сдвинуть влево"
+    panUp: "Сдвинуть вверх"
+    panDown: "Сдвинуть вниз"
+    panRight: "Сдвинуть вправо"
+    zoomOut: "Уменьшить"
+    zoomIn: "Увеличить"
+    resetZoom: "Сбросить масштаб"
+    copySource: "Скопировать исходник диаграммы"
+    openEnlarged: "Открыть диаграмму крупнее"
+  wait:
+    blocker:
+      reservedLabel: "Зарезервировано для #{tag}"
+      reservedDetail: "Для задач #{tag} оставлено слотов: {slots} (занято {used}); задаче без #{tag} нужно больше места, чем остаётся."
+      offlineLabel: "Агент не в сети"
+      offlineDetail: "У агента нет соединения через туннель."
+      overallLabel: "Общий {used}/{cap}"
+      overallDetail: "Все слоты агента заняты."
+      projectLabel: "Проект {used}/{cap}"
+      projectDetail: "Лимит проекта исчерпан."
+      tagLabel: "#{tag} {used}/{cap}"
+      tagDetail: "Глобальный лимит #{tag} исчерпан."
+      projectTagLabel: "#{tag} в проекте {used}/{cap}"
+      projectTagDetail: "Лимит проект × тег для #{tag} исчерпан."
+      referenceLabelOne: "Ожидает {task}"
+      referenceLabelMany: "Ожидает задач: {count}"
+      aTask: "задачу"
+    row:
+      allProjects: "Все проекты"
+      agentCap: "лимит агента {cap}"
+      globalNameCap: "глобальный лимит тега {cap}"
+      projectTag: "{project} × #{tag}"
+      projectTagCap: "лимит проект × тег {cap}"
+    reason:
+      blockersPrefix: "Ожидает завершения задач:"
+      blockingTasks: "Ожидает завершения блокирующих задач"
+      freeSlot: "Ожидает свободного слота агента"
+  tagPreset:
+    feature: "Новая функциональность"
+    bug: "Дефект или регрессия"
+    chore: "Обслуживание и уборка"
+    docs: "Документация"
+    refactor: "Реструктуризация без изменения поведения"
+    test: "Тестовое покрытие"
+    perf: "Работа над производительностью"
+    design: "Дизайн и UX"
+    infra: "Сборка, CI и инфраструктура"
+    question: "Нужен ответ или решение"
+  taskProgress:
+    allComplete: "Все шаги выполнены"
+  pluginHandler:
+    http: "HTTP-запросы"
+    tool: "Инструменты агента"
+    event: "События агентства"
+    tick: "Плановые тики"
+    taskTools: "Фильтр инструментов задачи"
+  pluginPermission:
+    network: "Исходящая сеть"
+    networkAnyHost: "Исходящая сеть: любой хост"
+    routes: "Публичные HTTP-маршруты"
+    events: "События агентства"
+    tools: "Инструменты агента"
+    schedule: "Плановые тики"
+    scheduleDetail: "Вызывает handle_tick каждые {seconds} с, пока плагин включён."
+    settings: "Поверхности настроек"
+    tasks: "Создание задач"
+    tasksDetail: "Может создавать задачи в проектах, где установлен, в пределах переключателей каждого проекта."
+  pluginScope:
+    org: "Организация"
+    project: "Проект"
+    agent: "Агент"
+    user: "Пользователь"
+  speech:
+    errors:
+      denied: "Доступ к микрофону запрещён. Разрешите его в настройках браузера и повторите попытку."
+      network: "Распознаванию речи в браузере нужно сетевое подключение."
+      noMicrophone: "Микрофон не найден. Проверьте устройство ввода в системе и повторите попытку."
+      language: "Распознавание речи в браузере не поддерживает этот язык."
+      failed: "Распознавание речи не удалось: {error}"
+  terminalShortcuts:
+    closeTab: "Закрыть активную вкладку"
+    nextTab: "Следующая вкладка"
+    prevTab: "Предыдущая вкладка"
+    showShortcuts: "Показать эти сочетания"
+    switchTabN: "Перейти к вкладке N"
+  pageTitle:
+    designStudio: "Студия дизайна"
+    signIn: "Вход"
+    signingIn: "Вход"
+    resetPassword: "Сброс пароля"
+    acceptInvitation: "Принятие приглашения"
+    orgSettings: "Настройки организации"
+    agents: "Агенты"
+    tasks: "Задачи"
+    task: "Задача"
+    sites: "Сайты"
+    site: "Сайт"
+    usage: "Использование"
+    inbox: "Уведомления"
+    projects: "Проекты"
+    teams: "Команды"
+    team: "Команда"
+    project: "Проект"
+    account: "Аккаунт"
+    agent: "Агент"
+    users: "Пользователи"
+    user: "Пользователь"
+  argType:
+    text: "Текст"
+    multiline: "Многострочный текст"
+    number: "Число"
+    boolean: "Логическое"
+    select: "Список"
+  desktop:
+    fullscreenHint: "Войдите в полноэкранный режим, чтобы отправлять на рабочий стол все сочетания (Ctrl+W, Ctrl+T, …). Esc — выход."
+    fullscreenHintNoLock: "Войдите в полноэкранный режим. Этот браузер не отдаёт сочетания, закреплённые за собой."
+</i18n>

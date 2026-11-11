@@ -60,24 +60,7 @@ var enabled atomic.Bool
 func Enabled() bool { return enabled.Load() }
 
 func Setup(ctx context.Context, cfg Config) (*Provider, error) {
-	serviceName := strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
-	if serviceName == "" {
-		serviceName = cfg.ServiceName
-	}
-	if serviceName == "" {
-		serviceName = "cherrypi-agency"
-	}
-
-	res, err := resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-		resource.WithProcess(),
-		resource.WithHost(),
-		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
-			semconv.ServiceVersion(cfg.ServiceVersion),
-		),
-	)
+	res, err := newResource(ctx, cfg)
 	if err != nil {
 
 		log.Printf("OpenTelemetry resource is partial: %v", err)
@@ -160,6 +143,27 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	}
 
 	return p.shutdown(ctx)
+}
+
+func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
+	serviceName := strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
+	if serviceName == "" {
+		serviceName = cfg.ServiceName
+	}
+	if serviceName == "" {
+		serviceName = "cherrypi-agency"
+	}
+
+	return resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithProcess(),
+		resource.WithHost(),
+		resource.WithAttributes(
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
+		),
+	)
 }
 
 func (p *Provider) shutdown(ctx context.Context) error {

@@ -19,31 +19,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Tabs(v-model="tab")
   TabsList
-    TabsTrigger(value="users") Users
-    TabsTrigger(value="teams") Teams
-    TabsTrigger(value="projects") Projects
-    TabsTrigger(value="agents") Agents
-    TabsTrigger(value="activity") Activity
+    TabsTrigger(value="users") {{ $t("nav.users") }}
+    TabsTrigger(value="teams") {{ $t("nav.teams") }}
+    TabsTrigger(value="projects") {{ $t("nav.projects") }}
+    TabsTrigger(value="agents") {{ $t("nav.agents") }}
+    TabsTrigger(value="activity") {{ $t("activity.title") }}
 
   TabsContent(value="users")
     .flex.flex-col.gap-6
       Card
         CardHeader
-          CardTitle Invite a user
+          CardTitle {{ $t("admin.invite.title") }}
           CardDescription
-            | Reserve a username and hand out a one-time password. The invitee
-            | must change it on first sign-in.
+            | {{ $t("admin.invite.description") }}
         CardContent
           form.flex.flex-wrap.items-end.gap-2(@submit.prevent="inviteUser")
             Field.w-56
-              FieldLabel(for="admin-invite-username") Username
+              FieldLabel(for="admin-invite-username") {{ $t("common.username") }}
               Input#admin-invite-username(
                 v-model="inviteUsername"
-                placeholder="jane"
+                :placeholder="$t('admin.invite.usernamePlaceholder')"
                 autocomplete="off"
               )
             Field.w-40
-              FieldLabel Role
+              FieldLabel {{ $t("admin.role") }}
               Select(
                 :model-value="inviteRole"
                 @update:model-value="inviteRole = String($event)"
@@ -51,33 +50,33 @@ Tabs(v-model="tab")
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="member") Member
-                  SelectItem(value="admin") Administrator
+                  SelectItem(value="member") {{ $t("admin.roleMember") }}
+                  SelectItem(value="admin") {{ $t("admin.roleAdmin") }}
             Button(
               type="submit"
               :disabled="inviting || !inviteUsername.trim()"
             )
               Spinner(v-if="inviting" data-icon="inline-start")
               SendIcon(v-else data-icon="inline-start")
-              span Invite
+              span {{ $t("admin.invite.submit") }}
           Alert.mt-4(v-if="invited")
-            AlertTitle Invitation created
+            AlertTitle {{ $t("admin.invite.created") }}
             AlertDescription
-              | Share this one-time password with @{{ invited.username }}.
+              | {{ $t("admin.invite.sharePassword", { username: invited.username }) }}
             code.bg-muted.mt-2.block.rounded-md.px-2.py-1.font-mono.text-sm.break-all {{ invited.password }}
       Card
         CardHeader
-          CardTitle Users
-          CardDescription Accounts, roles, and status.
+          CardTitle {{ $t("nav.users") }}
+          CardDescription {{ $t("admin.users.description") }}
         CardContent
           p.text-destructive.text-sm(v-if="usersError") {{ usersError }}
           Table
             TableHeader
               TableRow
-                TableHead Username
-                TableHead Role
-                TableHead Status
-                TableHead Last login
+                TableHead {{ $t("common.username") }}
+                TableHead {{ $t("admin.role") }}
+                TableHead {{ $t("common.status") }}
+                TableHead {{ $t("admin.users.lastLogin") }}
                 TableHead
             TableBody
               TableRowsSkeleton(
@@ -88,7 +87,7 @@ Tabs(v-model="tab")
                 TableCell.font-medium
                   .flex.items-center.gap-2
                     span {{ user.username }}
-                    Badge(v-if="user.invitation" variant="secondary") invited
+                    Badge(v-if="user.invitation" variant="secondary") {{ $t("admin.users.statusInvited") }}
                 TableCell
                   Select(
                     :model-value="user.role"
@@ -97,8 +96,8 @@ Tabs(v-model="tab")
                     SelectTrigger
                       SelectValue
                     SelectContent
-                      SelectItem(value="member") Member
-                      SelectItem(value="admin") Admin
+                      SelectItem(value="member") {{ $t("admin.roleMember") }}
+                      SelectItem(value="admin") {{ $t("settings.tabs.admin") }}
                 TableCell
                   Select(
                     :model-value="user.status"
@@ -107,9 +106,9 @@ Tabs(v-model="tab")
                     SelectTrigger
                       SelectValue
                     SelectContent
-                      SelectItem(value="invited") Invited
-                      SelectItem(value="active") Active
-                      SelectItem(value="disabled") Disabled
+                      SelectItem(value="invited") {{ $t("admin.users.statusInvitedLabel") }}
+                      SelectItem(value="active") {{ $t("admin.users.statusActive") }}
+                      SelectItem(value="disabled") {{ $t("common.disabled") }}
                 TableCell.text-muted-foreground {{ formatDate(user.last_login_at) }}
                 TableCell
                   .flex.justify-end
@@ -119,45 +118,48 @@ Tabs(v-model="tab")
                       @click="removeUser(user)"
                     )
                       Trash2Icon(data-icon="inline-start")
-                      span Delete
+                      span {{ $t("common.delete") }}
               TableRow(v-if="!users.length && !usersLoading")
-                TableCell.text-muted-foreground(:colspan="5") No users.
+                TableCell.text-muted-foreground(:colspan="5") {{ $t("admin.users.empty") }}
       AdminActivityCard(
         scope="user"
-        title="User activity"
-        description="Authentication and account mutations from the user log."
+        :title="$t('admin.users.activityTitle')"
+        :description="$t('admin.users.activityDescription')"
       )
 
   TabsContent(value="teams")
     .flex.flex-col.gap-6
       Card
         CardHeader
-          CardTitle Create a team
-          CardDescription Teams carry access to projects and own tasks.
+          CardTitle {{ $t("admin.teams.create") }}
+          CardDescription {{ $t("admin.teams.createHint") }}
         CardContent
           form.flex.flex-wrap.items-end.gap-2(@submit.prevent="createTeam")
             Field.w-56
-              FieldLabel(for="admin-team-name") Name
-              Input#admin-team-name(v-model="teamName" placeholder="Platform")
+              FieldLabel(for="admin-team-name") {{ $t("common.name") }}
+              Input#admin-team-name(
+                v-model="teamName"
+                :placeholder="$t('admin.teams.platform')"
+              )
             Field.flex-1
-              FieldLabel(for="admin-team-description") Description
+              FieldLabel(for="admin-team-description") {{ $t("common.description") }}
               Input#admin-team-description(v-model="teamDescription")
             Button(type="submit" :disabled="creatingTeam || !teamName.trim()")
               Spinner(v-if="creatingTeam" data-icon="inline-start")
               PlusIcon(v-else data-icon="inline-start")
-              span Create
+              span {{ $t("common.create") }}
       Card
         CardHeader
-          CardTitle Teams
-          CardDescription Every team in the agency.
+          CardTitle {{ $t("nav.teams") }}
+          CardDescription {{ $t("admin.teams.description") }}
         CardContent
           p.text-destructive.text-sm(v-if="teamsError") {{ teamsError }}
           Table
             TableHeader
               TableRow
-                TableHead Team
-                TableHead Members
-                TableHead Created
+                TableHead {{ $t("admin.teams.columnTeam") }}
+                TableHead {{ $t("admin.teams.columnMembers") }}
+                TableHead {{ $t("admin.teams.columnCreated") }}
                 TableHead
             TableBody
               TableRowsSkeleton(
@@ -179,32 +181,32 @@ Tabs(v-model="tab")
                       @click="removeTeam(team)"
                     )
                       Trash2Icon(data-icon="inline-start")
-                      span Delete
+                      span {{ $t("common.delete") }}
               TableRow(v-if="!teams.length && !teamsLoading")
-                TableCell.text-muted-foreground(:colspan="4") No teams.
+                TableCell.text-muted-foreground(:colspan="4") {{ $t("admin.teams.empty") }}
       AdminActivityCard(
         scope="team"
-        title="Team activity"
-        description="Membership and settings changes from the team log."
+        :title="$t('admin.teams.activityTitle')"
+        :description="$t('admin.teams.activityDescription')"
       )
 
   TabsContent(value="projects")
     .flex.flex-col.gap-6
       Card
         CardHeader
-          CardTitle Projects
-          CardDescription Every project in the agency.
+          CardTitle {{ $t("nav.projects") }}
+          CardDescription {{ $t("admin.projects.description") }}
           CardAction
             Button(as-child variant="outline" size="sm")
-              RouterLink(:to="{ name: 'projects' }") New project
+              RouterLink(:to="{ name: 'projects' }") {{ $t("admin.projects.create") }}
         CardContent
           p.text-destructive.text-sm(v-if="projectsError") {{ projectsError }}
           Table
             TableHeader
               TableRow
-                TableHead Project
-                TableHead Slug
-                TableHead Status
+                TableHead {{ $t("admin.projects.columnProject") }}
+                TableHead {{ $t("settings.auth.slug") }}
+                TableHead {{ $t("common.status") }}
                 TableHead
             TableBody
               TableRowsSkeleton(
@@ -240,34 +242,33 @@ Tabs(v-model="tab")
                       @click="removeProject(project)"
                     )
                       Trash2Icon(data-icon="inline-start")
-                      span Delete
+                      span {{ $t("common.delete") }}
               TableRow(v-if="!projects.length && !projectsLoading")
-                TableCell.text-muted-foreground(:colspan="4") No projects.
+                TableCell.text-muted-foreground(:colspan="4") {{ $t("admin.projects.empty") }}
       AdminActivityCard(
         scope="project"
-        title="Project activity"
-        description="Access, prompt, and archive changes from the project log."
+        :title="$t('admin.projects.activityTitle')"
+        :description="$t('admin.projects.activityDescription')"
       )
 
   TabsContent(value="agents")
     .flex.flex-col.gap-6
       Card
         CardHeader
-          CardTitle Register an agent
+          CardTitle {{ $t("admin.agents.register") }}
           CardDescription
-            | A personal access token and a legacy tunnel credential are shown
-            | once.
+            | {{ $t("admin.agents.registerHint") }}
         CardContent
           form.flex.flex-wrap.items-end.gap-2(@submit.prevent="createAgent")
             Field.w-56
-              FieldLabel(for="admin-agent-username") Username
+              FieldLabel(for="admin-agent-username") {{ $t("common.username") }}
               Input#admin-agent-username(
                 v-model="agentUsername"
-                placeholder="builder-1"
+                :placeholder="$t('admin.agents.usernamePlaceholder')"
                 autocomplete="off"
               )
             Field.w-56
-              FieldLabel(for="admin-agent-name") Display name
+              FieldLabel(for="admin-agent-name") {{ $t("admin.agents.displayName") }}
               Input#admin-agent-name(v-model="agentDisplayName")
             Button(
               type="submit"
@@ -275,26 +276,25 @@ Tabs(v-model="tab")
             )
               Spinner(v-if="creatingAgent" data-icon="inline-start")
               PlusIcon(v-else data-icon="inline-start")
-              span Register
+              span {{ $t("admin.agents.registerSubmit") }}
           Alert.mt-4(v-if="agentToken")
-            AlertTitle Personal access token generated
+            AlertTitle {{ $t("admin.agents.tokenTitle") }}
             AlertDescription
-              | Copy the token now — it is shown only once. Set it as
-              | CHERRYPI_AGENT_TOKEN on the agent.
+              | {{ $t("admin.agents.tokenHint") }}
             code.bg-muted.mt-2.block.rounded-md.px-2.py-1.font-mono.text-sm.break-all {{ agentToken }}
       Card
         CardHeader
-          CardTitle Agents
-          CardDescription Presence is live while an agent's tunnel is connected.
+          CardTitle {{ $t("nav.agents") }}
+          CardDescription {{ $t("admin.agents.description") }}
         CardContent
           p.text-destructive.text-sm(v-if="agentsError") {{ agentsError }}
           Table
             TableHeader
               TableRow
-                TableHead Agent
-                TableHead Username
-                TableHead Status
-                TableHead Last seen
+                TableHead {{ $t("admin.agents.columnAgent") }}
+                TableHead {{ $t("common.username") }}
+                TableHead {{ $t("common.status") }}
+                TableHead {{ $t("admin.agents.lastSeen") }}
                 TableHead
             TableBody
               TableRowsSkeleton(
@@ -322,13 +322,13 @@ Tabs(v-model="tab")
                       @click="removeAgent(agent)"
                     )
                       Trash2Icon(data-icon="inline-start")
-                      span Delete
+                      span {{ $t("common.delete") }}
               TableRow(v-if="!agents.length && !agentsLoading")
-                TableCell.text-muted-foreground(:colspan="5") No agents.
+                TableCell.text-muted-foreground(:colspan="5") {{ $t("admin.agents.empty") }}
       AdminActivityCard(
         scope="agent"
-        title="Agent activity"
-        description="Ownership, credential, and settings changes from the agent log."
+        :title="$t('admin.agents.activityTitle')"
+        :description="$t('admin.agents.activityDescription')"
       )
 
   TabsContent(value="activity")
@@ -386,8 +386,11 @@ import {
   Trash2Icon,
 } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const tab = ref("users");
 
@@ -497,7 +500,7 @@ async function removeUser(user: AdminUser) {
   if (!window.confirm(`Delete user "${user.username}"?`)) return;
   try {
     await withProgress(() => accountApi.deleteUser(user.id));
-    toast.success("User deleted");
+    toast.success(t("admin.toasts.userDeleted"));
     await loadUsers();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -512,7 +515,7 @@ async function createTeam() {
     );
     teamName.value = "";
     teamDescription.value = "";
-    toast.success("Team created");
+    toast.success(t("admin.toasts.teamCreated"));
     await loadTeams();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -525,7 +528,7 @@ async function removeTeam(team: Team) {
   if (!window.confirm(`Delete team "${team.name}"?`)) return;
   try {
     await withProgress(() => teamApi.remove(team.id));
-    toast.success("Team deleted");
+    toast.success(t("admin.toasts.teamDeleted"));
     await loadTeams();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -536,10 +539,10 @@ async function toggleArchive(project: Project) {
   try {
     if (project.archivedAt) {
       await withProgress(() => unarchiveProject(project.id));
-      toast.success("Project unarchived");
+      toast.success(t("admin.toasts.projectUnarchived"));
     } else {
       await withProgress(() => archiveProject(project.id));
-      toast.success("Project archived");
+      toast.success(t("admin.toasts.projectArchived"));
     }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -555,7 +558,7 @@ async function removeProject(project: Project) {
     return;
   try {
     await withProgress(() => deleteProject(project.id));
-    toast.success("Project deleted");
+    toast.success(t("admin.toasts.projectDeleted"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   }
@@ -589,7 +592,7 @@ async function removeAgent(agent: Agent) {
   }
   try {
     await withProgress(() => agency.deleteAgent(agent.id));
-    toast.success("Agent deleted");
+    toast.success(t("admin.toasts.agentDeleted"));
     await refreshAgents();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -611,3 +614,128 @@ onMounted(async () => {
   ]);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  admin:
+    agents:
+      columnAgent: "Agent"
+      register: "Register an agent"
+      registerHint: "A personal access token and a legacy tunnel credential are shown once."
+      displayName: "Display name"
+      registerSubmit: "Register"
+      tokenTitle: "Personal access token generated"
+      tokenHint: "Copy the token now — it is shown only once. Set it as CHERRYPI_AGENT_TOKEN on the agent."
+      description: "Presence is live while an agent's tunnel is connected."
+      lastSeen: "Last seen"
+      empty: "No agents."
+      usernamePlaceholder: "builder-1"
+      activityTitle: "Agent activity"
+      activityDescription: "Ownership, credential, and settings changes from the agent log."
+    users:
+      statusInvited: "invited"
+      statusInvitedLabel: "Invited"
+      description: "Accounts, roles, and status."
+      lastLogin: "Last login"
+      statusActive: "Active"
+      empty: "No users."
+      activityTitle: "User activity"
+      activityDescription: "Authentication and account mutations from the user log."
+    toasts:
+      userDeleted: "User deleted"
+      agentDeleted: "Agent deleted"
+      projectDeleted: "Project deleted"
+      projectArchived: "Project archived"
+      projectUnarchived: "Project unarchived"
+      teamDeleted: "Team deleted"
+      teamCreated: "Team created"
+    roleMember: "Member"
+    projects:
+      columnProject: "Project"
+      description: "Every project in the agency."
+      create: "New project"
+      empty: "No projects."
+      activityTitle: "Project activity"
+      activityDescription: "Access, prompt, and archive changes from the project log."
+    teams:
+      columnCreated: "Created"
+      columnMembers: "Members"
+      platform: "Platform"
+      create: "Create a team"
+      createHint: "Teams carry access to projects and own tasks."
+      description: "Every team in the agency."
+      columnTeam: "Team"
+      empty: "No teams."
+      activityTitle: "Team activity"
+      activityDescription: "Membership and settings changes from the team log."
+    invite:
+      title: "Invite a user"
+      description: "Reserve a username and hand out a one-time password. The invitee must change it on first sign-in."
+      submit: "Invite"
+      created: "Invitation created"
+      usernamePlaceholder: "jane"
+      sharePassword: "Share this one-time password with {'@'}{username}."
+    role: "Role"
+    roleAdmin: "Administrator"
+ru:
+  admin:
+    agents:
+      columnAgent: "Агент"
+      register: "Зарегистрировать агента"
+      registerHint: "Персональный токен доступа и устаревшие учётные данные туннеля показываются один раз."
+      displayName: "Отображаемое имя"
+      registerSubmit: "Зарегистрировать"
+      tokenTitle: "Персональный токен доступа создан"
+      tokenHint: "Скопируйте токен сейчас — он показывается только один раз. Задайте его как CHERRYPI_AGENT_TOKEN на агенте."
+      description: "Присутствие активно, пока подключён туннель агента."
+      lastSeen: "Последняя активность"
+      empty: "Агентов нет."
+      usernamePlaceholder: "builder-1"
+      activityTitle: "Активность агентов"
+      activityDescription: "Изменения владельцев, учётных данных и настроек из журнала агентов."
+    users:
+      statusInvited: "приглашён"
+      statusInvitedLabel: "Приглашён"
+      description: "Аккаунты, роли и статус."
+      lastLogin: "Последний вход"
+      statusActive: "Активен"
+      empty: "Пользователей нет."
+      activityTitle: "Активность пользователей"
+      activityDescription: "Аутентификация и изменения аккаунтов из журнала пользователей."
+    toasts:
+      userDeleted: "Пользователь удалён"
+      agentDeleted: "Агент удалён"
+      projectDeleted: "Проект удалён"
+      projectArchived: "Проект архивирован"
+      projectUnarchived: "Проект разархивирован"
+      teamDeleted: "Команда удалена"
+      teamCreated: "Команда создана"
+    roleMember: "Участник"
+    projects:
+      columnProject: "Проект"
+      description: "Все проекты агентства."
+      create: "Новый проект"
+      empty: "Проектов нет."
+      activityTitle: "Активность проектов"
+      activityDescription: "Изменения доступа, промпта и архива из журнала проектов."
+    teams:
+      columnCreated: "Создана"
+      columnMembers: "Участники"
+      platform: "Платформа"
+      create: "Создать команду"
+      createHint: "Команды дают доступ к проектам и владеют задачами."
+      description: "Все команды агентства."
+      columnTeam: "Команда"
+      empty: "Команд нет."
+      activityTitle: "Активность команд"
+      activityDescription: "Изменения состава и настроек из журнала команд."
+    invite:
+      title: "Пригласить пользователя"
+      description: "Зарезервируйте имя пользователя и выдайте одноразовый пароль. Приглашённый должен сменить его при первом входе."
+      submit: "Пригласить"
+      created: "Приглашение создано"
+      usernamePlaceholder: "jane"
+      sharePassword: "Передайте этот одноразовый пароль пользователю {'@'}{username}."
+    role: "Роль"
+    roleAdmin: "Администратор"
+</i18n>

@@ -328,6 +328,10 @@ func compile(source string) error {
 	return err
 }
 
+func Compile(source string) error {
+	return compile(source)
+}
+
 func compileTemplate(source string) (*exec.Template, error) {
 	loader, err := loaders.NewMemoryLoader(map[string]string{"/template": source})
 	if err != nil {
@@ -348,6 +352,10 @@ func renderSource(source string, data map[string]any) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+func Render(source string, data map[string]any) (string, error) {
+	return renderSource(source, data)
 }
 
 func renderVersion(t Template, v Version, argsJSON string) (Rendered, error) {

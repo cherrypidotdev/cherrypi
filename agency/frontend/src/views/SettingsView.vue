@@ -19,42 +19,42 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   .flex.flex-col.gap-1
-    h1.text-lg.font-semibold Organization settings
-    p.text-muted-foreground.text-sm Agency-wide configuration. Only administrators can open this page.
+    h1.text-lg.font-semibold {{ $t("nav.orgSettings") }}
+    p.text-muted-foreground.text-sm {{ $t("settings.subtitle") }}
 
   Card(v-if="!isAdmin")
     CardHeader
-      CardTitle Administrators only
+      CardTitle {{ $t("settings.adminOnly.title") }}
       CardDescription
-        | Ask an administrator if you need an agency-wide setting changed.
+        | {{ $t("settings.adminOnly.description") }}
   template(v-else)
     Tabs(v-model="tab")
       TabsList
-        TabsTrigger(value="general") General
-        TabsTrigger(value="plugins") Plugins
-        TabsTrigger(value="auth") Auth
-        TabsTrigger(value="integrations") Integrations
-        TabsTrigger(value="admin") Admin
-        TabsTrigger(value="logs") Logs
+        TabsTrigger(value="general") {{ $t("settings.tabs.general") }}
+        TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
+        TabsTrigger(value="auth") {{ $t("account.tabs.auth") }}
+        TabsTrigger(value="integrations") {{ $t("settings.tabs.integrations") }}
+        TabsTrigger(value="admin") {{ $t("settings.tabs.admin") }}
+        TabsTrigger(value="logs") {{ $t("settings.tabs.logs") }}
 
       TabsContent(value="general")
         .flex.flex-col.gap-6
           Card
             CardHeader
-              CardTitle General
-              CardDescription The agency's identity, task columns, and organization prompt.
+              CardTitle {{ $t("settings.tabs.general") }}
+              CardDescription {{ $t("settings.general.description") }}
             CardContent.flex.flex-col.gap-6
               form.flex.flex-col.gap-4(@submit.prevent="save")
                 FieldGroup
                   Field
-                    FieldLabel(for="agency-name") Agency name
+                    FieldLabel(for="agency-name") {{ $t("settings.general.agencyName") }}
                     Input#agency-name(
                       v-model="name"
                       placeholder="CherryPi"
                       maxlength="100"
                     )
                   Field
-                    FieldLabel(for="primary-color") Primary color
+                    FieldLabel(for="primary-color") {{ $t("settings.general.primaryColor") }}
                     .flex.items-center.gap-2
                       input#primary-color.border-input.h-8.w-12.cursor-pointer.rounded-md.border.bg-transparent(
                         type="color"
@@ -75,10 +75,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         @click="resetColor"
                       )
                         RotateCcwIcon(data-icon="inline-start")
-                        span Reset
-                    FieldDescription Empty uses the built-in default; text contrast adapts automatically.
+                        span {{ $t("common.reset") }}
+                    FieldDescription {{ $t("settings.general.colorHint") }}
                   Field
-                    FieldLabel Logo
+                    FieldLabel {{ $t("settings.general.logo") }}
                     PictureUpload(
                       agency-kind="logo"
                       fallback-image="/logo.png"
@@ -87,10 +87,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       @changed="onLogoChanged"
                     )
                     FieldDescription
-                      | Shown in the sidebar and used as the default favicon. Empty
-                      | uses the bundled cherry artwork.
+                      | {{ $t("settings.general.logoHint") }}
                   Field
-                    FieldLabel Favicon
+                    FieldLabel {{ $t("settings.general.favicon") }}
                     PictureUpload(
                       agency-kind="favicon"
                       shape="square"
@@ -98,46 +97,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       :picture="settings?.favicon"
                       @changed="onFaviconChanged"
                     )
-                    FieldDescription Defaults to the logo when empty.
+                    FieldDescription {{ $t("settings.general.faviconHint") }}
                 Separator
                 .flex.flex-col.gap-4
                   .flex.flex-col
-                    span.text-sm.font-medium Overview KPIs
+                    span.text-sm.font-medium {{ $t("settings.kpi.layouts.title") }}
                     span.text-muted-foreground.text-xs
-                      | Choose which summary rows appear on the Agent, Project and
-                      | agency Tasks overviews. The Usage pages always show the
-                      | full strip.
-                  .flex.items-center.justify-between.gap-3
-                    .flex.flex-col
-                      span.text-sm.font-medium Show Usage KPIs
-                      span.text-muted-foreground.text-xs
-                        | Cost, tokens, rounds and time to completion. The agency
-                        | Tasks overview and the Usage pages also show completed
-                        | tasks, thinking time and active time.
-                    Switch(
-                      :model-value="showUsageKpi"
-                      @update:model-value="showUsageKpi = Boolean($event)"
-                    )
-                  .flex.items-center.justify-between.gap-3
-                    .flex.flex-col
-                      span.text-sm.font-medium Show Concurrency KPIs
-                      span.text-muted-foreground.text-xs
-                        | Slots held, waiting work, free slots and full caps.
-                    Switch(
-                      :model-value="showConcurrencyKpi"
-                      @update:model-value="showConcurrencyKpi = Boolean($event)"
-                    )
+                      | {{ $t("settings.kpi.layouts.description") }}
+                  KpiLayoutDefaultsPanel
                 Separator
                 .flex.flex-col.gap-3
                   .flex.flex-col
-                    span.text-sm.font-medium Notification sounds
+                    span.text-sm.font-medium {{ $t("settings.sounds.title") }}
                     span.text-muted-foreground.text-xs
-                      | The sound set every browser in the agency uses for task
-                      | notifications. Each user controls their own volume in User
-                      | settings.
+                      | {{ $t("settings.sounds.description") }}
                   .flex.flex-wrap.items-end.gap-3
                     Field.flex-1
-                      FieldLabel(for="org-notification-sound-set") Sound set
+                      FieldLabel(for="org-notification-sound-set") {{ $t("settings.sounds.set") }}
                       Select(v-model="notificationSoundSet")
                         SelectTrigger#org-notification-sound-set.w-full
                           SelectValue
@@ -146,13 +122,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                             v-for="set in SOUND_SETS"
                             :key="set.id"
                             :value="set.id"
-                          ) {{ set.name }}
-                      FieldDescription {{ selectedSoundSet.description }}
+                          ) {{ $t(set.nameKey) }}
+                      FieldDescription {{ $t(selectedSoundSet.descriptionKey) }}
                     Button(
                       type="button"
                       variant="outline"
                       size="sm"
-                      :aria-label="previewing ? 'Stop the sound preview' : 'Preview this sound set'"
+                      :aria-label="previewing ? $t('settings.sounds.stopAria') : $t('settings.sounds.previewAria')"
                       @click="previewSound"
                     )
                       Spinner(v-if="previewing" data-icon="inline-start")
@@ -163,19 +139,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   Button(type="submit" :disabled="saving")
                     Spinner(v-if="saving" data-icon="inline-start")
                     CheckIcon(v-else data-icon="inline-start")
-                    span Save
+                    span {{ $t("common.save") }}
 
               Separator
 
               .flex.flex-col.gap-2
                 .flex.flex-col
-                  span.text-sm.font-medium Organization prompt
+                  span.text-sm.font-medium {{ $t("settings.prompt.title") }}
                   span.text-muted-foreground.text-xs
-                    | Injected into every new task's system prompt, before the agent,
-                    | project, and agent-project prompts. Edits affect future tasks
-                    | only.
+                    | {{ $t("settings.prompt.description") }}
                 PromptEditor(
-                  placeholder="Organization-wide instructions…"
+                  :placeholder="$t('settings.prompt.placeholder')"
                   :scope="PromptScope.ORG"
                 )
 
@@ -195,11 +169,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .flex.flex-col.gap-6
           VoiceInputPanel
           Alert
-            AlertTitle Webhooks
+            AlertTitle {{ $t("settings.webhooks.title") }}
             AlertDescription
-              | Org-wide webhooks are being simplified: they will fire on every
-              | agency event and no longer offer an event picker. That change is
-              | tracked in CHPI-176.
+              | {{ $t("settings.webhooks.description") }}
           WebhooksPanel
 
       TabsContent(value="admin")
@@ -214,6 +186,7 @@ import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AdminPanel from "@/components/settings/AdminPanel.vue";
 import AuthProvidersPanel from "@/components/settings/AuthProvidersPanel.vue";
+import KpiLayoutDefaultsPanel from "@/components/settings/KpiLayoutDefaultsPanel.vue";
 import PluginsPanel from "@/components/settings/PluginsPanel.vue";
 import ProcessLogsPanel from "@/components/settings/ProcessLogsPanel.vue";
 import SMTPSettingsPanel from "@/components/settings/SMTPSettingsPanel.vue";
@@ -245,7 +218,6 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withProgress } from "@/composables/useProgress";
 import { useSettings } from "@/composables/useSettings";
@@ -279,8 +251,6 @@ watch(
 const name = ref("");
 const primary = ref("");
 const hexDraft = ref("");
-const showUsageKpi = ref(true);
-const showConcurrencyKpi = ref(true);
 const notificationSoundSet = ref("cherry");
 const saving = ref(false);
 
@@ -316,8 +286,6 @@ onMounted(async () => {
   await loadSettings(true);
   name.value = settings.value?.agencyName ?? "";
   primary.value = settings.value?.primaryColor ?? "";
-  showUsageKpi.value = settings.value?.showUsageKpi !== false;
-  showConcurrencyKpi.value = settings.value?.showConcurrencyKpi !== false;
   notificationSoundSet.value = settings.value?.notificationSoundSet || "cherry";
 });
 
@@ -369,8 +337,6 @@ async function save() {
       saveSettings({
         agencyName: name.value.trim(),
         primaryColor: primary.value,
-        showUsageKpi: showUsageKpi.value,
-        showConcurrencyKpi: showConcurrencyKpi.value,
         notificationSoundSet: notificationSoundSet.value,
       }),
     );
@@ -382,3 +348,84 @@ async function save() {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  settings:
+    tabs:
+      general: "General"
+      integrations: "Integrations"
+      admin: "Admin"
+      logs: "Logs"
+    sounds:
+      title: "Notification sounds"
+      description: "The sound set every browser in the agency uses for task notifications. Each user controls their own volume in User settings."
+      set: "Sound set"
+      preview: "Preview"
+      stop: "Stop"
+      previewAria: "Preview this sound set"
+      stopAria: "Stop the sound preview"
+    webhooks:
+      title: "Webhooks"
+      description: "Org-wide webhooks are being simplified: they will fire on every agency event and no longer offer an event picker. That change is tracked in CHPI-176."
+    subtitle: "Agency-wide configuration. Only administrators can open this page."
+    adminOnly:
+      title: "Administrators only"
+      description: "Ask an administrator if you need an agency-wide setting changed."
+    general:
+      description: "The agency's identity, task columns, and organization prompt."
+      agencyName: "Agency name"
+      primaryColor: "Primary color"
+      colorHint: "Empty uses the built-in default; text contrast adapts automatically."
+      logo: "Logo"
+      logoHint: "Shown in the sidebar and used as the default favicon. Empty uses the bundled cherry artwork."
+      favicon: "Favicon"
+      faviconHint: "Defaults to the logo when empty."
+    prompt:
+      title: "Organization prompt"
+      description: "Injected into every new task's system prompt, before the agent, project, and agent-project prompts. Edits affect future tasks only."
+      placeholder: "Organization-wide instructions…"
+    kpi:
+      layouts:
+        title: "Overview KPI layouts"
+        description: "The agency Tasks page and every project and agent Overview render a KPI widget layout. Administrators arrange the Tasks page; a project or agent owner arranges that page. A page nobody has arranged shows no KPIs, and the Usage and Concurrency tabs keep their fixed strips."
+ru:
+  settings:
+    tabs:
+      general: "Общие"
+      integrations: "Интеграции"
+      admin: "Администрирование"
+      logs: "Журналы"
+    sounds:
+      title: "Звуки уведомлений"
+      description: "Набор звуков для уведомлений о задачах во всех браузерах агентства. Каждый пользователь настраивает громкость в настройках пользователя."
+      set: "Набор звуков"
+      preview: "Прослушать"
+      stop: "Остановить"
+      previewAria: "Прослушать этот набор звуков"
+      stopAria: "Остановить прослушивание"
+    webhooks:
+      title: "Вебхуки"
+      description: "Вебхуки агентства упрощаются: они будут срабатывать на каждое событие агентства, а выбор событий исчезнет. Это изменение отслеживается в CHPI-176."
+    subtitle: "Настройки агентства. Эту страницу могут открывать только администраторы."
+    adminOnly:
+      title: "Только для администраторов"
+      description: "Попросите администратора изменить настройку агентства."
+    general:
+      description: "Идентичность агентства, колонки задач и общий промпт."
+      agencyName: "Название агентства"
+      primaryColor: "Основной цвет"
+      colorHint: "Пустое значение использует встроенный цвет по умолчанию; контраст текста подстраивается автоматически."
+      logo: "Логотип"
+      logoHint: "Показывается в боковой панели и используется как favicon по умолчанию. Пустое значение использует встроенный рисунок вишни."
+      favicon: "Favicon"
+      faviconHint: "Если пусто, используется логотип."
+    prompt:
+      title: "Общий промпт"
+      description: "Добавляется в системный промпт каждой новой задачи, перед промптами агента, проекта и агента в проекте. Изменения влияют только на будущие задачи."
+      placeholder: "Инструкции для всего агентства…"
+    kpi:
+      layouts:
+        title: "Макеты KPI в обзоре"
+        description: "На странице задач агентства и в каждом обзоре проекта и агента показывается макет виджетов KPI. Страницу задач настраивают администраторы; страницу проекта или агента — её владелец. Страница без настроенного макета не показывает KPI, а вкладки «Использование» и «Параллельность» сохраняют свои фиксированные сводки."
+</i18n>

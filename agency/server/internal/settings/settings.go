@@ -30,8 +30,6 @@ import (
 const (
 	keyAgencyName           = "agency_name"
 	keyPrimaryColor         = "primary_color"
-	keyShowUsageKPI         = "show_usage_kpi"
-	keyShowConcurrencyKPI   = "show_concurrency_kpi"
 	keyNotificationSoundSet = "notification_sound_set"
 	keyVoiceInputEnabled    = "voice_input_enabled"
 	keySTTBaseURL           = "stt_base_url"
@@ -68,9 +66,6 @@ type Settings struct {
 	AgencyName   string
 	PrimaryColor string
 
-	ShowUsageKPI       bool
-	ShowConcurrencyKPI bool
-
 	NotificationSoundSet string
 
 	VoiceInputEnabled bool
@@ -106,8 +101,6 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	}
 
 	out := Settings{
-		ShowUsageKPI:         true,
-		ShowConcurrencyKPI:   true,
 		NotificationSoundSet: DefaultNotificationSoundSet,
 		STTModel:             DefaultSTTModel,
 	}
@@ -117,10 +110,6 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 			out.AgencyName = row.Value
 		case keyPrimaryColor:
 			out.PrimaryColor = row.Value
-		case keyShowUsageKPI:
-			out.ShowUsageKPI = parseBoolDefault(row.Value)
-		case keyShowConcurrencyKPI:
-			out.ShowConcurrencyKPI = parseBoolDefault(row.Value)
 		case keyNotificationSoundSet:
 			if notificationSoundSets[row.Value] {
 				out.NotificationSoundSet = row.Value
@@ -143,8 +132,6 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	}
 	return out, nil
 }
-
-func parseBoolDefault(value string) bool { return parseBool(value, true) }
 
 func parseBool(value string, def bool) bool {
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
@@ -230,24 +217,6 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	if err := s.store.UpsertSetting(
 		ctx,
 		store.UpsertSettingParams{
-			Key:   keyShowUsageKPI,
-			Value: strconv.FormatBool(in.ShowUsageKPI),
-		},
-	); err != nil {
-		return Settings{}, err
-	}
-	if err := s.store.UpsertSetting(
-		ctx,
-		store.UpsertSettingParams{
-			Key:   keyShowConcurrencyKPI,
-			Value: strconv.FormatBool(in.ShowConcurrencyKPI),
-		},
-	); err != nil {
-		return Settings{}, err
-	}
-	if err := s.store.UpsertSetting(
-		ctx,
-		store.UpsertSettingParams{
 			Key:   keyNotificationSoundSet,
 			Value: soundSet,
 		},
@@ -271,8 +240,6 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	return Settings{
 		AgencyName:           name,
 		PrimaryColor:         color,
-		ShowUsageKPI:         in.ShowUsageKPI,
-		ShowConcurrencyKPI:   in.ShowConcurrencyKPI,
 		NotificationSoundSet: soundSet,
 		VoiceInputEnabled:    in.VoiceInputEnabled,
 		STTBaseURL:           baseURL,

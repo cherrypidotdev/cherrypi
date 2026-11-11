@@ -169,7 +169,7 @@ type Session struct {
 
 	waiting bool
 
-	queue QueueEvent
+	queue []queueEntry
 
 	pendingActivity *Event
 
@@ -267,7 +267,6 @@ type record struct {
 	Reason string `json:"reason"`
 
 	Steering []string `json:"steering"`
-	FollowUp []string `json:"followUp"`
 
 	ToolCallID    string          `json:"toolCallId"`
 	ToolName      string          `json:"toolName"`
@@ -350,37 +349,57 @@ func (s *Session) promptConfigured(
 		}
 	}
 
-	now := time.Now().UnixMilli()
-	if err := s.store.SetSessionPendingPrompt(ctx, sqlitedb.SetSessionPendingPromptParams{
-		PendingPrompt: sql.NullString{String: text, Valid: true},
-		UpdatedAt:     now,
-		ID:            s.ID,
-	}); err != nil {
-		return err
-	}
-
-	fields := map[string]any{"message": text}
-	if len(images) > 0 {
-		parts := make([]map[string]any, 0, len(images))
-		for _, image := range images {
-			parts = append(parts, map[string]any{
-				"type":     "image",
-				"data":     base64.StdEncoding.EncodeToString(image.data),
-				"mimeType": image.mimeType,
-			})
-		}
-		fields["images"] = parts
-	}
-
 	s.mu.Lock()
 	running := s.running
 	s.mu.Unlock()
+
+	held := s.takeHeldQueue()
+	opening := QueuedPrompt{Text: text}
+	openingImages := images
+	var following []pendingDelivery
+	if len(held) > 0 {
+
+		opening = held[0].entry
+		openingImages = reloadImages(held[0].images)
+		following = append(following, held[1:]...)
+		following = append(following, pendingDelivery{
+			entry:  QueuedPrompt{Text: text},
+			images: images,
+		})
+	}
+
+	now := time.Now().UnixMilli()
+	if err := s.store.SetSessionPendingPrompt(ctx, sqlitedb.SetSessionPendingPromptParams{
+		PendingPrompt: sql.NullString{String: opening.Text, Valid: true},
+		UpdatedAt:     now,
+		ID:            s.ID,
+	}); err != nil {
+
+		s.restoreHeld(held)
+		return err
+	}
+
+	fields := map[string]any{"message": opening.Text}
+	if len(openingImages) > 0 {
+		fields["images"] = imageParts(openingImages)
+	}
+
 	if running {
 
 		fields["streamingBehavior"] = "steer"
 	}
 
+	var openingEntry QueuedPrompt
+	if running {
+		openingEntry = s.mirrorQueued(opening, openingImages)
+	}
+
 	if _, err := s.send(ctx, "prompt", fields); err != nil {
+
+		if running {
+			s.forgetQueued(openingEntry.ID)
+		}
+		s.restoreHeld(held)
 		return err
 	}
 
@@ -389,10 +408,35 @@ func (s *Session) promptConfigured(
 		"task_id", s.agencyTaskID,
 		"steer", running,
 		"images", len(images),
+		"held", len(following),
 	)
 
 	s.setRunning(true)
+
+	for i, delivery := range following {
+		if err := s.steerQueued(ctx, delivery.entry, delivery.images); err != nil {
+			s.restoreHeld(following[i:])
+			return err
+		}
+	}
 	return nil
+}
+
+type pendingDelivery struct {
+	entry  QueuedPrompt
+	images []imageAttachment
+}
+
+func imageParts(images []imageAttachment) []map[string]any {
+	parts := make([]map[string]any, 0, len(images))
+	for _, image := range images {
+		parts = append(parts, map[string]any{
+			"type":     "image",
+			"data":     base64.StdEncoding.EncodeToString(image.data),
+			"mimeType": image.mimeType,
+		})
+	}
+	return parts
 }
 
 func (s *Session) childEnv(ctx context.Context) []string {
@@ -854,6 +898,8 @@ func (s *Session) Stop(ctx context.Context) error {
 	s.stopRequested = true
 	s.mu.Unlock()
 
+	s.holdQueue()
+
 	abortCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	_, err := s.send(abortCtx, "abort", nil)
 	cancel()
@@ -912,6 +958,8 @@ func (s *Session) foldInterruptedRun(ctx context.Context) error {
 	s.stopRequested = true
 	s.mu.Unlock()
 
+	s.holdQueue()
+
 	abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	_, _ = s.send(abortCtx, "abort", nil)
 	cancel()
@@ -948,15 +996,15 @@ func (s *Session) ClearQueue(ctx context.Context) error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	s.mu.Lock()
-	hasProcess := s.stdin != nil
-	s.mu.Unlock()
-	if !hasProcess {
-		return nil
-	}
+	s.clearQueued()
+	return nil
+}
 
-	_, err := s.send(ctx, "clear_queue", nil)
-	return err
+func (s *Session) RemoveQueued(ctx context.Context, id string) (bool, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	return s.dropQueued(id), nil
 }
 
 func (s *Session) Restart() error {
@@ -1233,7 +1281,7 @@ func (s *Session) handleRecord(b []byte) {
 		}
 
 	case "queue_update":
-		s.setQueue(rec.Steering, rec.FollowUp)
+		s.setQueue(rec.Steering)
 
 	case "tool_execution_start":
 		s.startTool(rec.ToolCallID, time.Now())
@@ -1464,6 +1512,9 @@ func (s *Session) stopProcess() {
 	s.failPendingLocked("session stopped")
 	s.stopping = true
 	s.mu.Unlock()
+
+	s.markQueueHeld()
+	s.persistQueue()
 
 	defer s.clearPid()
 
@@ -2315,10 +2366,7 @@ func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func
 	}
 	ch <- initial
 
-	queue := QueueEvent{
-		Steering: append([]string(nil), s.queue.Steering...),
-		FollowUp: append([]string(nil), s.queue.FollowUp...),
-	}
+	queue := s.queueEventLocked()
 	ch <- Event{Kind: EventQueue, At: time.Now(), Queue: &queue}
 
 	if s.pendingActivity != nil {
@@ -2337,19 +2385,6 @@ func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func
 		}
 		s.mu.Unlock()
 	}
-}
-
-func (s *Session) setQueue(steering, followUp []string) {
-	queue := QueueEvent{
-		Steering: append([]string(nil), steering...),
-		FollowUp: append([]string(nil), followUp...),
-	}
-
-	s.mu.Lock()
-	s.queue = queue
-	s.mu.Unlock()
-
-	s.emit(Event{Kind: EventQueue, Queue: &queue})
 }
 
 func userMessageText(raw json.RawMessage) string {

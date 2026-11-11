@@ -196,6 +196,8 @@ type Store interface {
 	DeleteSessionByHash(ctx context.Context, tokenHash []byte) error
 	DeleteSessionByID(ctx context.Context, p DeleteSessionByIDParams) error
 	DeleteSessionsByActor(ctx context.Context, actorID ids.ActorID) error
+
+	DeleteSetting(ctx context.Context, key string) error
 	DeleteTagsByProject(ctx context.Context, projectID string) error
 	DeleteTask(ctx context.Context, id string) error
 	DeleteTaskArtifact(ctx context.Context, taskID string, artifactID string) error

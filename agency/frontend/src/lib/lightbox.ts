@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import type { Artifact, ArtifactPart, Attachment } from "@cherrypi/sdk";
 import {
   isImageAttachment,
@@ -57,7 +58,7 @@ export interface TaskLightboxSources {
 
 export function attachmentItem(
   attachment: Attachment,
-  source = "Task attachment",
+  source = t("lightbox.taskAttachment"),
 ): LightboxItem {
   return {
     key: `attachment:${attachment.id}`,
@@ -90,9 +91,9 @@ export function artifactPartItem(
   return {
     key: `artifact:${artifact.artifactId}:${index}`,
     url,
-    filename: part.filename || name || "Artifact file",
+    filename: part.filename || name || t("lightbox.artifactFile"),
     image: isImageArtifactPart(part),
-    source: `Artifact · ${name}`,
+    source: t("lightbox.artifactSource", { name }),
     createdAt: timestampMs(artifact.createdAt),
   };
 }
@@ -108,9 +109,9 @@ export function inlineDiagramItem(diagram: DiagramSource): LightboxItem {
   return {
     key: `diagram:${fingerprint}`,
     url: `mermaid:${fingerprint}`,
-    filename: "Mermaid diagram",
+    filename: t("lightbox.mermaidDiagram"),
     image: false,
-    source: "Task transcript",
+    source: t("lightbox.taskTranscript"),
     createdAt: undefined,
     diagram,
   };
@@ -155,7 +156,7 @@ export function buildTaskLightboxItems({
   }
   for (const attachment of stagedAttachments) {
     if (!isSketchScene(attachment)) {
-      add(attachmentItem(attachment, "Unsent attachment"));
+      add(attachmentItem(attachment, t("lightbox.unsentAttachment")));
     }
   }
   for (const artifact of artifacts) {
@@ -212,10 +213,12 @@ function inlineImageSource(url: string): string {
       parsed.protocol === "blob:" ||
       parsed.origin === window.location.origin
     ) {
-      return "Inline image";
+      return t("lightbox.inlineImage");
     }
-    return parsed.host ? `Inline image · ${parsed.host}` : "Inline image";
+    return parsed.host
+      ? t("lightbox.inlineImageHost", { host: parsed.host })
+      : t("lightbox.inlineImage");
   } catch {
-    return "Inline image";
+    return t("lightbox.inlineImage");
   }
 }

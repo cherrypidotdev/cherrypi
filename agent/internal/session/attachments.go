@@ -38,6 +38,7 @@ type Attachment struct {
 type imageAttachment struct {
 	data     []byte
 	mimeType string
+	path     string
 }
 
 func (m *Manager) materializeAttachments(
@@ -84,7 +85,11 @@ func (m *Manager) materializeAttachments(
 		})
 
 		if isImageContentType(attachment.ContentType) {
-			images = append(images, imageAttachment{data: data, mimeType: attachment.ContentType})
+			images = append(images, imageAttachment{
+				data:     data,
+				mimeType: attachment.ContentType,
+				path:     path,
+			})
 		}
 	}
 

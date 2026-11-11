@@ -18,7 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-2
-  .grid.grid-cols-6(class="gap-1.5" role="radiogroup" aria-label="Tag color")
+  .grid.grid-cols-6(
+    class="gap-1.5"
+    role="radiogroup"
+    :aria-label="$t('tagColor.label')"
+  )
     button.relative.size-7.rounded-full.border.transition-transform(
       v-for="color in TAG_COLORS"
       :key="color.value"
@@ -48,14 +52,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     Input.size-32.font-mono.text-xs(
       v-if="customOpen"
       v-model="custom"
-      placeholder="#rrggbb"
-      aria-label="Custom tag color"
+      :placeholder="$t('tagColor.customPlaceholder')"
       maxlength="7"
+      :aria-label="$t('tagColor.customLabel')"
       @input="onCustom"
       :disabled="disabled"
     )
   p.text-muted-foreground.text-xs(v-if="customOpen && custom && !customValid")
-    | Use a six-digit hex colour, e.g. #6366f1.
+    | {{ $t("tagColor.invalid") }}
 </template>
 
 <script setup lang="ts">
@@ -116,3 +120,18 @@ function onCustom(event: Event) {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  tagColor:
+    invalid: "Use a six-digit hex colour, e.g. #6366f1."
+    label: "Tag color"
+    customPlaceholder: "#rrggbb"
+    customLabel: "Custom tag color"
+ru:
+  tagColor:
+    invalid: "Используйте шестизначный hex-цвет, например #6366f1."
+    label: "Цвет тега"
+    customPlaceholder: "#rrggbb"
+    customLabel: "Свой цвет тега"
+</i18n>

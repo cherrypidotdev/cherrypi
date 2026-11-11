@@ -47,7 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :class="waitingClass"
       :title="waitingTitle"
     )
-      | {{ waiting }} waiting
+      | {{ $t("agentConcurrency.waitingBadge", { count: waiting }) }}
 </template>
 
 <script setup lang="ts">
@@ -130,3 +130,12 @@ const waitingTitle = computed(() => {
   return `${props.waiting} task${props.waiting === 1 ? "" : "s"} waiting.`;
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  agentConcurrency:
+    waitingBadge: "{count} waiting"
+ru:
+  agentConcurrency:
+    waitingBadge: "в очереди: {count}"
+</i18n>

@@ -27,17 +27,17 @@ Card
         span.text-11.text-muted-foreground {{ rows.length }} {{ unitLabel }}
   CardContent.p-0
     p.text-muted-foreground.py-10.text-center.text-sm(v-if="!rows.length")
-      | No completed tasks in this range.
+      | {{ $t("usage.breakdown.empty") }}
     Table(v-else)
       TableHeader
         TableRow
           TableHead {{ entityLabel }}
-          TableHead.text-right Tasks
-          TableHead.text-right TTC
-          TableHead.text-right Active
-          TableHead.text-right Rounds
-          TableHead.text-right Tokens
-          TableHead.text-right Spend
+          TableHead.text-right {{ $t("nav.tasks") }}
+          TableHead.text-right {{ $t("usage.breakdown.ttc") }}
+          TableHead.text-right {{ $t("admin.users.statusActive") }}
+          TableHead.text-right {{ $t("usage.breakdown.rounds") }}
+          TableHead.text-right {{ $t("account.tabs.tokens") }}
+          TableHead.text-right {{ $t("usage.breakdown.spend") }}
       TableBody
         TableRow(v-for="row in rows" :key="row.id")
           TableCell
@@ -54,9 +54,9 @@ Card
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
   CardFooter.justify-between.gap-3
     span.text-2xs.text-muted-foreground
-      | Averages per completed task in range.
+      | {{ $t("usage.breakdown.hint") }}
     span.text-2xs.text-muted-foreground
-      | TTC queue → completion · active excludes idle waits
+      | {{ $t("usage.breakdown.footnote") }}
 </template>
 
 <script setup lang="ts">
@@ -80,6 +80,9 @@ import {
 import type { UsageBreakdownRow } from "@/composables/useUsageAnalytics";
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   rows: UsageBreakdownRow[];
@@ -92,10 +95,33 @@ const unitLabel = computed(() =>
   props.rows.length === 1 ? props.unit.replace(/s$/, "") : props.unit,
 );
 const entityLabel = computed(() =>
-  props.unit === "agents" ? "Agent" : "Project",
+  props.unit === "agents"
+    ? t("admin.agents.columnAgent")
+    : t("admin.projects.columnProject"),
 );
 
 function ttc(row: UsageBreakdownRow): string {
   return row.ttcSamples ? formatDuration(row.ttcMs) : "—";
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    breakdown:
+      empty: "No completed tasks in this range."
+      ttc: "TTC"
+      rounds: "Rounds"
+      spend: "Spend"
+      hint: "Averages per completed task in range."
+      footnote: "TTC queue → completion · active excludes idle waits"
+ru:
+  usage:
+    breakdown:
+      empty: "В этом диапазоне нет завершённых задач."
+      ttc: "TTC"
+      rounds: "Раунды"
+      spend: "Расход"
+      hint: "Средние значения на завершённую задачу в диапазоне."
+      footnote: "TTC от очереди до завершения · активное время без простоев"
+</i18n>

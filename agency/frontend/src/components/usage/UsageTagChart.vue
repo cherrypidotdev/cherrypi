@@ -19,21 +19,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Completed tasks by tag
-    CardDescription Cumulative all-time count · one line per tag · multi-tag tasks count in each line.
+    CardTitle {{ $t("usage.tags.title") }}
+    CardDescription {{ $t("usage.tags.hint") }}
     CardAction
       .flex.flex-wrap.items-center.justify-end.gap-2
-        span.text-11.text-muted-foreground.tabular-nums {{ completed }} completed in range
+        span.text-11.text-muted-foreground.tabular-nums {{ $t("usage.tags.completedInRange", { count: completed }) }}
         label.text-2xs.text-muted-foreground.flex.items-center.gap-1
           Switch(
             size="sm"
             :model-value="includeArchived"
             @update:model-value="emit('update:includeArchived', $event)"
           )
-          | Include archived
+          | {{ $t("usage.tags.includeArchived") }}
   CardContent
     p.text-muted-foreground.py-12.text-center.text-sm(v-if="!series.length")
-      | No completed tasks yet.
+      | {{ $t("usage.tags.empty") }}
     ChartContainer.chart.w-full(v-else class="h-[232px]" :config="config")
       VisXYContainer(:data="rows")
         VisLine(
@@ -60,11 +60,11 @@ Card
       span.flex.items-center.gap-1(v-for="line in series" :key="line.id")
         i.inline-block.size-2.rounded-sm(:style="{ background: line.color }")
         | {{ line.name }}
-    .text-2xs.text-muted-foreground.tabular-nums {{ rangeLabel }} · all-time cumulative
+    .text-2xs.text-muted-foreground.tabular-nums {{ $t("usage.tags.rangeAllTime", { range: rangeLabel }) }}
   CardContent.pt-0
     .text-10.text-muted-foreground.flex.items-start.gap-1
       span.bg-muted.text-8.flex.size-3.shrink-0.items-center.justify-center.rounded-full.font-bold i
-      span Tag lines overlap by design. The first point carries the count completed before the selected range.
+      span {{ $t("usage.tags.footnote") }}
 </template>
 
 <script setup lang="ts">
@@ -136,3 +136,26 @@ const config = computed<ChartConfig>(() => {
   return result;
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    tags:
+      title: "Completed tasks by tag"
+      hint: "Cumulative all-time count · one line per tag · multi-tag tasks count in each line."
+      includeArchived: "Include archived"
+      empty: "No completed tasks yet."
+      footnote: "Tag lines overlap by design. The first point carries the count completed before the selected range."
+      completedInRange: "{count} completed in range"
+      rangeAllTime: "{range} · all-time cumulative"
+ru:
+  usage:
+    tags:
+      title: "Завершённые задачи по тегам"
+      hint: "Накопленное количество за всё время · одна линия на тег · задачи с несколькими тегами учитываются в каждой линии."
+      includeArchived: "Включая архивные"
+      empty: "Завершённых задач пока нет."
+      footnote: "Линии тегов пересекаются намеренно. Первая точка содержит количество, завершённое до выбранного диапазона."
+      completedInRange: "завершено в диапазоне: {count}"
+      rangeAllTime: "{range} · накопительно за всё время"
+</i18n>

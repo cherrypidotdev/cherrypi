@@ -53,6 +53,70 @@ func (h *Host) addTaskMessage(taskID, text string) error {
 	return h.Bridge.AddTaskMessage(h.Ctx, strings.TrimSpace(taskID), text)
 }
 
+func (h *Host) respondTaskInput(taskID, requestID string, value lua.LValue) error {
+	if _, err := h.taskForWrite(taskID); err != nil {
+		return err
+	}
+	answer, err := parseTaskInputAnswer(value)
+	if err != nil {
+		return err
+	}
+	return h.Bridge.RespondTaskInput(
+		h.Ctx,
+		strings.TrimSpace(taskID),
+		strings.TrimSpace(requestID),
+		answer,
+	)
+}
+
+func parseTaskInputAnswer(value lua.LValue) (TaskInputAnswer, error) {
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return TaskInputAnswer{}, errors.New(
+			"the answer must be a { value, confirmed, cancelled, questionnaire } table",
+		)
+	}
+	answer := TaskInputAnswer{}
+	if v := table.RawGetString("cancelled"); v == lua.LTrue {
+		answer.Kind = InputAnswerCancelled
+	} else if v := table.RawGetString("confirmed"); v == lua.LTrue || v == lua.LFalse {
+		answer.Kind = InputAnswerConfirmed
+		answer.Confirmed = v == lua.LTrue
+	} else if v, ok := table.RawGetString("value").(lua.LString); ok {
+		answer.Kind = InputAnswerValue
+		answer.Value = string(v)
+	} else {
+		return TaskInputAnswer{}, errors.New(
+			"the answer needs value, confirmed, or cancelled",
+		)
+	}
+	if raw := table.RawGetString("questionnaire"); raw != lua.LNil {
+		list, ok := raw.(*lua.LTable)
+		if !ok {
+			return TaskInputAnswer{}, errors.New("questionnaire must be a list")
+		}
+		for i := 1; i <= list.Len(); i++ {
+			row, ok := list.RawGetInt(i).(*lua.LTable)
+			if !ok {
+				return TaskInputAnswer{}, fmt.Errorf(
+					"questionnaire row %d must be a table", i,
+				)
+			}
+			question := strings.TrimSpace(row.RawGetString("question").String())
+			if question == "" {
+				return TaskInputAnswer{}, fmt.Errorf(
+					"questionnaire row %d has no question", i,
+				)
+			}
+			answer.Questionnaire = append(answer.Questionnaire, QuestionnaireAnswer{
+				Question: question,
+				Answer:   strings.TrimSpace(row.RawGetString("answer").String()),
+			})
+		}
+	}
+	return answer, nil
+}
+
 func (h *Host) closeTask(taskID, outcome string) error {
 	if _, err := h.taskForWrite(taskID); err != nil {
 		return err

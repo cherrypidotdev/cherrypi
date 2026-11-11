@@ -358,35 +358,57 @@ export type Group =
   | { id: number; kind: "state"; change: StateChange }
   | ({ id: number; kind: "questionnaire" } & QuestionnaireReview);
 
-export function groupStartAt(
+export function groupEnd(
   group: { id: number; kind: string },
   items: Item[],
-): number | undefined {
+): { at?: number; open: boolean } {
   if (group.kind === "activity") {
-    let start: number | undefined;
-    for (const item of (group as Extract<Group, { kind: "activity" }>).items) {
-      if (
-        item.startedAt !== undefined &&
-        (start === undefined || item.startedAt < start)
-      ) {
-        start = item.startedAt;
+    const activity = group as Extract<Group, { kind: "activity" }>;
+    let at: number | undefined;
+    let seen = false;
+    for (const item of activity.items) {
+      if (item.startedAt !== undefined || item.endedAt !== undefined) {
+        seen = true;
       }
+
+      if (
+        item.kind === "tool" &&
+        item.phase !== ToolPhase.FINISHED &&
+        item.interrupted !== true
+      ) {
+        return { at, open: true };
+      }
+      const end = item.endedAt ?? item.startedAt;
+      if (end !== undefined && (at === undefined || end > at)) at = end;
     }
-    return start;
+    return { at: seen ? at : undefined, open: false };
   }
   if (group.kind === "state") {
-    return (group as Extract<Group, { kind: "state" }>).change.at;
+    return {
+      at: (group as Extract<Group, { kind: "state" }>).change.at,
+      open: false,
+    };
+  }
+  if (group.kind === "questionnaire") {
+    const review = group as Extract<Group, { kind: "questionnaire" }>;
+    return { at: review.answeredAt, open: review.answeredAt === undefined };
+  }
+  if (group.kind === "questionnaire-live") {
+    return { at: undefined, open: true };
   }
   const item = items.find((candidate) => candidate.id === group.id);
-  if (!item) return undefined;
+  if (!item) return { at: undefined, open: false };
   if (
     item.kind === "thinking" ||
     item.kind === "tool" ||
     item.kind === "wait"
   ) {
-    return item.startedAt;
+    return {
+      at: item.endedAt ?? item.startedAt,
+      open: item.endedAt === undefined,
+    };
   }
-  return item.at;
+  return { at: item.at, open: false };
 }
 
 const STATE_GROUP_ID_BASE = -2;
@@ -411,8 +433,9 @@ export function mergeStateChanges<T extends { id: number; kind: string }>(
     let index = out.length;
     if (at !== undefined) {
       index = out.findIndex((group) => {
-        const start = groupStartAt(group, items);
-        return start !== undefined && start > at;
+        const end = groupEnd(group, items);
+        if (end.open) return true;
+        return end.at !== undefined && end.at > at;
       });
       if (index < 0) index = out.length;
     }
@@ -570,7 +593,15 @@ export function groupWaitingMs(items: ActivityItem[]): number {
   return total;
 }
 
-export const WAIT_RENDER_MS = 1000;
+export const WAIT_RENDER_MS = 100;
+
+export function absorbsWait(item: Item, next: Item | undefined): boolean {
+  return (
+    item.kind === "wait" &&
+    item.waitKind === ModelWait_Kind.MODEL_REQUEST &&
+    next?.kind === "thinking"
+  );
+}
 
 export function groupElapsed(
   items: ActivityItem[],

@@ -100,6 +100,97 @@ write-only. The agency redacts it in responses, and submitting an empty value
 keeps the stored one.
 :::
 
+### Setup help
+
+A surface may carry a setup guide next to its fields. It renders as a
+collapsible **Setup** block above the form, with the same Markdown the rest of
+the UI renders (tables, links, code, and sanitized HTML). It is manifest text,
+reviewed at install time, not runtime state:
+
+```json
+"settings": {
+  "project": {
+    "type": "object",
+    "setup": {
+      "title": "Webhook setup",
+      "markdown": "Create a webhook at `{{ pluginUrl }}/webhook`."
+    },
+    "properties": { "...": {} }
+  }
+}
+```
+
+`setup` may also be a bare Markdown string, in which case its title is `Setup`.
+The agency fills these well-known placeholders when it serves the form:
+
+| Token | Value |
+| --- | --- |
+| `{{ agencyUrl }}` | The agency's external origin (`CHERRYPI_PUBLIC_URL`), no trailing slash. |
+| `{{ pluginId }}` | The plugin id, e.g. `gitea-reviewer`. |
+| `{{ pluginName }}` | The plugin's display name. |
+| `{{ pluginUrl }}` | `{{ agencyUrl }}/plugins/{{ pluginId }}`. |
+| `{{ scope }}` | The surface being edited: `org`, `project`, `agent`, or `user`. |
+| `{{ targetId }}` | The surface target (project id or actor id; empty for `org`). |
+
+Both `{{ token }}` and `{{token}}` work; an unknown token is left as written.
+A bundle that declares `setup` should require plugin API `>=0.2.4 <0.3.0`.
+
+### Templated settings
+
+A string property with `"format": "template"` is an editable Jinja prompt. Its
+`x-template.variables` map declares the namespaced variables, their descriptions,
+and sample values for the form preview:
+
+```json
+"incident_prompt": {
+  "type": "string",
+  "format": "template",
+  "title": "Incident prompt",
+  "default": "Incident in #{{ channel.name }}: {{ incident.text }}",
+  "x-template": {
+    "variables": {
+      "channel.name": {
+        "type": "string",
+        "description": "Channel name, without the leading #.",
+        "sample": "ops"
+      },
+      "incident.text": {
+        "type": "string",
+        "description": "The report text.",
+        "sample": "Database is down"
+      }
+    }
+  }
+}
+```
+
+An absent value inherits the manifest `default`. The agency validates the
+default at install and every stored value on save: it compiles the Jinja, checks
+that every referenced variable is declared, and smoke-renders it with the
+samples. The form previews drafts through **PreviewPluginTemplate**, so the
+browser never reimplements the engine. The allowed syntax is the same restricted
+Jinja as project task templates: strict undefineds, no includes, macros,
+imports, or inheritance, with source and output caps.
+
+A plugin renders a stored template at runtime with
+`cherrypi.template.render(source, vars)`. It raises on an error; wrap it in
+`pcall` to fall back to the default.
+
+Fields can be folded into collapsible groups with `x-groups`:
+
+```json
+"x-groups": [
+  {
+    "id": "instructions",
+    "title": "Instructions & templates",
+    "fields": ["incident_prompt"]
+  }
+]
+```
+
+A field may appear in at most one group; an unknown field is an install error.
+Ungrouped fields fall into an **Other** group.
+
 ## Write a plugin
 
 ### The manifest
@@ -109,7 +200,7 @@ keeps the stored one.
   "id": "acme-git-reviewer",
   "name": "AcmeGit Reviewer",
   "version": "0.1.0",
-  "requires_agency": ">=0.2.0 <0.3.0",
+  "requires_agency": ">=0.2.2 <0.3.0",
   "description": "Turns review events into review tasks.",
   "runtime": "lua",
   "entry": "main.lua",
@@ -124,6 +215,10 @@ keeps the stored one.
     },
     "project": {
       "type": "object",
+      "setup": {
+        "title": "Webhook setup",
+        "markdown": "Create a webhook at `{{ pluginUrl }}/webhook`."
+      },
       "properties": {
         "git_project_id": { "type": "string" },
         "webhook_secret": { "type": "string", "format": "password" }
@@ -154,7 +249,7 @@ keeps the stored one.
 | `id` | Lowercase slug, 2–48 characters. Becomes `/plugins/<id>/` and `@plugin-<id>`. |
 | `requires_agency` | Semver range of the plugin API the bundle supports. Empty accepts any. |
 | `handlers` | `http`, `tool`, `event`, `tick`, and the optional `task_tools` hook. The first four are inferred from `tools`, `events`, and `schedule` when omitted; `task_tools` is only ever declared. |
-| `settings` | Per-surface JSON Schemas. Only declared surfaces are rendered and readable. |
+| `settings` | Per-surface JSON Schemas, with an optional Markdown `setup` block. Only declared surfaces are rendered and readable. |
 | `tools` | Named tools the plugin can attach to a task. |
 | `project_tools` | Names from `tools` that every task started in an enabled project can call. See [Project tools](#project-tools). |
 | `schedule` | Optional periodic trigger for `handle_tick`: `{ "every_seconds": 5…3600 }`. See [Scheduled ticks](#scheduled-ticks). |
@@ -164,16 +259,14 @@ keeps the stored one.
 | `limits` | Lower the timeout, response size, request size, or concurrency. |
 
 `requires_agency` is the plugin API range the bundle supports. The current API
-is `0.2.3`, which added the optional `task_tools` handler on top of `0.2.2`'s
-`schedule` field and `handle_tick` and `0.2.1`'s `task_hold_released` event. A
-bundle that ticks declares `>=0.2.2 <0.3.0`, because an older agency rejects the
-unknown manifest field. A bundle that narrows its project tools declares
-`>=0.2.3 <0.3.0`, because an older agency drops the unknown handler kind and
-attaches every project tool. Nothing existing changes, so a bundle that does
-neither keeps `>=0.2.0 <0.3.0` and installs on a `0.2.2` agency unchanged — the
-same rule `0.2.1` followed for its optional event, while `0.2.0`'s task holds
-moved the range because a bundle built against them cannot run on a `0.1.0`
-agency.
+is `0.2.6`, which added `cherrypi.respond_task_input` and the dialog fields on
+`task_requested_input`, on top of `0.2.5`'s templated settings, `x-groups`, and
+`cherrypi.template.render(source, vars)`, `0.2.4`'s optional `setup` block and
+`get_org().url`, `0.2.3`'s `task_tools` handler, `0.2.2`'s `schedule` field and
+`handle_tick`, and `0.2.1`'s `task_hold_released` event. A bundle that uses
+templated settings or `x-groups` declares `>=0.2.5 <0.3.0`; one that answers a
+dialog declares `>=0.2.6 <0.3.0`. Because these are patch bumps, bundles that
+already accept the `0.2.x` line keep working.
 
 ### Network allowlist
 
@@ -355,7 +448,7 @@ whose assignee has none, instead of being offered and failing at call time.
 
 | Method | What it does |
 | --- | --- |
-| `cherrypi.get_org()` | Agency identity. |
+| `cherrypi.get_org()` | Agency identity: `id`, `name`, and `url` (the public origin without a trailing slash). |
 | `cherrypi.get_project(id_or_slug)` | Project metadata. Requires membership or an enabled project surface. |
 | `cherrypi.get_team(id)` | Team metadata. Requires plugin team membership. |
 | `cherrypi.get_agent(id_or_actor)` | Agent metadata. Requires the agent or a shared project to have enabled the plugin. |
@@ -365,6 +458,7 @@ whose assignee has none, instead of being offered and failing at call time.
 | `cherrypi.get_task_history(task_id, opts)` | Persisted Pi session entries. |
 | `cherrypi.create_task(input)` | Create a queued task. See below. |
 | `cherrypi.add_task_message(task_id, text)` | Send a follow-up prompt to a task: queues a resting task, appends to a queued, waiting, or input one's pending prompt, steers a running one. A text stashed on an input task is delivered once its dialog is answered, or with the next start if the run ends without an answer; consecutive follow-ups are capped at 20 per task. |
+| `cherrypi.respond_task_input(task_id, request_id, answer)` | Answer a pending dialog on an `input` task. Use `{ value }`, `{ confirmed }`, or `{ cancelled }`. A batch questionnaire needs the extension wire JSON in `value` (`{"answers":[{"index":0,"options":[1]}]}`, 0-based) plus optional `{ questionnaire = { { question, answer }, ... } }` resume pairs. The plugin must lead the task; `create_task` makes it a lead. |
 | `cherrypi.close_task(task_id, outcome)` | Close a task out as `completed` or `cancelled`, attributed to the plugin's actor. A running task is refused, and so is a completed close-out of a task that has not run a follow-up stashed for it yet; a cancel may discard that follow-up. |
 | `cherrypi.set_task_badges(task_id, badges)` | Replace the badges the plugin shows for a task. |
 | `cherrypi.hold_task(task_id, hold)` | Hold a task until the plugin verifies its outcome (`key`, `reason`). Idempotent per key, at most 8 holds per task. See [Task holds](#task-holds). |

@@ -19,17 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Task columns
+    CardTitle {{ $t("taskColumns.title") }}
     CardDescription
-      | Reorder and show or hide the columns in every task table. Saved in
-      | this browser.
+      | {{ $t("taskColumns.description") }}
     CardAction
       Button(variant="outline" size="sm" @click="reset")
         RotateCcwIcon(data-icon="inline-start")
-        span Reset
+        span {{ $t("common.reset") }}
   CardContent.flex.flex-col.gap-2
     p.text-muted-foreground.text-xs
-      | Drag a column to reorder it, or use the arrows.
+      | {{ $t("taskColumns.dragHint") }}
     ul.flex.flex-col.gap-1
       li.flex.items-center.gap-2.rounded-md.border.px-2(
         v-for="(column, index) in columns"
@@ -41,18 +40,18 @@ Card
       )
         span.text-muted-foreground.cursor-grab(
           draggable="true"
-          :title="`Drag to reorder ${column.label}`"
+          :title="$t('taskColumns.dragColumn', { column: $t(column.labelKey) })"
           @dragstart="onDragStart(index)"
           @dragend="onDragEnd"
         )
           GripVerticalIcon.size-4
-        span.flex-1.truncate.text-sm {{ column.label }}
+        span.flex-1.truncate.text-sm {{ $t(column.labelKey) }}
         .flex.items-center(class="gap-0.5")
           Button(
             variant="ghost"
             size="icon-sm"
-            :title="`Move ${column.label} up`"
-            :aria-label="`Move ${column.label} up`"
+            :title="$t('taskColumns.moveUp', { column: $t(column.labelKey) })"
+            :aria-label="$t('taskColumns.moveUp', { column: $t(column.labelKey) })"
             @click="moveBy(column.key, -1)"
             :disabled="index === 0"
           )
@@ -60,15 +59,15 @@ Card
           Button(
             variant="ghost"
             size="icon-sm"
-            :title="`Move ${column.label} down`"
-            :aria-label="`Move ${column.label} down`"
+            :title="$t('taskColumns.moveDown', { column: $t(column.labelKey) })"
+            :aria-label="$t('taskColumns.moveDown', { column: $t(column.labelKey) })"
             @click="moveBy(column.key, 1)"
             :disabled="index === columns.length - 1"
           )
             ChevronDownIcon.size-4
         Switch(
           :model-value="column.visible"
-          :aria-label="`Show ${column.label} column`"
+          :aria-label="$t('taskColumns.showColumn', { column: $t(column.labelKey) })"
           @update:model-value="(value: boolean) => setVisible(column.key, value)"
         )
 </template>
@@ -116,3 +115,16 @@ function onDragEnd() {
   dropIndex.value = null;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  taskColumns:
+    title: "Task columns"
+    description: "Reorder and show or hide the columns in every task table. Saved in this browser."
+    dragHint: "Drag a column to reorder it, or use the arrows."
+ru:
+  taskColumns:
+    title: "Колонки задач"
+    description: "Меняйте порядок и видимость колонок во всех таблицах задач. Сохраняется в этом браузере."
+    dragHint: "Перетащите колонку, чтобы изменить порядок, или используйте стрелки."
+</i18n>

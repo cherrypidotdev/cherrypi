@@ -30,26 +30,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @click="selectTab(terminal.id)"
         )
           TerminalIcon.shrink-0(class="size-3.5")
-          span.truncate Terminal {{ index + 1 }}
+          span.truncate {{ $t("terminals.tabLabel", { index: index + 1 }) }}
         button.flex.shrink-0.items-center.px-1.py-1(
           type="button"
-          title="Close tab"
+          :title="$t('terminals.closeTab')"
           @click.stop="closeTab(terminal.id)"
         )
           XIcon.size-3.shrink-0
       Button.shrink-0(
         variant="ghost"
         size="sm"
-        title="New terminal tab"
+        :title="$t('terminals.newTab')"
         @click="addTab"
       )
         PlusIcon(data-icon="inline-start")
-        span New terminal tab
+        span {{ $t("terminals.newTab") }}
     .flex.shrink-0.items-center.gap-1
       Button(
         variant="ghost"
         size="icon-sm"
-        title="Keyboard shortcuts"
+        :title="$t('terminals.shortcutsHint')"
         @click="showShortcuts = true"
       )
         KeyboardIcon
@@ -63,7 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="terminalCount === 0"
       )
         Trash2Icon(data-icon="inline-start")
-        span Close all
+        span {{ $t("terminals.closeAll") }}
   .relative.min-h-0.flex-1
     template(v-if="ready")
       .absolute.inset-0(
@@ -80,9 +80,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       .text-muted-foreground.flex.h-full.flex-col.items-center.justify-center.gap-2.text-center.text-sm(
         v-if="!terminals.length"
       )
-        span No terminal is running.
+        span {{ $t("terminals.empty") }}
         span.text-xs
-          | Press “New terminal tab” to start one.
+          | {{ $t("terminals.emptyHint") }}
     .flex.h-full.items-center.justify-center(v-else)
       Spinner.text-muted-foreground.size-5
   TerminalShortcutDialog(v-model:open="showShortcuts")
@@ -105,10 +105,13 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
+const { t } = useI18n();
+
 const surface = "root";
-const closeAllTitle = "Close all of your root terminals";
+const closeAllTitle = t("terminals.closeAllTitle");
 
 const terminals = ref<Terminal[]>([]);
 
@@ -198,9 +201,7 @@ async function closeAll() {
   if (terminalCount.value === 0) {
     return;
   }
-  if (
-    !window.confirm("Close all root terminals? Running shells will be killed.")
-  ) {
+  if (!window.confirm(t("terminals.closeAllQuestion"))) {
     return;
   }
   try {
@@ -313,3 +314,28 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydownCapture, true);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  terminals:
+    newTab: "New terminal tab"
+    closeAll: "Close all"
+    empty: "No terminal is running."
+    emptyHint: "Press “New terminal tab” to start one."
+    closeTab: "Close tab"
+    shortcutsHint: "Keyboard shortcuts"
+    tabLabel: "Terminal {index}"
+    closeAllTitle: "Close all of your root terminals"
+    closeAllQuestion: "Close all root terminals? Running shells will be killed."
+ru:
+  terminals:
+    newTab: "Новая вкладка терминала"
+    closeAll: "Закрыть все"
+    empty: "Ни один терминал не запущен."
+    emptyHint: "Нажмите «Новая вкладка терминала», чтобы запустить."
+    closeTab: "Закрыть вкладку"
+    shortcutsHint: "Сочетания клавиш"
+    tabLabel: "Терминал {index}"
+    closeAllTitle: "Закрыть все ваши root-терминалы"
+    closeAllQuestion: "Закрыть все root-терминалы? Запущенные оболочки будут завершены."
+</i18n>

@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import ActivityWait from "@/components/tasks/ActivityWait.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
+import ThinkingBlock from "@/components/tasks/ThinkingBlock.vue";
 import {
   emptyAnswer,
   type QuestionnaireAnswer,
@@ -22,7 +24,12 @@ import {
 } from "@/lib/questionnaire";
 import type { TaskModelSelection } from "@/lib/task";
 import { create } from "@bufbuild/protobuf";
-import { TaskConfigSchema, TaskModelSchema } from "@cherrypi/sdk";
+import {
+  ModelWait_Kind,
+  PendingActivity_Kind,
+  TaskConfigSchema,
+  TaskModelSchema,
+} from "@cherrypi/sdk";
 import type { StudioComponent } from "./types";
 
 const questions: QuestionnaireQuestion[] = [
@@ -149,6 +156,13 @@ const modelSelection: TaskModelSelection = {
 };
 
 const agentId = "agent-vlad-desk";
+
+const reasoning =
+  "The wake guard records the attempt but never backs off, so a dead tunnel is " +
+  "retried in a tight cycle. I need to add the delay where the attempt is " +
+  "recorded, then check the tests that count wake calls.";
+
+const startedAgo = (ms: number) => Date.now() - ms;
 
 export const studioComponents: StudioComponent[] = [
   {
@@ -322,6 +336,109 @@ export const studioComponents: StudioComponent[] = [
           reviewAnswers: noAnswers(),
         },
         width: 520,
+      },
+    ],
+  },
+  {
+    id: "model-wait",
+    name: "Model wait",
+    blurb: "One row inside an activity block, live or replayed from history.",
+    source: "@/components/tasks/ActivityWait.vue",
+    component: ActivityWait,
+    scenarios: [
+      {
+        id: "live",
+        name: "Waiting for model",
+        description:
+          "A request that has not produced its first token yet: the row counts up on its own.",
+        props: {
+          kind: PendingActivity_Kind.MODEL_REQUEST,
+          live: true,
+          since: startedAgo(2_400),
+          provider: "openrouter",
+          model: "anthropic/claude-sonnet-4.5",
+        },
+        width: 480,
+      },
+      {
+        id: "recorded",
+        name: "Recorded request",
+        description:
+          "The same request after it answered, replayed from the transcript with the span it took.",
+        props: {
+          kind: ModelWait_Kind.MODEL_REQUEST,
+          durationMs: 4_200,
+          provider: "openrouter",
+          model: "anthropic/claude-sonnet-4.5",
+        },
+        width: 480,
+      },
+      {
+        id: "retry",
+        name: "Retry backoff",
+        description:
+          "Pi is backing off before it retries; the provider error stays in the tooltip and the attempt comes with it.",
+        props: {
+          kind: ModelWait_Kind.RETRY,
+          durationMs: 2_000,
+          model: "opus-4",
+          error: "529 overloaded",
+          attempt: 1,
+        },
+        width: 480,
+      },
+      {
+        id: "compaction",
+        name: "Compaction",
+        description: "The context was compacted before the run could continue.",
+        props: {
+          kind: ModelWait_Kind.COMPACTION,
+          durationMs: 3_400,
+          reason: "threshold",
+        },
+        width: 480,
+      },
+    ],
+  },
+  {
+    id: "thinking",
+    name: "Thinking block",
+    blurb:
+      "A model's reasoning as a tool call without a body: its own time, characters and rate, with the text behind the chevron.",
+    source: "@/components/tasks/ThinkingBlock.vue",
+    component: ThinkingBlock,
+    scenarios: [
+      {
+        id: "settled",
+        name: "Settled",
+        description:
+          "A finished block: the span, the characters and the rate it wrote them at.",
+        props: {
+          text: reasoning,
+          startedAt: Date.UTC(2026, 10, 9, 14, 5, 0),
+          endedAt: Date.UTC(2026, 10, 9, 14, 5, 9),
+        },
+        width: 480,
+      },
+      {
+        id: "streaming",
+        name: "Streaming",
+        description:
+          "The same block while it streams: the spinner shows, and the numbers keep moving.",
+        props: {
+          text: reasoning,
+          startedAt: startedAgo(3_000),
+          running: true,
+        },
+        width: 480,
+      },
+      {
+        id: "short",
+        name: "A quick thought",
+        description:
+          "Under a second, the span keeps its decimals rather than reading “0s”.",
+        props: { text: "Hm.", startedAt: 1_000, endedAt: 1_420 },
+        width: 480,
       },
     ],
   },

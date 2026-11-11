@@ -20,21 +20,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent(class="sm:max-w-lg")
     DialogHeader
-      DialogTitle Edit links
+      DialogTitle {{ $t("taskLinks.title") }}
       DialogDescription
-        | Labeled URLs shown on the task, such as a PR, an issue, or a
-        | deployment. Only absolute http(s) URLs are kept.
+        | {{ $t("taskLinks.description") }}
     .flex.flex-col.gap-2
       .flex.flex-col.gap-1(v-if="rows.length")
         .flex.items-start.gap-2(v-for="(row, index) in rows" :key="index")
           Input.flex-1(
             v-model="row.label"
-            placeholder="Label (e.g. PR)"
+            :placeholder="$t('taskLinks.labelPlaceholder')"
             data-test="link-label"
           )
           Input(
             v-model="row.url"
-            placeholder="https://…"
+            :placeholder="$t('taskLinks.urlPlaceholder')"
             class="flex-[2]"
             data-test="link-url"
           )
@@ -42,14 +41,14 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
             type="button"
             variant="ghost"
             size="icon-sm"
-            title="Remove link"
-            aria-label="Remove link"
+            :title="$t('taskLinks.remove')"
+            :aria-label="$t('taskLinks.remove')"
             @click="removeRow(index)"
             data-test="link-remove"
           )
             XIcon.size-3
       p.text-muted-foreground.text-xs(v-else)
-        | No links yet. Add one below.
+        | {{ $t("taskLinks.empty") }}
       Button.self-start(
         type="button"
         variant="outline"
@@ -58,16 +57,16 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         data-test="link-add"
       )
         PlusIcon(data-icon="inline-start")
-        span Add link
+        span {{ $t("taskLinks.add") }}
       p.text-destructive.text-xs(v-if="hasInvalidURL")
-        | Only absolute http(s) URLs are allowed.
+        | {{ $t("taskLinks.absoluteOnly") }}
     DialogFooter
       Button(
         type="button"
         variant="outline"
         @click="emit('update:open', false)"
       )
-        | Cancel
+        | {{ $t("common.cancel") }}
       Button(
         type="button"
         @click="save"
@@ -76,7 +75,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         Spinner(v-if="busy" data-icon="inline-start")
         CheckIcon(v-else data-icon="inline-start")
-        span Save
+        span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -161,3 +160,26 @@ function save() {
   emit("save", cleaned.value);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  taskLinks:
+    title: "Edit links"
+    description: "Labeled URLs shown on the task, such as a PR, an issue, or a deployment. Only absolute http(s) URLs are kept."
+    empty: "No links yet. Add one below."
+    add: "Add link"
+    absoluteOnly: "Only absolute http(s) URLs are allowed."
+    labelPlaceholder: "Label (e.g. PR)"
+    urlPlaceholder: "https://…"
+    remove: "Remove link"
+ru:
+  taskLinks:
+    title: "Изменить ссылки"
+    description: "Подписанные ссылки, отображаемые на задаче: PR, issue, развёртывание. Сохраняются только абсолютные URL http(s)."
+    empty: "Ссылок пока нет. Добавьте одну ниже."
+    add: "Добавить ссылку"
+    absoluteOnly: "Разрешены только абсолютные URL http(s)."
+    labelPlaceholder: "Подпись (например, PR)"
+    urlPlaceholder: "https://…"
+    remove: "Удалить ссылку"
+</i18n>

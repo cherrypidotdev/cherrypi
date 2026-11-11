@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col(class="gap-0.5")
-  p.text-muted-foreground.text-xs(v-if="!logs.length") No activity yet.
+  p.text-muted-foreground.text-xs(v-if="!logs.length") {{ $t("domainLog.empty") }}
   .flex.items-start.gap-2.rounded-md.px-1(
     v-for="entry in logs"
     :key="entryKey(entry)"
@@ -55,6 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import type { AuditEntry } from "@/lib/audit";
 import { formatRelativeTime } from "@/lib/format";
 import { ActivityIcon, ArrowRightIcon } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
 
 withDefaults(
   defineProps<{
@@ -64,91 +65,92 @@ withDefaults(
   { showScope: false },
 );
 
-const KIND_LABELS: Record<string, string> = {
-  created: "Created",
-  updated: "Updated",
-  deleted: "Deleted",
-  state: "State",
-  name: "Title",
-  prompt: "Prompt",
-  prompt_proposal_create: "Proposal created",
-  prompt_proposal_approve: "Proposal approved",
-  prompt_proposal_reject: "Proposal rejected",
-  prompt_proposal_withdraw: "Proposal withdrawn",
-  priority: "Priority",
-  size: "Size",
-  assignee: "Assignee",
-  tags: "Tags",
-  references: "References",
-  links: "Links",
-  project: "Project",
-  model: "Model",
-  session: "Session",
-  session_lost: "Session lost",
-  participation: "Participation",
-  teams: "Owning teams",
-  leads: "Leads",
-  questionnaire: "Questionnaire answered",
-  template: "Template",
-  access: "Access",
-  member: "Member",
-  invitation: "Invitation",
-  settings: "Settings",
-  archived: "Archived",
-  unarchived: "Unarchived",
-  login: "Signed in",
-  login_failed: "Sign-in failed",
-  logout: "Signed out",
-  registered: "Registered",
-  password_change: "Password",
-  password_reset: "Password reset",
-  password_reset_requested: "Reset requested",
-  magic_link: "Magic link",
-  email_add: "E-mail added",
-  email_remove: "E-mail removed",
-  email_confirm: "E-mail confirmed",
-  totp_enable: "2FA enabled",
-  totp_disable: "2FA disabled",
-  recovery_codes: "Recovery codes",
-  session_revoke: "Session revoked",
-  sessions_revoke: "Sessions revoked",
-  pat_create: "Token created",
-  pat_revoke: "Token revoked",
-  user_create: "User created",
-  user_update: "User updated",
-  user_role: "Role changed",
-  user_status: "Status changed",
-  user_delete: "User deleted",
-  invitation_create: "Invited",
-  invitation_revoke: "Invite revoked",
-  invitation_resend: "Invite resent",
-  invitation_accept: "Invite accepted",
-  identity_link: "Identity linked",
-  identity_unlink: "Identity unlinked",
-  provider_create: "Provider added",
-  provider_update: "Provider updated",
-  provider_delete: "Provider removed",
-  auth_settings: "Auth settings",
-  smtp_settings: "SMTP settings",
-  credential_create: "Credential added",
-  credential_revoke: "Credential revoked",
-  token_create: "Token created",
-  token_revoke: "Token revoked",
-  owner_add: "Owner added",
-  owner_remove: "Owner removed",
-  defaults: "Model defaults changed",
-  limits: "Limits changed",
-  health_interval: "Health interval changed",
-  role: "Role changed",
-  hierarchy: "Project hierarchy",
+const KIND_LABEL_KEYS: Record<string, string> = {
+  created: "domainLog.kind.created",
+  updated: "domainLog.kind.updated",
+  deleted: "domainLog.kind.deleted",
+  state: "domainLog.kind.state",
+  name: "domainLog.kind.name",
+  prompt: "domainLog.kind.prompt",
+  prompt_proposal_create: "domainLog.kind.proposalCreate",
+  prompt_proposal_approve: "domainLog.kind.proposalApprove",
+  prompt_proposal_reject: "domainLog.kind.proposalReject",
+  prompt_proposal_withdraw: "domainLog.kind.proposalWithdraw",
+  priority: "domainLog.kind.priority",
+  size: "domainLog.kind.size",
+  assignee: "domainLog.kind.assignee",
+  tags: "domainLog.kind.tags",
+  references: "domainLog.kind.references",
+  links: "domainLog.kind.links",
+  project: "domainLog.kind.project",
+  model: "domainLog.kind.model",
+  session: "domainLog.kind.session",
+  session_lost: "domainLog.kind.sessionLost",
+  participation: "domainLog.kind.participation",
+  teams: "domainLog.kind.teams",
+  leads: "domainLog.kind.leads",
+  questionnaire: "domainLog.kind.questionnaire",
+  template: "domainLog.kind.template",
+  access: "domainLog.kind.access",
+  member: "domainLog.kind.member",
+  invitation: "domainLog.kind.invitation",
+  settings: "domainLog.kind.settings",
+  archived: "domainLog.kind.archived",
+  unarchived: "domainLog.kind.unarchived",
+  login: "domainLog.kind.login",
+  login_failed: "domainLog.kind.loginFailed",
+  logout: "domainLog.kind.logout",
+  registered: "domainLog.kind.registered",
+  password_change: "domainLog.kind.password",
+  password_reset: "domainLog.kind.passwordReset",
+  password_reset_requested: "domainLog.kind.resetRequested",
+  magic_link: "domainLog.kind.magicLink",
+  email_add: "domainLog.kind.emailAdd",
+  email_remove: "domainLog.kind.emailRemove",
+  email_confirm: "domainLog.kind.emailConfirm",
+  totp_enable: "domainLog.kind.totpEnable",
+  totp_disable: "domainLog.kind.totpDisable",
+  recovery_codes: "domainLog.kind.recoveryCodes",
+  session_revoke: "domainLog.kind.sessionRevoke",
+  sessions_revoke: "domainLog.kind.sessionsRevoke",
+  pat_create: "domainLog.kind.tokenCreated",
+  pat_revoke: "domainLog.kind.tokenRevoked",
+  user_create: "domainLog.kind.userCreate",
+  user_update: "domainLog.kind.userUpdate",
+  user_role: "domainLog.kind.roleChanged",
+  user_status: "domainLog.kind.statusChanged",
+  user_delete: "domainLog.kind.userDelete",
+  invitation_create: "domainLog.kind.invitationCreate",
+  invitation_revoke: "domainLog.kind.inviteRevoke",
+  invitation_resend: "domainLog.kind.inviteResend",
+  invitation_accept: "domainLog.kind.inviteAccept",
+  identity_link: "domainLog.kind.identityLink",
+  identity_unlink: "domainLog.kind.identityUnlink",
+  provider_create: "domainLog.kind.providerAdd",
+  provider_update: "domainLog.kind.providerUpdate",
+  provider_delete: "domainLog.kind.providerRemove",
+  auth_settings: "domainLog.kind.authSettings",
+  smtp_settings: "domainLog.kind.smtpSettings",
+  credential_create: "domainLog.kind.credentialAdd",
+  credential_revoke: "domainLog.kind.credentialRevoke",
+  token_create: "domainLog.kind.tokenCreated",
+  token_revoke: "domainLog.kind.tokenRevoked",
+  owner_add: "domainLog.kind.ownerAdd",
+  owner_remove: "domainLog.kind.ownerRemove",
+  defaults: "domainLog.kind.modelDefaults",
+  limits: "domainLog.kind.limits",
+  health_interval: "domainLog.kind.healthInterval",
+  role: "domainLog.kind.roleChanged",
+  hierarchy: "domainLog.kind.hierarchy",
 };
 
 function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind;
+  const key = KIND_LABEL_KEYS[kind];
+  return key ? t(key) : kind;
 }
 
 function actorLabel(entry: AuditEntry): string {
-  return entry.actor_username || entry.actor_name || "system";
+  return entry.actor_username || entry.actor_name || t("domainLog.system");
 }
 
 function formatRelative(at: string): string {
@@ -156,10 +158,171 @@ function formatRelative(at: string): string {
 }
 
 function formatAbsolute(at: string): string {
-  return new Date(at).toLocaleString();
+  return new Date(at).toLocaleString(locale.value);
 }
 
 function entryKey(entry: AuditEntry): string {
   return `${entry.scope}:${entry.id}`;
 }
+
+const { t, locale } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  domainLog:
+    empty: "No activity yet."
+    system: "system"
+    kind:
+      created: "Created"
+      updated: "Updated"
+      deleted: "Deleted"
+      state: "State"
+      name: "Title"
+      prompt: "Prompt"
+      proposalCreate: "Proposal created"
+      proposalApprove: "Proposal approved"
+      proposalReject: "Proposal rejected"
+      proposalWithdraw: "Proposal withdrawn"
+      priority: "Priority"
+      size: "Size"
+      assignee: "Assignee"
+      tags: "Tags"
+      references: "References"
+      links: "Links"
+      project: "Project"
+      model: "Model"
+      session: "Session"
+      sessionLost: "Session lost"
+      participation: "Participation"
+      teams: "Owning teams"
+      leads: "Leads"
+      questionnaire: "Questionnaire answered"
+      template: "Template"
+      access: "Access"
+      member: "Member"
+      invitation: "Invitation"
+      settings: "Settings"
+      archived: "Archived"
+      unarchived: "Unarchived"
+      login: "Signed in"
+      loginFailed: "Sign-in failed"
+      logout: "Signed out"
+      registered: "Registered"
+      password: "Password"
+      passwordReset: "Password reset"
+      resetRequested: "Reset requested"
+      magicLink: "Magic link"
+      emailAdd: "E-mail added"
+      emailRemove: "E-mail removed"
+      emailConfirm: "E-mail confirmed"
+      totpEnable: "2FA enabled"
+      totpDisable: "2FA disabled"
+      recoveryCodes: "Recovery codes"
+      sessionRevoke: "Session revoked"
+      sessionsRevoke: "Sessions revoked"
+      tokenCreated: "Token created"
+      tokenRevoked: "Token revoked"
+      userCreate: "User created"
+      userUpdate: "User updated"
+      roleChanged: "Role changed"
+      statusChanged: "Status changed"
+      userDelete: "User deleted"
+      invitationCreate: "Invited"
+      inviteRevoke: "Invite revoked"
+      inviteResend: "Invite resent"
+      inviteAccept: "Invite accepted"
+      identityLink: "Identity linked"
+      identityUnlink: "Identity unlinked"
+      providerAdd: "Provider added"
+      providerUpdate: "Provider updated"
+      providerRemove: "Provider removed"
+      authSettings: "Auth settings"
+      smtpSettings: "SMTP settings"
+      credentialAdd: "Credential added"
+      credentialRevoke: "Credential revoked"
+      ownerAdd: "Owner added"
+      ownerRemove: "Owner removed"
+      modelDefaults: "Model defaults changed"
+      limits: "Limits changed"
+      healthInterval: "Health interval changed"
+      hierarchy: "Project hierarchy"
+ru:
+  domainLog:
+    empty: "Активности пока нет."
+    system: "система"
+    kind:
+      created: "Создано"
+      updated: "Обновлено"
+      deleted: "Удалено"
+      state: "Состояние"
+      name: "Название"
+      prompt: "Промпт"
+      proposalCreate: "Предложение создано"
+      proposalApprove: "Предложение одобрено"
+      proposalReject: "Предложение отклонено"
+      proposalWithdraw: "Предложение отозвано"
+      priority: "Приоритет"
+      size: "Размер"
+      assignee: "Исполнитель"
+      tags: "Теги"
+      references: "Связи"
+      links: "Ссылки"
+      project: "Проект"
+      model: "Модель"
+      session: "Сеанс"
+      sessionLost: "Сеанс потерян"
+      participation: "Участие"
+      teams: "Команды-владельцы"
+      leads: "Руководители"
+      questionnaire: "Опросник заполнен"
+      template: "Шаблон"
+      access: "Доступ"
+      member: "Участник"
+      invitation: "Приглашение"
+      settings: "Настройки"
+      archived: "Архивировано"
+      unarchived: "Разархивировано"
+      login: "Вход выполнен"
+      loginFailed: "Вход не удался"
+      logout: "Выход выполнен"
+      registered: "Зарегистрировано"
+      password: "Пароль"
+      passwordReset: "Пароль сброшен"
+      resetRequested: "Запрошен сброс"
+      magicLink: "Ссылка для входа"
+      emailAdd: "E-mail добавлен"
+      emailRemove: "E-mail удалён"
+      emailConfirm: "E-mail подтверждён"
+      totpEnable: "2FA включена"
+      totpDisable: "2FA отключена"
+      recoveryCodes: "Коды восстановления"
+      sessionRevoke: "Сеанс отозван"
+      sessionsRevoke: "Сеансы отозваны"
+      tokenCreated: "Токен создан"
+      tokenRevoked: "Токен отозван"
+      userCreate: "Пользователь создан"
+      userUpdate: "Пользователь обновлён"
+      roleChanged: "Роль изменена"
+      statusChanged: "Статус изменён"
+      userDelete: "Пользователь удалён"
+      invitationCreate: "Приглашён"
+      inviteRevoke: "Приглашение отозвано"
+      inviteResend: "Приглашение отправлено снова"
+      inviteAccept: "Приглашение принято"
+      identityLink: "Учётная запись привязана"
+      identityUnlink: "Учётная запись отвязана"
+      providerAdd: "Провайдер добавлен"
+      providerUpdate: "Провайдер обновлён"
+      providerRemove: "Провайдер удалён"
+      authSettings: "Настройки аутентификации"
+      smtpSettings: "Настройки SMTP"
+      credentialAdd: "Учётные данные добавлены"
+      credentialRevoke: "Учётные данные отозваны"
+      ownerAdd: "Владелец добавлен"
+      ownerRemove: "Владелец удалён"
+      modelDefaults: "Модели по умолчанию изменены"
+      limits: "Лимиты изменены"
+      healthInterval: "Интервал проверки здоровья изменён"
+      hierarchy: "Иерархия проектов"
+</i18n>

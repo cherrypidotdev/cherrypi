@@ -21,14 +21,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     <Card>
       <CardHeader class="flex-row items-center justify-between">
         <div class="flex flex-col gap-1">
-          <CardTitle>Inbox</CardTitle>
+          <CardTitle>{{ $t("nav.inbox") }}</CardTitle>
           <CardDescription>
-            Attention signals and invitations, newest first.
+            {{ $t("inbox.description") }}
             <RouterLink
               class="text-foreground ml-1 underline underline-offset-2"
               :to="{ name: 'account', query: { tab: 'notifications' } }"
             >
-              Notification settings
+              {{ $t("inbox.notificationSettings") }}
             </RouterLink>
           </CardDescription>
         </div>
@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="markAll"
           >
             <CheckCheckIcon data-icon="inline-start" />
-            <span>Mark all read</span>
+            <span>{{ $t("inbox.markAllRead") }}</span>
           </Button>
           <Dialog v-model:open="deleteOpen">
             <DialogTrigger as-child>
@@ -50,20 +50,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :disabled="!notifications.length"
               >
                 <Trash2Icon data-icon="inline-start" />
-                <span>Delete all</span>
+                <span>{{ $t("inbox.deleteAll") }}</span>
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Delete all notifications?</DialogTitle>
+                <DialogTitle>{{ $t("inbox.deleteAllQuestion") }}</DialogTitle>
                 <DialogDescription>
-                  This permanently removes every inbox entry and cannot be
-                  undone.
+                  {{ $t("inbox.deleteAllHint") }}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <Button variant="outline" @click="deleteOpen = false">
-                  Cancel
+                  {{ $t("common.cancel") }}
                 </Button>
                 <Button
                   variant="destructive"
@@ -72,7 +71,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 >
                   <Spinner v-if="deleting" data-icon="inline-start" />
                   <Trash2Icon v-else data-icon="inline-start" />
-                  <span>Delete all</span>
+                  <span>{{ $t("inbox.deleteAll") }}</span>
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -105,7 +104,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   <span class="truncate text-sm font-medium">{{
                     item.title
                   }}</span>
-                  <Badge v-if="!item.readAt" variant="secondary">new</Badge>
+                  <Badge v-if="!item.readAt" variant="secondary">{{
+                    $t("inbox.newBadge")
+                  }}</Badge>
                 </div>
 
                 <div
@@ -122,14 +123,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 </div>
                 <span class="truncate text-muted-foreground text-xs">
                   <template v-if="item.taskId">
-                    {{ item.agentId.slice(0, 8) }} · task
-                    {{ item.taskId.slice(0, 8) }}
+                    {{ item.agentId.slice(0, 8) }} ·
+                    {{ $t("inbox.taskRef", { id: item.taskId.slice(0, 8) }) }}
                   </template>
                   <template v-else-if="item.kind === 'team_invitation'">
-                    Team invitation
+                    {{ $t("attention.event.teamInvitation") }}
                   </template>
                   <template v-else-if="item.kind.startsWith('prompt_proposal')">
-                    Prompt proposal
+                    {{ $t("attention.event.promptProposal") }}
                   </template>
                   <template v-else>{{ item.agentId.slice(0, 8) }}</template>
                   · {{ formatTimestamp(item.createdAt) }}
@@ -141,7 +142,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 v-if="!item.readAt"
                 variant="ghost"
                 size="icon-sm"
-                title="Mark read"
+                :title="$t('inbox.markRead')"
                 @click.stop="markRead(Number(item.id))"
               >
                 <CheckIcon />
@@ -149,7 +150,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               <Button
                 variant="ghost"
                 size="icon-sm"
-                title="Delete"
+                :title="$t('common.delete')"
                 @click.stop="remove(Number(item.id))"
               >
                 <Trash2Icon />
@@ -169,7 +170,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-if="!notifications.length && !loading"
             class="text-muted-foreground text-sm"
           >
-            No notifications.
+            {{ $t("inbox.empty") }}
           </p>
         </div>
       </CardContent>
@@ -206,8 +207,11 @@ import { plainNotificationText } from "@/lib/notificationText";
 import type { AgencyNotification } from "@cherrypi/sdk";
 import { CheckCheckIcon, CheckIcon, Trash2Icon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, type RouteLocationRaw } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const {
   notifications,
@@ -247,7 +251,7 @@ async function confirmDeleteAll() {
   deleting.value = true;
   try {
     await deleteAll();
-    toast.success("Inbox cleared");
+    toast.success(t("inbox.toasts.cleared"));
     deleteOpen.value = false;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -284,15 +288,17 @@ function linkFor(item: AgencyNotification): RouteLocationRaw {
 }
 
 function linkLabel(item: AgencyNotification): string {
-  if (item.taskId) return `Open task for: ${item.title}`;
-  if (item.kind === "team_invitation") return `Open teams for: ${item.title}`;
-  return `Open prompt for: ${item.title}`;
+  if (item.taskId) return t("inbox.openTaskFor", { title: item.title });
+  if (item.kind === "team_invitation") {
+    return t("inbox.openTeamsFor", { title: item.title });
+  }
+  return t("inbox.openPromptFor", { title: item.title });
 }
 
 function linkTitle(item: AgencyNotification): string {
-  if (item.taskId) return `Open task ${item.taskId.slice(0, 8)}`;
-  if (item.kind === "team_invitation") return "Open Teams";
-  return "Open prompt";
+  if (item.taskId) return t("inbox.openTask", { id: item.taskId.slice(0, 8) });
+  if (item.kind === "team_invitation") return t("inbox.openTeams");
+  return t("inbox.openPrompt");
 }
 
 onMounted(() => {
@@ -300,3 +306,46 @@ onMounted(() => {
   void loadPromptRouteTargets();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  inbox:
+    openPrompt: "Open prompt"
+    openTeams: "Open Teams"
+    toasts:
+      cleared: "Inbox cleared"
+    description: "Attention signals and invitations, newest first."
+    notificationSettings: "Notification settings"
+    markAllRead: "Mark all read"
+    deleteAll: "Delete all"
+    deleteAllQuestion: "Delete all notifications?"
+    deleteAllHint: "This permanently removes every inbox entry and cannot be undone."
+    newBadge: "new"
+    taskRef: "task {id}"
+    markRead: "Mark read"
+    empty: "No notifications."
+    openTaskFor: "Open task for: {title}"
+    openTeamsFor: "Open teams for: {title}"
+    openPromptFor: "Open prompt for: {title}"
+    openTask: "Open task {id}"
+ru:
+  inbox:
+    openPrompt: "Открыть промпт"
+    openTeams: "Открыть команды"
+    toasts:
+      cleared: "Уведомления очищены"
+    description: "Сигналы внимания и приглашения, сначала новые."
+    notificationSettings: "Настройки уведомлений"
+    markAllRead: "Отметить все прочитанными"
+    deleteAll: "Удалить все"
+    deleteAllQuestion: "Удалить все уведомления?"
+    deleteAllHint: "Это безвозвратно удалит все записи и не может быть отменено."
+    newBadge: "новое"
+    taskRef: "задача {id}"
+    markRead: "Отметить прочитанным"
+    empty: "Уведомлений нет."
+    openTaskFor: "Открыть задачу: {title}"
+    openTeamsFor: "Открыть команды: {title}"
+    openPromptFor: "Открыть промпт: {title}"
+    openTask: "Открыть задачу {id}"
+</i18n>

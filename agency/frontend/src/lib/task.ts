@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import {
   TaskPriority,
   TaskProgressItemStatus,
@@ -164,33 +165,34 @@ export function taskStateFromStored(
   }
 }
 
-export function taskStateLabel(state: TaskState): string {
+export function taskStateKey(state: TaskState): string {
   switch (state) {
     case TaskState.BACKLOG:
-      return "Backlog";
+      return "taskState.backlog";
     case TaskState.WAITING:
-      return "Waiting";
+      return "taskState.waiting";
     case TaskState.QUEUED:
-      return "Queued";
+      return "taskState.queued";
     case TaskState.RUNNING:
-      return "Running";
+      return "taskState.running";
     case TaskState.INPUT:
-      return "Input";
+      return "taskState.input";
     case TaskState.SETTLED:
-      return "Settled";
+      return "taskState.settled";
     case TaskState.FAILED:
-      return "Failed";
+      return "taskState.failed";
     case TaskState.COMPLETED:
-      return "Completed";
+      return "taskState.completed";
     case TaskState.CANCELLED:
-      return "Cancelled";
+      return "taskState.cancelled";
     default:
-      return "Unknown";
+      return "taskState.unknown";
   }
 }
 
-export const TASK_BLOCKERS_REASON_PREFIX =
-  "Waiting for tasks to become completed:";
+export function taskBlockersReasonPrefix(): string {
+  return t("wait.reason.blockersPrefix");
+}
 
 export type WaitingReasonPart =
   | { kind: "text"; text: string }
@@ -208,15 +210,15 @@ export function waitingReasonParts(reason: string): WaitingReasonPart[] {
   reason.split("; ").forEach((segment, index) => {
     if (index > 0) text("; ");
     const ids = segment
-      .slice(TASK_BLOCKERS_REASON_PREFIX.length)
+      .slice(taskBlockersReasonPrefix().length)
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean);
-    if (!segment.startsWith(TASK_BLOCKERS_REASON_PREFIX) || !ids.length) {
+    if (!segment.startsWith(taskBlockersReasonPrefix()) || !ids.length) {
       text(segment);
       return;
     }
-    text(`${TASK_BLOCKERS_REASON_PREFIX} `);
+    text(`${taskBlockersReasonPrefix()} `);
     ids.forEach((id, idIndex) => {
       if (idIndex > 0) text(", ");
       parts.push({ kind: "id", id });
@@ -272,14 +274,14 @@ export function taskWaitingReason(
 
   const blockers = taskIncompleteBlockers(task);
   if (blockers.length) {
-    return `${TASK_BLOCKERS_REASON_PREFIX} ${blockers
+    return `${taskBlockersReasonPrefix()} ${blockers
       .map((ref) => ref.id)
       .join(", ")}`;
   }
   if ((task.blockers ?? 0) > 0) {
-    return "Waiting for blocking tasks to become completed";
+    return t("wait.reason.blockingTasks");
   }
-  return "Waiting for free agent slot";
+  return t("wait.reason.freeSlot");
 }
 
 export function taskStateClass(state: TaskState): string {
@@ -332,39 +334,39 @@ export function taskStateTextClass(state: TaskState): string {
   }
 }
 
-export function taskStateLabelFor(task: Pick<Task, "state">): string {
-  return taskStateLabel(task.state);
+export function taskStateKeyFor(task: Pick<Task, "state">): string {
+  return taskStateKey(task.state);
 }
 
 export const TASK_REFERENCE_KINDS: {
   value: TaskReferenceKind;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
 }[] = [
   {
     value: TaskReferenceKind.INFORMATIONAL,
-    label: "Informational",
-    description: "A plain relation that does not gate queuing.",
+    labelKey: "taskRefs.kind.informational",
+    descriptionKey: "taskRefs.kind.informationalHint",
   },
   {
     value: TaskReferenceKind.BLOCKED_BY,
-    label: "Blocked by",
-    description: "This task waits for the other task to complete.",
+    labelKey: "taskRefs.kind.blockedBy",
+    descriptionKey: "taskRefs.kind.blockedByHint",
   },
   {
     value: TaskReferenceKind.BLOCKS,
-    label: "Blocks",
-    description: "The other task waits for this task to complete.",
+    labelKey: "taskRefs.kind.blocks",
+    descriptionKey: "taskRefs.kind.blocksHint",
   },
   {
     value: TaskReferenceKind.SUPERSEDES,
-    label: "Supersedes",
-    description: "This task replaces the other task and cancels it.",
+    labelKey: "taskRefs.kind.supersedes",
+    descriptionKey: "taskRefs.kind.supersedesHint",
   },
   {
     value: TaskReferenceKind.SUPERSEDED_BY,
-    label: "Superseded by",
-    description: "The other task replaces this task and cancels it.",
+    labelKey: "taskRefs.kind.supersededBy",
+    descriptionKey: "taskRefs.kind.supersededByHint",
   },
 ];
 
@@ -377,33 +379,33 @@ export type NewTaskRelation =
 
 export const NEW_TASK_RELATIONS: {
   value: NewTaskRelation;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
 }[] = [
   {
     value: "informational",
-    label: "Informational",
-    description: "The new task links to this one.",
+    labelKey: "newTaskRelation.informational",
+    descriptionKey: "newTaskRelation.informationalHint",
   },
   {
     value: "blocked_by",
-    label: "Blocked by this task",
-    description: "The new task waits for this one to be completed.",
+    labelKey: "newTaskRelation.blockedBy",
+    descriptionKey: "newTaskRelation.blockedByHint",
   },
   {
     value: "blocks",
-    label: "Blocks this task",
-    description: "This task waits for the new one to be completed.",
+    labelKey: "newTaskRelation.blocks",
+    descriptionKey: "newTaskRelation.blocksHint",
   },
   {
     value: "supersedes",
-    label: "Supersedes this task",
-    description: "The new task replaces this one and cancels it.",
+    labelKey: "newTaskRelation.supersedes",
+    descriptionKey: "newTaskRelation.supersedesHint",
   },
   {
     value: "parent",
-    label: "Sub-task",
-    description: "The new task nests under this one.",
+    labelKey: "newTaskRelation.parent",
+    descriptionKey: "newTaskRelation.parentHint",
   },
 ];
 
@@ -466,19 +468,18 @@ export function taskReferencePerspectiveKind(
   return kind ?? TaskReferenceKind.INFORMATIONAL;
 }
 
-const STORED_REFERENCE_KIND_LABELS: Partial<Record<TaskReferenceKind, string>> =
-  {
-    [TaskReferenceKind.BLOCKING]: "Blocked by",
-    [TaskReferenceKind.SUPERSEDES]: "Supersedes",
-  };
+const STORED_REFERENCE_KIND_KEYS: Partial<Record<TaskReferenceKind, string>> = {
+  [TaskReferenceKind.BLOCKING]: "taskRefs.kind.blockedBy",
+  [TaskReferenceKind.SUPERSEDES]: "taskRefs.kind.supersedes",
+};
 
-export function taskReferenceKindLabel(
+export function taskReferenceKindKey(
   kind: TaskReferenceKind | undefined,
 ): string {
   return (
-    TASK_REFERENCE_KINDS.find((option) => option.value === kind)?.label ??
-    (kind ? STORED_REFERENCE_KIND_LABELS[kind] : undefined) ??
-    "Informational"
+    TASK_REFERENCE_KINDS.find((option) => option.value === kind)?.labelKey ??
+    (kind ? STORED_REFERENCE_KIND_KEYS[kind] : undefined) ??
+    "taskRefs.kind.informational"
   );
 }
 
@@ -552,25 +553,25 @@ export function taskStateClassFor(task: Pick<Task, "state">): string {
   return taskStateClass(task.state);
 }
 
-function taskPriorityName(priority: TaskPriority): string {
+function taskPriorityKeyName(priority: TaskPriority): string {
   switch (priority) {
     case TaskPriority.LOW:
-      return "Low";
+      return "taskPriority.low";
     case TaskPriority.HIGH:
-      return "High";
+      return "taskPriority.high";
     case TaskPriority.CRITICAL:
-      return "Critical";
+      return "taskPriority.critical";
     default:
-      return "Normal";
+      return "taskPriority.normal";
   }
 }
 
-export function taskPriorityLabel(
+export function taskPriorityKey(
   priority: TaskPriority,
   withDimension = false,
 ): string {
-  const name = taskPriorityName(priority);
-  return withDimension ? `${name} priority` : name;
+  const name = taskPriorityKeyName(priority);
+  return withDimension ? `${name}WithDimension` : name;
 }
 
 export function taskPriorityTextClass(priority: TaskPriority): string {
@@ -614,22 +615,22 @@ export function taskBadgeToneClass(tone: string): string {
   }
 }
 
-function taskSizeName(size: TaskSize): string {
+function taskSizeKeyName(size: TaskSize): string {
   switch (size) {
     case TaskSize.SMALL:
-      return "Small";
+      return "taskSize.small";
     case TaskSize.BIG:
-      return "Big";
+      return "taskSize.big";
     case TaskSize.EPIC:
-      return "Epic";
+      return "taskSize.epic";
     default:
-      return "Medium";
+      return "taskSize.medium";
   }
 }
 
-export function taskSizeLabel(size: TaskSize, withDimension = false): string {
-  const name = taskSizeName(size);
-  return withDimension ? `${name} size` : name;
+export function taskSizeKey(size: TaskSize, withDimension = false): string {
+  const name = taskSizeKeyName(size);
+  return withDimension ? `${name}WithDimension` : name;
 }
 
 export function taskSizeTextClass(size: TaskSize): string {
@@ -658,11 +659,11 @@ export function taskSizeClass(size: TaskSize): string {
   }
 }
 
-export const TASK_SIZES: { value: TaskSize; label: string }[] = [
-  { value: TaskSize.SMALL, label: "Small" },
-  { value: TaskSize.MEDIUM, label: "Medium" },
-  { value: TaskSize.BIG, label: "Big" },
-  { value: TaskSize.EPIC, label: "Epic" },
+export const TASK_SIZES: { value: TaskSize; labelKey: string }[] = [
+  { value: TaskSize.SMALL, labelKey: "taskSize.small" },
+  { value: TaskSize.MEDIUM, labelKey: "taskSize.medium" },
+  { value: TaskSize.BIG, labelKey: "taskSize.big" },
+  { value: TaskSize.EPIC, labelKey: "taskSize.epic" },
 ];
 
 export const TASK_SIZE_RANK: Record<number, number> = {
@@ -678,19 +679,27 @@ export function defaultCloseOutOutcome(state: TaskState): TaskState {
 
 export const TASK_STATE_TABS: {
   key: string;
-  label: string;
+  labelKey: string;
   state?: TaskState;
 }[] = [
-  { key: "all", label: "All" },
-  { key: "backlog", label: "Backlog", state: TaskState.BACKLOG },
-  { key: "waiting", label: "Waiting", state: TaskState.WAITING },
-  { key: "queued", label: "Queued", state: TaskState.QUEUED },
-  { key: "failed", label: "Failed", state: TaskState.FAILED },
-  { key: "running", label: "Running", state: TaskState.RUNNING },
-  { key: "input", label: "Input", state: TaskState.INPUT },
-  { key: "settled", label: "Settled", state: TaskState.SETTLED },
-  { key: "completed", label: "Completed", state: TaskState.COMPLETED },
-  { key: "cancelled", label: "Cancelled", state: TaskState.CANCELLED },
+  { key: "all", labelKey: "common.all" },
+  { key: "backlog", labelKey: "taskState.backlog", state: TaskState.BACKLOG },
+  { key: "waiting", labelKey: "taskState.waiting", state: TaskState.WAITING },
+  { key: "queued", labelKey: "taskState.queued", state: TaskState.QUEUED },
+  { key: "failed", labelKey: "taskState.failed", state: TaskState.FAILED },
+  { key: "running", labelKey: "taskState.running", state: TaskState.RUNNING },
+  { key: "input", labelKey: "taskState.input", state: TaskState.INPUT },
+  { key: "settled", labelKey: "taskState.settled", state: TaskState.SETTLED },
+  {
+    key: "completed",
+    labelKey: "taskState.completed",
+    state: TaskState.COMPLETED,
+  },
+  {
+    key: "cancelled",
+    labelKey: "taskState.cancelled",
+    state: TaskState.CANCELLED,
+  },
 ];
 
 export const TASK_STATE_RANK: Record<number, number> = {
@@ -782,7 +791,7 @@ export function taskProgressCurrent(
   if (active) return active.text;
   if (progress.summary) return progress.summary;
   if (progress.total > 0 && progress.done === progress.total) {
-    return "All steps complete";
+    return t("taskProgress.allComplete");
   }
   return (
     progress.items.find(

@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     RouterLink.shrink-0(
       v-if="avatar && route"
       :to="route"
-      :title="`View ${displayName}`"
+      :title="$t('messageSender.view', { name: displayName })"
     )
       ActorAvatar(
         :src="picture?.url"
@@ -61,7 +61,10 @@ import { actorRoute } from "@/lib/actors";
 import type { MessageSender } from "@/lib/console";
 import type { Attachment } from "@cherrypi/sdk";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -91,11 +94,26 @@ const displayName = computed(
 const kindLabel = computed(() => {
   switch (props.sender.kind) {
     case "agent":
-      return "Agent";
+      return t("admin.agents.columnAgent");
+    case "plugin":
+      return t("messageSender.plugin");
     case "system":
-      return "System";
+      return t("messageSender.system");
     default:
       return "";
   }
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  messageSender:
+    view: "View {name}"
+    plugin: "Plugin"
+    system: "System"
+ru:
+  messageSender:
+    view: "Открыть {name}"
+    plugin: "Плагин"
+    system: "Система"
+</i18n>

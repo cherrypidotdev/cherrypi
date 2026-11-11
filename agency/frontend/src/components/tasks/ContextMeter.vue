@@ -35,6 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import { formatCount, formatTokens } from "@/lib/format";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   tokens: number | bigint;
@@ -66,15 +67,30 @@ const textClass = computed(() => {
 });
 
 const fillStyle = computed(() => ({ width: percent.value + "%" }));
-const label = computed(() => "Context window " + percent.value + "% used");
+const label = computed(
+  () => t("contextMeter.window") + percent.value + "% used",
+);
 const hint = computed(
   () =>
     formatCount(props.tokens) +
     " / " +
     formatCount(total.value) +
-    " tokens in context",
+    t("contextMeter.tokensInContext"),
 );
 const ratio = computed(
   () => formatTokens(props.tokens) + "/" + formatTokens(total.value),
 );
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  contextMeter:
+    tokensInContext: " tokens in context"
+    window: "Context window "
+ru:
+  contextMeter:
+    tokensInContext: " токенов в контексте"
+    window: "Контекстное окно "
+</i18n>

@@ -81,3 +81,12 @@ function badgeTitle(badge: TaskBadge): string {
   return `${owner} — ${value}`;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  taskBadges:
+    plugin: "Plugin"
+ru:
+  taskBadges:
+    plugin: "Плагин"
+</i18n>

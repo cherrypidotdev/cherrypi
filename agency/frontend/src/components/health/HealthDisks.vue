@@ -19,11 +19,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Filesystems
-    CardDescription Measured inside the agent's visible filesystem.
+    CardTitle {{ $t("health.disks.title") }}
+    CardDescription {{ $t("health.disks.hint") }}
   CardContent.flex.flex-col.gap-4
     p.text-muted-foreground.text-sm(v-if="!disks.length")
-      | No filesystem targets configured.
+      | {{ $t("health.disks.empty") }}
     .flex.flex-col(v-for="disk in disks" :key="disk.path" class="gap-1.5")
       .flex.items-baseline.justify-between.gap-3
         .flex.min-w-0.flex-col
@@ -40,7 +40,7 @@ Card
           :class="healthToneBar(healthTone(disk.usedPercent, 80, 90))"
           :style="{ width: `${Math.min(100, Math.max(0, disk.usedPercent))}%` }"
         )
-      span.text-muted-foreground.text-2xs {{ formatBytes(disk.freeBytes) }} free
+      span.text-muted-foreground.text-2xs {{ $t("health.disks.free", { size: formatBytes(disk.freeBytes) }) }}
 </template>
 
 <script setup lang="ts">
@@ -57,3 +57,20 @@ import type { AgentDiskUsage } from "@cherrypi/sdk";
 
 defineProps<{ disks: AgentDiskUsage[] }>();
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    disks:
+      title: "Filesystems"
+      hint: "Measured inside the agent's visible filesystem."
+      empty: "No filesystem targets configured."
+      free: "{size} free"
+ru:
+  health:
+    disks:
+      title: "Файловые системы"
+      hint: "Измеряется в видимой агенту файловой системе."
+      empty: "Цели файловых систем не заданы."
+      free: "{size} свободно"
+</i18n>

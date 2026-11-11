@@ -28,26 +28,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           img.block.size-10.rounded-full.object-cover(
             v-if="item?.picture"
             :src="item.picture.url"
-            :alt="name"
+            :alt="$t('settings.auth.namePlaceholderPath')"
           )
           span.block.size-10(v-else :innerHTML="avatar")
           span.border-background.absolute.-right-0.-bottom-0.size-3.rounded-full.border(
             :class="online ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-            :title="online ? 'Online' : 'Offline'"
+            :title="online ? $t('agentView.online') : $t('agentView.offline')"
           )
         .flex.min-w-0.flex-col
           h1.truncate.text-lg.font-semibold {{ name }}
           span.text-muted-foreground.truncate.font-mono.text-xs @{{ item?.username ?? currentAgentUsername }}
       Tabs(v-model="tab")
         TabsList
-          TabsTrigger(value="overview") Overview
-          TabsTrigger(value="health") Health
-          TabsTrigger(value="usage") Usage
-          TabsTrigger(value="concurrency") Concurrency
-          TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") Terminals
-          TabsTrigger(value="rdp") RDP
-          TabsTrigger(value="logs") Logs
-          TabsTrigger(value="settings") Settings
+          TabsTrigger(value="overview") {{ $t("projectView.overview") }}
+          TabsTrigger(value="health") {{ $t("agentView.tabs.health") }}
+          TabsTrigger(value="usage") {{ $t("projectView.usage") }}
+          TabsTrigger(value="concurrency") {{ $t("agentConcurrency.title") }}
+          TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") {{ $t("agentView.tabs.terminals") }}
+          TabsTrigger(value="rdp") {{ $t("agentView.tabs.rdp") }}
+          TabsTrigger(value="logs") {{ $t("settings.tabs.logs") }}
+          TabsTrigger(value="settings") {{ $t("common.settings") }}
   Tabs.flex.min-h-0.flex-1.flex-col.overflow-hidden(v-model="tab")
     TabsContent.flex-1.overflow-auto(value="overview")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
@@ -55,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.max-w-2xl.text-sm(v-if="item?.description")
             | {{ item.description }}
           .flex.flex-wrap.items-center.gap-2(v-if="item")
-            span.text-muted-foreground.text-xs.font-medium Binary
+            span.text-muted-foreground.text-xs.font-medium {{ $t("agentView.binary") }}
             Badge(variant="outline" :class="agentStatusClass(item.status)") {{ agentStatusLabel(item.status) }}
             span.font-mono.text-xs(
               v-if="item.version"
@@ -67,22 +67,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :class="agentVersionStatusClass(item.versionStatus)"
               :title="agentVersionTitle(item)"
             ) {{ agentVersionStatusLabel(item.versionStatus) }}
-            span.text-muted-foreground.text-xs(v-if="!item.version") No version reported
+            span.text-muted-foreground.text-xs(v-if="!item.version") {{ $t("agentView.noVersion") }}
 
           p.max-w-2xl.text-xs.text-amber-600(
             v-if="item?.versionStatus === AgentVersionStatus.OUTDATED"
             class="dark:text-amber-400"
           )
-            | This agent is running a build older than the agency's. Rebuild and redeploy the agent image to update it.
+            | {{ $t("agentView.oldBuild") }}
           p.max-w-2xl.text-xs.text-red-600(
             v-if="item?.versionStatus === AgentVersionStatus.INCOMPATIBLE"
             class="dark:text-red-400"
           )
-            | This agent's protocol is incompatible with the agency, so its tunnel is refused. Rebuild and redeploy the agent image.
+            | {{ $t("agentView.incompatible") }}
 
           .flex.flex-col.gap-2(class="sm:flex-row sm:items-start sm:gap-6")
             .flex.flex-wrap.items-center.gap-2
-              span.text-muted-foreground.text-xs.font-medium Teams
+              span.text-muted-foreground.text-xs.font-medium {{ $t("nav.teams") }}
               RouterLink.flex.items-center.rounded-full.border.px-2.py-1.text-xs.transition-colors(
                 v-for="team in teams"
                 :key="team.id"
@@ -92,9 +92,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 span.size-4.shrink-0(:innerHTML="teamLogo(team)")
                 span {{ team.name }}
               span.text-muted-foreground.text-xs(v-if="!teams.length")
-                | No teams
+                | {{ $t("agentView.noTeams") }}
             .flex.flex-wrap.items-center.gap-2
-              span.text-muted-foreground.text-xs.font-medium Projects
+              span.text-muted-foreground.text-xs.font-medium {{ $t("nav.projects") }}
               RouterLink.flex.items-center.rounded-full.border.px-2.py-1.text-xs.transition-colors(
                 v-for="project in projects"
                 :key="project.id"
@@ -104,18 +104,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 span.size-4.shrink-0(:innerHTML="logo(project)")
                 span {{ project.name }}
               span.text-muted-foreground.text-xs(v-if="!projects.length")
-                | No projects
+                | {{ $t("team.projects.empty") }}
 
-        UsageOverview(
-          v-if="currentAgentId && showUsageKpi"
-          context="agent"
-          :agent-id="currentAgentId"
-        )
-
-        ConcurrencyKpis(
-          v-if="currentAgentId && showConcurrencyKpi"
-          context="agent"
-          :agent-id="currentAgentId"
+        KpiOverview(
+          :page="currentAgentId ? { kind: 'agent', id: currentAgentId } : undefined"
+          :page-context="kpiPageContext"
         )
 
         HealthOverview(v-if="currentAgentId" :agent-id="currentAgentId")
@@ -142,6 +135,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     TabsContent.flex-1.overflow-auto(value="concurrency")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
+        ConcurrencyKpis(context="agent" :agent-id="currentAgentId")
         AgentConcurrency(:agent-id="currentAgentId")
 
     TabsContent.flex-1.overflow-hidden(value="terminals")
@@ -165,16 +159,15 @@ import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
 import HealthOverview from "@/components/health/HealthOverview.vue";
 import HealthPanel from "@/components/health/HealthPanel.vue";
+import KpiOverview from "@/components/kpi/KpiOverview.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UsageDashboard from "@/components/usage/UsageDashboard.vue";
-import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useAgents } from "@/composables/useAgents";
 import { setPageTitle } from "@/composables/usePageTitle";
-import { useSettings } from "@/composables/useSettings";
 import {
   agentStatusClass,
   agentStatusLabel,
@@ -183,25 +176,29 @@ import {
   agentVersionStatusLabel,
   agentVersionTitle,
 } from "@/lib/agent";
+import type { KpiPageContext } from "@/lib/kpiWidgets";
 import { agency, currentAgentId, currentAgentUsername } from "@/lib/sdk";
 import { agentTeamApi, type Team } from "@/lib/team";
 import { AgentStatus, AgentVersionStatus, type Project } from "@cherrypi/sdk";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
 import AgentSettingsView from "./AgentSettingsView.vue";
 import DesktopView from "./DesktopView.vue";
 import LogsView from "./LogsView.vue";
 import RootTerminalsView from "./RootTerminalsView.vue";
 
+const { t } = useI18n();
+
 const route = useRoute();
 const { agents, loadAgents } = useAgents();
-const { settings, loadSettings } = useSettings();
 const { canManageAgent } = useAgentAccess();
-const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
-const showConcurrencyKpi = computed(
-  () => settings.value?.showConcurrencyKpi !== false,
-);
+
+const kpiPageContext = computed<KpiPageContext>(() => ({
+  kind: "agent",
+  agentId: currentAgentId.value ?? "",
+}));
 
 const TABS = [
   "overview",
@@ -226,7 +223,10 @@ const item = computed(() =>
   agents.value.find((a) => a.id === currentAgentId.value),
 );
 const name = computed(
-  () => item.value?.displayName || item.value?.username || "Agent",
+  () =>
+    item.value?.displayName ||
+    item.value?.username ||
+    t("admin.agents.columnAgent"),
 );
 const online = computed(() => item.value?.status === AgentStatus.ONLINE);
 const avatar = computed(() => toSvg(currentAgentId.value || "agent", 40));
@@ -252,7 +252,7 @@ function teamLogo(team: Team): string {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAgents(), loadSettings()]);
+  await loadAgents();
   try {
     const [projectList, teamList] = await Promise.all([
       agency.listAgentProjects(currentAgentId.value),
@@ -266,3 +266,32 @@ onMounted(async () => {
   }
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  agentView:
+    tabs:
+      health: "Health"
+      terminals: "Terminals"
+      rdp: "RDP"
+    binary: "Binary"
+    noVersion: "No version reported"
+    oldBuild: "This agent is running a build older than the agency's. Rebuild and redeploy the agent image to update it."
+    incompatible: "This agent's protocol is incompatible with the agency, so its tunnel is refused. Rebuild and redeploy the agent image."
+    noTeams: "No teams"
+    online: "Online"
+    offline: "Offline"
+ru:
+  agentView:
+    tabs:
+      health: "Здоровье"
+      terminals: "Терминалы"
+      rdp: "RDP"
+    binary: "Сборка"
+    noVersion: "Версия не сообщена"
+    oldBuild: "Агент работает на сборке старше, чем у агентства. Пересоберите и разверните образ агента, чтобы обновить его."
+    incompatible: "Протокол агента несовместим с агентством, поэтому туннель отклонён. Пересоберите и разверните образ агента."
+    noTeams: "Команд нет"
+    online: "В сети"
+    offline: "Не в сети"
+</i18n>

@@ -209,12 +209,12 @@ export const USAGE_RANGE_OPTIONS: { value: UsageRange; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-export function usageRangeLabel(range: UsageRange): string {
-  return range === "all" ? "all time" : `last ${range} days`;
+export function usageRangeKey(range: UsageRange): string {
+  return range === "all" ? "usage.range.allTimeLower" : "usage.range.lastDays";
 }
 
-export function usageRangePill(range: UsageRange): string {
-  return range === "all" ? "All time" : `Last ${range} days`;
+export function usageRangePillKey(range: UsageRange): string {
+  return range === "all" ? "usage.range.allTime" : "usage.range.lastDaysPill";
 }
 
 export function utcDayStart(ms: number): number {

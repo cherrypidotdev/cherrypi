@@ -19,21 +19,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   .flex.flex-col.gap-1
-    h1.text-lg.font-semibold Users
+    h1.text-lg.font-semibold {{ $t("nav.users") }}
     p.text-muted-foreground.text-sm
-      | People in this agency. Open a profile to see their teams, projects,
-      | and agents.
+      | {{ $t("usersView.description") }}
   p.text-destructive.text-sm(v-if="error") {{ error }}
   Card
     CardHeader
-      CardTitle People
-      CardDescription Everyone with an account in this agency.
+      CardTitle {{ $t("usersView.title") }}
+      CardDescription {{ $t("usersView.hint") }}
     CardContent
       p.text-muted-foreground.text-sm(v-if="loading && !users.length")
-        | Loading…
+        | {{ $t("common.loading") }}
       Empty(v-else-if="!users.length")
-        EmptyTitle No users yet
-        EmptyDescription New members appear here once they join.
+        EmptyTitle {{ $t("usersView.empty") }}
+        EmptyDescription {{ $t("usersView.emptyHint") }}
       .grid.gap-3(v-else class="sm:grid-cols-2 lg:grid-cols-3")
         RouterLink.flex.items-center.gap-3.rounded-lg.border.p-3.transition-colors(
           v-for="person in users"
@@ -53,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.min-w-0.flex-col
             .flex.items-center(class="gap-1.5")
               span.truncate.font-medium {{ person.name || person.username }}
-              Badge(v-if="person.is_admin" variant="secondary") Administrator
+              Badge(v-if="person.is_admin" variant="secondary") {{ $t("admin.roleAdmin") }}
             span.text-muted-foreground.truncate.text-xs @{{ person.username }}
             span.text-muted-foreground.truncate.text-xs(
               v-if="person.description"
@@ -84,3 +83,20 @@ function avatar(person: AccountActor): string {
   return toSvg(person.username || String(person.id), 40);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  usersView:
+    description: "People in this agency. Open a profile to see their teams, projects, and agents."
+    title: "People"
+    hint: "Everyone with an account in this agency."
+    empty: "No users yet"
+    emptyHint: "New members appear here once they join."
+ru:
+  usersView:
+    description: "Люди в этом агентстве. Откройте профиль, чтобы увидеть команды, проекты и агентов."
+    title: "Люди"
+    hint: "Все, у кого есть аккаунт в этом агентстве."
+    empty: "Пользователей пока нет"
+    emptyHint: "Новые участники появятся здесь после присоединения."
+</i18n>

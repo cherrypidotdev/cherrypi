@@ -22,16 +22,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .flex.items-center.gap-3.px-4.py-3
       GlobeIcon.text-muted-foreground.size-5
       .flex.min-w-0.flex-1.flex-col
-        h1.text-sm.font-semibold Sites
+        h1.text-sm.font-semibold {{ $t("nav.sites") }}
         p.text-muted-foreground.text-xs
-          | Static sites published by tasks. Every signed-in member can open
-          | them; owners and admins manage settings.
+          | {{ $t("sitesView.description") }}
   .min-h-0.flex-1.overflow-auto.p-4
     .mb-3.flex.items-center.gap-2
       Input.w-64(
         v-model="search"
-        placeholder="Filter sites…"
-        aria-label="Filter sites"
+        :placeholder="$t('sitesView.filterPlaceholder')"
+        :aria-label="$t('sitesView.filterAria')"
       )
       span.text-muted-foreground.text-xs
         | {{ filtered.length }} {{ filtered.length === 1 ? "site" : "sites" }}
@@ -53,24 +52,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               span.inline-flex.items-center.rounded-full.border.text-xs(
                 v-if="site.agencyWide"
                 class="py-0.5"
-              ) Agency-wide
+              ) {{ $t("sitesView.agencyWide") }}
             p.text-muted-foreground.line-clamp-2.text-xs(
               v-if="site.description"
             ) {{ site.description }}
             p.text-muted-foreground.font-mono.text-xs(v-else) /sites/{{ site.id }}
         .mt-3.flex.items-center.gap-2.text-xs
-          span.text-muted-foreground.truncate(v-if="site.originTaskId") From {{ site.originTaskId }}
+          span.text-muted-foreground.truncate(v-if="site.originTaskId") {{ $t("sitesView.fromTask", { id: site.originTaskId }) }}
           span.text-muted-foreground.ml-auto.shrink-0
             | {{ formatTimestamp(site.updatedAt) }}
     .flex.flex-col.items-center.justify-center.p-10.text-center(
       v-if="!loading && !filtered.length"
     )
       GlobeIcon.text-muted-foreground.size-8
-      p.mt-2.text-sm.font-medium(v-if="search") No sites match “{{ search }}”.
-      p.mt-2.text-sm.font-medium(v-else) No sites yet.
+      p.mt-2.text-sm.font-medium(v-if="search") {{ $t("sitesView.noMatch", { search }) }}
+      p.mt-2.text-sm.font-medium(v-else) {{ $t("sitesView.empty") }}
       p.text-muted-foreground.mt-1.max-w-md.text-xs
-        | A task publishes one with the publishSite tool; the site then appears
-        | here and as a tab in its origin task.
+        | {{ $t("sitesView.emptyHint") }}
 </template>
 
 <script setup lang="ts">
@@ -97,3 +95,26 @@ const filtered = computed(() => {
 onMounted(() => void load());
 useRealtime(["sites"], () => void load());
 </script>
+
+<i18n lang="yaml">
+en:
+  sitesView:
+    agencyWide: "Agency-wide"
+    description: "Static sites published by tasks. Every signed-in member can open them; owners and admins manage settings."
+    empty: "No sites yet."
+    emptyHint: "A task publishes one with the publishSite tool; the site then appears here and as a tab in its origin task."
+    filterPlaceholder: "Filter sites…"
+    filterAria: "Filter sites"
+    fromTask: "From {id}"
+    noMatch: "No sites match “{search}”."
+ru:
+  sitesView:
+    agencyWide: "Для всего агентства"
+    description: "Статические сайты, опубликованные задачами. Открыть их может любой вошедший участник; настройками управляют владельцы и администраторы."
+    empty: "Сайтов пока нет."
+    emptyHint: "Задача публикует сайт инструментом publishSite; затем сайт появляется здесь и вкладкой в исходной задаче."
+    filterPlaceholder: "Фильтр сайтов…"
+    filterAria: "Фильтр сайтов"
+    fromTask: "Из задачи {id}"
+    noMatch: "Нет сайтов, подходящих под «{search}»."
+</i18n>

@@ -50,6 +50,8 @@ CHERRYPI_OTEL_ENABLED=1
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_SERVICE_NAME=cherrypi-agency
+# Collector with auth enabled ([OtlpDashboard](https://github.com/Adiakys/OtlpDashboard) accepts either header):
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
 ```
 
 For a local backend, start the optional Grafana LGTM stack (Grafana, Tempo,
@@ -66,7 +68,10 @@ Use `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` with an endpoint on port `4318`
 when the collector sits behind an ordinary HTTP proxy. Traces cover every
 unary Connect/gRPC call, every REST request under `/api/` and `/plugins/`, and
 every SQL statement, so a slow request shows which query inside it was
-slow. The full variable list, including sampling and per-signal switches, is in
+slow. SQL spans carry the sqlc query name (e.g. `store.ListTasks`) and the
+`db.query.summary` attribute, so the busiest-operation views identify the store
+operation instead of only `sql.conn.query`. The full variable list, including
+sampling and per-signal switches, is in
 the [environment reference](/reference/environment#observability-opentelemetry).
 
 ## Database
@@ -124,7 +129,7 @@ the `minio-init` service creates it.
 
 | Section | What you configure |
 | --- | --- |
-| General | Agency name, logo, favicon, primary color and the Overview Usage/Concurrency KPI switches. |
+| General | Agency name, logo, favicon, primary color, and the default Overview KPI widget layouts. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |
@@ -133,6 +138,27 @@ the `minio-init` service creates it.
 | Logs | The agency process log with follow, download and tail. |
 
 See [Authentication and teams](/agency/authentication) for the identity model.
+
+### Overview KPI layouts
+
+The agency Tasks page and every project and agent **Overview** render a KPI
+widget layout instead of a fixed strip. Each page's layout is agency-wide: an
+administrator arranges the Tasks page, a project owner arranges their project,
+and an agent owner arranges their agent. A layout holds up to eight widgets in a
+four-by-two grid; a widget spans one to four columns and one or two rows, and
+its settings pin a time frame (7/30/90 days or all time) and, where it makes
+sense, a different agent or project than the page's own.
+
+The catalog covers usage totals (cost, tokens, rounds, thinking time, active
+time, time till completion, completed tasks), the same metrics averaged per
+completed task, and the live concurrency figures (slots held, waiting, free
+slots or member agents, full caps).
+
+**Settings → General → Overview KPI layouts** holds the fallback layouts: a
+project or agent page without a layout of its own renders its kind's fallback,
+so a new page is arranged the moment it appears. An empty layout renders no
+KPIs, which is also the default. The **Usage** and **Concurrency** tabs keep
+their fixed strips, which cannot be rearranged.
 
 ### Voice input
 

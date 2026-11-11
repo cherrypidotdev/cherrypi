@@ -26,6 +26,7 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
+	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
@@ -49,6 +50,8 @@ type ProjectServer struct {
 	Tags *tags.Service
 
 	Scheduler *scheduler.Scheduler
+
+	KpiLayouts *kpilayout.Service
 }
 
 func (s *ProjectServer) ListProjects(
@@ -185,6 +188,13 @@ func (s *ProjectServer) DeleteProject(
 	}
 	if err := s.Projects.Delete(ctx, req.Id); err != nil {
 		return nil, mapError(err)
+	}
+
+	if s.KpiLayouts != nil {
+		_ = s.KpiLayouts.DeletePage(ctx, kpilayout.Page{
+			Kind: kpilayout.KindProject,
+			ID:   req.Id,
+		})
 	}
 	return &agencyv1.DeleteProjectResponse{}, nil
 }

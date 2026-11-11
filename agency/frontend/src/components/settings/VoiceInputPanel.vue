@@ -19,85 +19,75 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Voice input
+    CardTitle {{ $t("voice.title") }}
     CardDescription
-      | Dictate task prompts and follow-ups from the microphone in every
-      | Markdown composer. With a speech-to-text endpoint configured, the agency
-      | transcribes the recording itself; without one, supported browsers use
-      | their own Web Speech recognition.
+      | {{ $t("voice.description") }}
   CardContent.flex.flex-col.gap-4
     .flex.items-center.justify-between.gap-4.rounded-md.border.p-3(class="bg-muted/30")
       .flex.flex-col(class="gap-0.5")
-        span.text-sm.font-medium Enable voice input
+        span.text-sm.font-medium {{ $t("voice.enable") }}
         span.text-muted-foreground.text-xs
-          | Show the microphone in the task composer, prompt editor, follow-ups
-          | and comments.
+          | {{ $t("voice.enableHint") }}
       Switch(
         v-model="enabled"
-        aria-label="Enable voice input"
+        :aria-label="$t('voice.enable')"
         data-testid="voice-input-enabled"
       )
 
     template(v-if="enabled")
       .grid.gap-4(class="sm:grid-cols-2")
         Field
-          FieldLabel(for="voice-input-base-url") API base URL
+          FieldLabel(for="voice-input-base-url") {{ $t("voice.baseUrl") }}
           Input#voice-input-base-url(
             v-model="baseUrl"
-            placeholder="https://api.example.com/v1"
+            :placeholder="$t('voice.baseUrlPlaceholder')"
             autocomplete="off"
             data-testid="voice-input-base-url"
           )
           FieldDescription
-            | The agency appends <code>/audio/transcriptions</code>. Leave
-            | empty to use the browser recognizer only.
+            | {{ $t("voice.baseUrlHint2") }}
         Field
-          FieldLabel(for="voice-input-model") Model
+          FieldLabel(for="voice-input-model") {{ $t("domainLog.kind.model") }}
           Input#voice-input-model(
             v-model="model"
-            placeholder="whisper-1"
+            :placeholder="$t('voice.modelPlaceholder')"
             autocomplete="off"
             data-testid="voice-input-model"
           )
-          FieldDescription Any model the endpoint accepts.
+          FieldDescription {{ $t("voice.modelHint") }}
         Field(class="sm:col-span-2")
-          FieldLabel(for="voice-input-api-key") API key
+          FieldLabel(for="voice-input-api-key") {{ $t("voice.apiKey") }}
           .flex.items-center.gap-2
             Input#voice-input-api-key.flex-1(
               v-model="apiKey"
               type="password"
-              :placeholder="hasStoredKey ? 'Leave blank to keep the stored key' : 'Optional for a local endpoint'"
+              :placeholder="hasStoredKey ? $t('voice.apiKeyKeep') : $t('voice.apiKeyOptional')"
               autocomplete="new-password"
               data-testid="voice-input-api-key"
             )
-            Badge(v-if="hasStoredKey" variant="secondary") Key stored
+            Badge(v-if="hasStoredKey" variant="secondary") {{ $t("voice.keyStored") }}
             Button(
               v-if="hasStoredKey"
               type="button"
               variant="outline"
               size="sm"
-              title="Forget the stored API key"
+              :title="$t('voice.forgetKey')"
               @click="clearKey"
               data-testid="voice-input-clear-key"
             )
               Trash2Icon(data-icon="inline-start")
-              span Remove
+              span {{ $t("common.remove") }}
           FieldDescription
-            | Stored by the agency and never returned to the browser. Leave
-            | blank to keep the current key; it is not cleared when the base
-            | URL changes.
+            | {{ $t("voice.keyHint") }}
         .flex.flex-col(class="gap-0.5 sm:col-span-2")
-          span.text-sm.font-medium Language
+          span.text-sm.font-medium {{ $t("language.label") }}
           span.text-muted-foreground.text-xs
-            | Detected automatically: no language is sent, so the provider
-            | decides. The browser fallback uses the browser's own language.
+            | {{ $t("voice.languageHint") }}
 
       Alert
-        AlertTitle Browser fallback
+        AlertTitle {{ $t("voice.browserFallback") }}
         AlertDescription
-          | Without a configured endpoint, Chrome, Edge and Safari dictate with
-          | their Web Speech API and send audio to the browser vendor. Firefox
-          | has no such API, so the microphone stays hidden there.
+          | {{ $t("voice.browserFallbackHint") }}
 
     p.text-destructive.text-sm(v-if="error") {{ error }}
     .flex.justify-end
@@ -109,7 +99,7 @@ Card
       )
         Spinner(v-if="saving" data-icon="inline-start")
         CheckIcon(v-else data-icon="inline-start")
-        span Save
+        span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -130,7 +120,10 @@ import { Switch } from "@/components/ui/switch";
 import { useSettings } from "@/composables/useSettings";
 import { CheckIcon, Trash2Icon } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const { settings, loadSettings, saveSettings } = useSettings();
 
@@ -190,12 +183,10 @@ async function clearKey() {
     await saveSettings({
       agencyName: current.agencyName,
       primaryColor: current.primaryColor,
-      showUsageKpi: current.showUsageKpi,
-      showConcurrencyKpi: current.showConcurrencyKpi,
       notificationSoundSet: current.notificationSoundSet,
       clearApiKey: true,
     });
-    toast.success("Stored API key removed");
+    toast.success(t("voice.toasts.keyRemoved"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -216,8 +207,6 @@ async function save() {
     await saveSettings({
       agencyName: current.agencyName,
       primaryColor: current.primaryColor,
-      showUsageKpi: current.showUsageKpi,
-      showConcurrencyKpi: current.showConcurrencyKpi,
       notificationSoundSet: current.notificationSoundSet,
       voiceInput: {
         enabled: enabled.value,
@@ -228,7 +217,7 @@ async function save() {
     });
     apiKey.value = "";
     fillFromSettings();
-    toast.success("Voice input settings saved");
+    toast.success(t("voice.toasts.saved"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -236,3 +225,52 @@ async function save() {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  voice:
+    title: "Voice input"
+    description: "Dictate task prompts and follow-ups from the microphone in every Markdown composer. With a speech-to-text endpoint configured, the agency transcribes the recording itself; without one, supported browsers use their own Web Speech recognition."
+    enable: "Enable voice input"
+    enableHint: "Show the microphone in the task composer, prompt editor, follow-ups and comments."
+    baseUrl: "API base URL"
+    modelHint: "Any model the endpoint accepts."
+    apiKey: "API key"
+    keyStored: "Key stored"
+    keyHint: "Stored by the agency and never returned to the browser. Leave blank to keep the current key; it is not cleared when the base URL changes."
+    languageHint: "Detected automatically: no language is sent, so the provider decides. The browser fallback uses the browser's own language."
+    browserFallback: "Browser fallback"
+    browserFallbackHint: "Without a configured endpoint, Chrome, Edge and Safari dictate with their Web Speech API and send audio to the browser vendor. Firefox has no such API, so the microphone stays hidden there."
+    baseUrlPlaceholder: "https://api.example.com/v1"
+    modelPlaceholder: "whisper-1"
+    forgetKey: "Forget the stored API key"
+    toasts:
+      saved: "Voice input settings saved"
+      keyRemoved: "Stored API key removed"
+    apiKeyKeep: "Leave blank to keep the stored key"
+    apiKeyOptional: "Optional for a local endpoint"
+    baseUrlHint2: "The agency appends /audio/transcriptions. Leave empty to use the browser recognizer only."
+ru:
+  voice:
+    title: "Голосовой ввод"
+    description: "Диктуйте промпты и уточнения с микрофона в любом Markdown-редакторе. Если настроен сервис распознавания речи, агентство расшифровывает запись само; иначе поддерживаемые браузеры используют собственное распознавание Web Speech."
+    enable: "Включить голосовой ввод"
+    enableHint: "Показывать микрофон в композере задач, редакторе промптов, уточнениях и комментариях."
+    baseUrl: "Базовый URL API"
+    modelHint: "Любая модель, которую принимает сервис."
+    apiKey: "API-ключ"
+    keyStored: "Ключ сохранён"
+    keyHint: "Хранится в агентстве и никогда не возвращается в браузер. Оставьте пустым, чтобы сохранить текущий ключ; он не сбрасывается при изменении базового URL."
+    languageHint: "Определяется автоматически: язык не отправляется, решение принимает провайдер. Резервный вариант в браузере использует язык браузера."
+    browserFallback: "Резервный вариант в браузере"
+    browserFallbackHint: "Без настроенного сервиса Chrome, Edge и Safari диктуют через Web Speech API и отправляют аудио вендору браузера. В Firefox такого API нет, поэтому микрофон там не показывается."
+    baseUrlPlaceholder: "https://api.example.com/v1"
+    modelPlaceholder: "whisper-1"
+    forgetKey: "Забыть сохранённый API-ключ"
+    toasts:
+      saved: "Настройки голосового ввода сохранены"
+      keyRemoved: "Сохранённый API-ключ удалён"
+    apiKeyKeep: "Оставьте пустым, чтобы сохранить ключ"
+    apiKeyOptional: "Необязательно для локального сервиса"
+    baseUrlHint2: "Агентство добавляет /audio/transcriptions. Оставьте пустым, чтобы использовать только распознавание браузера."
+</i18n>

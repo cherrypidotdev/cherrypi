@@ -42,7 +42,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .mx-auto.flex.max-w-3xl.items-start.gap-3
       TriangleAlertIcon.text-destructive.size-4.shrink-0(class="mt-0.5")
       .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
-        p.text-destructive.text-sm.font-medium The task failed.
+        p.text-destructive.text-sm.font-medium {{ $t("taskConsolePage.failed") }}
         p.text-muted-foreground.text-xs.break-words {{ task.error || "No error details." }}
       Button.shrink-0(
         v-if="!sessionDeleted"
@@ -51,7 +51,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         @click="$emit('reopen', true)"
       )
         PlayIcon(data-icon="inline-start")
-        span Re-queue
+        span {{ $t("taskConsolePage.requeue") }}
 
   TaskPrompt.flex-1.overflow-hidden(
     v-if="task && showPrompt"
@@ -69,8 +69,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     v-else-if="task && !isStarted && !canFollowUp"
   )
     p.text-muted-foreground.max-w-md.text-center.text-sm
-      | This task has no console yet. Its Pi session starts when the scheduler
-      | finds an eligible agent with a free slot.
+      | {{ $t("taskConsolePage.noConsole") }}
 
   .relative.flex.min-h-0.flex-1.flex-col.overflow-hidden(
     v-else-if="task"
@@ -87,7 +86,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     )
       .flex.flex-col.items-center.gap-1.text-sm.font-medium
         PaperclipIcon.size-5
-        span Drop files to attach
+        span {{ $t("taskPrompt.dropFiles") }}
 
     TaskConsole.min-h-0.flex-1(
       :key="task.sessionId"
@@ -142,8 +141,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
               class="group-data-[state=open]/queue:rotate-90"
             )
-            p.text-muted-foreground.text-xs
-              | Queued steering ({{ taskQueue.length }}){{ queueOpen ? " — injected between blocks" : "" }}
+            p.text-muted-foreground.text-xs(
+              data-testid="steering-queue-caption"
+            )
+              | {{ $t("taskConsolePage.queuedSteering", { count: taskQueue.length }) }}{{ queueOpen ? queueCaption : "" }}
           Button.ml-auto(
             variant="outline"
             size="sm"
@@ -152,7 +153,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             Spinner(v-if="clearingQueue" data-icon="inline-start")
             Trash2Icon(v-else data-icon="inline-start")
-            span Clear queue
+            span {{ $t("taskConsolePage.clearQueue") }}
         CollapsibleContent
           .flex.flex-col.gap-1
             .d-chat.d-chat-end(
@@ -174,11 +175,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
                   :text="item.text"
                 )
-              .d-chat-footer(v-if="item.attachmentIds.length")
+              .d-chat-footer(
+                v-if="item.attachmentIds.length || item.queueId"
+                class="flex.items-center.gap-2"
+              )
                 AttachmentChips(
+                  v-if="item.attachmentIds.length"
                   :attachments="queueAttachments(item.attachmentIds)"
                   @open="$emit('open-attachment', $event)"
                 )
+
+                Button(
+                  v-if="item.queueId"
+                  variant="ghost"
+                  size="icon-xs"
+                  :aria-label="$t('taskConsolePage.removeQueued')"
+                  :title="$t('taskConsolePage.removeQueuedHint')"
+                  @click="$emit('remove-queued', item.queueId)"
+                  :disabled="removingQueueId === item.queueId"
+                  data-testid="steering-remove"
+                )
+                  Spinner(
+                    v-if="removingQueueId === item.queueId"
+                    data-icon="inline-start"
+                  )
+                  XIcon(v-else)
+
+    //- Published plan: a compact status line above the composer; the full
 
     TaskProgressStrip(
       v-if="task"
@@ -197,7 +220,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     )
       .absolute.inset-x-0.-top-1.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
         v-if="canCompose && tab === 'write'"
-        title="Drag to resize the composer"
+        :title="$t('taskConsolePage.resizeHint')"
         @pointerdown="startResize"
         data-testid="composer-resize-handle"
       )
@@ -212,9 +235,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           CircleSlashIcon.size-3.shrink-0(class="mt-0.5")
           span
-            | The agent-side Pi session and workspace are gone (cleaned up, or
-            | the agent restarted with fresh data). Sending a message replays
-            | the stored conversation in a new Pi session.
+            | {{ $t("taskConsolePage.sessionGone") }}
 
         p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
           v-if="isInput"
@@ -222,8 +243,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           InfoIcon.size-3.shrink-0(class="mt-0.5")
           span
-            | The agent is waiting for your answers. You can draft a follow-up
-            | now; sending unlocks once the questionnaire is submitted.
+            | {{ $t("taskConsolePage.awaitingAnswers") }}
 
         .flex.flex-col.gap-2
           .flex.flex-wrap.items-center.gap-2
@@ -247,16 +267,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 v-if="steer"
                 type="button"
                 variant="outline"
-                title="Stop the agent"
+                :title="$t('taskConsolePage.stopHint')"
                 @click="$emit('stop')"
                 :disabled="stopping"
               )
                 Spinner(v-if="stopping" data-icon="inline-start")
                 SquareIcon(v-else data-icon="inline-start")
-                span Stop
+                span {{ $t("settings.sounds.stop") }}
               Button.shrink-0(
                 type="submit"
-                :title="isInput ? 'Answer the questionnaire to send this follow-up' : steer ? 'Steer: injected between the run\u2019s blocks' : 'Send prompt'"
+                :title="sendTitle"
                 :disabled="!canFollowUp || !prompt.trim() || sending"
               )
                 SendIcon(data-icon="inline-start")
@@ -265,12 +285,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           MarkdownEditor(
             v-if="tab === 'write'"
             ref="promptInput"
-            :placeholder="isInput ? 'You can draft a follow-up while the questionnaire is open…' : 'Send a follow-up prompt…'"
+            :placeholder="isInput ? $t('taskConsolePage.draftPlaceholder') : $t('taskConsolePage.sendPlaceholder')"
             submit-on-enter
             references
             test-id="composer-editor"
-            aria-label="Follow-up prompt"
-            title="Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+B bold · Ctrl+I italic · Ctrl+E code · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+            :title="$t('taskConsolePage.editorHint')"
+            :aria-label="$t('releaseHold.followUp')"
             :model-value="prompt"
             :reference-project-id="task?.projectId ?? ''"
             :reference-task-id="task?.id ?? ''"
@@ -295,7 +315,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             .flex.min-h-7.flex-wrap.items-center.gap-2
               template(v-if="canCompose")
                 AttachmentUploadButton(
-                  label="Attach"
+                  :label="$t('taskPrompt.attach')"
                   :task-id="task.id"
                   @uploaded="$emit('staged-uploaded', $event)"
                 )
@@ -303,14 +323,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   type="button"
                   variant="outline"
                   size="sm"
-                  title="Draw a sketch"
+                  :title="$t('taskPrompt.sketchAria')"
                   @click="$emit('open-new-sketch')"
                 )
                   PencilIcon(data-icon="inline-start")
-                  span Sketch
+                  span {{ $t("taskPrompt.sketch") }}
                 span.text-muted-foreground.text-xs(
                   v-if="!stagedAttachments.length"
-                ) Paste, drop, or pick files to send with this prompt
+                ) {{ $t("taskConsolePage.attachmentsHint") }}
               ContextMeter.ml-auto(
                 v-if="contextWindow"
                 :tokens="taskUsage?.contextTokens ?? 0"
@@ -328,7 +348,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               @open="$emit('open-attachment', $event)"
             )
           p.text-muted-foreground.text-xs(v-if="isPostponed")
-            | Sending a follow-up queues this task immediately.
+            | {{ $t("taskConsolePage.queuesImmediately") }}
 </template>
 
 <script setup lang="ts">
@@ -380,8 +400,12 @@ import {
   SquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  XIcon,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   active: boolean;
@@ -400,8 +424,10 @@ const props = defineProps<{
   tab: "write" | "preview";
   stagedAttachments: Attachment[];
   draggingFiles: boolean;
-  taskQueue: (UserMessageParts & { id: number })[];
+  taskQueue: (UserMessageParts & { id: number; queueId: string })[];
   clearingQueue: boolean;
+
+  removingQueueId: string;
   sending: boolean;
   stopping: boolean;
 
@@ -436,8 +462,9 @@ defineEmits<{
   (e: "drag-leave"): void;
   (e: "drop", event: DragEvent): void;
   (e: "paste", event: ClipboardEvent): void;
-  (e: "queue", steering: string[]): void;
+  (e: "queue", steering: { id: string; text: string }[]): void;
   (e: "clear-queue"): void;
+  (e: "remove-queued", queueId: string): void;
   (e: "open-plan"): void;
   (e: "remind-plan"): void;
 }>();
@@ -532,6 +559,14 @@ const busy = computed(() => !props.task || props.task.runtime?.runInProgress);
 
 const steer = computed(() => props.task?.runtime?.runInProgress === true);
 
+const sendTitle = computed(() =>
+  props.task?.state === TaskState.INPUT
+    ? t("taskConsolePage.sendTitleBlocked")
+    : steer.value
+      ? t("taskConsolePage.sendTitleSteer")
+      : t("taskConsolePage.sendTitle"),
+);
+
 const contextWindow = computed(() =>
   Number(props.taskUsage?.contextWindow ?? 0),
 );
@@ -540,6 +575,10 @@ const composer = ref<HTMLElement | null>(null);
 const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
 const textareaHeight = ref<number | null>(null);
 const resizing = ref(false);
+
+const queueCaption = computed(() =>
+  steer.value ? " — injected between blocks" : " — held until the run resumes",
+);
 
 const queueOpen = ref(true);
 watch(
@@ -608,3 +647,48 @@ function queueAttachments(ids: string[]): Attachment[] {
 </script>
 
 <style lang="postcss" scoped></style>
+
+<i18n lang="yaml">
+en:
+  taskConsolePage:
+    failed: "The task failed."
+    requeue: "Re-queue"
+    noConsole: "This task has no console yet. Its Pi session starts when the scheduler finds an eligible agent with a free slot."
+    clearQueue: "Clear queue"
+    sessionGone: "The agent-side Pi session and workspace are gone (cleaned up, or the agent restarted with fresh data). Sending a message replays the stored conversation in a new Pi session."
+    awaitingAnswers: "The agent is waiting for your answers. You can draft a follow-up now; sending unlocks once the questionnaire is submitted."
+    attachmentsHint: "Paste, drop, or pick files to send with this prompt"
+    queuesImmediately: "Sending a follow-up queues this task immediately."
+    resizeHint: "Drag to resize the composer"
+    stopHint: "Stop the agent"
+    removeQueued: "Remove queued message"
+    removeQueuedHint: "Remove this queued message"
+    sendTitle: "Send prompt"
+    sendTitleSteer: "Steer: injected between the run’s blocks"
+    sendTitleBlocked: "Answer the questionnaire to send this follow-up"
+    draftPlaceholder: "You can draft a follow-up while the questionnaire is open…"
+    sendPlaceholder: "Send a follow-up prompt…"
+    editorHint: "Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+B bold · Ctrl+I italic · Ctrl+E code · Ctrl+K deletes to the end of the line · {'@'} mentions · # tasks"
+    queuedSteering: "Queued steering ({count})"
+ru:
+  taskConsolePage:
+    failed: "Задача завершилась ошибкой."
+    requeue: "Поставить в очередь снова"
+    noConsole: "У задачи пока нет консоли. Сеанс Pi запустится, когда планировщик найдёт подходящего агента со свободным слотом."
+    clearQueue: "Очистить очередь"
+    sessionGone: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными). Отправка сообщения воспроизведёт сохранённую переписку в новом сеансе Pi."
+    awaitingAnswers: "Агент ждёт ваших ответов. Уточнение можно написать сейчас; отправка станет доступна после отправки опросника."
+    attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы отправить их с этим промптом"
+    queuesImmediately: "Отправка уточнения сразу ставит задачу в очередь."
+    resizeHint: "Потяните, чтобы изменить размер композера"
+    stopHint: "Остановить агента"
+    removeQueued: "Убрать сообщение из очереди"
+    removeQueuedHint: "Убрать это сообщение из очереди"
+    sendTitle: "Отправить промпт"
+    sendTitleSteer: "Указание: вставляется между блоками запуска"
+    sendTitleBlocked: "Ответьте на опросник, чтобы отправить уточнение"
+    draftPlaceholder: "Пока опросник открыт, можно написать уточнение…"
+    sendPlaceholder: "Отправить уточняющий промпт…"
+    editorHint: "Enter — отправить · Shift+Enter — новая строка · Tab — отступ · Ctrl+B — жирный · Ctrl+I — курсив · Ctrl+E — код · Ctrl+K — удалить до конца строки · {'@'} — упоминания · # — задачи"
+    queuedSteering: "Указания в очереди ({count})"
+</i18n>

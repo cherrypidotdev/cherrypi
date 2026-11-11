@@ -23,7 +23,7 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
 
   .absolute.inset-x-0.bottom-0.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
     v-if="resizable && !fill"
-    title="Drag to resize"
+    :title="$t('markdownEditor.resizeHint')"
     @pointerdown="startResize"
     data-testid="markdown-editor-resize"
   )
@@ -781,3 +781,12 @@ function setValue(value: string) {
 
 defineExpose({ focus, focusEnd, getValue, setValue, view });
 </script>
+
+<i18n lang="yaml">
+en:
+  markdownEditor:
+    resizeHint: "Drag to resize"
+ru:
+  markdownEditor:
+    resizeHint: "Потяните, чтобы изменить размер"
+</i18n>

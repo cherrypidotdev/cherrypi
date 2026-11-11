@@ -1032,6 +1032,10 @@ func (s *SqliteStore) UpsertSetting(ctx context.Context, p UpsertSettingParams) 
 	return s.q.UpsertSetting(ctx, sqlitedb.UpsertSettingParams(p))
 }
 
+func (s *SqliteStore) DeleteSetting(ctx context.Context, key string) error {
+	return s.q.DeleteSetting(ctx, key)
+}
+
 func (s *SqliteStore) ClearSettingValue(ctx context.Context, key, value string) error {
 	return s.q.ClearSettingValue(ctx, sqlitedb.ClearSettingValueParams(ClearSettingValueParams{
 		Key:   key,

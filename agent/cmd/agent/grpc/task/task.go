@@ -318,6 +318,16 @@ func (s *TaskServer) ClearQueue(
 	return &agentv1.ClearQueueResponse{}, nil
 }
 
+func (s *TaskServer) RemoveQueuedMessage(
+	ctx context.Context,
+	req *agentv1.RemoveQueuedMessageRequest,
+) (*agentv1.RemoveQueuedMessageResponse, error) {
+	if err := s.Tasks.RemoveQueued(ctx, req.Id, req.QueueId); err != nil {
+		return nil, connectError(err)
+	}
+	return &agentv1.RemoveQueuedMessageResponse{}, nil
+}
+
 func (s *TaskServer) RestartTaskSession(
 	ctx context.Context,
 	req *agentv1.RestartTaskSessionRequest,
@@ -482,10 +492,18 @@ func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
 		}
 		out.Event = &agentv1.TaskEvent_UserMessage{UserMessage: message}
 	case session.EventQueue:
+
+		steering := make([]string, len(ev.Queue.Steering))
+		queued := make([]*agentv1.QueuedMessage, len(ev.Queue.Steering))
+		for i, entry := range ev.Queue.Steering {
+			steering[i] = entry.Text
+			queued[i] = &agentv1.QueuedMessage{Id: entry.ID, Text: entry.Text}
+		}
 		out.Event = &agentv1.TaskEvent_PendingMessages{
 			PendingMessages: &agentv1.PendingMessages{
-				Steering: ev.Queue.Steering,
-				FollowUp: ev.Queue.FollowUp,
+				//nolint:staticcheck // an older agency reads only this field.
+				Steering:       steering,
+				QueuedSteering: queued,
 			},
 		}
 	case session.EventPending:

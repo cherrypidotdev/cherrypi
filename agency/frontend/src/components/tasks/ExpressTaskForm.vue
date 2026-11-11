@@ -24,9 +24,9 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
         .flex.items-center.gap-2
           Input.flex-1(
             v-model="title"
-            placeholder="Auto-generated title"
-            aria-label="Task title"
+            :placeholder="$t('express.autoTitle')"
             autocomplete="off"
+            :aria-label="$t('express.titlePlaceholder')"
             @keydown.enter.prevent
             data-testid="composer-title"
           )
@@ -34,7 +34,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             Button(
               type="button"
               variant="outline"
-              title="Create the task in Backlog, not queued yet"
+              :title="$t('express.toBacklogHint')"
               @click="submit(TaskState.BACKLOG)"
               :disabled="submitDisabled"
             )
@@ -43,10 +43,10 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
                 data-icon="inline-start"
               )
               InboxIcon(v-else data-icon="inline-start")
-              span Put to Backlog
+              span {{ $t("express.toBacklog") }}
             Button(
               type="button"
-              title="Create the task and queue it for the scheduler"
+              :title="$t('express.toQueueHint')"
               @click="submit(TaskState.QUEUED)"
               :disabled="submitDisabled"
             )
@@ -55,7 +55,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
                 data-icon="inline-start"
               )
               PlayIcon(v-else data-icon="inline-start")
-              span Queue
+              span {{ $t("tasks.action.queue") }}
         .relative(
           @dragenter.prevent="onDragEnter"
           @dragover.prevent
@@ -68,17 +68,17 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           )
             .flex.flex-col.items-center.gap-1.text-sm.font-medium
               PaperclipIcon.size-5
-              span Drop files to attach
+              span {{ $t("taskPrompt.dropFiles") }}
           MarkdownEditor(
             ref="promptInput"
             v-model="prompt"
             v-model:resize-height="promptHeight"
-            placeholder="Describe a task…"
+            :placeholder="$t('express.promptPlaceholder')"
             resizable
             references
             test-id="express-editor"
-            aria-label="Task prompt"
-            title="Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+            :title="$t('express.shortcuts')"
+            :aria-label="$t('taskPrompt.aria')"
             :reference-project-id="selectedProjectId"
             @submit="submit"
             @task-picked="addPromptReference"
@@ -89,26 +89,26 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             type="button"
             variant="outline"
             size="sm"
-            title="Attach files to the task"
+            :title="$t('taskPrompt.attachAria')"
             @click="pickFiles"
           )
             PaperclipIcon(data-icon="inline-start")
-            span Attach
+            span {{ $t("taskPrompt.attach") }}
           Button(
             type="button"
             variant="outline"
             size="sm"
-            title="Draw a sketch"
+            :title="$t('taskPrompt.sketchAria')"
             @click="openNewSketch"
           )
             PencilIcon(data-icon="inline-start")
-            span Sketch
+            span {{ $t("taskPrompt.sketch") }}
           span.text-muted-foreground.text-xs(v-if="!stagedCount")
-            | Paste, drop, or pick files to attach them to the task
+            | {{ $t("express.attachmentsHint") }}
           span.text-muted-foreground.ml-auto.text-xs(
             data-testid="composer-submit-hint"
           )
-            | Ctrl+Enter to create · Tab indents
+            | {{ $t("express.shortcutsShort") }}
           input.hidden(
             ref="fileInput"
             type="file"
@@ -129,16 +129,16 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             variant="outline"
             size="sm"
             disabled
-            :title="`In ${fixedProjectLabel}`"
+            :title="$t('express.inProject', { project: fixedProjectLabel })"
           )
             span {{ fixedProjectLabel }}
           Combobox.w-40(
             v-else
-            placeholder="Select project"
+            :placeholder="$t('editTask.selectProject')"
             size="sm"
             empty-text="No matching project."
-            title="Project"
-            aria-label="Project"
+            :title="$t('admin.projects.columnProject')"
+            :aria-label="$t('admin.projects.columnProject')"
             :model-value="projectChoice"
             :options="projectComboboxOptions"
             @update:model-value="pickProject"
@@ -148,25 +148,25 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             type="button"
             variant="outline"
             size="sm"
-            :title="selectedProjectId ? 'Start from a task template' : 'Select a project first'"
+            :title="selectedProjectId ? $t('express.templateHint') : $t('express.selectProjectFirst')"
             @click="templateOpen = true"
             :disabled="!selectedProjectId"
             data-testid="composer-template"
           )
             FileCodeIcon(data-icon="inline-start")
-            span Template
+            span {{ $t("domainLog.kind.template") }}
 
           span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
             v-if="appliedTemplate"
             class="py-0.5"
-            :title="`Rendered from template version ${appliedTemplate.version}`"
+            :title="$t('express.templateVersion', { version: appliedTemplate.version })"
           )
             FileCodeIcon.size-3.shrink-0
             span {{ appliedTemplate.templateName }} · v{{ appliedTemplate.version }}
             button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
               type="button"
               class="p-0.5 hover:opacity-100"
-              title="Detach the template (keeps the rendered prompt)"
+              :title="$t('express.detachTemplate')"
               @click="detachTemplate"
             )
               XIcon.size-3
@@ -180,11 +180,14 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           label.inline-flex.items-center.text-xs(
             v-if="parentChoice"
             class="gap-1.5"
-            title="Surface questionnaires and extension dialogs for this sub-task; turn off for background work that must not wait for the user"
+            :title="$t('express.interactiveHint')"
             data-testid="composer-interactive"
           )
-            Switch(v-model="interactive" aria-label="Interactive")
-            span Interactive
+            Switch(
+              v-model="interactive"
+              :aria-label="$t('express.interactive')"
+            )
+            span {{ $t("express.interactive") }}
 
           Button(
             v-if="fixedAgentId"
@@ -192,15 +195,18 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             variant="outline"
             size="sm"
             disabled
-            :title="`Assigned to ${fixedAgentLabel}`"
+            :title="$t('express.assignedTo', { agent: fixedAgentLabel })"
           )
             span {{ fixedAgentLabel }}
           Select(v-else v-model="assigneeChoice")
-            SelectTrigger.w-40(size="sm" title="Agent")
-              SelectValue(placeholder="Auto-assign")
+            SelectTrigger.w-40(
+              size="sm"
+              :title="$t('admin.agents.columnAgent')"
+            )
+              SelectValue(:placeholder="$t('editTask.autoAssign')")
             SelectContent
               SelectGroup
-                SelectItem(:value="AUTO") Auto-assign
+                SelectItem(:value="AUTO") {{ $t("editTask.autoAssign") }}
                 SelectItem(
                   v-for="item in assigneeOptions"
                   :key="item.id"
@@ -240,23 +246,23 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
                 type="button"
                 variant="outline"
                 size="sm"
-                :title="selectedProjectId ? owningTeamsTitle : 'Select a project first'"
+                :title="selectedProjectId ? owningTeamsTitle : $t('express.selectProjectFirst')"
                 :disabled="!selectedProjectId"
               )
                 UsersIcon(data-icon="inline-start")
-                span Teams
+                span {{ $t("nav.teams") }}
             DropdownMenuContent.w-56(align="start")
-              DropdownMenuLabel Owning teams
+              DropdownMenuLabel {{ $t("domainLog.kind.teams") }}
               DropdownMenuFilter(
                 v-model="teamSearch"
-                placeholder="Search teams…"
+                :placeholder="$t('express.searchTeams')"
                 auto-focus
               )
               DropdownMenuSeparator
               p.text-muted-foreground.px-2.py-1.text-xs(
                 v-if="!filteredProjectTeams.length"
               )
-                | No teams in this project
+                | {{ $t("express.noTeams") }}
               DropdownMenuCheckboxItem(
                 v-for="team in filteredProjectTeams"
                 :key="team.team_id"
@@ -276,7 +282,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
               type="button"
               class="p-0.5 hover:opacity-100"
-              title="Remove team"
+              :title="$t('express.removeTeam')"
               @click="toggleOwningTeam(team.team_id)"
             )
               XIcon.size-3
@@ -290,19 +296,19 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
                 :title="leadsTitle"
               )
                 UserCheckIcon(data-icon="inline-start")
-                span Leads
+                span {{ $t("domainLog.kind.leads") }}
             DropdownMenuContent.w-56(align="start")
-              DropdownMenuLabel Leads
+              DropdownMenuLabel {{ $t("domainLog.kind.leads") }}
               DropdownMenuFilter(
                 v-model="leadSearch"
-                placeholder="Search members…"
+                :placeholder="$t('express.searchMembers')"
                 auto-focus
               )
               DropdownMenuSeparator
               p.text-muted-foreground.px-2.py-1.text-xs(
                 v-if="!filteredLeadCandidates.length"
               )
-                | No members to pick
+                | {{ $t("express.noMembers") }}
               DropdownMenuCheckboxItem(
                 v-for="candidate in filteredLeadCandidates"
                 :key="candidate.actor_id"
@@ -333,7 +339,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
               type="button"
               class="p-0.5 hover:opacity-100"
-              title="Remove lead"
+              :title="$t('express.removeLead')"
               @click="toggleLead(lead.actor_id)"
             )
               XIcon.size-3
@@ -355,7 +361,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           )
 
       p.text-muted-foreground.text-xs(v-if="noProjects")
-        | A task must belong to a project. Create one or ask to be added.
+        | {{ $t("express.noProject") }}
 
   TaskTemplateApplyDialog(
     v-model:open="templateOpen"
@@ -439,9 +445,9 @@ import {
   EMPTY_TASK_MODEL_SELECTION,
   TASK_SIZES,
   newTaskReferenceKind,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskPriorityTextClass,
-  taskSizeLabel,
+  taskSizeKey,
   taskSizeTextClass,
   type NewTaskRelation,
   type TaskModelSelection,
@@ -477,27 +483,30 @@ import {
   ref,
   watch,
 } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const NO_PROJECT = "__none__";
 const AUTO = "__auto__";
 
 const PRIORITIES = [
-  { value: TaskPriority.LOW, label: taskPriorityLabel(TaskPriority.LOW) },
+  { value: TaskPriority.LOW, label: t(taskPriorityKey(TaskPriority.LOW)) },
   {
     value: TaskPriority.NORMAL,
-    label: taskPriorityLabel(TaskPriority.NORMAL, true),
+    label: t(taskPriorityKey(TaskPriority.NORMAL, true)),
   },
-  { value: TaskPriority.HIGH, label: taskPriorityLabel(TaskPriority.HIGH) },
+  { value: TaskPriority.HIGH, label: t(taskPriorityKey(TaskPriority.HIGH)) },
   {
     value: TaskPriority.CRITICAL,
-    label: taskPriorityLabel(TaskPriority.CRITICAL),
+    label: t(taskPriorityKey(TaskPriority.CRITICAL)),
   },
 ];
 
 const SIZES = TASK_SIZES.map((option) => ({
   ...option,
-  label: taskSizeLabel(option.value, option.value === TaskSize.MEDIUM),
+  label: t(taskSizeKey(option.value, option.value === TaskSize.MEDIUM)),
 }));
 
 const props = defineProps<{
@@ -623,10 +632,10 @@ const selectedLeadList = computed(() =>
 );
 const owningTeamsTitle = computed(() =>
   owningTeamIds.value.length
-    ? "Members of these teams may prompt"
-    : "No owning team; the project default applies",
+    ? t("express.owningTeams")
+    : t("express.noOwningTeam"),
 );
-const leadsTitle = "Leads are notified of the task's updates";
+const leadsTitle = t("express.leadsHint");
 function toggleOwningTeam(id: number) {
   const next = new Set(owningTeamIds.value);
   if (next.has(id)) next.delete(id);
@@ -720,7 +729,9 @@ function onPaste(event: ClipboardEvent) {
 }
 
 function hasFiles(event: DragEvent): boolean {
-  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  return Array.from(event.dataTransfer?.types ?? []).includes(
+    t("taskView.files"),
+  );
 }
 
 function onDragEnter(event: DragEvent) {
@@ -788,14 +799,14 @@ watch(selectedAgentId, () => {
 
 const fixedAgentLabel = computed(() => {
   const item = agents.value.find((agent) => agent.id === props.agentId);
-  return item?.displayName || item?.username || "Agent";
+  return item?.displayName || item?.username || t("admin.agents.columnAgent");
 });
 
 const fixedProjectLabel = computed(() => {
   const item = allProjects.value.find(
     (project) => project.id === fixedProjectId.value,
   );
-  return item?.name || "Project";
+  return item?.name || t("admin.projects.columnProject");
 });
 
 const projectReady = computed(
@@ -896,7 +907,10 @@ function dropIneligibleAssignee() {
   );
   assigneeChoice.value = AUTO;
   toast.info(
-    `${agent?.displayName || agent?.username || "That agent"} is not a member of ${project?.name || "the project"}; auto-assign is selected.`,
+    t("express.agentNotMember", {
+      agent: agent?.displayName || agent?.username || t("express.thatAgent"),
+      project: project?.name || t("express.theProject"),
+    }),
   );
 }
 
@@ -1097,11 +1111,11 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
       }
     }
     if (failed) {
-      toast.error("Task saved to backlog — some attachments failed to upload");
+      toast.error(t("express.toasts.uploadFailed"));
     } else if (desired === TaskState.BACKLOG) {
-      toast.success("Task moved to backlog");
+      toast.success(t("express.toasts.movedToBacklog"));
     } else {
-      toast.success("Task queued");
+      toast.success(t("express.toasts.queued"));
     }
 
     prompt.value = "";
@@ -1157,3 +1171,78 @@ onMounted(() => {
 
 onBeforeUnmount(clearStaged);
 </script>
+
+<i18n lang="yaml">
+en:
+  express:
+    selectProjectFirst: "Select a project first"
+    toBacklog: "Put to Backlog"
+    attachmentsHint: "Paste, drop, or pick files to attach them to the task"
+    shortcutsShort: "Ctrl+Enter to create · Tab indents"
+    interactive: "Interactive"
+    noTeams: "No teams in this project"
+    noMembers: "No members to pick"
+    noProject: "A task must belong to a project. Create one or ask to be added."
+    autoTitle: "Auto-generated title"
+    titlePlaceholder: "Task title"
+    toBacklogHint: "Create the task in Backlog, not queued yet"
+    toQueueHint: "Create the task and queue it for the scheduler"
+    promptPlaceholder: "Describe a task…"
+    detachTemplate: "Detach the template (keeps the rendered prompt)"
+    interactiveHint: "Surface questionnaires and extension dialogs for this sub-task; turn off for background work that must not wait for the user"
+    searchTeams: "Search teams…"
+    removeTeam: "Remove team"
+    searchMembers: "Search members…"
+    removeLead: "Remove lead"
+    toasts:
+      queued: "Task queued"
+      movedToBacklog: "Task moved to backlog"
+      uploadFailed: "Task saved to backlog — some attachments failed to upload"
+    thatAgent: "That agent"
+    noOwningTeam: "No owning team; the project default applies"
+    owningTeams: "Members of these teams may prompt"
+    shortcuts: "Tab indents · Ctrl+Enter creates the task · Ctrl+K deletes to the end of the line · {'@'} mentions · # tasks"
+    inProject: "In {project}"
+    templateHint: "Start from a task template"
+    templateVersion: "Rendered from template version {version}"
+    assignedTo: "Assigned to {agent}"
+    leadsHint: "Leads are notified of the task's updates"
+    agentNotMember: "{agent} is not a member of {project}; auto-assign is selected."
+    theProject: "the project"
+ru:
+  express:
+    selectProjectFirst: "Сначала выберите проект"
+    toBacklog: "В бэклог"
+    attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы прикрепить их к задаче"
+    shortcutsShort: "Ctrl+Enter — создать · Tab — отступ"
+    interactive: "Интерактивная"
+    noTeams: "В этом проекте нет команд"
+    noMembers: "Нет участников для выбора"
+    noProject: "Задача должна принадлежать проекту. Создайте проект или попросите добавить вас."
+    autoTitle: "Автоматическое название"
+    titlePlaceholder: "Название задачи"
+    toBacklogHint: "Создать задачу в бэклоге, без постановки в очередь"
+    toQueueHint: "Создать задачу и поставить её в очередь планировщика"
+    promptPlaceholder: "Опишите задачу…"
+    detachTemplate: "Отвязать шаблон (промпт останется)"
+    interactiveHint: "Показывать опросники и диалоги расширений для этой подзадачи; отключите для фоновой работы, которая не должна ждать пользователя"
+    searchTeams: "Поиск команд…"
+    removeTeam: "Убрать команду"
+    searchMembers: "Поиск участников…"
+    removeLead: "Убрать руководителя"
+    toasts:
+      queued: "Задача поставлена в очередь"
+      movedToBacklog: "Задача перемещена в бэклог"
+      uploadFailed: "Задача сохранена в бэклог — часть вложений не загрузилась"
+    thatAgent: "Этот агент"
+    noOwningTeam: "Нет команды-владельца; действует значение проекта по умолчанию"
+    owningTeams: "Участники этих команд могут отправлять промпты"
+    shortcuts: "Tab — отступ · Ctrl+Enter — создать задачу · Ctrl+K — удалить до конца строки · {'@'} — упоминания · # — задачи"
+    inProject: "В проекте {project}"
+    templateHint: "Начать с шаблона задачи"
+    templateVersion: "Сформировано из версии шаблона {version}"
+    assignedTo: "Назначено: {agent}"
+    leadsHint: "Руководители получают уведомления об изменениях задачи"
+    agentNotMember: "{agent} не входит в проект {project}; выбрано автоназначение."
+    theProject: "проект"
+</i18n>

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import { taskIncompleteBlockers, taskWaitingReason } from "@/lib/task";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -325,10 +326,12 @@ export function reservedBlocker(
   const used = floor.byClass[name] ?? 0;
   return {
     kind: "reserved",
-    label: `Reserved for #${name}`,
-    detail:
-      `${slots} slot(s) are kept for #${name} tasks (${used} held); ` +
-      `a task without #${name} needs more room than that leaves.`,
+    label: t("wait.blocker.reservedLabel", { tag: name }),
+    detail: t("wait.blocker.reservedDetail", {
+      slots,
+      tag: name,
+      used,
+    }),
   };
 }
 
@@ -344,16 +347,19 @@ export function blockersFor(
   if (agent.status !== AgentStatus.ONLINE) {
     blockers.push({
       kind: "offline",
-      label: "Agent offline",
-      detail: "The agent has no tunnel connection.",
+      label: t("wait.blocker.offlineLabel"),
+      detail: t("wait.blocker.offlineDetail"),
     });
   }
 
   if (counts.total >= limits.maxConcurrent) {
     blockers.push({
       kind: "overall",
-      label: `Overall ${counts.total}/${limits.maxConcurrent}`,
-      detail: "Every agent slot is held.",
+      label: t("wait.blocker.overallLabel", {
+        used: counts.total,
+        cap: limits.maxConcurrent,
+      }),
+      detail: t("wait.blocker.overallDetail"),
     });
   }
 
@@ -363,8 +369,8 @@ export function blockersFor(
     if (used >= cap) {
       blockers.push({
         kind: "project",
-        label: `Project ${used}/${cap}`,
-        detail: "The project cap is full.",
+        label: t("wait.blocker.projectLabel", { used, cap }),
+        detail: t("wait.blocker.projectDetail"),
       });
     }
   }
@@ -375,8 +381,8 @@ export function blockersFor(
     if (cap !== null && used >= cap) {
       blockers.push({
         kind: "tag",
-        label: `#${tag.name} ${used}/${cap}`,
-        detail: `The global #${tag.name} cap is full.`,
+        label: t("wait.blocker.tagLabel", { tag: tag.name, used, cap }),
+        detail: t("wait.blocker.tagDetail", { tag: tag.name }),
       });
     }
   }
@@ -388,8 +394,12 @@ export function blockersFor(
       if (cap !== null && used >= cap) {
         blockers.push({
           kind: "project-tag",
-          label: `#${tag.name} in project ${used}/${cap}`,
-          detail: `The project × tag cap for #${tag.name} is full.`,
+          label: t("wait.blocker.projectTagLabel", {
+            tag: tag.name,
+            used,
+            cap,
+          }),
+          detail: t("wait.blocker.projectTagDetail", { tag: tag.name }),
         });
       }
     }
@@ -406,8 +416,12 @@ export function blockersFor(
       kind: "reference",
       label:
         references.length === 1
-          ? `Waiting for ${references[0]?.id ?? "a task"}`
-          : `Waiting for ${references.length} tasks`,
+          ? t("wait.blocker.referenceLabelOne", {
+              task: references[0]?.id ?? t("wait.blocker.aTask"),
+            })
+          : t("wait.blocker.referenceLabelMany", {
+              count: references.length,
+            }),
       detail: taskWaitingReason(task),
     });
   }
@@ -472,8 +486,8 @@ export function buildAgentBoard(options: {
   const overall: CapacityRow = {
     key: "overall",
     kind: "overall",
-    label: "All projects",
-    detail: `agent cap ${limits.maxConcurrent}`,
+    label: t("wait.row.allProjects"),
+    detail: t("wait.row.agentCap", { cap: limits.maxConcurrent }),
     used: counts.total,
     cap: limits.maxConcurrent,
     reserved: reservedSlots(reserved),
@@ -523,7 +537,7 @@ export function buildAgentBoard(options: {
       key: `tag:${name.toLowerCase()}`,
       kind: "tag",
       label: tag?.name ?? name,
-      detail: `global name cap ${limit.maxConcurrent}`,
+      detail: t("wait.row.globalNameCap", { cap: limit.maxConcurrent }),
       tag,
       used,
       cap: limit.maxConcurrent,
@@ -581,8 +595,11 @@ export function buildAgentBoard(options: {
     projectTagRows.push({
       key: `project-tag:${limit.projectId}:${limit.tagId}`,
       kind: "project-tag",
-      label: `${project.name} × #${tag?.name ?? limit.tagId.slice(0, 8)}`,
-      detail: `project × tag cap ${limit.maxConcurrent}`,
+      label: t("wait.row.projectTag", {
+        project: project.name,
+        tag: tag?.name ?? limit.tagId.slice(0, 8),
+      }),
+      detail: t("wait.row.projectTagCap", { cap: limit.maxConcurrent }),
       project,
       tag,
       used,

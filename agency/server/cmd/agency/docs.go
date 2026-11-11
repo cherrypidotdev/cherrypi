@@ -95,6 +95,13 @@ func newDocsHandler(docsFs fs.FS) http.Handler {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 
+		switch path.Ext(file) {
+		case ".md":
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		case ".txt":
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
+
 		serveDocsFile(w, r, docsFs, file)
 	})
 }

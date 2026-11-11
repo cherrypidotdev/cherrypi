@@ -18,159 +18,250 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 form.flex.flex-col.gap-4(@submit.prevent="save")
-  template(v-if="hasProperties")
-    FieldGroup
-      Field(v-for="field in fields" :key="field.key")
-        FieldLabel(:for="`plugin-setting-${field.key}`")
-          | {{ field.title }}
-          span.text-destructive(v-if="field.required") *
-        template(v-if="field.kind === 'boolean'")
-          Switch(
-            :id="`plugin-setting-${field.key}`"
-            :model-value="Boolean(values[field.key])"
-            @update:model-value="values[field.key] = Boolean($event)"
-          )
-        Select(
-          v-else-if="field.kind === 'enum'"
-          :model-value="String(values[field.key] ?? '')"
-          @update:model-value="values[field.key] = $event"
+  Collapsible.overflow-hidden.rounded-md.border(
+    v-if="setup"
+    v-model:open="setupOpen"
+    class="bg-muted/30 group/setup"
+  )
+    CollapsibleTrigger.flex.w-full.cursor-pointer.items-center.gap-2.px-4.py-3.text-left
+      ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
+        class="group-data-[state=open]/setup:rotate-90"
+      )
+      span.text-sm.font-medium {{ setup.title }}
+    CollapsibleContent
+      .border-t.px-4.py-3
+        MarkdownText.prose.prose-sm.max-w-none(
+          class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
+          :text="setup.markdown"
         )
-          SelectTrigger.w-full(:id="`plugin-setting-${field.key}`")
-            SelectValue(:placeholder="field.placeholder || 'Choose…'")
-          SelectContent
-            SelectItem(
-              v-for="option in field.options"
-              :key="String(option)"
-              :value="String(option)"
-            ) {{ option }}
-        .flex.flex-wrap.gap-3(v-else-if="field.kind === 'enum-array'")
-          label.flex.items-center.gap-2.rounded-md.border.px-3.py-2.text-sm(
-            v-for="option in field.itemOptions"
-            :key="String(option)"
+  template(v-if="hasProperties")
+    .flex.flex-wrap.items-center.justify-between.gap-2(
+      v-if="settingsGroups.length || Object.keys(templateVariables).length"
+    )
+      p.text-muted-foreground.text-xs(v-if="settingsGroups.length")
+        | {{ $t("pluginSettings.grouped") }}
+      .flex.items-center.gap-1
+        template(v-if="settingsGroups.length")
+          Button(
+            type="button"
+            variant="ghost"
+            size="sm"
+            @click="setAllGroups(true)"
           )
-            input.accent-primary(
-              type="checkbox"
-              :checked="arrayValue(field).includes(option)"
-              :id="`plugin-setting-${field.key}-${String(option)}`"
-              @change="toggleEnumItem(field, option)"
-            )
-            span {{ option }}
-        .flex.flex-col.gap-2(v-else-if="field.kind === 'array'")
-          .flex.items-center.gap-2(
-            v-for="(item, index) in arrayValue(field)"
-            :key="`${field.key}-${index}`"
+            | {{ $t("pluginSettings.expandAll") }}
+          Button(
+            type="button"
+            variant="ghost"
+            size="sm"
+            @click="setAllGroups(false)"
           )
-            Switch(
-              v-if="field.itemKind === 'boolean'"
-              :model-value="Boolean(item)"
-              @update:model-value="setArrayItem(field, index, Boolean($event))"
+            | {{ $t("pluginSettings.collapseAll") }}
+        Button(
+          v-if="Object.keys(templateVariables).length"
+          type="button"
+          variant="outline"
+          size="sm"
+          @click="samplesOpen = true"
+        )
+          CodeIcon(data-icon="inline-start")
+          span {{ $t("pluginSettings.sampleData") }}
+    FieldGroup
+      template(v-for="row in rows" :key="row.key")
+        .flex.flex-col.gap-1.rounded-md.border.px-3.py-2(
+          v-if="row.type === 'group'"
+          class="bg-muted/30"
+        )
+          button.flex.w-full.items-center.gap-2.text-left(
+            type="button"
+            @click="toggleGroup(row.id)"
+          )
+            ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
+              :class="groupOpen[row.id] ? 'rotate-90' : ''"
             )
+            span.text-sm.font-medium {{ row.title }}
+            span.text-muted-foreground.text-xs {{ $t("pluginSettings.settingsCount", { count: row.count }) }}
+            Badge.ml-auto.text-amber-700(
+              v-if="row.customized"
+              variant="outline"
+              class="border-amber-500/40 bg-amber-500/10 dark:text-amber-300"
+            ) {{ $t("pluginSettings.customizedCount", { count: row.customized }) }}
+          p.text-muted-foreground.text-xs(v-if="row.description") {{ row.description }}
+        Field(v-else-if="row.type === 'field' && isRowVisible(row)")
+          PluginTemplateField(
+            v-if="fieldOf(row).kind === 'template'"
+            :hint="fieldOf(row).templateHint"
+            :field-key="fieldOf(row).key"
+            :title="fieldOf(row).title"
+            :description="fieldOf(row).description"
+            :default-value="fieldOf(row).defaultValue || ''"
+            :template="fieldOf(row).template ?? null"
+            :model-value="String(values[fieldOf(row).key] ?? '')"
+            :error="errorFor(fieldOf(row).key)"
+            :plugin-id="pluginId"
+            :scope="scope"
+            :target-id="targetId"
+            :sample-overrides="sampleOverrides"
+            @update:model-value="values[fieldOf(row).key] = $event"
+          )
+          template(v-else)
+            FieldLabel(:for="`plugin-setting-${fieldOf(row).key}`")
+              | {{ fieldOf(row).title }}
+              span.text-destructive(v-if="fieldOf(row).required") *
+            template(v-if="fieldOf(row).kind === 'boolean'")
+              Switch(
+                :id="`plugin-setting-${fieldOf(row).key}`"
+                :model-value="Boolean(values[fieldOf(row).key])"
+                @update:model-value="values[fieldOf(row).key] = Boolean($event)"
+              )
             Select(
-              v-else-if="field.itemKind === 'enum'"
-              :model-value="String(item ?? '')"
-              @update:model-value="setArrayItem(field, index, $event)"
+              v-else-if="fieldOf(row).kind === 'enum'"
+              :model-value="String(values[fieldOf(row).key] ?? '')"
+              @update:model-value="values[fieldOf(row).key] = $event"
             )
-              SelectTrigger.flex-1
-                SelectValue(placeholder="Choose…")
+              SelectTrigger.w-full(:id="`plugin-setting-${fieldOf(row).key}`")
+                SelectValue(
+                  :placeholder="fieldOf(row).placeholder || $t('pluginSettings.choose')"
+                )
               SelectContent
                 SelectItem(
-                  v-for="option in field.itemOptions"
+                  v-for="option in fieldOf(row).options"
                   :key="String(option)"
                   :value="String(option)"
                 ) {{ option }}
+            .flex.flex-wrap.gap-3(
+              v-else-if="fieldOf(row).kind === 'enum-array'"
+            )
+              label.flex.items-center.gap-2.rounded-md.border.px-3.py-2.text-sm(
+                v-for="option in fieldOf(row).itemOptions"
+                :key="String(option)"
+              )
+                input.accent-primary(
+                  type="checkbox"
+                  :checked="arrayValue(fieldOf(row)).includes(option)"
+                  :id="`plugin-setting-${fieldOf(row).key}-${String(option)}`"
+                  @change="toggleEnumItem(fieldOf(row), option)"
+                )
+                span {{ option }}
+            .flex.flex-col.gap-2(v-else-if="fieldOf(row).kind === 'array'")
+              .flex.items-center.gap-2(
+                v-for="(item, index) in arrayValue(fieldOf(row))"
+                :key="`${fieldOf(row).key}-${index}`"
+              )
+                Switch(
+                  v-if="fieldOf(row).itemKind === 'boolean'"
+                  :model-value="Boolean(item)"
+                  @update:model-value="setArrayItem(fieldOf(row), index, Boolean($event))"
+                )
+                Select(
+                  v-else-if="fieldOf(row).itemKind === 'enum'"
+                  :model-value="String(item ?? '')"
+                  @update:model-value="setArrayItem(fieldOf(row), index, $event)"
+                )
+                  SelectTrigger.flex-1
+                    SelectValue(:placeholder="$t('pluginSettings.choose')")
+                  SelectContent
+                    SelectItem(
+                      v-for="option in fieldOf(row).itemOptions"
+                      :key="String(option)"
+                      :value="String(option)"
+                    ) {{ option }}
+                Textarea.font-mono.text-xs(
+                  v-else-if="fieldOf(row).itemKind === 'json'"
+                  :placeholder="$t('pluginSettings.jsonValue')"
+                  rows="3"
+                  :model-value="itemDraft(fieldOf(row), index)"
+                  @update:model-value="setItemDraft(fieldOf(row), index, String($event))"
+                )
+                Input.flex-1(
+                  v-else
+                  :type="fieldOf(row).itemKind === 'number' ? 'number' : 'text'"
+                  :placeholder="fieldOf(row).placeholder"
+                  :model-value="String(item ?? '')"
+                  @update:model-value="setArrayItem(fieldOf(row), index, $event)"
+                )
+                Button(
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="$t('pluginSettings.removeItem')"
+                  @click="removeArrayItem(fieldOf(row), index)"
+                )
+                  MinusIcon
+              Button.self-start(
+                type="button"
+                variant="outline"
+                size="sm"
+                @click="addArrayItem(fieldOf(row))"
+              )
+                PlusIcon(data-icon="inline-start")
+                span {{ $t("common.add") }}
             Textarea.font-mono.text-xs(
-              v-else-if="field.itemKind === 'json'"
-              placeholder="JSON value"
+              v-else-if="fieldOf(row).kind === 'json'"
+              v-model="jsonDrafts[fieldOf(row).key]"
+              :placeholder="fieldOf(row).placeholder"
+              rows="4"
+              :id="`plugin-setting-${fieldOf(row).key}`"
+              @blur="commitJSON(fieldOf(row).key)"
+            )
+            Textarea(
+              v-else-if="fieldOf(row).multiline"
+              :placeholder="fieldOf(row).placeholder"
               rows="3"
-              :model-value="itemDraft(field, index)"
-              @update:model-value="setItemDraft(field, index, String($event))"
+              :id="`plugin-setting-${fieldOf(row).key}`"
+              :model-value="String(values[fieldOf(row).key] ?? '')"
+              @update:model-value="values[fieldOf(row).key] = $event"
             )
-            Input.flex-1(
-              v-else
-              :type="field.itemKind === 'number' ? 'number' : 'text'"
-              :placeholder="field.placeholder"
-              :model-value="String(item ?? '')"
-              @update:model-value="setArrayItem(field, index, $event)"
+            .flex.items-center.gap-1(v-else)
+              Input.flex-1(
+                :type="fieldOf(row).secret && !revealed[fieldOf(row).key] ? 'password' : fieldOf(row).kind === 'number' ? 'number' : 'text'"
+                :placeholder="fieldOf(row).placeholder"
+                :id="`plugin-setting-${fieldOf(row).key}`"
+                :model-value="String(values[fieldOf(row).key] ?? '')"
+                :autocomplete="fieldOf(row).secret ? 'new-password' : 'off'"
+                @update:model-value="values[fieldOf(row).key] = $event"
+              )
+              template(v-if="fieldOf(row).secret")
+                Button(
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="revealed[fieldOf(row).key] ? $t('pluginSettings.hideValue') : $t('pluginSettings.revealValue')"
+                  @click="revealed[fieldOf(row).key] = !revealed[fieldOf(row).key]"
+                )
+                  EyeOffIcon(v-if="revealed[fieldOf(row).key]")
+                  EyeIcon(v-else)
+                Button(
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="$t('pluginSettings.copyValue')"
+                  @click="copyValue(fieldOf(row))"
+                  :disabled="!values[fieldOf(row).key]"
+                )
+                  CheckIcon(v-if="copied === fieldOf(row).key")
+                  CopyIcon(v-else)
+            FieldDescription(v-if="fieldOf(row).description") {{ fieldOf(row).description }}
+            FieldDescription.text-destructive(
+              v-if="errorFor(fieldOf(row).key)"
             )
-            Button(
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Remove item"
-              @click="removeArrayItem(field, index)"
+              | {{ errorFor(fieldOf(row).key) }}
+            FieldDescription(
+              v-else-if="fieldOf(row).secret && !values[fieldOf(row).key]"
             )
-              MinusIcon
-          Button.self-start(
-            type="button"
-            variant="outline"
-            size="sm"
-            @click="addArrayItem(field)"
-          )
-            PlusIcon(data-icon="inline-start")
-            span Add
-        Textarea.font-mono.text-xs(
-          v-else-if="field.kind === 'json'"
-          v-model="jsonDrafts[field.key]"
-          :placeholder="field.placeholder"
-          rows="4"
-          :id="`plugin-setting-${field.key}`"
-          @blur="commitJSON(field.key)"
-        )
-        Textarea(
-          v-else-if="field.multiline"
-          :placeholder="field.placeholder"
-          rows="3"
-          :id="`plugin-setting-${field.key}`"
-          :model-value="String(values[field.key] ?? '')"
-          @update:model-value="values[field.key] = $event"
-        )
-        .flex.items-center.gap-1(v-else)
-          Input.flex-1(
-            :type="field.secret && !revealed[field.key] ? 'password' : field.kind === 'number' ? 'number' : 'text'"
-            :placeholder="field.placeholder"
-            :id="`plugin-setting-${field.key}`"
-            :model-value="String(values[field.key] ?? '')"
-            :autocomplete="field.secret ? 'new-password' : 'off'"
-            @update:model-value="values[field.key] = $event"
-          )
-          template(v-if="field.secret")
-            Button(
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              :aria-label="revealed[field.key] ? 'Hide value' : 'Reveal value'"
-              @click="revealed[field.key] = !revealed[field.key]"
-            )
-              EyeOffIcon(v-if="revealed[field.key]")
-              EyeIcon(v-else)
-            Button(
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Copy value"
-              @click="copyValue(field)"
-              :disabled="!values[field.key]"
-            )
-              CheckIcon(v-if="copied === field.key")
-              CopyIcon(v-else)
-        FieldDescription(v-if="field.description") {{ field.description }}
-        FieldDescription.text-destructive(v-if="errorFor(field.key)")
-          | {{ errorFor(field.key) }}
-        FieldDescription(v-else-if="field.secret && !values[field.key]")
-          | No value stored. Leave empty to keep it unset.
-        FieldDescription(v-else-if="field.secret")
-          | Stored. Use the eye to reveal or the copy button.
+              | {{ $t("pluginSettings.emptyValue") }}
+            FieldDescription(v-else-if="fieldOf(row).secret")
+              | {{ $t("pluginSettings.storedValue") }}
   p.text-muted-foreground.text-sm(v-else-if="declaresNoValues")
-    | This plugin declares no settings form.
+    | {{ $t("pluginSettings.noForm") }}
   template(v-else)
     Field
-      FieldLabel(for="plugin-settings-json") Settings
+      FieldLabel(for="plugin-settings-json") {{ $t("common.settings") }}
       Textarea#plugin-settings-json.font-mono.text-xs(
         v-model="rawDraft"
         placeholder="{  }"
         rows="6"
       )
-      FieldDescription A JSON object; this plugin did not declare a form schema.
+      FieldDescription {{ $t("pluginSettings.jsonObjectHint") }}
 
   p.text-destructive.text-sm(v-if="localError || error" role="alert")
     | {{ localError || error }}
@@ -180,16 +271,32 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
       :key="item.path"
     )
       | {{ item.errorText }}
-  p.text-muted-foreground.text-sm(v-else-if="saved") Saved.
+  p.text-muted-foreground.text-sm(v-else-if="saved") {{ $t("pluginSettings.saved") }}
   .flex.justify-end(v-if="!declaresNoValues")
     Button(type="submit" :disabled="saving")
       Spinner(v-if="saving" data-icon="inline-start")
       CheckIcon(v-else data-icon="inline-start")
-      span Save
+      span {{ $t("common.save") }}
+  PluginTemplateSamplesDialog(
+    v-if="Object.keys(templateVariables).length"
+    v-model:open="samplesOpen"
+    :variables="templateVariables"
+    :model-value="sampleOverrides"
+    @update:model-value="setSampleOverrides"
+  )
 </template>
 
 <script setup lang="ts">
+import MarkdownText from "@/components/MarkdownText.vue";
+import PluginTemplateField from "@/components/plugins/PluginTemplateField.vue";
+import PluginTemplateSamplesDialog from "@/components/plugins/PluginTemplateSamplesDialog.vue";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Field,
   FieldDescription,
@@ -207,9 +314,20 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { parseJSONSchema, pluginSchemaForm } from "@/lib/plugins";
+import {
+  parseJSONSchema,
+  pluginSchemaForm,
+  pluginSettingsGroups,
+  pluginTemplateDefault,
+  pluginTemplateMeta,
+  pluginTemplateVariables,
+  type PluginTemplateMeta,
+  type PluginTemplateVariable,
+} from "@/lib/plugins";
 import {
   CheckIcon,
+  ChevronRightIcon,
+  CodeIcon,
   CopyIcon,
   EyeIcon,
   EyeOffIcon,
@@ -219,16 +337,24 @@ import {
 import { computed, reactive, ref, watch } from "vue";
 import { toast } from "vue3-toastify";
 
+interface SettingsSetup {
+  title?: string;
+  markdown?: string;
+}
+
 interface SchemaProperty {
   type?: string;
   title?: string;
   description?: string;
+
+  setup?: string | SettingsSetup;
   enum?: unknown[];
   format?: string;
   secret?: boolean;
   required?: string[];
   default?: unknown;
   multiline?: boolean;
+  "x-template"?: unknown;
   properties?: Record<string, SchemaProperty>;
   items?: SchemaProperty;
 }
@@ -248,6 +374,9 @@ const props = defineProps<{
   error?: string;
   saved?: boolean;
   errors?: SettingFieldError[];
+  pluginId?: string;
+  scope?: string;
+  targetId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -261,6 +390,7 @@ const revealed = reactive<Record<string, boolean>>({});
 const rawDraft = ref("{}");
 const localError = ref("");
 const copied = ref("");
+const setupOpen = ref(true);
 
 const parsedSchema = computed(
   () => parseJSONSchema(props.schema) as SchemaProperty | null,
@@ -268,6 +398,18 @@ const parsedSchema = computed(
 
 const form = computed(() => pluginSchemaForm(props.schema));
 const hasProperties = computed(() => form.value === "form");
+
+const setup = computed<{ title: string; markdown: string } | null>(() => {
+  const raw = parsedSchema.value?.setup;
+  if (typeof raw === "string") {
+    return raw.trim() ? { title: "Setup", markdown: raw } : null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const markdown = typeof raw.markdown === "string" ? raw.markdown : "";
+  if (!markdown.trim()) return null;
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  return { title: title || "Setup", markdown };
+});
 
 const declaresNoValues = computed(() => form.value === "none");
 
@@ -283,13 +425,17 @@ interface FieldSpec {
     | "enum"
     | "json"
     | "array"
-    | "enum-array";
+    | "enum-array"
+    | "template";
   itemKind?: ItemKind;
   options: unknown[];
   itemOptions: unknown[];
   secret: boolean;
   multiline: boolean;
   required: boolean;
+  defaultValue?: string;
+  template?: PluginTemplateMeta | null;
+  templateHint?: string;
 }
 
 function itemKindOf(property: SchemaProperty | undefined): ItemKind {
@@ -314,8 +460,10 @@ const fields = computed<FieldSpec[]>(() => {
   const secrets = new Set(props.secretKeys ?? []);
   return Object.entries(properties).map(([key, property]) => {
     const type = property.type ?? "string";
-    const kind: FieldSpec["kind"] =
-      type === "boolean"
+    const template = pluginTemplateMeta(property as Record<string, unknown>);
+    const kind: FieldSpec["kind"] = template
+      ? "template"
+      : type === "boolean"
         ? "boolean"
         : type === "number" || type === "integer"
           ? "number"
@@ -343,9 +491,143 @@ const fields = computed<FieldSpec[]>(() => {
         property.format === "password",
       multiline: property.format === "textarea" || property.multiline === true,
       required: required.has(key),
+      defaultValue: template
+        ? pluginTemplateDefault(property as Record<string, unknown>)
+        : undefined,
+      template,
+      templateHint: template
+        ? "Rendered by the agency with each event's variables."
+        : undefined,
     };
   });
 });
+
+const settingsGroups = computed(() => pluginSettingsGroups(props.schema));
+const templateVariables = computed<Record<string, PluginTemplateVariable>>(() =>
+  pluginTemplateVariables(props.schema),
+);
+const samplesOpen = ref(false);
+const sampleOverrides = reactive<Record<string, unknown>>({});
+const groupOpen = reactive<Record<string, boolean>>({});
+
+function syncGroupOpen() {
+  const known = new Set(settingsGroups.value.map((group) => group.id));
+  for (const id of Object.keys(groupOpen)) {
+    if (!known.has(id)) delete groupOpen[id];
+  }
+  for (const group of settingsGroups.value) {
+    if (groupOpen[group.id] === undefined) {
+      groupOpen[group.id] = !group.collapsed;
+    }
+  }
+}
+watch(settingsGroups, syncGroupOpen, { immediate: true, deep: true });
+
+function toggleGroup(id: string) {
+  groupOpen[id] = !groupOpen[id];
+}
+
+function setAllGroups(open: boolean) {
+  for (const group of settingsGroups.value) groupOpen[group.id] = open;
+}
+
+interface SettingsRow {
+  type: "group" | "field";
+  key: string;
+  id: string;
+  title: string;
+  description?: string;
+  count: number;
+  customized: number;
+  field: FieldSpec | null;
+  groupId: string | null;
+}
+
+function fieldOf(row: SettingsRow): FieldSpec {
+  return (
+    row.field ?? {
+      key: "",
+      title: "",
+      kind: "string",
+      options: [],
+      itemOptions: [],
+      secret: false,
+      multiline: false,
+      required: false,
+    }
+  );
+}
+
+function isCustomized(field: FieldSpec): boolean {
+  if (field.kind !== "template") return false;
+  const value = values[field.key];
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    value !== field.defaultValue
+  );
+}
+
+const rows = computed<SettingsRow[]>(() => {
+  const byKey = new Map(fields.value.map((field) => [field.key, field]));
+  const groups = settingsGroups.value;
+  const fieldRow = (field: FieldSpec, groupId: string | null): SettingsRow => ({
+    type: "field",
+    key: `field:${field.key}`,
+    id: "",
+    title: "",
+    count: 0,
+    customized: 0,
+    field,
+    groupId,
+  });
+  if (!groups.length) {
+    return fields.value.map((field) => fieldRow(field, null));
+  }
+  const grouped = new Set(groups.flatMap((group) => group.fields));
+  const out: SettingsRow[] = [];
+  const pushGroup = (
+    id: string,
+    title: string,
+    description: string | undefined,
+    keys: string[],
+  ) => {
+    const groupFields = keys
+      .map((key) => byKey.get(key))
+      .filter((field): field is FieldSpec => !!field);
+    if (!groupFields.length) return;
+    out.push({
+      type: "group",
+      key: `group:${id}`,
+      id,
+      title,
+      description,
+      count: groupFields.length,
+      customized: groupFields.filter(isCustomized).length,
+      field: null,
+      groupId: id,
+    });
+    for (const field of groupFields) out.push(fieldRow(field, id));
+  };
+  for (const group of groups) {
+    pushGroup(group.id, group.title, group.description, group.fields);
+  }
+  const other = fields.value
+    .filter((field) => !grouped.has(field.key))
+    .map((field) => field.key);
+  pushGroup("other", "Other", undefined, other);
+  return out;
+});
+
+function isRowVisible(row: SettingsRow): boolean {
+  if (row.type !== "field") return false;
+  return row.groupId === null || groupOpen[row.groupId] !== false;
+}
+
+function setSampleOverrides(value: Record<string, unknown>) {
+  for (const key of Object.keys(sampleOverrides)) delete sampleOverrides[key];
+  Object.assign(sampleOverrides, value);
+}
 
 const unmatchedErrors = computed(() =>
   (props.errors ?? []).filter(
@@ -419,15 +701,16 @@ function reset() {
       }
     }
   }
+  for (const key of Object.keys(sampleOverrides)) delete sampleOverrides[key];
   rawDraft.value = JSON.stringify(props.settings ?? {}, null, 2);
   localError.value = "";
 }
 
-watch(
-  () => [props.settings, props.schema],
-  () => reset(),
-  { immediate: true, deep: true },
+const sourceSignature = computed(() =>
+  JSON.stringify([props.schema ?? "", props.settings ?? {}]),
 );
+
+watch(sourceSignature, () => reset(), { immediate: true });
 
 function arrayValue(field: FieldSpec): unknown[] {
   const value = values[field.key];
@@ -585,6 +868,55 @@ function save() {
     }
   }
   if (localError.value) return;
-  emit("save", { ...values });
+  const payload = { ...values };
+
+  for (const field of fields.value) {
+    if (field.kind !== "template") continue;
+    if (payload[field.key] === field.defaultValue) {
+      delete payload[field.key];
+    }
+  }
+  emit("save", payload);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  pluginSettings:
+    emptyValue: "No value stored. Leave empty to keep it unset."
+    storedValue: "Stored. Use the eye to reveal or the copy button."
+    noForm: "This plugin declares no settings form."
+    jsonObjectHint: "A JSON object; this plugin did not declare a form schema."
+    saved: "Saved."
+    choose: "Choose…"
+    jsonValue: "JSON value"
+    removeItem: "Remove item"
+    copyValue: "Copy value"
+    grouped: "Grouped settings"
+    expandAll: "Expand all"
+    collapseAll: "Collapse all"
+    sampleData: "Sample data"
+    hideValue: "Hide value"
+    revealValue: "Reveal value"
+    settingsCount: "{count} setting | {count} settings"
+    customizedCount: "{count} customized"
+ru:
+  pluginSettings:
+    emptyValue: "Значение не сохранено. Оставьте пустым, чтобы не задавать его."
+    storedValue: "Сохранено. Используйте глаз, чтобы показать, или кнопку копирования."
+    noForm: "Этот плагин не объявляет форму настроек."
+    jsonObjectHint: "Объект JSON; этот плагин не объявил схему формы."
+    saved: "Сохранено."
+    choose: "Выберите…"
+    jsonValue: "Значение JSON"
+    removeItem: "Удалить элемент"
+    copyValue: "Скопировать значение"
+    grouped: "Сгруппированные настройки"
+    expandAll: "Развернуть все"
+    collapseAll: "Свернуть все"
+    sampleData: "Пример данных"
+    hideValue: "Скрыть значение"
+    revealValue: "Показать значение"
+    settingsCount: "{count} настройка | {count} настройки | {count} настроек"
+    customizedCount: "{count} изменено"
+</i18n>

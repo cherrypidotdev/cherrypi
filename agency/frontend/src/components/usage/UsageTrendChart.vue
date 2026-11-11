@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Usage over time
+    CardTitle {{ $t("usage.trend.title") }}
     CardDescription {{ subtitle }}
     CardAction
       .bg-muted.flex.rounded-lg.p-1
@@ -31,7 +31,7 @@ Card
         ) {{ option.label }}
   CardContent
     p.text-muted-foreground.py-10.text-center.text-sm(v-if="!points.length")
-      | No usage recorded in this range.
+      | {{ $t("usage.trend.empty") }}
     ChartContainer.chart.w-full(v-else class="h-[238px]" :config="config")
       VisXYContainer(:data="points")
         template(v-if="metric === 'cost'")
@@ -76,18 +76,18 @@ Card
           i.inline-block.size-2.rounded-sm(
             :style="{ background: USAGE_COLORS.cost }"
           )
-          | Daily cost
+          | {{ $t("usage.trend.dailyCost") }}
       template(v-else)
         span.flex.items-center.gap-1
           i.inline-block.size-2.rounded-sm(
             :style="{ background: USAGE_COLORS.input }"
           )
-          | Input
+          | {{ $t("usage.trend.input") }}
         span.flex.items-center.gap-1
           i.inline-block.size-2.rounded-sm(
             :style="{ background: USAGE_COLORS.output }"
           )
-          | Output
+          | {{ $t("usage.trend.output") }}
     .text-2xs.text-muted-foreground.tabular-nums {{ footer }}
 </template>
 
@@ -172,3 +172,22 @@ const footer = computed(() => {
   return `${total} · ${props.rangeLabel}`;
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    trend:
+      title: "Usage over time"
+      empty: "No usage recorded in this range."
+      dailyCost: "Daily cost"
+      input: "Input"
+      output: "Output"
+ru:
+  usage:
+    trend:
+      title: "Использование во времени"
+      empty: "В этом диапазоне нет использования."
+      dailyCost: "Стоимость по дням"
+      input: "Вход"
+      output: "Выход"
+</i18n>

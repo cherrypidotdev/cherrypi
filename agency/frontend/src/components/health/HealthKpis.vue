@@ -19,14 +19,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .grid.grid-cols-1.gap-3(
   class="sm:grid-cols-2 lg:grid-cols-4"
-  aria-label="Agent health summary"
+  :aria-label="$t('health.kpis.aria')"
 )
   .bg-card.ring-border.relative.flex.flex-col.overflow-hidden.rounded-xl.bg-gradient-to-br.p-3.ring-1(
     class="from-chart-1/5"
   )
     .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold CPU
-      span.text-muted-foreground.text-10 load {{ loadLabel }}
+      span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.cpu") }}
+      span.text-muted-foreground.text-10 {{ $t("health.kpis.loadValue", { value: loadLabel }) }}
     .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums(
       :class="healthToneText(cpuTone)"
     ) {{ percent(cpu) }}
@@ -38,32 +38,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
     .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold Memory
-      span.text-muted-foreground.text-10 of {{ formatBytes(memoryTotal) }}
+      span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.memory") }}
+      span.text-muted-foreground.text-10 {{ $t("health.kpis.ofTotal", { total: formatBytes(memoryTotal) }) }}
     .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums(
       :class="healthToneText(memoryTone)"
     ) {{ percent(memoryPercent) }}
     .text-2xs.text-muted-foreground.mt-1
-      | {{ formatBytes(memoryUsed) }} used
+      | {{ $t("health.kpis.used", { used: formatBytes(memoryUsed) }) }}
     .mt-auto.h-7.pt-1
       HealthSparkline(:color="HEALTH_COLORS.memory" :values="spark.memory")
 
   .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
     .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold Disk
+      span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.disk") }}
       span.text-muted-foreground.text-10 {{ disk?.label ?? "no target" }}
     .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums(
       :class="healthToneText(diskTone)"
     ) {{ disk ? percent(disk.usedPercent) : "—" }}
     .text-2xs.text-muted-foreground.mt-1(v-if="disk")
-      | {{ formatBytes(disk.usedBytes) }} of {{ formatBytes(disk.totalBytes) }}
-    .text-2xs.text-muted-foreground.mt-1(v-else) no filesystem configured
+      | {{ $t("health.kpis.usedOfTotal", { used: formatBytes(disk.usedBytes), total: formatBytes(disk.totalBytes) }) }}
+    .text-2xs.text-muted-foreground.mt-1(v-else) {{ $t("health.kpis.noFilesystem") }}
     .mt-auto.h-7.pt-1
       HealthSparkline(:color="HEALTH_COLORS.disk" :values="spark.disk")
 
   .bg-card.ring-border.flex.flex-col.rounded-xl.p-3.ring-1
     .flex.items-center.justify-between.gap-2
-      span.text-muted-foreground.text-2xs.font-semibold Load
+      span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.load") }}
       span.text-muted-foreground.text-10 1m / 5m / 15m
     .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums(
       :class="loadToneClass"
@@ -138,3 +138,32 @@ const spark = computed(() => ({
   load: historyValue((sample) => sample.load1),
 }));
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    kpis:
+      cpu: "CPU"
+      memory: "Memory"
+      disk: "Disk"
+      noFilesystem: "no filesystem configured"
+      load: "Load"
+      aria: "Agent health summary"
+      loadValue: "load {value}"
+      ofTotal: "of {total}"
+      used: "{used} used"
+      usedOfTotal: "{used} of {total}"
+ru:
+  health:
+    kpis:
+      cpu: "CPU"
+      memory: "Память"
+      disk: "Диск"
+      noFilesystem: "файловая система не задана"
+      load: "Нагрузка"
+      aria: "Сводка здоровья агента"
+      loadValue: "нагрузка {value}"
+      ofTotal: "из {total}"
+      used: "использовано {used}"
+      usedOfTotal: "{used} из {total}"
+</i18n>

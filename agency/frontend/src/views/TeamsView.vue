@@ -20,9 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   Card(v-if="pending.length")
     CardHeader
-      CardTitle Pending invitations
+      CardTitle {{ $t("projectSettings.hierarchy.pendingInvitations") }}
       CardDescription
-        | You have been invited to these teams. Accepting adds you as a member.
+        | {{ $t("teams.invitedHint") }}
     CardContent
       .flex.flex-col.gap-2
         .flex.items-center.justify-between.gap-3.rounded-lg.border.p-3(
@@ -32,27 +32,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.min-w-0.flex-col
             span.text-sm.font-medium {{ invitation.team_name }}
             span.text-muted-foreground.truncate.text-xs
-              | Invited by {{ invitation.invited_by_username || "an administrator" }}
-              | as {{ invitation.role }}
+              | {{ $t("teams.invitedBy", { actor: invitation.invited_by_username || $t("common.administrator") }) }}
+              | {{ $t("teams.asRole", { role: invitation.role }) }}
           .flex.shrink-0.gap-2
             Button(
               size="sm"
               @click="respond(invitation.id, true)"
               :disabled="responding === invitation.id"
-            ) Approve
+            ) {{ $t("team.projectInvitations.approve") }}
             Button(
               size="sm"
               variant="outline"
               @click="respond(invitation.id, false)"
               :disabled="responding === invitation.id"
-            ) Decline
+            ) {{ $t("extensionUi.decline") }}
 
   Card(v-if="projectInvitations.length")
     CardHeader
-      CardTitle Project invitations
+      CardTitle {{ $t("team.projectInvitations.title") }}
       CardDescription
-        | Teams you own have been invited to these projects. Approving attaches
-        | the team with the invited role.
+        | {{ $t("teams.projectInvitationsHint") }}
     CardContent
       .flex.flex-col.gap-2
         .flex.items-center.justify-between.gap-3.rounded-lg.border.p-3(
@@ -63,36 +62,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             span.text-sm.font-medium
               | {{ invitation.team_name }} → {{ invitation.project_name }}
             span.text-muted-foreground.truncate.text-xs
-              | Invited by {{ invitation.invited_by_username || "an administrator" }}
-              | as {{ PROJECT_ROLE_LABEL[invitation.role] }}
+              | {{ $t("teams.invitedBy", { actor: invitation.invited_by_username || $t("common.administrator") }) }}
+              | {{ $t("teams.asRole", { role: $t(PROJECT_ROLE_KEY[invitation.role]) }) }}
           .flex.shrink-0.gap-2
             Button(
               size="sm"
               @click="respondProject(invitation.id, true)"
               :disabled="respondingProject === invitation.id"
-            ) Approve
+            ) {{ $t("team.projectInvitations.approve") }}
             Button(
               size="sm"
               variant="outline"
               @click="respondProject(invitation.id, false)"
               :disabled="respondingProject === invitation.id"
-            ) Decline
+            ) {{ $t("extensionUi.decline") }}
 
   Card
     CardHeader
-      CardTitle Teams
-      CardDescription Teams you belong to (administrators see every team).
+      CardTitle {{ $t("nav.teams") }}
+      CardDescription {{ $t("teams.listHint") }}
     CardContent
       p.text-destructive.text-sm(v-if="error") {{ error }}
       Empty(v-if="!loading && !teams.length")
-        EmptyTitle No teams yet
-        EmptyDescription Create one above to get started.
+        EmptyTitle {{ $t("teams.empty") }}
+        EmptyDescription {{ $t("teams.emptyHint") }}
       Table(v-else)
         TableHeader
           TableRow
-            TableHead Team
-            TableHead Members
-            TableHead Role
+            TableHead {{ $t("admin.teams.columnTeam") }}
+            TableHead {{ $t("admin.teams.columnMembers") }}
+            TableHead {{ $t("admin.role") }}
             TableHead
         TableBody
           TableRowsSkeleton(
@@ -109,36 +108,35 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableCell.text-muted-foreground {{ team.member_count }}
             TableCell
               Badge(v-if="team.role" variant="secondary") {{ team.role }}
-              span.text-muted-foreground(v-else) admin
+              span.text-muted-foreground(v-else) {{ $t("team.role.admin") }}
             TableCell
               .flex.justify-end
                 RouterLink(
                   :to="{ name: 'team', params: { id: String(team.id) } }"
                 )
-                  Button(variant="outline" size="sm") Open
+                  Button(variant="outline" size="sm") {{ $t("common.open") }}
 
   Card
     CardHeader
-      CardTitle Create team
+      CardTitle {{ $t("teams.create") }}
       CardDescription
-        | Teams group users and agents and are the primary way project access is
-        | granted. The creator becomes the team's first owner.
+        | {{ $t("teams.createHint") }}
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="create")
         FieldGroup
           Field
-            FieldLabel(for="team-name") Name
+            FieldLabel(for="team-name") {{ $t("common.name") }}
             Input#team-name(
               v-model="name"
-              placeholder="Platform"
+              :placeholder="$t('admin.teams.platform')"
               autocomplete="off"
               maxlength="100"
             )
           Field
-            FieldLabel(for="team-description") Description
+            FieldLabel(for="team-description") {{ $t("common.description") }}
             Input#team-description(
               v-model="description"
-              placeholder="Optional"
+              :placeholder="$t('common.optional')"
               autocomplete="off"
             )
         p.text-destructive.text-sm(v-if="createError") {{ createError }}
@@ -146,7 +144,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           Button(type="submit" :disabled="creating || !name.trim()")
             Spinner(v-if="creating" data-icon="inline-start")
             PlusIcon(v-else data-icon="inline-start")
-            span Create
+            span {{ $t("common.create") }}
 </template>
 
 <script setup lang="ts">
@@ -174,15 +172,18 @@ import {
 } from "@/components/ui/table";
 import { withProgress } from "@/composables/useProgress";
 import {
-  PROJECT_ROLE_LABEL,
+  PROJECT_ROLE_KEY,
   projectAccessApi,
   type ProjectTeamInvitation,
 } from "@/lib/projectAccess";
 import { teamApi, type Team, type TeamInvitation } from "@/lib/team";
 import { PlusIcon } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const router = useRouter();
 const teams = ref<Team[]>([]);
@@ -240,7 +241,11 @@ async function respond(invitationId: number, approve: boolean) {
   responding.value = invitationId;
   try {
     await withProgress(() => teamApi.respond(invitationId, approve));
-    toast.success(approve ? "Joined team" : "Invitation declined");
+    toast.success(
+      approve
+        ? t("teams.toasts.joined")
+        : t("projectSettings.toasts.invitationDeclined"),
+    );
     await load();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -253,7 +258,11 @@ async function respondProject(invitationId: number, approve: boolean) {
   respondingProject.value = invitationId;
   try {
     await withProgress(() => projectAccessApi.respond(invitationId, approve));
-    toast.success(approve ? "Project access granted" : "Invitation declined");
+    toast.success(
+      approve
+        ? t("team.toasts.projectAccessGranted")
+        : t("projectSettings.toasts.invitationDeclined"),
+    );
     await load();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -264,3 +273,32 @@ async function respondProject(invitationId: number, approve: boolean) {
 
 onMounted(load);
 </script>
+
+<i18n lang="yaml">
+en:
+  teams:
+    invitedHint: "You have been invited to these teams. Accepting adds you as a member."
+    projectInvitationsHint: "Teams you own have been invited to these projects. Approving attaches the team with the invited role."
+    listHint: "Teams you belong to (administrators see every team)."
+    empty: "No teams yet"
+    emptyHint: "Create one above to get started."
+    create: "Create team"
+    createHint: "Teams group users and agents and are the primary way project access is granted. The creator becomes the team's first owner."
+    toasts:
+      joined: "Joined team"
+    invitedBy: "Invited by {actor}"
+    asRole: "as {role}"
+ru:
+  teams:
+    invitedHint: "Вас пригласили в эти команды. Принятие добавит вас как участника."
+    projectInvitationsHint: "Ваши команды приглашены в эти проекты. Одобрение подключит команду с предложенной ролью."
+    listHint: "Команды, в которых вы состоите (администраторы видят все команды)."
+    empty: "Команд пока нет"
+    emptyHint: "Создайте команду выше, чтобы начать."
+    create: "Создать команду"
+    createHint: "Команды объединяют пользователей и агентов и служат основным способом предоставления доступа к проектам. Создатель становится первым владельцем команды."
+    toasts:
+      joined: "Вы вступили в команду"
+    invitedBy: "Приглашение от {actor}"
+    asRole: "в роли {role}"
+</i18n>

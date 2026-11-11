@@ -38,19 +38,19 @@ defineEmits<{
     button.d-tab._tab(
       type="button"
       role="tab"
-      title="Task chat"
+      :title="$t('taskTabs.chatTitle')"
       :class="activeTaskTab === 'chat' ? 'd-tab-active' : ''"
       @click="$emit('selectChat')"
     )
       MessageSquareIcon.size-4(:stroke-width="2")
-      span Chat
+      span {{ $t("taskTabs.chat") }}
 
     button.d-tab._tab(
       v-for="site in taskSites"
       :key="site.id"
       type="button"
       role="tab"
-      :title="`Open ${site.title || site.id}`"
+      :title="$t('taskTabs.openSite', { name: site.title || site.id })"
       :class="activeTaskTab === `site:${site.id}` ? 'd-tab-active' : ''"
       @click="$emit('selectSiteTab', site)"
     )
@@ -65,3 +65,16 @@ defineEmits<{
   @apply gap-2 px-4 text-sm font-semibold;
 }
 </style>
+
+<i18n lang="yaml">
+en:
+  taskTabs:
+    chatTitle: "Task chat"
+    chat: "Chat"
+    openSite: "Open {name}"
+ru:
+  taskTabs:
+    chatTitle: "Чат задачи"
+    chat: "Чат"
+    openSite: "Открыть {name}"
+</i18n>

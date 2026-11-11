@@ -19,19 +19,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Outbound e-mail (SMTP)
+    CardTitle {{ $t("settings.smtp.title") }}
     CardDescription
-      | Used for invitations, magic links, e-mail confirmation and password
-      | resets. E-mail invites are disabled until a host and sender are set.
+      | {{ $t("settings.smtp.description") }}
   CardContent
     form.flex.flex-col.gap-4(@submit.prevent="save")
       FieldGroup
         .grid.grid-cols-3.gap-3
           Field.col-span-2
-            FieldLabel Host
-            Input(v-model="form.host" placeholder="smtp.example.com")
+            FieldLabel {{ $t("settings.auth.host") }}
+            Input(
+              v-model="form.host"
+              :placeholder="$t('settings.smtp.hostPlaceholder')"
+            )
           Field
-            FieldLabel Port
+            FieldLabel {{ $t("settings.auth.port") }}
             Input(
               v-model.number="form.port"
               type="number"
@@ -40,29 +42,29 @@ Card
             )
         .grid.grid-cols-2.gap-3
           Field
-            FieldLabel Username
+            FieldLabel {{ $t("common.username") }}
             Input(
               v-model="form.username"
-              placeholder="optional"
+              :placeholder="$t('settings.smtp.optional')"
               autocomplete="off"
             )
           Field
-            FieldLabel Password
+            FieldLabel {{ $t("common.password") }}
             Input(
               v-model="form.password"
               type="password"
-              :placeholder="form.has_password ? 'unchanged' : 'optional'"
+              :placeholder="form.has_password ? $t('settings.smtp.unchanged') : $t('settings.smtp.optional')"
               autocomplete="new-password"
             )
         .grid.grid-cols-2.gap-3
           Field
-            FieldLabel From address
+            FieldLabel {{ $t("settings.smtp.from") }}
             Input(
               v-model="form.from"
-              placeholder="CherryPi <no-reply@example.com>"
+              :placeholder="$t('settings.smtp.fromPlaceholder')"
             )
           Field
-            FieldLabel Encryption
+            FieldLabel {{ $t("settings.auth.encryption") }}
             Select(
               :model-value="form.encryption"
               @update:model-value="form.encryption = String($event)"
@@ -70,16 +72,16 @@ Card
               SelectTrigger
                 SelectValue
               SelectContent
-                SelectItem(value="none") None
-                SelectItem(value="starttls") STARTTLS
-                SelectItem(value="tls") Implicit TLS
+                SelectItem(value="none") {{ $t("common.none") }}
+                SelectItem(value="starttls") {{ $t("settings.auth.starttls") }}
+                SelectItem(value="tls") {{ $t("settings.auth.implicitTls") }}
       p.text-destructive.text-sm(v-if="error") {{ error }}
       .flex.items-center.justify-between.gap-2
         .flex.items-center.gap-2
           Input.w-56(
             v-model="testAddress"
             type="email"
-            placeholder="you@example.com"
+            :placeholder="$t('account.emails.placeholder')"
           )
           Button(
             type="button"
@@ -89,11 +91,11 @@ Card
           )
             Spinner(v-if="testing" data-icon="inline-start")
             SendIcon(v-else data-icon="inline-start")
-            span Send test
+            span {{ $t("settings.smtp.sendTest") }}
         Button(type="submit" :disabled="saving")
           Spinner(v-if="saving" data-icon="inline-start")
           CheckIcon(v-else data-icon="inline-start")
-          span Save
+          span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -119,7 +121,10 @@ import { withProgress } from "@/composables/useProgress";
 import { accountApi } from "@/lib/account";
 import { CheckIcon, SendIcon } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const form = reactive({
   host: "",
@@ -142,7 +147,8 @@ async function load(): Promise<void> {
     const settings = await accountApi.getSMTPSettings();
     Object.assign(form, settings, { password: "" });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to load";
+    error.value =
+      err instanceof Error ? err.message : t("settings.auth.errors.load");
   }
 }
 
@@ -161,9 +167,10 @@ async function save(): Promise<void> {
       }),
     );
     Object.assign(form, settings, { password: "" });
-    toast.success("SMTP settings saved");
+    toast.success(t("settings.smtp.toasts.saved"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Save failed";
+    error.value =
+      err instanceof Error ? err.message : t("account.toasts.saveFailed");
   } finally {
     saving.value = false;
   }
@@ -174,11 +181,45 @@ async function sendTest(): Promise<void> {
   error.value = "";
   try {
     await accountApi.testSMTP(testAddress.value.trim());
-    toast.success("Test message sent");
+    toast.success(t("settings.smtp.toasts.testSent"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Test failed";
+    error.value =
+      err instanceof Error ? err.message : t("settings.smtp.toasts.testFailed");
   } finally {
     testing.value = false;
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  settings:
+    smtp:
+      title: "Outbound e-mail (SMTP)"
+      description: "Used for invitations, magic links, e-mail confirmation and password resets. E-mail invites are disabled until a host and sender are set."
+      from: "From address"
+      sendTest: "Send test"
+      hostPlaceholder: "smtp.example.com"
+      optional: "optional"
+      fromPlaceholder: "CherryPi <no-reply{'@'}example.com>"
+      toasts:
+        saved: "SMTP settings saved"
+        testSent: "Test message sent"
+        testFailed: "Test failed"
+      unchanged: "unchanged"
+ru:
+  settings:
+    smtp:
+      title: "Исходящая почта (SMTP)"
+      description: "Используется для приглашений, ссылок для входа, подтверждения e-mail и сброса пароля. Приглашения по e-mail отключены, пока не заданы хост и отправитель."
+      from: "Адрес отправителя"
+      sendTest: "Отправить тест"
+      hostPlaceholder: "smtp.example.com"
+      optional: "необязательно"
+      fromPlaceholder: "CherryPi <no-reply{'@'}example.com>"
+      toasts:
+        saved: "Настройки SMTP сохранены"
+        testSent: "Тестовое письмо отправлено"
+        testFailed: "Тест не прошёл"
+      unchanged: "без изменений"
+</i18n>

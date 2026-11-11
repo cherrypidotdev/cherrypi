@@ -2079,6 +2079,21 @@ func sizeName(rank int) string {
 	}
 }
 
+const SettleGrace = 10 * time.Second
+
+func (t Task) RunMayBeStarting(now time.Time, grace time.Duration) bool {
+	if grace <= 0 {
+		return false
+	}
+	if t.State != StateRunning && t.State != StateInput {
+		return false
+	}
+	if t.StateUpdatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(t.StateUpdatedAt) < grace
+}
+
 func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 	before, beforeErr := s.snapshot(ctx, id)
 	now := time.Now().UnixMilli()

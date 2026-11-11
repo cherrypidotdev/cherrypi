@@ -26,7 +26,10 @@ export function actorRoute(
   actor: ActorRef | undefined,
 ): RouteLocationRaw | undefined {
   const username = actor?.username?.trim() ?? "";
-  if (!username || actor?.kind === "system") return undefined;
+
+  if (!username || actor?.kind === "system" || actor?.kind === "plugin") {
+    return undefined;
+  }
   return {
     name: actor?.kind === "agent" ? "agent" : "user",
     params: { username },

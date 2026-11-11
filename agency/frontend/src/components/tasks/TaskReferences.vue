@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.gap-2(ref="root")
   .flex.items-center.gap-2
-    span.text-muted-foreground.text-xs References
+    span.text-muted-foreground.text-xs {{ $t("domainLog.kind.references") }}
     Spinner.size-3(v-if="busy")
   p.text-muted-foreground.text-xs(v-if="!rows.length")
     | —
@@ -47,7 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :model-value="entry.kind"
         @update:model-value="requestKind(entry, $event)"
       )
-        SelectTrigger(size="sm" :title="taskReferenceKindLabel(entry.kind)")
+        SelectTrigger(size="sm" :title="$t(taskReferenceKindKey(entry.kind))")
           SelectValue
         SelectContent
           SelectGroup
@@ -55,11 +55,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               v-for="option in TASK_REFERENCE_KINDS"
               :key="option.value"
               :value="option.value"
-            ) {{ option.label }}
+            ) {{ $t(option.labelKey) }}
       Button.shrink-0(
         variant="ghost"
         size="icon-sm"
-        title="Remove reference"
+        :title="$t('taskRefs.remove')"
         @click="remove(entry)"
         :disabled="busy === entry.task.id"
       )
@@ -68,11 +68,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   p.text-muted-foreground.text-xs(
     v-if="rows.some((entry) => entry.kind === TaskReferenceKind.BLOCKED_BY)"
   )
-    | This task waits for its blocking references to be completed before it can be queued.
+    | {{ $t("taskRefs.blocksQueued") }}
   p.text-muted-foreground.text-xs(
     v-if="rows.some((entry) => entry.kind === TaskReferenceKind.BLOCKS)"
   )
-    | The tasks this one blocks wait for it to be completed.
+    | {{ $t("taskRefs.blocksThem") }}
 
   .relative
     .relative
@@ -81,7 +81,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
       Input.w-full.pl-8(
         v-model="search"
-        placeholder="Add reference…"
+        :placeholder="$t('taskRefs.add')"
         autocomplete="off"
         @focus="open = true"
       )
@@ -98,20 +98,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       DialogHeader
         DialogTitle.flex.items-center.gap-2
           TriangleAlertIcon.size-4.text-amber-500
-          span Add blocking reference?
+          span {{ $t("taskRefs.addBlockingQuestion") }}
         DialogDescription
-          | "{{ pending ? taskReferenceTitle(pending.task) : "" }}" must be completed
-          | before this task can be queued again.
+          | {{ $t("taskRefs.mustComplete", { task: pending ? taskReferenceTitle(pending.task) : "" }) }}
+          | {{ $t("taskRefs.beforeQueued") }}
       p.text-muted-foreground.text-sm
-        | This task is currently {{ taskStateLabel(task.state) }}. It is stopped
-        | and parked as Waiting until the referenced task is completed. Its Pi
-        | session and workspace are kept for a re-queue.
+        | {{ $t("taskRefs.currently", { state: $t(taskStateKey(task.state)) }) }}
+        | {{ $t("taskRefs.keptForRequeue") }}
       DialogFooter
         Button(type="button" variant="outline" @click="confirmOpen = false")
-          | Cancel
+          | {{ $t("common.cancel") }}
         Button(type="button" @click="confirmKind" :disabled="busy !== ''")
           LockIcon(data-icon="inline-start")
-          span Add blocking reference
+          span {{ $t("taskRefs.addBlocking") }}
 </template>
 
 <script setup lang="ts">
@@ -140,13 +139,13 @@ import {
   taskNameClass,
   taskReferenceKindClass,
   taskReferenceKindIcon,
-  taskReferenceKindLabel,
+  taskReferenceKindKey,
   taskReferenceKindTextClass,
   taskReferenceName,
   taskReferencePerspectiveKind,
   taskReferenceTitle,
   taskStateIcon,
-  taskStateLabel,
+  taskStateKey,
 } from "@/lib/task";
 import {
   TaskReferenceKind,
@@ -157,9 +156,12 @@ import {
 import { LockIcon, SearchIcon, TriangleAlertIcon, XIcon } from "@lucide/vue";
 import { onClickOutside, useEventListener } from "@vueuse/core";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
 import TaskPicker from "./TaskPicker.vue";
+
+const { t } = useI18n();
 
 interface ReferenceRow {
   key: string;
@@ -221,10 +223,10 @@ function isIncomingKind(kind: TaskReferenceKind): boolean {
 }
 
 function taskReferenceKindDescription(kind: TaskReferenceKind): string {
-  return (
-    TASK_REFERENCE_KINDS.find((option) => option.value === kind)?.description ??
-    ""
-  );
+  const key = TASK_REFERENCE_KINDS.find(
+    (option) => option.value === kind,
+  )?.descriptionKey;
+  return key ? t(key) : "";
 }
 
 onClickOutside(root, () => (open.value = false));
@@ -377,3 +379,52 @@ watch(
   },
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskRefs:
+    remove: "Remove reference"
+    blocksQueued: "This task waits for its blocking references to be completed before it can be queued."
+    blocksThem: "The tasks this one blocks wait for it to be completed."
+    addBlockingQuestion: "Add blocking reference?"
+    beforeQueued: "before this task can be queued again."
+    keptForRequeue: "and parked as Waiting until the referenced task is completed. Its Pi session and workspace are kept for a re-queue."
+    addBlocking: "Add blocking reference"
+    add: "Add reference…"
+    kind:
+      informational: "Informational"
+      informationalHint: "A plain relation that does not gate queuing."
+      blockedBy: "Blocked by"
+      blockedByHint: "This task waits for the other task to complete."
+      blocks: "Blocks"
+      blocksHint: "The other task waits for this task to complete."
+      supersedes: "Supersedes"
+      supersedesHint: "This task replaces the other task and cancels it."
+      supersededBy: "Superseded by"
+      supersededByHint: "The other task replaces this task and cancels it."
+    currently: "This task is currently {state}. It is stopped"
+    mustComplete: '"{task}" must be completed'
+ru:
+  taskRefs:
+    remove: "Удалить ссылку"
+    blocksQueued: "Задача ждёт завершения блокирующих ссылок, прежде чем её можно будет поставить в очередь."
+    blocksThem: "Задачи, которые блокирует эта, ждут её завершения."
+    addBlockingQuestion: "Добавить блокирующую ссылку?"
+    beforeQueued: "прежде чем задачу снова можно будет поставить в очередь."
+    keptForRequeue: "и переводится в ожидание до завершения указанной задачи. Сеанс Pi и рабочее пространство сохраняются для повторной постановки."
+    addBlocking: "Добавить блокирующую ссылку"
+    add: "Добавить ссылку…"
+    kind:
+      informational: "Информационная"
+      informationalHint: "Простая связь, не влияющая на постановку в очередь."
+      blockedBy: "Заблокирована"
+      blockedByHint: "Эта задача ждёт завершения другой задачи."
+      blocks: "Блокирует"
+      blocksHint: "Другая задача ждёт завершения этой."
+      supersedes: "Заменяет"
+      supersedesHint: "Эта задача заменяет другую и отменяет её."
+      supersededBy: "Заменена"
+      supersededByHint: "Другая задача заменяет эту и отменяет её."
+    currently: "Сейчас задача в состоянии «{state}». Она остановлена"
+    mustComplete: "Задача «{task}» должна быть завершена"
+</i18n>

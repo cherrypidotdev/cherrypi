@@ -261,7 +261,7 @@ func (h *Host) settingsTable(L *lua.LState) *lua.LTable {
 			L.RaiseError("settings.get: %v", err)
 			return 0
 		}
-		values := row.Values
+		values := h.Plugin.Manifest.ApplySettingsDefaults(scope, row.Values)
 		L.Push(toLua(L, values))
 		return 1
 	})

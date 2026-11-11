@@ -20,12 +20,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(v-model:open="open")
   DialogContent.overflow-y-auto.overscroll-contain(class="max-h-[90vh] sm:max-w-2xl")
     DialogHeader
-      DialogTitle New task
+      DialogTitle {{ $t("nav.newTask") }}
       DialogDescription(v-if="relationNote")
         | {{ relationNote }}
       DialogDescription(v-else)
-        | Describe the work and queue as many as you need — creating a task
-        | keeps this composer open.
+        | {{ $t("taskComposer.description") }}
 
     ExpressTaskForm(
       bare
@@ -68,3 +67,12 @@ const relationNote = computed(() =>
     : "",
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskComposer:
+    description: "Describe the work and queue as many as you need — creating a task keeps this composer open."
+ru:
+  taskComposer:
+    description: "Опишите работу и ставьте в очередь сколько нужно — после создания задачи композер остаётся открытым."
+</i18n>

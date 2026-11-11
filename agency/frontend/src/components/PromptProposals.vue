@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-3(v-if="canPropose || canApprove")
   .flex.items-center.justify-between.gap-2
     .flex.items-center.gap-2
-      span.text-sm.font-medium Pending proposals
+      span.text-sm.font-medium {{ $t("promptProposals.pending") }}
       Badge(v-if="pending.length" variant="secondary") {{ pending.length }}
     Button(
       v-if="canPropose && !canEdit"
@@ -30,12 +30,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @click="openComposer"
     )
       LightbulbIcon(data-icon="inline-start")
-      span Suggest change
+      span {{ $t("promptProposals.suggest") }}
   p.text-muted-foreground.text-xs(v-if="canPropose && !canEdit")
-    | Owners edit this prompt directly. You can propose a complete replacement
-    | and an owner will review it.
+    | {{ $t("promptProposals.viewerHint") }}
   p.text-muted-foreground.text-sm(v-if="!pending.length && !loading")
-    | No pending proposals.
+    | {{ $t("promptProposals.empty") }}
   Skeleton.h-16.w-full(v-if="loading && !pending.length")
   p.text-destructive.text-sm(v-if="error") {{ error }}
   .flex.flex-col.gap-2.rounded-lg.border.p-3(
@@ -50,21 +49,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :size="18"
         )
         span.text-sm.font-medium {{ actorLabel(proposal.author) }}
-        span.text-muted-foreground.text-xs proposed
+        span.text-muted-foreground.text-xs {{ $t("promptProposals.proposed") }}
         span.text-muted-foreground.text-xs ·
         span.text-muted-foreground.text-xs {{ formatTimestamp(proposal.createdAt) }}
       .flex.flex-wrap.items-center.gap-1
-        Badge(v-if="proposal.stale" variant="destructive") stale
-        Badge(v-if="proposal.autoApproved" variant="outline") auto-approved
+        Badge(v-if="proposal.stale" variant="destructive") {{ $t("promptProposals.stale") }}
+        Badge(v-if="proposal.autoApproved" variant="outline") {{ $t("promptProposals.autoApproved") }}
     p.text-sm(v-if="proposal.note") {{ proposal.note }}
     p.text-muted-foreground.text-xs(v-if="proposal.stale")
-      | The prompt changed after this proposal was written, so it cannot be
-      | approved. The author must propose again.
+      | {{ $t("promptProposals.staleHint") }}
     details.rounded-md.border
-      summary.text-muted-foreground.cursor-pointer.px-2.py-1.text-xs Show diff
+      summary.text-muted-foreground.cursor-pointer.px-2.py-1.text-xs {{ $t("promptProposals.showDiff") }}
       .p-2
         PromptDiff(
-          :label="`Proposal vs version ${currentVersion}`"
+          :label="$t('promptDiff.proposalVsVersion', { version: currentVersion })"
           :before="currentContent"
           :after="proposal.content"
         )
@@ -76,7 +74,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         @click="openDecision(proposal, true)"
       )
         CheckIcon(data-icon="inline-start")
-        span Approve
+        span {{ $t("team.projectInvitations.approve") }}
       Button(
         v-if="canApprove"
         type="button"
@@ -85,7 +83,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         @click="openDecision(proposal, false)"
       )
         XIcon(data-icon="inline-start")
-        span Reject
+        span {{ $t("promptProposals.reject") }}
       Button(
         v-if="proposal.isMine"
         type="button"
@@ -94,31 +92,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         @click="withdraw(proposal)"
       )
         Undo2Icon(data-icon="inline-start")
-        span Withdraw
+        span {{ $t("promptProposals.withdraw") }}
 
   Dialog(v-model:open="composerOpen")
     DialogScrollContent.max-w-3xl
       DialogHeader
-        DialogTitle Suggest a prompt change
+        DialogTitle {{ $t("promptProposals.suggestTitle") }}
         DialogDescription
-          | The owner sees a diff against the current version. A proposal is a
-          | complete replacement, not a patch.
+          | {{ $t("promptProposals.suggestHint") }}
       .flex.flex-col.gap-3
         Textarea.min-h-64.font-mono.text-sm(
           v-model="proposalContent"
-          placeholder="The complete prompt content…"
+          :placeholder="$t('promptProposals.contentPlaceholder')"
         )
-        Input(v-model="proposalNote" placeholder="Why this change? (optional)")
+        Input(
+          v-model="proposalNote"
+          :placeholder="$t('promptProposals.reasonPlaceholder')"
+        )
         p.text-destructive.text-sm(v-if="composerError") {{ composerError }}
       DialogFooter
-        Button(variant="outline" @click="composerOpen = false") Cancel
+        Button(variant="outline" @click="composerOpen = false") {{ $t("common.cancel") }}
         Button(
           @click="submitProposal"
           :disabled="saving || !proposalContent.trim()"
         )
           Spinner(v-if="saving" data-icon="inline-start")
           SendIcon(v-else data-icon="inline-start")
-          span Submit proposal
+          span {{ $t("promptProposals.submit") }}
 
   Dialog(v-model:open="decisionOpen")
     DialogContent
@@ -126,10 +126,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         DialogTitle {{ decisionApprove ? "Approve proposal?" : "Reject proposal?" }}
         DialogDescription
           | {{ decisionApprove ? "This appends the proposed content as a new prompt version." : "The proposal stays in history as rejected." }}
-      Textarea(v-model="decisionNote" placeholder="Decision note (optional)")
+      Textarea(
+        v-model="decisionNote"
+        :placeholder="$t('promptProposals.notePlaceholder')"
+      )
       p.text-destructive.text-sm(v-if="decisionError") {{ decisionError }}
       DialogFooter
-        Button(variant="outline" @click="decisionOpen = false") Cancel
+        Button(variant="outline" @click="decisionOpen = false") {{ $t("common.cancel") }}
         Button(
           :variant="decisionApprove ? 'default' : 'destructive'"
           @click="confirmDecision"
@@ -176,6 +179,7 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -251,9 +255,9 @@ async function submitProposal() {
     });
     composerOpen.value = false;
     if (proposal.status === PromptProposalStatus.APPROVED) {
-      toast.success("Prompt change auto-approved");
+      toast.success(t("promptProposals.toasts.autoApproved"));
     } else {
-      toast.success("Prompt change proposed");
+      toast.success(t("promptProposals.toasts.proposed"));
     }
     await load();
     emit("changed");
@@ -281,13 +285,13 @@ async function confirmDecision() {
         decisionTarget.value.id,
         decisionNote.value,
       );
-      toast.success("Prompt proposal approved");
+      toast.success(t("promptProposals.toasts.approved"));
     } else {
       await agency.rejectPromptProposal(
         decisionTarget.value.id,
         decisionNote.value,
       );
-      toast.success("Prompt proposal rejected");
+      toast.success(t("promptProposals.toasts.rejected"));
     }
     decisionOpen.value = false;
     await load();
@@ -302,7 +306,7 @@ async function confirmDecision() {
 async function withdraw(proposal: PromptProposal) {
   try {
     await agency.withdrawPromptProposal(proposal.id);
-    toast.success("Proposal withdrawn");
+    toast.success(t("domainLog.kind.proposalWithdraw"));
     await load();
     emit("changed");
   } catch (err) {
@@ -322,4 +326,61 @@ watch(
   () => void load(),
   { immediate: true },
 );
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  promptProposals:
+    autoApproved: "auto-approved"
+    pending: "Pending proposals"
+    suggest: "Suggest change"
+    viewerHint: "Owners edit this prompt directly. You can propose a complete replacement and an owner will review it."
+    empty: "No pending proposals."
+    proposed: "proposed"
+    stale: "stale"
+    staleHint: "The prompt changed after this proposal was written, so it cannot be approved. The author must propose again."
+    showDiff: "Show diff"
+    reject: "Reject"
+    notePlaceholder: "Decision note (optional)"
+    toasts:
+      rejected: "Prompt proposal rejected"
+      approved: "Prompt proposal approved"
+      proposed: "Prompt change proposed"
+      autoApproved: "Prompt change auto-approved"
+    withdraw: "Withdraw"
+    suggestTitle: "Suggest a prompt change"
+    suggestHint: "The owner sees a diff against the current version. A proposal is a complete replacement, not a patch."
+    submit: "Submit proposal"
+    contentPlaceholder: "The complete prompt content…"
+    reasonPlaceholder: "Why this change? (optional)"
+  promptDiff:
+    proposalVsVersion: "Proposal vs version {version}"
+ru:
+  promptProposals:
+    autoApproved: "одобрено автоматически"
+    pending: "Ожидающие предложения"
+    suggest: "Предложить изменение"
+    viewerHint: "Владельцы редактируют этот промпт напрямую. Вы можете предложить полную замену, и владелец её рассмотрит."
+    empty: "Ожидающих предложений нет."
+    proposed: "предложено"
+    stale: "устарело"
+    staleHint: "Промпт изменился после создания предложения, поэтому одобрить его нельзя. Автору нужно предложить изменение снова."
+    showDiff: "Показать различия"
+    reject: "Отклонить"
+    notePlaceholder: "Заметка к решению (необязательно)"
+    toasts:
+      rejected: "Предложение промпта отклонено"
+      approved: "Предложение промпта одобрено"
+      proposed: "Изменение промпта предложено"
+      autoApproved: "Изменение промпта одобрено автоматически"
+    withdraw: "Отозвать"
+    suggestTitle: "Предложить изменение промпта"
+    suggestHint: "Владелец увидит различия с текущей версией. Предложение — это полная замена, а не патч."
+    submit: "Отправить предложение"
+    contentPlaceholder: "Полное содержимое промпта…"
+    reasonPlaceholder: "Зачем это изменение? (необязательно)"
+  promptDiff:
+    proposalVsVersion: "Предложение против версии {version}"
+</i18n>

@@ -598,7 +598,14 @@ func (h *Handler) preferences(w http.ResponseWriter, r *http.Request, identity a
 		if in.NotifyFirstArchive != nil {
 			prefs.NotifyFirstArchive = *in.NotifyFirstArchive
 		}
+		if in.Locale != nil {
+			prefs.Locale = *in.Locale
+		}
 		if err := h.Service.UpdatePreferences(r.Context(), identity.ActorID, prefs); err != nil {
+			if errors.Is(err, ErrInvalidLocale) {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -609,12 +616,14 @@ func (h *Handler) preferences(w http.ResponseWriter, r *http.Request, identity a
 }
 
 type preferencesRequest struct {
-	NotifyFirstArchive *bool `json:"notify_first_archive"`
+	NotifyFirstArchive *bool   `json:"notify_first_archive"`
+	Locale             *string `json:"locale"`
 }
 
 func preferencesJSON(prefs Preferences) map[string]any {
 	return map[string]any{
 		"notify_first_archive": prefs.NotifyFirstArchive,
+		"locale":               prefs.Locale,
 	}
 }
 

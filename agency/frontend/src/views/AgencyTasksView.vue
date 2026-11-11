@@ -20,34 +20,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   header.flex.flex-wrap.items-start.justify-between.gap-4
     .flex.min-w-0.flex-col
-      h1.truncate.text-lg.font-semibold Tasks
+      h1.truncate.text-lg.font-semibold {{ $t("nav.tasks") }}
       p.text-muted-foreground.text-sm
-        | Every agency task, newest first. The scheduler assigns queued work
-        | subject to each agent's concurrency limits.
+        | {{ $t("agencyTasks.description") }}
     AgencyViewTabs
 
   .flex.flex-wrap.items-center.gap-2
     Combobox.w-44(
       v-model="filterProject"
-      placeholder="All projects"
+      :placeholder="$t('nav.allProjects')"
       empty-text="No matching project."
-      title="Filter by project"
-      aria-label="Filter by project"
+      :title="$t('usage.dashboard.projectTitle')"
+      :aria-label="$t('usage.dashboard.projectTitle')"
       :options="projectFilterOptions"
     )
     Select(v-model="filterAgent")
-      SelectTrigger.w-44(title="Filter by agent")
-        SelectValue(placeholder="All agents")
+      SelectTrigger.w-44(:title="$t('usage.dashboard.agentTitle')")
+        SelectValue(:placeholder="$t('usage.dashboard.allAgents')")
       SelectContent
-        SelectItem(:value="ALL") All agents
+        SelectItem(:value="ALL") {{ $t("usage.dashboard.allAgents") }}
         SelectItem(v-for="item in agents" :key="item.id" :value="item.id") {{ item.displayName || item.username }}
 
-  UsageOverview(
-    v-if="showUsageKpi"
-    context="agency"
-    :agent-id="filterAgent === ALL ? '' : filterAgent"
-    :project-id="filterProject === ALL ? '' : filterProject"
-  )
+  KpiOverview(:page="{ kind: 'agency' }" :page-context="kpiPageContext")
 
   ExpressTaskForm
 
@@ -59,6 +53,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import AgencyViewTabs from "@/components/AgencyViewTabs.vue";
+import KpiOverview from "@/components/kpi/KpiOverview.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
@@ -69,22 +64,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import UsageOverview from "@/components/usage/UsageOverview.vue";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
-import { useSettings } from "@/composables/useSettings";
+import type { KpiPageContext } from "@/lib/kpiWidgets";
 import { sortProjectsByName } from "@/lib/project";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 const { agents, loadAgents } = useAgents();
-const { settings, loadSettings } = useSettings();
 const { active: projects, loadProjects } = useProjects();
-const showUsageKpi = computed(() => settings.value?.showUsageKpi !== false);
 const projectOptions = computed(() => sortProjectsByName(projects.value));
 
 const ALL = "__all__";
 const projectFilterOptions = computed<ComboboxOption[]>(() => [
-  { value: ALL, label: "All projects" },
+  { value: ALL, label: t("nav.allProjects") },
   ...projectOptions.value.map((project) => ({
     value: project.id,
     label: project.name,
@@ -94,9 +87,25 @@ const projectFilterOptions = computed<ComboboxOption[]>(() => [
 const filterAgent = ref(ALL);
 const filterProject = ref(ALL);
 
+const kpiPageContext = computed<KpiPageContext>(() => ({
+  kind: "agency",
+  filterAgentId: filterAgent.value === ALL ? "" : filterAgent.value,
+  filterProjectId: filterProject.value === ALL ? "" : filterProject.value,
+}));
+
 onMounted(() => {
   void loadAgents();
   void loadProjects();
-  void loadSettings();
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  agencyTasks:
+    description: "Every agency task, newest first. The scheduler assigns queued work subject to each agent's concurrency limits."
+ru:
+  agencyTasks:
+    description: "Все задачи агентства, сначала новые. Планировщик распределяет задачи из очереди с учётом лимитов параллельности каждого агента."
+</i18n>

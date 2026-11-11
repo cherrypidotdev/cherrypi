@@ -19,20 +19,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Cost per day
-    CardDescription Accumulated settled cost, UTC.
+    CardTitle {{ $t("usage.graph.title") }}
+    CardDescription {{ $t("usage.graph.hint") }}
     CardAction
       .flex.items-baseline.gap-1
         Skeleton.h-5.w-14(v-if="loading")
         template(v-else)
           span.text-lg.font-semibold {{ formatCost(usage?.cost ?? 0) }}
-          span.text-muted-foreground.text-xs total
+          span.text-muted-foreground.text-xs {{ $t("usage.graph.total") }}
   CardContent
     p.text-destructive.text-sm(v-if="error") {{ error }}
     p.text-muted-foreground.py-6.text-center.text-sm(
       v-else-if="!dayPoints.length"
     )
-      | No cost recorded yet.
+      | {{ $t("usage.graph.empty") }}
     ChartContainer.chart.aspect-auto.w-full(
       v-else
       class="h-[160px]"
@@ -113,3 +113,22 @@ const costConfig = {
   cost: { label: "Cost", color: "var(--chart-3)", format: formatCost },
 } satisfies ChartConfig;
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    graph:
+      title: "Cost per day"
+      hint: "Accumulated settled cost, UTC."
+      total: "total"
+      empty: "No cost recorded yet."
+      cost: "Cost"
+ru:
+  usage:
+    graph:
+      title: "Стоимость по дням"
+      hint: "Накопленная стоимость завершённых запусков, UTC."
+      total: "всего"
+      empty: "Стоимость пока не записана."
+      cost: "Стоимость"
+</i18n>

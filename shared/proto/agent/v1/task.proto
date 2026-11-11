@@ -66,6 +66,9 @@ service TaskService {
   rpc ClearQueue(ClearQueueRequest) returns (ClearQueueResponse);
   
   
+  rpc RemoveQueuedMessage(RemoveQueuedMessageRequest) returns (RemoveQueuedMessageResponse);
+  
+  
   
   
   
@@ -479,6 +482,7 @@ message ModelWait {
     KIND_UNSPECIFIED = 0;
     
     
+    
     KIND_MODEL_REQUEST = 1;
     
     KIND_RETRY = 2;
@@ -562,9 +566,22 @@ message MessageAttachment {
 
 
 
+
 message PendingMessages {
-  repeated string steering = 1;
+  
+  
+  repeated string steering = 1 [deprecated = true];
   repeated string follow_up = 2;
+  
+  repeated QueuedMessage queued_steering = 3;
+}
+
+
+
+
+message QueuedMessage {
+  string id = 1;
+  string text = 2;
 }
 
 
@@ -618,6 +635,13 @@ message ClearQueueRequest {
   string id = 1;
 }
 message ClearQueueResponse {}
+
+message RemoveQueuedMessageRequest {
+  string id = 1;
+  
+  string queue_id = 2;
+}
+message RemoveQueuedMessageResponse {}
 
 message RestartTaskSessionRequest {
   string id = 1;

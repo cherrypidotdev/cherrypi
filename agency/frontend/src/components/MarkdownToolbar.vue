@@ -33,8 +33,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       type="button"
       variant="ghost"
       size="icon-xs"
-      :title="action.title"
-      :aria-label="action.title"
+      :title="actionTitle(action)"
+      :aria-label="actionTitle(action)"
       @click="run(action)"
       :disabled="disabled || !view"
       :data-testid="`markdown-editor-${action.id}`"
@@ -73,6 +73,9 @@ import {
   TextQuoteIcon,
 } from "@lucide/vue";
 import type { Component } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{ view?: EditorView; disabled?: boolean }>(),
@@ -81,7 +84,8 @@ const props = withDefaults(
 
 interface ToolbarAction {
   id: string;
-  title: string;
+
+  titleKey: string;
   icon: Component;
 
   group: string;
@@ -89,87 +93,90 @@ interface ToolbarAction {
 }
 
 const mod = IS_MAC ? "⌘" : "Ctrl+";
-const shift = IS_MAC ? "⇧" : "Shift+";
 
 const actions: ToolbarAction[] = [
   {
     id: "bold",
-    title: `Bold (${mod}B)`,
+    titleKey: "toolbar.bold",
     icon: BoldIcon,
     group: "inline",
     command: toggleBold,
   },
   {
     id: "italic",
-    title: `Italic (${mod}I)`,
+    titleKey: "toolbar.italic",
     icon: ItalicIcon,
     group: "inline",
     command: toggleItalic,
   },
   {
     id: "strikethrough",
-    title: `Strikethrough (${mod}${shift}X)`,
+    titleKey: "toolbar.strikethrough",
     icon: StrikethroughIcon,
     group: "inline",
     command: toggleStrikethrough,
   },
   {
     id: "code",
-    title: `Inline code (${mod}E)`,
+    titleKey: "toolbar.code",
     icon: CodeIcon,
     group: "inline",
     command: toggleInlineCode,
   },
   {
     id: "link",
-    title: "Link",
+    titleKey: "toolbar.link",
     icon: LinkIcon,
     group: "link",
     command: insertLink,
   },
   {
     id: "heading-1",
-    title: "Heading 1",
+    titleKey: "toolbar.heading1",
     icon: Heading1Icon,
     group: "heading",
     command: toggleHeading(1),
   },
   {
     id: "heading-2",
-    title: "Heading 2",
+    titleKey: "toolbar.heading2",
     icon: Heading2Icon,
     group: "heading",
     command: toggleHeading(2),
   },
   {
     id: "heading-3",
-    title: "Heading 3",
+    titleKey: "toolbar.heading3",
     icon: Heading3Icon,
     group: "heading",
     command: toggleHeading(3),
   },
   {
     id: "bullet-list",
-    title: "Bullet list",
+    titleKey: "toolbar.bulletList",
     icon: ListIcon,
     group: "block",
     command: toggleBulletList,
   },
   {
     id: "ordered-list",
-    title: "Numbered list",
+    titleKey: "toolbar.numberedList",
     icon: ListOrderedIcon,
     group: "block",
     command: toggleOrderedList,
   },
   {
     id: "blockquote",
-    title: "Quote",
+    titleKey: "toolbar.quote",
     icon: TextQuoteIcon,
     group: "block",
     command: toggleBlockquote,
   },
 ];
+
+function actionTitle(action: ToolbarAction): string {
+  return t(action.titleKey, { mod, shift: IS_MAC ? "⇧" : "Shift+" });
+}
 
 function run(action: ToolbarAction) {
   const editor = props.view;
@@ -179,3 +186,32 @@ function run(action: ToolbarAction) {
   editor.focus();
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  toolbar:
+    bold: "Bold ({mod}B)"
+    italic: "Italic ({mod}I)"
+    strikethrough: "Strikethrough ({mod}{shift}X)"
+    code: "Inline code ({mod}E)"
+    link: "Link"
+    heading1: "Heading 1"
+    heading2: "Heading 2"
+    heading3: "Heading 3"
+    bulletList: "Bullet list"
+    numberedList: "Numbered list"
+    quote: "Quote"
+ru:
+  toolbar:
+    bold: "Жирный ({mod}B)"
+    italic: "Курсив ({mod}I)"
+    strikethrough: "Зачёркнутый ({mod}{shift}X)"
+    code: "Код в строке ({mod}E)"
+    link: "Ссылка"
+    heading1: "Заголовок 1"
+    heading2: "Заголовок 2"
+    heading3: "Заголовок 3"
+    bulletList: "Маркированный список"
+    numberedList: "Нумерованный список"
+    quote: "Цитата"
+</i18n>

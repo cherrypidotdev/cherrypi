@@ -475,11 +475,19 @@ func (m *Manager) ClearQueue(ctx context.Context, id string) error {
 	if Terminal(Status(row.Status)) {
 		return nil
 	}
-	s := m.get(id)
-	if s == nil {
+	return m.sessionFor(row).ClearQueue(ctx)
+}
+
+func (m *Manager) RemoveQueued(ctx context.Context, id, queuedID string) error {
+	row, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if Terminal(Status(row.Status)) {
 		return nil
 	}
-	return s.ClearQueue(ctx)
+	_, err = m.sessionFor(row).RemoveQueued(ctx, queuedID)
+	return err
 }
 
 func (m *Manager) Restart(ctx context.Context, id string) error {
@@ -518,6 +526,8 @@ func (m *Manager) end(ctx context.Context, id string) (sqlitedb.Task, error) {
 		running := s.running
 		s.stopRequested = true
 		s.mu.Unlock()
+
+		s.holdQueue()
 		if running {
 
 			abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -973,6 +983,7 @@ func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 	}
 	s := newSession(m.cfg, m.store, row.ID, row.Workspace, row.PiSessionID, row.Interactive != 0)
 	s.appendSystemPrompt = row.AppendSystemPrompt
+	s.loadQueue(row.PendingQueue)
 	s.agencyProjectID = row.AgencyProjectID
 	s.agencySeq = row.AgencyTaskSeq
 	if row.PluginTools != "" {

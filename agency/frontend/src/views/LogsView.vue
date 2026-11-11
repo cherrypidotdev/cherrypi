@@ -19,9 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.gap-4
   p.text-muted-foreground.text-sm
-    | Operational records this agent pushed to the agency — task/session
-    | lifecycle, connectivity and the terminal lifecycle events the agency
-    | observed — in one feed.
+    | {{ $t("logs.description") }}
 
   .flex.flex-wrap.items-center.gap-2
     .relative.min-w-48.flex-1
@@ -30,8 +28,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
       Input.pl-8(
         v-model="search"
-        placeholder="Filter log lines…"
-        aria-label="Filter log lines"
+        :placeholder="$t('logs.filterPlaceholder')"
+        :aria-label="$t('logs.filterAria')"
       )
     Select(v-model="levelFilter")
       SelectTrigger.w-40
@@ -41,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           v-for="opt in levelOptions"
           :key="opt.value"
           :value="opt.value"
-        ) {{ opt.label }}
+        ) {{ $t(opt.labelKey) }}
     Button(
       variant="outline"
       size="sm"
@@ -49,7 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @click="filtersOpen = !filtersOpen"
     )
       SlidersHorizontalIcon(data-icon="inline-start")
-      span Filters
+      span {{ $t("settings.events.title") }}
     Button(
       variant="outline"
       size="sm"
@@ -57,29 +55,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :disabled="logsLoading"
     )
       RefreshCwIcon(data-icon="inline-start")
-      span Refresh
+      span {{ $t("common.refresh") }}
 
   .rounded-lg.border.p-3(v-if="filtersOpen" class="bg-muted/30")
     .flex.flex-wrap.items-center.gap-3
       label.flex.cursor-pointer.items-center.gap-2.text-sm
-        Switch(v-model="hideLifecycle" aria-label="Hide routine lifecycle")
-        span Hide routine lifecycle
+        Switch(
+          v-model="hideLifecycle"
+          :aria-label="$t('logs.hideRoutineAria')"
+        )
+        span {{ $t("logs.hideRoutine") }}
       .min-w-64.flex-1
         Input(
           v-model="hiddenText"
-          placeholder="pi started, pi exited, pi stopped"
-          aria-label="Hidden message patterns"
+          :placeholder="$t('logs.hiddenPatternsPlaceholder')"
+          :aria-label="$t('logs.hiddenPatternsAria')"
         )
     p.text-muted-foreground.mt-2.text-xs
-      | Comma-separated message substrings to hide while the toggle is on.
-      | {{ hiddenCount ? `${hiddenCount} hidden now.` : "" }}
+      | {{ $t("logs.hiddenPatternsHint2") }} {{ hiddenCount ? $t("logs.hiddenCount", { count: hiddenCount }) : "" }}
 
   Card
     CardContent.p-0
       p.text-destructive.px-4.py-2.text-sm(v-if="logsError")
         | {{ logsError }}
       p.text-muted-foreground.px-4.py-2.text-sm(v-if="terminalsError")
-        | Terminal events unavailable: {{ terminalsError }}
+        | {{ $t("logs.terminalsError", { error: terminalsError }) }}
       TableRowsSkeleton(
         v-if="(logsLoading || terminalsLoading) && !rows.length"
         :widths="['h-5 w-32', 'w-16', 'w-64']"
@@ -112,7 +112,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 span.text-muted-foreground.truncate.font-mono.text-xs(
                   v-if="row.log.sessionId"
                   :title="row.log.sessionId"
-                ) session {{ row.log.sessionId.slice(0, 8) }}
+                ) {{ $t("logs.session", { id: row.log.sessionId.slice(0, 8) }) }}
                 span.text-muted-foreground.font-mono.text-xs(
                   v-for="attr in attrs(row.log)"
                   :key="attr.key"
@@ -141,7 +141,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :disabled="restoring === row.log.id"
               )
                 RotateCcwIcon(data-icon="inline-start")
-                span Restore
+                span {{ $t("tags.restore") }}
 </template>
 
 <script setup lang="ts">
@@ -174,6 +174,7 @@ import {
   SlidersHorizontalIcon,
 } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const HIDDEN_PATTERNS_KEY = "cherrypi.agent-logs.hidden-patterns";
@@ -211,10 +212,10 @@ const hiddenText = ref(
 const hideLifecycle = ref(storedString(HIDE_LIFECYCLE_KEY) !== "0");
 
 const levelOptions = [
-  { value: "all", label: "All levels" },
-  { value: "info", label: "Info and up" },
-  { value: "warn", label: "Warnings and up" },
-  { value: "error", label: "Errors only" },
+  { value: "all", labelKey: "pluginLog.allLevels" },
+  { value: "info", labelKey: "logs.level.info" },
+  { value: "warn", labelKey: "logs.level.warn" },
+  { value: "error", labelKey: "logs.level.error" },
 ] as const;
 
 function minLevel(): AgentLogLevel {
@@ -341,7 +342,7 @@ async function restore(log: TerminalLog) {
   restoring.value = log.id;
   try {
     await agent.createTerminal(log.kind);
-    toast.success("Terminal restored");
+    toast.success(t("logs.toasts.terminalRestored"));
     await refreshTerminals();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -361,4 +362,47 @@ useRealtime(["agent-logs", "terminals"], () => {
   void refreshAgentLogs();
   void refreshTerminals();
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  logs:
+    description: "Operational records this agent pushed to the agency — task/session lifecycle, connectivity and the terminal lifecycle events the agency observed — in one feed."
+    hideRoutineAria: "Hide routine lifecycle"
+    filterPlaceholder: "Filter log lines…"
+    filterAria: "Filter log lines"
+    hiddenPatternsPlaceholder: "pi started, pi exited, pi stopped"
+    hiddenPatternsAria: "Hidden message patterns"
+    toasts:
+      terminalRestored: "Terminal restored"
+    hideRoutine: "Hide routine lifecycle"
+    hiddenCount: "{count} hidden now."
+    level:
+      info: "Info and up"
+      warn: "Warnings and up"
+      error: "Errors only"
+    hiddenPatternsHint2: "Comma-separated message substrings to hide while the toggle is on."
+    terminalsError: "Terminal events unavailable: {error}"
+    session: "session {id}"
+ru:
+  logs:
+    description: "Операционные записи, которые агент отправил в агентство — жизненный цикл задач и сеансов, подключение и события жизненного цикла терминалов — в одной ленте."
+    hideRoutineAria: "Скрыть рутинный жизненный цикл"
+    filterPlaceholder: "Фильтр строк журнала…"
+    filterAria: "Фильтр строк журнала"
+    hiddenPatternsPlaceholder: "pi started, pi exited, pi stopped"
+    hiddenPatternsAria: "Скрываемые шаблоны сообщений"
+    toasts:
+      terminalRestored: "Терминал восстановлен"
+    hideRoutine: "Скрыть рутинный жизненный цикл"
+    hiddenCount: "Скрыто сейчас: {count}."
+    level:
+      info: "Информация и выше"
+      warn: "Предупреждения и выше"
+      error: "Только ошибки"
+    hiddenPatternsHint2: "Подстроки сообщений через запятую, скрываемые при включённом переключателе."
+    terminalsError: "События терминалов недоступны: {error}"
+    session: "сеанс {id}"
+</i18n>

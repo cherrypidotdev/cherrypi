@@ -147,6 +147,13 @@ func (s Store) ClearSessionPendingPrompt(
 	return s.queries.ClearSessionPendingPrompt(ctx, p)
 }
 
+func (s Store) SetSessionPendingQueue(
+	ctx context.Context,
+	p sqlitedb.SetSessionPendingQueueParams,
+) error {
+	return s.queries.SetSessionPendingQueue(ctx, p)
+}
+
 func (s Store) SetSessionPid(ctx context.Context, p sqlitedb.SetSessionPidParams) error {
 	return s.queries.SetSessionPid(ctx, p)
 }

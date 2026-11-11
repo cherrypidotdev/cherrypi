@@ -19,16 +19,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Browser notifications
+    CardTitle {{ $t("notifications.title") }}
     CardDescription
-      | Choose which events are stored in the inbox, pop an in-app toast, play
-      | a sound, and show a desktop notification. The inbox is stored by the
-      | agency, the sound set is organization-wide, and the volume, per-event
-      | switches, and desktop alerts are per-browser.
+      | {{ $t("notifications.description") }}
   CardContent.flex.flex-col.gap-4
     .flex.items-center.justify-between.gap-3.rounded-md.border.p-3(class="bg-muted/30")
       .flex.flex-col(class="gap-0.5")
-        span.text-sm.font-medium Desktop notifications
+        span.text-sm.font-medium {{ $t("notifications.desktop.title") }}
         span.text-muted-foreground.text-xs {{ permissionHint }}
       Button(
         v-if="permission === 'default'"
@@ -39,32 +36,31 @@ Card
       )
         Spinner(v-if="requesting" data-icon="inline-start")
         BellIcon(v-else data-icon="inline-start")
-        span Enable
+        span {{ $t("common.enable") }}
     .flex.flex-col.gap-3.rounded-md.border.p-3(class="bg-muted/30")
       .flex.flex-wrap.items-end.gap-3
         Field.flex-1
-          FieldLabel Sound set
+          FieldLabel {{ $t("settings.sounds.set") }}
           .flex.items-center.gap-2
-            span.text-sm.font-medium {{ selectedSet.name }}
-            Badge(variant="secondary") Organization
+            span.text-sm.font-medium {{ $t(selectedSet.nameKey) }}
+            Badge(variant="secondary") {{ $t("notifications.organization") }}
           FieldDescription
-            | {{ selectedSet.description }} An administrator picks the set for
-            | the whole agency.
+            | {{ $t(selectedSet.descriptionKey) }} {{ $t("notifications.organizationHint") }}
             RouterLink.text-underline(
               v-if="isAdmin"
               :to="{ name: 'settings', query: { tab: 'general' } }"
-            ) Change in organization settings
+            ) {{ $t("notifications.changeInSettings") }}
         Button(
           variant="outline"
           size="sm"
-          :aria-label="previewing ? 'Stop the sound preview' : 'Preview this sound set'"
+          :aria-label="previewing ? $t('settings.sounds.stopAria') : $t('settings.sounds.previewAria')"
           @click="previewSet"
         )
           Spinner(v-if="previewing" data-icon="inline-start")
           PlayIcon(v-else data-icon="inline-start")
-          span {{ previewing ? "Stop" : "Preview" }}
+          span {{ previewing ? $t("settings.sounds.stop") : $t("settings.sounds.preview") }}
       .flex.items-center.gap-3
-        span.text-sm.font-medium Volume
+        span.text-sm.font-medium {{ $t("notifications.volume") }}
         input#notification-volume.accent-primary.h-2.flex-1.cursor-pointer(
           type="range"
           :value="volumePercent"
@@ -81,40 +77,40 @@ Card
       Table
         TableHeader
           TableRow
-            TableHead Event
-            TableHead.text-center Inbox
-            TableHead.text-center Toast
-            TableHead.text-center Play Sound
-            TableHead.text-center Desktop Notification
+            TableHead {{ $t("notifications.column.event") }}
+            TableHead.text-center {{ $t("nav.inbox") }}
+            TableHead.text-center {{ $t("notifications.column.toast") }}
+            TableHead.text-center {{ $t("notifications.column.sound") }}
+            TableHead.text-center {{ $t("notifications.column.desktop") }}
         TableBody
           TableRow(v-for="event in ATTENTION_EVENTS" :key="event.kind")
-            TableCell.text-sm {{ event.label }}
+            TableCell.text-sm {{ $t(event.labelKey) }}
             TableCell.text-center
               .flex.justify-center
                 Switch(
                   :model-value="!disabledKinds.includes(event.kind)"
-                  :aria-label="`Store in inbox: ${event.label}`"
+                  :aria-label="$t('notifications.aria.inbox', { event: $t(event.labelKey) })"
                   @update:model-value="(value) => toggleInbox(event.kind, value)"
                 )
             TableCell.text-center
               .flex.items-center.justify-center.gap-1
                 Switch(
                   :model-value="preferences[event.kind]?.toast ?? false"
-                  :aria-label="`Show a toast for: ${event.label}`"
+                  :aria-label="$t('notifications.aria.toast', { event: $t(event.labelKey) })"
                   @update:model-value="(value) => setPreference(event.kind, 'toast', value)"
                 )
             TableCell.text-center
               .flex.justify-center
                 Switch(
                   :model-value="preferences[event.kind]?.sound ?? false"
-                  :aria-label="`Play a sound for: ${event.label}`"
+                  :aria-label="$t('notifications.aria.sound', { event: $t(event.labelKey) })"
                   @update:model-value="(value) => setPreference(event.kind, 'sound', value)"
                 )
                 Button(
                   variant="ghost"
                   size="icon-xs"
-                  :aria-label="playingKind === event.kind ? `Stop the ${event.label} sound` : `Play the ${event.label} sound`"
-                  :title="playingKind === event.kind ? 'Stop the sound' : 'Preview the sound for this event'"
+                  :aria-label="soundAria(event)"
+                  :title="playingKind === event.kind ? $t('notifications.stopPreview') : $t('notifications.previewHint')"
                   @click="playEventSound(event.kind)"
                 )
                   SquareIcon(v-if="playingKind === event.kind")
@@ -123,7 +119,7 @@ Card
               .flex.justify-center
                 Switch(
                   :model-value="preferences[event.kind]?.browser ?? false"
-                  :aria-label="`Desktop notification for: ${event.label}`"
+                  :aria-label="$t('notifications.aria.desktop', { event: $t(event.labelKey) })"
                   @update:model-value="(value) => toggleDesktop(event.kind, value)"
                   :disabled="permission === 'unsupported' || permission === 'denied'"
                 )
@@ -163,6 +159,9 @@ import { playSound, previewSoundSet, stopSound } from "@/lib/sounds/play";
 import { soundSetById } from "@/lib/sounds/sets";
 import { BellIcon, PlayIcon, SquareIcon } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const { preferences, setPreference } = useAttentionPreferences();
 const {
@@ -245,20 +244,28 @@ async function loadInboxPreferences() {
     disabledKinds.value = await agency.getInboxPreferences();
     inboxError.value = "";
   } catch (err) {
-    inboxError.value = err instanceof Error ? err.message : String(err);
+    inboxError.value =
+      err instanceof Error ? err.message : t("notifications.errors.inbox");
   }
+}
+
+function soundAria(event: { kind: string; labelKey: string }): string {
+  const name = t(event.labelKey);
+  return playingKind.value === event.kind
+    ? t("notifications.aria.stopSound", { event: name })
+    : t("notifications.aria.playSound", { event: name });
 }
 
 const permissionHint = computed(() => {
   switch (permission.value) {
     case "granted":
-      return "Allowed for this browser.";
+      return t("notifications.permission.granted");
     case "denied":
-      return "Blocked in your browser settings; re-allow notifications for this site.";
+      return t("notifications.permission.denied");
     case "unsupported":
-      return "This browser does not support desktop notifications.";
+      return t("notifications.permission.unsupported");
     default:
-      return "Allow your browser to show task alerts on screen.";
+      return t("notifications.permission.default");
   }
 });
 
@@ -298,3 +305,92 @@ async function toggleInbox(kind: string, enabled: boolean) {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  notifications:
+    title: "Browser notifications"
+    description: "Choose which events are stored in the inbox, pop an in-app toast, play a sound, and show a desktop notification. The inbox is stored by the agency, the sound set is organization-wide, and the volume, per-event switches, and desktop alerts are per-browser."
+    desktop:
+      title: "Desktop notifications"
+    organization: "Organization"
+    organizationHint: "An administrator picks the set for the whole agency."
+    changeInSettings: "Change in organization settings"
+    volume: "Volume"
+    column:
+      event: "Event"
+      toast: "Toast"
+      sound: "Play Sound"
+      desktop: "Desktop Notification"
+    aria:
+      inbox: "Store in inbox: {event}"
+      toast: "Show a toast for: {event}"
+      sound: "Play a sound for: {event}"
+      playSound: "Play the {event} sound"
+      stopSound: "Stop the {event} sound"
+      desktop: "Desktop notification for: {event}"
+    stopPreview: "Stop the sound"
+    previewHint: "Preview the sound for this event"
+    permission:
+      granted: "Allowed for this browser."
+      denied: "Blocked in your browser settings; re-allow notifications for this site."
+      unsupported: "This browser does not support desktop notifications."
+      default: "Allow your browser to show task alerts on screen."
+    errors:
+      inbox: "Could not save the inbox preference"
+  attention:
+    event:
+      taskStarted: "Task started"
+      needsInput: "Task needs input"
+      settled: "Task settled"
+      failed: "Task failed"
+      completed: "Task completed"
+      cancelled: "Task cancelled"
+      teamInvitation: "Team invitation"
+      comment: "New task comment"
+      promptProposal: "Prompt proposal"
+      mention: "You were mentioned"
+ru:
+  notifications:
+    title: "Уведомления в браузере"
+    description: "Выберите, какие события попадают в уведомления, показываются всплывающим сообщением, сопровождаются звуком и уведомлением рабочего стола. Список уведомлений хранится в агентстве, набор звуков общий для организации, а громкость, переключатели событий и уведомления рабочего стола задаются для каждого браузера."
+    desktop:
+      title: "Уведомления рабочего стола"
+    organization: "Организация"
+    organizationHint: "Администратор выбирает набор для всего агентства."
+    changeInSettings: "Изменить в настройках организации"
+    volume: "Громкость"
+    column:
+      event: "Событие"
+      toast: "Всплывающее"
+      sound: "Звук"
+      desktop: "Рабочий стол"
+    aria:
+      inbox: "Хранить в уведомлениях: {event}"
+      toast: "Показывать всплывающее для: {event}"
+      sound: "Проигрывать звук для: {event}"
+      playSound: "Проиграть звук {event}"
+      stopSound: "Остановить звук {event}"
+      desktop: "Уведомление рабочего стола для: {event}"
+    stopPreview: "Остановить звук"
+    previewHint: "Прослушать звук этого события"
+    permission:
+      granted: "Разрешено для этого браузера."
+      denied: "Заблокировано в настройках браузера; снова разрешите уведомления для этого сайта."
+      unsupported: "Этот браузер не поддерживает уведомления рабочего стола."
+      default: "Разрешите браузеру показывать оповещения о задачах на экране."
+    errors:
+      inbox: "Не удалось сохранить настройку уведомлений"
+  attention:
+    event:
+      taskStarted: "Задача запущена"
+      needsInput: "Задаче нужен ввод"
+      settled: "Задача завершена"
+      failed: "Задача завершилась ошибкой"
+      completed: "Задача выполнена"
+      cancelled: "Задача отменена"
+      teamInvitation: "Приглашение в команду"
+      comment: "Новый комментарий к задаче"
+      promptProposal: "Предложение промпта"
+      mention: "Вас упомянули"
+</i18n>

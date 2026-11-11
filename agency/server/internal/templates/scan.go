@@ -62,6 +62,10 @@ var jinjaGlobals = map[string]bool{
 }
 
 func scanVariables(source string) ([]string, []string, error) {
+	return ScanVariables(source)
+}
+
+func ScanVariables(source string) ([]string, []string, error) {
 	stream := tokens.LexAll(source, config.New())
 	var (
 		vars        []string

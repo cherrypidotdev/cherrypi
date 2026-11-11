@@ -20,8 +20,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 button.text-muted-foreground.rounded-md.p-1(
   type="button"
   class="hover:bg-muted hover:text-foreground"
-  :title="copied ? 'Copied' : label"
-  :aria-label="copied ? 'Copied' : label"
+  :title="copied ? $t('copyButton.copied') : label"
+  :aria-label="copied ? $t('copyButton.copied') : label"
   @click="copy"
 )
   CheckIcon(v-if="copied" class="size-3.5")
@@ -59,3 +59,12 @@ async function copy() {
 
 onBeforeUnmount(() => clearTimeout(timer));
 </script>
+
+<i18n lang="yaml">
+en:
+  copyButton:
+    copied: "Copied"
+ru:
+  copyButton:
+    copied: "Скопировано"
+</i18n>

@@ -37,59 +37,60 @@ export const TAG_COLORS: readonly TagPaletteColor[] = [
 
 export interface TagPreset {
   name: string;
-  description: string;
+  /** Catalog key for the one-line description. */
+  descriptionKey: string;
   color: string;
 }
 
 export const TAG_PRESETS: readonly TagPreset[] = [
   {
     name: "feature",
-    description: "New functionality",
+    descriptionKey: "tagPreset.feature",
     color: "#6366f1",
   },
   {
     name: "bug",
-    description: "Defect or regression",
+    descriptionKey: "tagPreset.bug",
     color: "#ef4444",
   },
   {
     name: "chore",
-    description: "Maintenance and housekeeping",
+    descriptionKey: "tagPreset.chore",
     color: "#64748b",
   },
   {
     name: "docs",
-    description: "Documentation",
+    descriptionKey: "tagPreset.docs",
     color: "#0ea5e9",
   },
   {
     name: "refactor",
-    description: "Restructuring without behaviour change",
+    descriptionKey: "tagPreset.refactor",
     color: "#8b5cf6",
   },
   {
     name: "test",
-    description: "Test coverage",
+    descriptionKey: "tagPreset.test",
     color: "#84cc16",
   },
   {
     name: "perf",
-    description: "Performance work",
+    descriptionKey: "tagPreset.perf",
     color: "#f59e0b",
   },
   {
     name: "design",
-    description: "Design and UX",
+    descriptionKey: "tagPreset.design",
     color: "#ec4899",
   },
   {
     name: "infra",
-    description: "Build, CI and infrastructure",
+    descriptionKey: "tagPreset.infra",
     color: "#f97316",
   },
   {
     name: "question",
-    description: "Needs an answer or decision",
+    descriptionKey: "tagPreset.question",
     color: "#14b8a6",
   },
 ];

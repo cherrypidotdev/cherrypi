@@ -24,3 +24,10 @@ declare module "*.vue" {
   const component: DefineComponent<{}, {}, any>;
   export default component;
 }
+
+// Compiled by `scripts/i18n/vite-plugin.mjs` from every `<i18n>` block in the
+
+declare module "virtual:cherrypi-i18n-messages" {
+  const messages: Record<string, Record<string, unknown>>;
+  export default messages;
+}

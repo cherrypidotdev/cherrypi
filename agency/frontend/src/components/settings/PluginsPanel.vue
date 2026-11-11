@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           size="sm"
           @click="closeDetail"
         )
-          | ← Plugins
+          | {{ $t("plugins.back") }}
         h2.flex.items-center.gap-2.text-base.font-semibold
           PlugIcon.size-5
           | {{ plugin?.name || selectedId }}
@@ -41,18 +41,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         Button(variant="outline" @click="toggle(plugin)" :disabled="busy")
           | {{ plugin.enabled ? "Disable" : "Enable" }}
         Button(variant="destructive" @click="remove(plugin)" :disabled="busy")
-          | Uninstall
+          | {{ $t("plugins.uninstall") }}
 
     p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
-    p.text-muted-foreground.text-sm(v-if="loadingDetail") Loading…
+    p.text-muted-foreground.text-sm(v-if="loadingDetail") {{ $t("common.loading") }}
 
     template(v-if="plugin")
       Card
         CardHeader
-          CardTitle Manifest
+          CardTitle {{ $t("plugins.manifest") }}
           CardDescription
-            | Version {{ plugin.version }} · runtime {{ plugin.runtime }} ·
-            | entry {{ plugin.entry }}
+            | {{ $t("plugins.versionRuntimeEntry", { version: plugin.version, runtime: plugin.runtime, entry: plugin.entry }) }}
         CardContent.flex.flex-col.gap-4
           .flex.flex-wrap.gap-1
             Badge(
@@ -62,28 +61,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               | {{ handlerLabel(handler) }}
           p.text-muted-foreground.text-xs(v-if="manifest.network.length")
-            | Outbound hosts: {{ manifest.network.join(", ") }}
+            | {{ $t("plugins.outboundHosts", { hosts: manifest.network.join(", ") }) }}
           .flex.flex-wrap.items-center.gap-2(v-if="anyHostNetwork")
-            Badge(variant="destructive") Any HTTPS host
+            Badge(variant="destructive") {{ $t("plugins.anyHost") }}
             span.text-muted-foreground.text-xs
-              | This bundle may call any public HTTPS host. Review the manifest
-              | before enabling it.
+              | {{ $t("plugins.anyHostHint") }}
           p.text-muted-foreground.text-xs(v-if="plugin.actorUsername")
-            | Plugin actor: @{{ plugin.actorUsername }} (id {{ plugin.actorId }})
+            | {{ $t("plugins.actorLine", { username: plugin.actorUsername, id: plugin.actorId }) }}
 
       Card(v-if="manifest.routes.length")
         CardHeader
-          CardTitle Routes
+          CardTitle {{ $t("plugins.routes") }}
           CardDescription
-            | Served under /plugins/{{ plugin.id }}/. A provider webhook may call
-            | any path anonymously; the plugin validates its own secret.
+            | {{ $t("plugins.servedUnder", { id: plugin.id }) }}
+            | {{ $t("plugins.routesHint") }}
         CardContent
           Table
             TableHeader
               TableRow
-                TableHead Route
-                TableHead Methods
-                TableHead Description
+                TableHead {{ $t("plugins.column.route") }}
+                TableHead {{ $t("plugins.column.methods") }}
+                TableHead {{ $t("common.description") }}
             TableBody
               TableRow(v-for="route in manifest.routes" :key="route.path")
                 TableCell.font-mono.text-xs /plugins/{{ plugin.id }}{{ route.path }}
@@ -92,9 +90,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       Card(v-if="manifest.tools.length")
         CardHeader
-          CardTitle Tools
+          CardTitle {{ $t("plugins.tools") }}
           CardDescription
-            | Named tools this plugin can attach to the tasks it creates.
+            | {{ $t("plugins.toolsHint") }}
         CardContent.flex.flex-col.gap-2
           .flex.flex-col.gap-1(v-for="tool in manifest.tools" :key="tool.name")
             span.font-mono.text-xs {{ tool.name }}
@@ -102,9 +100,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       Card(v-if="manifest.events.length")
         CardHeader
-          CardTitle Events
+          CardTitle {{ $t("webhooks.events") }}
           CardDescription
-            | handle_event receives the events the plugin subscribes to.
+            | {{ $t("plugins.eventsHint") }}
         CardContent.flex.flex-wrap.gap-1
           Badge(
             v-for="event in manifest.events"
@@ -115,12 +113,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       Card(v-if="hasOrgSurface")
         CardHeader
-          CardTitle Organization settings
+          CardTitle {{ $t("nav.orgSettings") }}
           CardDescription
-            | Agency-wide values. Secret fields are masked; reveal or copy them
-            | when needed.
+            | {{ $t("plugins.settingsHint") }}
         CardContent
           PluginSettingsForm(
+            scope="org"
+            :target-id="''"
             :schema="orgSettings?.schemaJson"
             :settings="orgValues"
             :secret-keys="orgSettings?.secretKeys || []"
@@ -128,38 +127,39 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :error="settingsError"
             :saved="settingsSaved"
             :errors="orgFieldErrors"
+            :plugin-id="plugin.id"
             @save="saveOrgSettings"
           )
 
       Card(v-if="otherSurfaces.length")
         CardHeader
-          CardTitle Other settings surfaces
+          CardTitle {{ $t("plugins.otherSurfaces") }}
           CardDescription
-            | Agents, users, and projects enable this plugin in their own settings.
+            | {{ $t("plugins.otherSurfacesHint") }}
         CardContent.flex.flex-wrap.gap-1
           Badge(v-for="scope in otherSurfaces" :key="scope" variant="outline")
-            | {{ PLUGIN_SCOPE_LABELS[scope] }}
+            | {{ $t(PLUGIN_SCOPE_KEYS[scope]) }}
 
       Card
         CardHeader.flex.flex-row.items-center.justify-between
           .flex.flex-col.gap-1
-            CardTitle Activity Log
-            CardDescription Lifecycle, route, event, and failure entries.
+            CardTitle {{ $t("plugins.activityLog") }}
+            CardDescription {{ $t("plugins.activityLogHint") }}
           Button(
             variant="outline"
             size="sm"
             @click="reloadLogs"
             :disabled="loadingLogs"
           )
-            | Refresh
+            | {{ $t("common.refresh") }}
         CardContent
           .max-h-80.overflow-auto.rounded-md.border(v-if="logs.length")
             Table
               TableHeader
                 TableRow
-                  TableHead Time
-                  TableHead Level
-                  TableHead Message
+                  TableHead {{ $t("plugins.column.time") }}
+                  TableHead {{ $t("plugins.column.level") }}
+                  TableHead {{ $t("plugins.column.message") }}
               TableBody
                 TableRow(v-for="line in logs" :key="String(line.id)")
                   TableCell.text-xs.whitespace-nowrap {{ formatTime(line.at) }}
@@ -178,35 +178,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           p.text-muted-foreground.text-sm(
             v-else-if="!loadingLogs && !logs.length"
           )
-            | No activity lines yet.
+            | {{ $t("plugins.noActivity") }}
 
       Card
         CardHeader
-          CardTitle Runtime Logs
+          CardTitle {{ $t("plugins.runtimeLogs") }}
           CardDescription
-            | Surface-scoped lines the plugin emits through cherrypi.log.*,
-            | including trace, debug, info, warn, and error levels.
+            | {{ $t("plugins.runtimeLogsHint") }}
         CardContent
           PluginRuntimeLogs(:plugin-id="plugin.id")
 
   template(v-else)
     .flex.items-start.justify-between.gap-4
       .flex.flex-col.gap-1
-        h2.text-base.font-semibold Plugins
+        h2.text-base.font-semibold {{ $t("account.tabs.plugins") }}
         p.text-muted-foreground.text-sm
-          | Sandboxed Lua extensions installed at the agency level. Each call runs
-          | in a fresh Lua state.
+          | {{ $t("plugins.description") }}
       Button(@click="openInstall")
         PlusIcon(data-icon="inline-start")
-        span Install plugin
+        span {{ $t("plugins.install") }}
 
     Dialog(v-model:open="installOpen")
       DialogContent.overflow-y-auto(class="max-h-[85vh] sm:max-w-2xl")
         DialogHeader
-          DialogTitle Review plugin bundle
+          DialogTitle {{ $t("plugins.reviewBundle") }}
           DialogDescription
-            | Inspect the manifest and the permissions it requests before it is
-            | installed for the whole organization.
+            | {{ $t("plugins.reviewBundleHint") }}
         .flex.flex-col.gap-4
           template(v-if="!preview")
             input.text-sm(
@@ -215,7 +212,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               @change="onFile"
             )
             p.text-muted-foreground.text-xs(v-if="selectedFile")
-              | {{ selectedFile.name }} · {{ Math.ceil(selectedFile.size / 1024) }} KiB
+              | {{ $t("plugins.fileSize", { name: selectedFile.name, size: Math.ceil(selectedFile.size / 1024) }) }}
           template(v-else)
             .flex.flex-col.gap-1
               h3.text-base.font-semibold
@@ -224,8 +221,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               p.text-muted-foreground.text-sm
                 | {{ preview.description || "No description" }}
               p.text-muted-foreground.text-xs
-                | id {{ preview.id }} · runtime {{ preview.runtime }} · entry
-                | {{ preview.entry }} · sha256 {{ shortChecksum(preview.checksum) }}
+                | {{ $t("plugins.previewMeta", { id: preview.id, runtime: preview.runtime, entry: preview.entry, checksum: shortChecksum(preview.checksum) }) }}
             .flex.flex-wrap.gap-1
               Badge(
                 v-for="handler in preview.handlers"
@@ -233,18 +229,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 variant="outline"
               ) {{ handlerLabel(handler) }}
             .flex.flex-col.gap-2(v-if="preview.warnings.length")
-              h4.text-sm.font-medium Review notes
+              h4.text-sm.font-medium {{ $t("plugins.reviewNotes") }}
               p.text-muted-foreground.text-xs(
                 v-for="warning in preview.warnings"
                 :key="warning"
               ) {{ warning }}
             .flex.flex-col.gap-2
-              h4.text-sm.font-medium Permissions
+              h4.text-sm.font-medium {{ $t("plugins.permissions") }}
               p.text-muted-foreground.text-xs(
                 v-if="!previewPermissions.length"
               )
-                | This bundle requests no outbound network, routes, events, tools,
-                | or settings surfaces.
+                | {{ $t("plugins.noPermissions") }}
               .flex.flex-col.gap-2
                 .rounded-md.border.p-3(
                   v-for="permission in previewPermissions"
@@ -256,13 +251,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     ) {{ permission.label }}
                   p.text-muted-foreground.text-xs {{ permission.detail }}
             details.rounded-md.border.p-3
-              summary.cursor-pointer.text-sm.font-medium Manifest
+              summary.cursor-pointer.text-sm.font-medium {{ $t("plugins.manifest") }}
               pre.mt-2.max-h-64.overflow-auto.text-xs {{ prettyManifest }}
           p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
         DialogFooter
           DialogClose
             Button(type="button" variant="outline" @click="closeInstall")
-              | Cancel
+              | {{ $t("common.cancel") }}
           Button(
             v-if="!preview"
             type="button"
@@ -271,7 +266,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             Spinner(v-if="inspecting" data-icon="inline-start")
             SearchIcon(v-else data-icon="inline-start")
-            span Review
+            span {{ $t("plugins.review") }}
           Button(
             v-else
             type="button"
@@ -280,7 +275,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             Spinner(v-if="installing" data-icon="inline-start")
             UploadIcon(v-else data-icon="inline-start")
-            span Install plugin
+            span {{ $t("plugins.install") }}
 
     .grid.gap-4(v-if="plugins.length" class="md:grid-cols-2")
       Card.flex.flex-col(v-for="item in plugins" :key="item.id")
@@ -298,20 +293,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         CardContent.flex.flex-1.flex-col.gap-3
           .text-muted-foreground.flex.flex-wrap.gap-2.text-xs
             span v{{ item.plugin.version }}
-            span {{ item.handlers.length }} handlers
-            span {{ item.tools.length }} tools
-            span {{ item.surfaces.length }} surfaces
-            Badge(v-if="item.anyHost" variant="destructive") Any HTTPS host
+            span {{ $t("plugins.handlers", { count: item.handlers.length }) }}
+            span {{ $t("plugins.toolsCount", { count: item.tools.length }) }}
+            span {{ $t("plugins.surfacesCount", { count: item.surfaces.length }) }}
+            Badge(v-if="item.anyHost" variant="destructive") {{ $t("plugins.anyHost") }}
           .flex.flex-wrap.gap-1
             Badge(
               v-for="surface in item.surfaces"
               :key="surface"
               variant="outline"
             )
-              | {{ PLUGIN_SCOPE_LABELS[surface] }}
+              | {{ $t(PLUGIN_SCOPE_KEYS[surface]) }}
         CardFooter.flex.justify-between.gap-2
           Button(variant="outline" size="sm" @click="openDetail(item.id)")
-            | Open
+            | {{ $t("common.open") }}
           Button(
             variant="ghost"
             size="sm"
@@ -321,10 +316,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     Card(v-else-if="!loadingPlugins")
       CardHeader
-        CardTitle No plugins installed
+        CardTitle {{ $t("plugins.empty") }}
         CardDescription
-          | Upload a bundle to install the first plugin. Each call runs in a fresh
-          | Lua state.
+          | {{ $t("plugins.emptyHint") }}
 </template>
 
 <script setup lang="ts">
@@ -362,7 +356,7 @@ import {
 } from "@/components/ui/table";
 import { usePluginLogPager } from "@/composables/usePluginLogPager";
 import {
-  PLUGIN_SCOPE_LABELS,
+  PLUGIN_SCOPE_KEYS,
   allowsAnyHost,
   handlerLabel,
   hasSurface,
@@ -701,3 +695,96 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  plugins:
+    column:
+      time: "Time"
+      level: "Level"
+      message: "Message"
+      route: "Route"
+      methods: "Methods"
+    back: "← Plugins"
+    uninstall: "Uninstall"
+    manifest: "Manifest"
+    anyHost: "Any HTTPS host"
+    anyHostHint: "This bundle may call any public HTTPS host. Review the manifest before enabling it."
+    routes: "Routes"
+    routesHint: "any path anonymously; the plugin validates its own secret."
+    tools: "Tools"
+    toolsHint: "Named tools this plugin can attach to the tasks it creates."
+    eventsHint: "handle_event receives the events the plugin subscribes to."
+    settingsHint: "Agency-wide values. Secret fields are masked; reveal or copy them when needed."
+    otherSurfaces: "Other settings surfaces"
+    otherSurfacesHint: "Agents, users, and projects enable this plugin in their own settings."
+    activityLog: "Activity Log"
+    activityLogHint: "Lifecycle, route, event, and failure entries."
+    noActivity: "No activity lines yet."
+    runtimeLogs: "Runtime Logs"
+    runtimeLogsHint: "Surface-scoped lines the plugin emits through cherrypi.log.*, including trace, debug, info, warn, and error levels."
+    description: "Sandboxed Lua extensions installed at the agency level. Each call runs in a fresh Lua state."
+    install: "Install plugin"
+    reviewBundle: "Review plugin bundle"
+    reviewBundleHint: "Inspect the manifest and the permissions it requests before it is installed for the whole organization."
+    reviewNotes: "Review notes"
+    permissions: "Permissions"
+    noPermissions: "This bundle requests no outbound network, routes, events, tools, or settings surfaces."
+    review: "Review"
+    empty: "No plugins installed"
+    emptyHint: "Upload a bundle to install the first plugin. Each call runs in a fresh Lua state."
+    versionRuntimeEntry: "Version {version} · runtime {runtime} · entry {entry}"
+    outboundHosts: "Outbound hosts: {hosts}"
+    actorLine: "Plugin actor: {'@'}{username} (id {id})"
+    servedUnder: "Served under /plugins/{id}/. A provider webhook may call this route."
+    fileSize: "{name} · {size} KiB"
+    previewMeta: "id {id} · runtime {runtime} · entry {entry} · sha256 {checksum}"
+    handlers: "{count} handlers"
+    toolsCount: "{count} tools"
+    surfacesCount: "{count} surfaces"
+ru:
+  plugins:
+    column:
+      time: "Время"
+      level: "Уровень"
+      message: "Сообщение"
+      route: "Маршрут"
+      methods: "Методы"
+    back: "← Плагины"
+    uninstall: "Удалить"
+    manifest: "Манифест"
+    anyHost: "Любой хост HTTPS"
+    anyHostHint: "Этот пакет может обращаться к любому публичному хосту HTTPS. Проверьте манифест перед включением."
+    routes: "Маршруты"
+    routesHint: "любой путь анонимно; плагин сам проверяет свой секрет."
+    tools: "Инструменты"
+    toolsHint: "Именованные инструменты, которые плагин может прикреплять к создаваемым задачам."
+    eventsHint: "handle_event получает события, на которые подписан плагин."
+    settingsHint: "Значения для всего агентства. Секретные поля скрыты; при необходимости откройте их или скопируйте."
+    otherSurfaces: "Другие поверхности настроек"
+    otherSurfacesHint: "Агенты, пользователи и проекты включают этот плагин в своих настройках."
+    activityLog: "Журнал активности"
+    activityLogHint: "Записи о жизненном цикле, маршрутах, событиях и сбоях."
+    noActivity: "Записей активности пока нет."
+    runtimeLogs: "Журнал выполнения"
+    runtimeLogsHint: "Строки с привязкой к поверхности, которые плагин пишет через cherrypi.log.*, включая уровни trace, debug, info, warn и error."
+    description: "Изолированные Lua-расширения, установленные на уровне агентства. Каждый вызов выполняется в новом состоянии Lua."
+    install: "Установить плагин"
+    reviewBundle: "Проверить пакет плагина"
+    reviewBundleHint: "Проверьте манифест и запрашиваемые разрешения, прежде чем устанавливать плагин для всей организации."
+    reviewNotes: "Заметки о проверке"
+    permissions: "Разрешения"
+    noPermissions: "Этот пакет не запрашивает сетевого доступа, маршрутов, событий, инструментов или поверхностей настроек."
+    review: "Проверить"
+    empty: "Плагины не установлены"
+    emptyHint: "Загрузите пакет, чтобы установить первый плагин. Каждый вызов выполняется в новом состоянии Lua."
+    versionRuntimeEntry: "Версия {version} · среда {runtime} · точка входа {entry}"
+    outboundHosts: "Исходящие хосты: {hosts}"
+    actorLine: "Субъект плагина: {'@'}{username} (id {id})"
+    servedUnder: "Доступен по пути /plugins/{id}/. Вебхук провайдера может вызывать этот маршрут."
+    fileSize: "{name} · {size} КиБ"
+    previewMeta: "id {id} · среда {runtime} · точка входа {entry} · sha256 {checksum}"
+    handlers: "обработчиков: {count}"
+    toolsCount: "инструментов: {count}"
+    surfacesCount: "поверхностей: {count}"
+</i18n>

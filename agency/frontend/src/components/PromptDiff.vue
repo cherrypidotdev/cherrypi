@@ -26,7 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     span.text-muted-foreground {{ summary }}
   pre.max-h-80.overflow-auto.font-mono.text-xs.leading-5
     template(v-if="!rows.length")
-      span.text-muted-foreground.block.px-3.py-2 No changes.
+      span.text-muted-foreground.block.px-3.py-2 {{ $t("promptDiff.noChanges") }}
     template(v-for="(row, index) in rows" :key="index")
       .flex
         span.text-muted-foreground.w-10.shrink-0.border-r.px-2.text-right.select-none(
@@ -46,6 +46,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import { diffLines } from "diff";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 type RowType = "same" | "add" | "remove";
 
@@ -98,7 +101,16 @@ const summary = computed(() => {
     if (row.type === "add") added++;
     if (row.type === "remove") removed++;
   }
-  if (!added && !removed) return "No changes";
+  if (!added && !removed) return t("promptDiff.noChanges");
   return `+${added} −${removed}`;
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  promptDiff:
+    noChanges: "No changes."
+ru:
+  promptDiff:
+    noChanges: "Изменений нет."
+</i18n>

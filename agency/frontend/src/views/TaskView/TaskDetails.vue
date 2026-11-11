@@ -31,16 +31,16 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       span {{ option.label }}
       span.ml-1.inline-flex.items-center.justify-center.rounded-full.bg-amber-500.px-1.text-xs.font-semibold.text-white(
         v-if="option.value === 'comments' && task.unreadComments > 0"
-        :title="`${task.unreadComments} unread comment${task.unreadComments === 1 ? '' : 's'}`"
+        :title="$t('tasksTable.unreadComments', { count: task.unreadComments })"
         data-testid="comments-unread"
       ) {{ task.unreadComments > 99 ? "99+" : task.unreadComments }}
   .flex.flex-1.flex-col.gap-4.overflow-y-auto.p-4
-    .flex.flex-col.gap-1(v-if="task.badges.length")
-      span.text-muted-foreground.text-xs Badges
+    .flex.flex-col.gap-1(v-if="detailsTab === 'general' && task.badges.length")
+      span.text-muted-foreground.text-xs {{ $t("taskColumn.badges") }}
       TaskBadges(:badges="task.badges" data-testid="task-details-badges")
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Assignee
+        span.text-muted-foreground.text-xs {{ $t("taskColumn.assignee") }}
 
         Select(
           v-if="canEditAssignee"
@@ -48,11 +48,14 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           @update:model-value="$emit('assignee-change', $event)"
           :disabled="saving.assignee"
         )
-          SelectTrigger.w-full(size="sm" title="Change assignee")
-            SelectValue(placeholder="Unassigned")
+          SelectTrigger.w-full(
+            size="sm"
+            :title="$t('taskDetails.changeAssignee')"
+          )
+            SelectValue(:placeholder="$t('tasks.toasts.unassigned')")
           SelectContent
             SelectGroup
-              SelectItem(:value="AUTO") Auto-assign
+              SelectItem(:value="AUTO") {{ $t("editTask.autoAssign") }}
               SelectItem(
                 v-for="item in assigneeOptions"
                 :key="item.id"
@@ -76,30 +79,33 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               span.text-sm {{ agentName(task.assigneeActorId) }}
             PinIcon.text-muted-foreground.size-3.shrink-0(
               v-if="task.assigneePinned"
-              title="Pinned to this agent"
-              aria-label="Pinned to this agent"
+              :title="$t('tasksTable.pinned')"
+              :aria-label="$t('tasksTable.pinned')"
             )
-          span.text-muted-foreground.text-sm(v-else) Unassigned
+          span.text-muted-foreground.text-sm(v-else) {{ $t("tasks.toasts.unassigned") }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Status
+        span.text-muted-foreground.text-xs {{ $t("common.status") }}
         .flex.items-center.gap-2
           span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
             class="gap-1.5 py-0.5"
             :class="taskStateClassFor(task)"
           )
             component.size-3.shrink-0(:is="taskStateIcon(task.state)")
-            | {{ taskStateLabelFor(task) }}
-          span.text-muted-foreground.text-xs(v-if="isActive") holds the agent's slot
+            | {{ $t(taskStateKeyFor(task)) }}
+          span.text-muted-foreground.text-xs(v-if="isActive") {{ $t("taskDetails.holdsSlot") }}
 
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Priority
+        span.text-muted-foreground.text-xs {{ $t("taskColumn.priority") }}
         Select(
           :model-value="priorityChoice"
           @update:model-value="$emit('priority-change', $event)"
           :disabled="saving.priority"
         )
-          SelectTrigger.w-full(size="sm" title="Change priority")
+          SelectTrigger.w-full(
+            size="sm"
+            :title="$t('taskDetails.changePriority')"
+          )
             SelectValue
           SelectContent
             SelectGroup
@@ -107,15 +113,15 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 v-for="option in PRIORITIES"
                 :key="option.value"
                 :value="option.value"
-              ) {{ option.label }}
+              ) {{ $t(option.labelKey) }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Size
+        span.text-muted-foreground.text-xs {{ $t("taskColumn.size") }}
         Select(
           :model-value="sizeChoice"
           @update:model-value="$emit('size-change', $event)"
           :disabled="saving.size"
         )
-          SelectTrigger.w-full(size="sm" title="Change size")
+          SelectTrigger.w-full(size="sm" :title="$t('taskDetails.changeSize')")
             SelectValue
           SelectContent
             SelectGroup
@@ -123,17 +129,17 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 v-for="option in SIZES"
                 :key="option.value"
                 :value="option.value"
-              ) {{ option.label }}
+              ) {{ $t(option.labelKey) }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Project
+        span.text-muted-foreground.text-xs {{ $t("taskColumn.project") }}
 
         Combobox(
           v-if="isEditableBacklog"
-          placeholder="Select project"
+          :placeholder="$t('editTask.selectProject')"
           size="sm"
           empty-text="No matching project."
-          title="Change project"
-          aria-label="Project"
+          :title="$t('taskDetails.changeProject')"
+          :aria-label="$t('taskColumn.project')"
           :model-value="projectChoice"
           :options="projectComboboxOptions"
           @update:model-value="$emit('project-change', $event)"
@@ -145,27 +151,27 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
             class="hover:underline"
             :to="{ name: 'project', params: { slug: projectSlug(task.projectId) } }"
           ) {{ projectName(task.projectId) }}
-          span.text-muted-foreground.text-sm(v-else) No project
+          span.text-muted-foreground.text-sm(v-else) {{ $t("taskDetails.noProject") }}
       .flex.flex-col(v-if="!task.interactive" class="gap-0.5")
-        span.text-muted-foreground.text-xs Mode
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.mode") }}
         span.inline-flex.w-fit.items-center.gap-1.rounded-full.border.px-2.text-xs(
           class="py-0.5"
-          title="The agent cannot show questionnaires or extension dialogs"
+          :title="$t('taskDetails.nonInteractiveHint')"
           data-testid="task-non-interactive-detail"
         )
           MessageSquareOffIcon.size-3
-          | Non-interactive
+          | {{ $t("tasksTable.nonInteractive") }}
 
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Task id
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.taskId") }}
         span.font-mono.text-xs.break-all(:title="task.id") {{ task.id }}
       .flex.flex-col(v-if="task.parentTaskId" class="gap-0.5")
-        span.text-muted-foreground.text-xs Parent task
+        span.text-muted-foreground.text-xs {{ $t("taskLog.kind.parent") }}
         RouterLink.font-mono.text-xs(
           class="hover:underline"
-          title="Sub-task of this task"
           :to="{ name: 'task', params: { id: task.parentTaskId } }"
+          :title="$t('taskDetails.subTaskOf')"
           data-testid="task-parent-breadcrumb"
         ) {{ task.parentTaskId }}
       .flex.flex-col(
@@ -173,7 +179,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         class="gap-0.5"
         data-testid="task-origin"
       )
-        span.text-muted-foreground.text-xs Origin
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.origin") }}
         .flex.flex-wrap.items-center.gap-1
           template(v-if="task.originChain.length")
             template(
@@ -194,13 +200,13 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
             :to="{ name: 'task', params: { id: task.originTaskId } }"
           ) {{ task.originTaskId }}
         span.text-muted-foreground.text-xs(
-          title="Set once when the task was created and never changed"
-        ) The task this one was created from.
+          :title="$t('taskDetails.originHint')"
+        ) {{ $t("taskDetails.originDescription") }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Created
+        span.text-muted-foreground.text-xs {{ $t("domainLog.kind.created") }}
         span.text-xs {{ formatTimestamp(task.createdAt) }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Creator
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.creator") }}
         .flex.items-center.gap-2(
           v-if="task.creatorName || task.creatorActorId"
         )
@@ -214,35 +220,35 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           span.font-mono.text-xs(v-else) {{ task.creatorActorId }}
         span.text-muted-foreground.text-sm(v-else) —
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Owning teams
+        span.text-muted-foreground.text-xs {{ $t("domainLog.kind.teams") }}
         .flex.flex-wrap.items-center.gap-1
           span.rounded-full.border.px-2.text-xs(
             v-for="team in task.teams"
             :key="team.id"
             class="py-0.5"
-          ) {{ team.name || `Team ${team.id}` }}
+          ) {{ team.name || $t("taskDetails.teamFallback", { id: team.id }) }}
           DropdownMenu
             DropdownMenuTrigger(as-child)
               Button(
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                title="Edit owning teams"
+                :title="$t('taskDetails.editTeams')"
                 :disabled="saving.teams"
               )
                 PlusIcon.size-3
             DropdownMenuContent.w-56(align="start")
-              DropdownMenuLabel Owning teams
+              DropdownMenuLabel {{ $t("domainLog.kind.teams") }}
               DropdownMenuFilter(
                 v-model="teamSearch"
-                placeholder="Search teams…"
+                :placeholder="$t('express.searchTeams')"
                 auto-focus
               )
               DropdownMenuSeparator
               p.text-muted-foreground.px-2.py-1.text-xs(
                 v-if="!filteredProjectTeams.length"
               )
-                | No teams in this project
+                | {{ $t("express.noTeams") }}
               DropdownMenuCheckboxItem(
                 v-for="team in filteredProjectTeams"
                 :key="team.team_id"
@@ -251,7 +257,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 @select.prevent
               ) {{ team.team_name }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Leads
+        span.text-muted-foreground.text-xs {{ $t("domainLog.kind.leads") }}
         .flex.flex-wrap.items-center.gap-1
           span.inline-flex.items-center.gap-1.rounded-full.border.pr-2.pl-1.text-xs(
             v-for="lead in task.leads"
@@ -269,35 +275,35 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               v-if="canRemoveLead"
               type="button"
               class="p-0.5 hover:opacity-100"
-              title="Remove lead"
+              :title="$t('express.removeLead')"
               @click="$emit('toggle-lead', lead.actorId)"
               :disabled="saving.leads"
             )
               XIcon.size-3
           span.text-muted-foreground.text-xs(v-if="!task.leads.length")
-            | No lead yet — a task needs someone responsible before it runs
+            | {{ $t("taskDetails.noLead") }}
           DropdownMenu
             DropdownMenuTrigger(as-child)
               Button(
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                title="Edit leads"
+                :title="$t('taskDetails.editLeads')"
                 :disabled="saving.leads"
               )
                 PlusIcon.size-3
             DropdownMenuContent.w-56(align="start")
-              DropdownMenuLabel Leads
+              DropdownMenuLabel {{ $t("domainLog.kind.leads") }}
               DropdownMenuFilter(
                 v-model="leadSearch"
-                placeholder="Search members…"
+                :placeholder="$t('express.searchMembers')"
                 auto-focus
               )
               DropdownMenuSeparator
               p.text-muted-foreground.px-2.py-1.text-xs(
                 v-if="!filteredLeadCandidates.length"
               )
-                | No members to pick
+                | {{ $t("express.noMembers") }}
               DropdownMenuCheckboxItem(
                 v-for="candidate in filteredLeadCandidates"
                 :key="candidate.actor_id"
@@ -313,7 +319,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 )
                 span {{ candidate.name || candidate.username }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs Notifications
+        span.text-muted-foreground.text-xs {{ $t("account.tabs.notifications") }}
         Button(
           type="button"
           variant="outline"
@@ -330,21 +336,21 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
     )
       DisclosureButton.flex.w-full.items-center.rounded-md.border.px-2.text-left(
         class="hover:bg-muted/60 gap-1.5 py-1.5"
-        :title="`Created from template version ${Number(task.template.version)}`"
+        :title="$t('taskDetails.createdFromTemplate', { version: Number(task.template.version) })"
       )
         FileCodeIcon.size-3.shrink-0
         span.min-w-0.truncate.text-xs
           strong.font-semibold
-            | {{ task.template.templateName || "Deleted template" }}
+            | {{ task.template.templateName || $t("taskDetails.deletedTemplate") }}
           span.text-muted-foreground.ml-1
             | v{{ Number(task.template.version) }} ·
-            | {{ templateArgs.length }} argument{{ templateArgs.length === 1 ? "" : "s" }}
+            | {{ $t("taskDetails.argumentsCount", { count: templateArgs.length }) }}
         ChevronRightIcon.ml-auto.size-3.shrink-0.transition-transform(
           :class="open ? 'rotate-90' : ''"
         )
       DisclosurePanel.mt-1.flex.flex-col.gap-1.rounded-md.border.px-2(class="py-1.5")
         p.text-muted-foreground.text-xs(v-if="!templateArgs.length")
-          | No arguments.
+          | {{ $t("taskDetails.noArguments") }}
         .grid.grid-cols-1.gap-1(v-else)
           .grid.items-baseline.gap-2(
             v-for="[key, value] in templateArgs"
@@ -355,7 +361,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
             span.text-xs.break-words.whitespace-pre-wrap {{ formatArgValue(value) }}
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-      span.text-muted-foreground.text-xs Tags
+      span.text-muted-foreground.text-xs {{ $t("taskColumn.tags") }}
       .flex.flex-wrap.items-center.gap-1
         span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
           v-for="tag in task.tags"
@@ -367,12 +373,12 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           | {{ tag.name }}
           LockIcon.size-3.shrink-0.text-amber-500(
             v-if="tag.isRequired"
-            title="Only runs on agents that declare this tag"
+            :title="$t('tasksTable.requiredTagHint')"
           )
           button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
             type="button"
             class="p-0.5 hover:opacity-100"
-            title="Remove tag"
+            :title="$t('taskDetails.removeTag')"
             @click="$emit('toggle-tag', tag)"
             :disabled="saving.tags"
           )
@@ -384,12 +390,12 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               type="button"
               variant="ghost"
               size="icon-sm"
-              title="Add tag"
+              :title="$t('tags.add')"
               :disabled="saving.tags"
             )
               PlusIcon.size-3
           DropdownMenuContent.w-48(align="start")
-            DropdownMenuLabel Add tag
+            DropdownMenuLabel {{ $t("tags.add") }}
             DropdownMenuSeparator
             DropdownMenuItem(
               v-for="tag in unattachedTags"
@@ -402,13 +408,13 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               span {{ tag.name }}
               LockIcon.size-3.shrink-0.text-amber-500(
                 v-if="tag.isRequired"
-                title="Only runs on agents that declare this tag"
+                :title="$t('tasksTable.requiredTagHint')"
               )
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-      span.text-muted-foreground.text-xs Attachments
+      span.text-muted-foreground.text-xs {{ $t("taskDetails.attachments") }}
       p.text-muted-foreground.text-xs(v-if="canCompose")
-        | Attach files to a message below.
+        | {{ $t("taskDetails.attachmentsHint") }}
       AttachmentList(
         :attachments="task.attachments"
         @open="$emit('open-attachment', $event)"
@@ -419,9 +425,9 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       data-testid="task-subtasks"
     )
       .flex.items-center.justify-between.gap-2
-        span.text-muted-foreground.text-xs Sub-tasks
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.subTasks") }}
         span.text-muted-foreground.text-xs
-          | {{ task.pendingChildren }} open
+          | {{ $t("taskDetails.openChildren", { count: task.pendingChildren }) }}
       .flex.flex-col.gap-1
         RouterLink.flex.items-center.gap-2.rounded-md.border.px-2.py-1.text-xs(
           v-for="child in task.childTasks"
@@ -436,22 +442,22 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           span.shrink-0.font-mono {{ child.id }}
           span.truncate {{ child.name || child.prompt || "Untitled" }}
           span.text-muted-foreground.ml-auto.shrink-0
-            | {{ taskStateLabel(child.state) }}
+            | {{ $t(taskStateKey(child.state)) }}
 
     .flex.flex-col.gap-1(
       v-if="detailsTab === 'general' && task.holds.length"
       data-testid="task-holds"
     )
       .flex.items-center.justify-between.gap-2
-        span.text-muted-foreground.text-xs Holds
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.holds") }}
         span.text-muted-foreground.text-xs
-          | {{ task.holds.length }} pending
+          | {{ $t("taskDetails.pendingHolds", { count: task.holds.length }) }}
       .flex.flex-col.gap-1
         .flex.flex-col.rounded-md.border.px-2.py-1.text-xs(
           v-for="hold in task.holds"
           :key="`${hold.plugin}:${hold.key}`"
           class="gap-0.5"
-          :title="`Held since ${formatTimestamp(hold.createdAt)}`"
+          :title="$t('taskDetails.heldSince', { at: formatTimestamp(hold.createdAt) })"
         )
           .flex.items-center.gap-2
             PauseIcon.text-muted-foreground.size-3.shrink-0
@@ -462,8 +468,8 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
               type="button"
               variant="ghost"
               size="icon-sm"
-              title="Release this hold"
-              :aria-label="`Release the ${hold.pluginName || hold.plugin} hold ${hold.key}`"
+              :title="$t('taskDetails.releaseHold')"
+              :aria-label="$t('taskDetails.releaseHoldAria', { plugin: hold.pluginName || hold.plugin, key: hold.key })"
               @click="emit('release-hold', hold)"
               data-testid="release-hold"
             )
@@ -479,13 +485,13 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
       .flex.items-center.justify-between
-        span.text-muted-foreground.text-xs Links
+        span.text-muted-foreground.text-xs {{ $t("taskColumn.links") }}
         Button(
           type="button"
           variant="ghost"
           size="icon-sm"
-          title="Edit links"
-          aria-label="Edit links"
+          :title="$t('taskLinks.title')"
+          :aria-label="$t('taskLinks.title')"
           @click="$emit('edit-links')"
           data-test="edit-links"
         )
@@ -507,51 +513,48 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       span.text-muted-foreground.text-sm(v-else) —
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'general'")
-      span.text-muted-foreground.text-xs Usage
+      span.text-muted-foreground.text-xs {{ $t("pageTitle.usage") }}
       span.text-muted-foreground.text-sm(v-if="!isStarted || sessionDeleted") —
       .flex.flex-col.gap-1.text-xs(v-else)
         .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground Token usage
+          span.text-muted-foreground {{ $t("taskDetails.usage.title") }}
           Skeleton.h-3.w-24(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else)
-            | {{ formatTokens(taskUsage.inputTokens) }} in ·
-            | {{ formatTokens(taskUsage.outputTokens) }} out
+            | {{ $t("usage.kpis.inOutCounts", { in: formatTokens(taskUsage.inputTokens), out: formatTokens(taskUsage.outputTokens) }) }}
         .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground Total cost
+          span.text-muted-foreground {{ $t("taskDetails.usage.totalCost") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ formatCost(taskUsage.cost) }}
         .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground(
-            title="Time from the first queue to completion. Keeps counting while the task is open and stops in backlog."
-          ) Time till completion
+          span.text-muted-foreground(:title="$t('taskDetails.usage.ttcHint')") {{ $t("taskDetails.usage.ttc") }}
           Skeleton.h-3.w-16(v-if="!task")
           span.font-medium.tabular-nums(v-else) {{ formatDuration(ttcMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
-            title="The agent's work time: idle gaps and user-input waits excluded, tool calls included."
-          ) Active time
+            :title="$t('taskDetails.usage.activeHint')"
+          ) {{ $t("taskDetails.usage.active") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ formatDuration(activeMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
-            title="The model's own working time: active time minus tool calls, model waits included."
-          ) Thinking time
+            :title="$t('taskDetails.usage.thinkingHint')"
+          ) {{ $t("taskDetails.usage.thinking") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ measured(thinkingTotalMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
-            title="The part of the thinking time spent waiting for a provider response."
-          ) Model wait
+            :title="$t('taskDetails.usage.modelWaitHint')"
+          ) {{ $t("taskDetails.usage.modelWait") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ measured(modelWaitTotalMs) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
-            title="Output tokens over the time the model spent generating them: thinking time minus model waits."
-          ) Generation speed
+            :title="$t('taskDetails.usage.speedHint')"
+          ) {{ $t("taskDetails.usage.speed") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ generationLabel }}
         .flex.items-baseline.justify-between.gap-3
-          span.text-muted-foreground Workspace size
+          span.text-muted-foreground {{ $t("taskDetails.usage.workspace") }}
           Skeleton.h-3.w-16(v-if="taskDiskLoading")
           span.font-medium.tabular-nums(
             v-else-if="taskDiskBytes !== undefined"
@@ -567,7 +570,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       )
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'plan'")
-      span.text-muted-foreground.text-xs Plan
+      span.text-muted-foreground.text-xs {{ $t("taskProgress.title") }}
       TaskProgressPanel(
         :progress="task.progress"
         :state="task.state"
@@ -577,7 +580,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       )
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'artifacts'")
-      span.text-muted-foreground.text-xs Artifacts
+      span.text-muted-foreground.text-xs {{ $t("taskDetails.artifacts") }}
       TaskArtifacts(
         :artifacts="task.artifacts"
         @open="$emit('open-media', $event)"
@@ -592,17 +595,19 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :class="logsTab === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60'"
           @click="logsTab = option.value"
           :data-testid="`logs-tab-${option.value}`"
-        ) {{ option.label }}
+        ) {{ $t(option.labelKey) }}
       TaskLogs(v-if="logsTab === 'activity'" :logs="task.logs")
-      TaskToolCalls(v-else :task-id="task.id")
+      TaskToolCalls(v-else v-model:names="toolFilter" :task-id="task.id")
 
-    .flex.flex-col.gap-1(v-if="detailsTab === 'prompts'")
+    .flex.flex-col.gap-3(v-if="detailsTab === 'system'")
+      TaskTools(:task-id="task.id" @filter="filterToolCalls")
+
       Disclosure(v-slot="{ open }")
         DisclosureButton.group.flex.w-full.items-center.gap-1.text-left
           ChevronRightIcon.size-3.shrink-0.transition-transform(
             :class="open ? 'rotate-90' : ''"
           )
-          span.text-muted-foreground.text-xs System Prompt
+          span.text-muted-foreground.text-xs {{ $t("taskDetails.systemPrompt") }}
         DisclosurePanel.mt-2.flex.flex-col.gap-1
           p.text-muted-foreground.text-xs(v-if="!systemPrompt.length") —
           template(v-for="section in systemPrompt" :key="section.scope")
@@ -621,9 +626,9 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 pre.text-muted-foreground.font-sans.text-xs.break-words.whitespace-pre-wrap(
                   v-if="section.content"
                 ) {{ section.content }}
-                span.text-muted-foreground.text-xs.italic(v-else) No prompt set.
+                span.text-muted-foreground.text-xs.italic(v-else) {{ $t("taskDetails.noPrompt") }}
           p.text-muted-foreground.text-xs.italic(v-if="systemPromptPreview")
-            | Showing the latest versions; the task pins them when it starts.
+            | {{ $t("taskDetails.promptPinnedHint") }}
 
     .bg-border.h-px(v-if="detailsTab === 'general'")
     .flex.flex-col.gap-2(v-if="detailsTab === 'general'")
@@ -632,26 +637,26 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           Button(
             type="button"
             variant="outline"
-            :title="task.projectId ? 'Create a task related to this one' : 'A related task needs this task to belong to a project'"
+            :title="task.projectId ? $t('taskDetails.createRelated') : $t('taskDetails.createRelatedBlocked')"
             :disabled="actionBusy || !task.projectId"
             data-testid="task-new-related"
           )
             PlusIcon(data-icon="inline-start")
-            span New task
+            span {{ $t("nav.newTask") }}
         DropdownMenuContent.w-72(align="start")
-          DropdownMenuLabel Relate it to {{ task.id }}
+          DropdownMenuLabel {{ $t("taskDetails.relateTo", { id: task.id }) }}
           DropdownMenuSeparator
           DropdownMenuItem(
             v-for="option in NEW_TASK_RELATIONS"
             :key="option.value"
-            :title="option.description"
+            :title="$t(option.descriptionKey)"
             @click="$emit('create-related', option.value)"
             :data-testid="`task-new-related-${option.value}`"
           )
             component.size-3.shrink-0(:is="newTaskRelationIcon(option.value)")
             .flex.min-w-0.flex-col
-              span.font-medium {{ option.label }}
-              span.text-muted-foreground.text-xs {{ option.description }}
+              span.font-medium {{ $t(option.labelKey) }}
+              span.text-muted-foreground.text-xs {{ $t(option.descriptionKey) }}
       template(v-if="task.archived")
         Button(
           variant="outline"
@@ -659,7 +664,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           ArchiveRestoreIcon(data-icon="inline-start")
-          span Unarchive
+          span {{ $t("tasksTable.unarchive") }}
         Button(
           v-if="task.sessionId && !task.sessionDeletedAt"
           variant="outline"
@@ -667,14 +672,14 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           EraserIcon(data-icon="inline-start")
-          span Clean up session
+          span {{ $t("tasksTable.cleanUpSession") }}
         Button.text-destructive(
           variant="outline"
           @click="$emit('delete')"
           :disabled="actionBusy"
         )
           Trash2Icon(data-icon="inline-start")
-          span Delete
+          span {{ $t("common.delete") }}
       template(v-else)
         Button(
           v-if="isBacklog && !isPostponed"
@@ -682,7 +687,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           PlayIcon(data-icon="inline-start")
-          span Queue task
+          span {{ $t("taskDetails.queue") }}
         Button(
           v-if="isRunning && task.runtime?.runInProgress"
           variant="outline"
@@ -690,7 +695,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="stopping"
         )
           SquareIcon(data-icon="inline-start")
-          span Stop run
+          span {{ $t("taskDetails.stop") }}
         Button(
           v-if="canRestartSession"
           variant="outline"
@@ -700,7 +705,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           data-test="restart-session"
         )
           RefreshCwIcon(data-icon="inline-start")
-          span Restart Pi session
+          span {{ $t("taskDetails.restartSession") }}
         Button(
           v-if="isQueued"
           variant="outline"
@@ -708,7 +713,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           Undo2Icon(data-icon="inline-start")
-          span Move to Backlog
+          span {{ $t("tasks.action.moveToBacklog") }}
         Button(
           v-if="canMoveToBacklog"
           variant="outline"
@@ -716,32 +721,32 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           InboxIcon(data-icon="inline-start")
-          span Move to Backlog
+          span {{ $t("tasks.action.moveToBacklog") }}
         Button(
           v-if="canRework"
           @click="$emit('reopen', true)"
           :disabled="actionBusy"
         )
           PlayIcon(data-icon="inline-start")
-          span Re-queue
+          span {{ $t("taskConsolePage.requeue") }}
         Button(
           v-if="canCloseOut"
           variant="outline"
-          :title="isRunning || isInput ? 'Stop the run or let it settle before closing out' : 'Close out task'"
+          :title="isRunning || isInput ? $t('closeOut.blockedHint') : $t('closeOut.title')"
           @click="$emit('close-out')"
           :disabled="actionBusy || isRunning || isInput"
         )
           CheckIcon(data-icon="inline-start")
-          span Close out
+          span {{ $t("closeOut.submit") }}
         Button(
           v-if="canChangeOutcome"
           variant="outline"
-          title="Switch between completed and cancelled"
+          :title="$t('taskDetails.changeOutcomeHint')"
           @click="$emit('close-out')"
           :disabled="actionBusy"
         )
           ArrowLeftRightIcon(data-icon="inline-start")
-          span Change outcome
+          span {{ $t("taskDetails.changeOutcome") }}
         Button(
           v-if="canArchive"
           variant="outline"
@@ -749,21 +754,20 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :disabled="actionBusy"
         )
           ArchiveIcon(data-icon="inline-start")
-          span Archive
+          span {{ $t("tags.archive") }}
         Button.text-destructive(
           variant="outline"
           @click="$emit('delete')"
           :disabled="actionBusy"
         )
           Trash2Icon(data-icon="inline-start")
-          span Delete
+          span {{ $t("common.delete") }}
         p.text-muted-foreground.text-xs(v-if="isBacklog && isPostponed")
-          | This task already ran. Send a follow-up to queue it again, or
-          | close it out.
+          | {{ $t("taskDetails.alreadyRan") }}
         p.text-muted-foreground.text-xs(v-else-if="isBacklog")
-          | You can edit the prompt, project, and model in Backlog.
+          | {{ $t("taskDetails.editableInBacklog") }}
         p.text-muted-foreground.text-xs(v-else-if="!isBacklog")
-          | Send a follow-up to run the task again, or close it out.
+          | {{ $t("taskDetails.followUpOrClose") }}
 </template>
 
 <script setup lang="ts">
@@ -776,6 +780,7 @@ import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
 import TaskReferences from "@/components/tasks/TaskReferences.vue";
 import TaskToolCalls from "@/components/tasks/TaskToolCalls.vue";
+import TaskTools from "@/components/tasks/TaskTools.vue";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
@@ -817,8 +822,8 @@ import {
   TASK_SIZES,
   taskStateClassFor,
   taskStateIcon,
-  taskStateLabel,
-  taskStateLabelFor,
+  taskStateKey,
+  taskStateKeyFor,
   type NewTaskRelation,
 } from "@/lib/task";
 import { formatArgValue, parseArgsJSON } from "@/lib/taskTemplates";
@@ -865,7 +870,10 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
+
+const { t } = useI18n();
 
 type SavingState = {
   assignee: boolean;
@@ -938,26 +946,39 @@ const detailsTabs = computed(() => {
   const progress = props.task?.progress;
   const plan =
     progress && progress.total > 0
-      ? `Plan · ${progress.done}/${progress.total}`
-      : "Plan";
+      ? `${t("taskDetails.tabs.plan")} · ${progress.done}/${progress.total}`
+      : t("taskDetails.tabs.plan");
   return [
-    { value: "general", label: "General" },
-    { value: "comments", label: "Comments" },
+    { value: "general", label: t("taskDetails.tabs.general") },
+    { value: "comments", label: t("taskDetails.tabs.comments") },
     { value: "plan", label: plan },
-    { value: "artifacts", label: "Artifacts" },
-    { value: "prompts", label: "Prompts" },
-    { value: "logs", label: "Logs" },
+    { value: "artifacts", label: t("taskDetails.artifacts") },
+    { value: "system", label: t("taskDetails.tabs.system") },
+    { value: "logs", label: t("taskDetails.tabs.logs") },
   ];
 });
 
 const LOGS_TABS = [
-  { value: "activity", label: "Activity" },
-  { value: "tool-calls", label: "Tool calls" },
+  { value: "activity", labelKey: "taskDetails.logsTab.activity" },
+  { value: "tool-calls", labelKey: "taskDetails.logsTab.toolCalls" },
 ] as const;
 const logsTab = ref<"activity" | "tool-calls">("activity");
 
+const toolFilter = ref<string[]>([]);
+
+function filterToolCalls(name: string) {
+  toolFilter.value = [name];
+  logsTab.value = "tool-calls";
+  detailsTab.value = "logs";
+}
+
+const TAB_ALIASES: Record<string, string> = { prompts: "system" };
+
 const detailsTab = computed({
-  get: () => props.tab ?? "general",
+  get: () => {
+    const tab = props.tab ?? "general";
+    return TAB_ALIASES[tab] ?? tab;
+  },
   set: (value: string) => emit("update:tab", value),
 });
 
@@ -966,10 +987,10 @@ const templateArgs = computed(() =>
 );
 
 const PRIORITIES = [
-  { value: TaskPriority.LOW, label: "Low" },
-  { value: TaskPriority.NORMAL, label: "Normal" },
-  { value: TaskPriority.HIGH, label: "High" },
-  { value: TaskPriority.CRITICAL, label: "Critical" },
+  { value: TaskPriority.LOW, labelKey: "taskPriority.low" },
+  { value: TaskPriority.NORMAL, labelKey: "taskPriority.normal" },
+  { value: TaskPriority.HIGH, labelKey: "taskPriority.high" },
+  { value: TaskPriority.CRITICAL, labelKey: "taskPriority.critical" },
 ];
 
 const AUTO = "__auto__";
@@ -1240,3 +1261,182 @@ function agentAvatar(id: string): string {
 </script>
 
 <style lang="postcss" scoped></style>
+
+<i18n lang="yaml">
+en:
+  taskDetails:
+    holdsSlot: "holds the agent's slot"
+    noProject: "No project"
+    mode: "Mode"
+    taskId: "Task id"
+    origin: "Origin"
+    originDescription: "The task this one was created from."
+    creator: "Creator"
+    noLead: "No lead yet — a task needs someone responsible before it runs"
+    noArguments: "No arguments."
+    attachments: "Attachments"
+    attachmentsHint: "Attach files to a message below."
+    subTasks: "Sub-tasks"
+    holds: "Holds"
+    usage:
+      title: "Token usage"
+      totalCost: "Total cost"
+      ttc: "Time till completion"
+      active: "Active time"
+      thinking: "Thinking time"
+      modelWait: "Model wait"
+      speed: "Generation speed"
+      workspace: "Workspace size"
+      ttcHint: "Time from the first queue to completion. Keeps counting while the task is open and stops in backlog."
+      activeHint: "The agent's work time: idle gaps and user-input waits excluded, tool calls included."
+      thinkingHint: "The model's own working time: active time minus tool calls, model waits included."
+      modelWaitHint: "The part of the thinking time spent waiting for a provider response."
+      speedHint: "Output tokens over the time the model spent generating them: thinking time minus model waits."
+    artifacts: "Artifacts"
+    systemPrompt: "System Prompt"
+    noPrompt: "No prompt set."
+    promptPinnedHint: "Showing the latest versions; the task pins them when it starts."
+    queue: "Queue task"
+    stop: "Stop run"
+    restartSession: "Restart Pi session"
+    changeOutcome: "Change outcome"
+    alreadyRan: "This task already ran. Send a follow-up to queue it again, or close it out."
+    editableInBacklog: "You can edit the prompt, project, and model in Backlog."
+    followUpOrClose: "Send a follow-up to run the task again, or close it out."
+    changeAssignee: "Change assignee"
+    changePriority: "Change priority"
+    changeSize: "Change size"
+    changeProject: "Change project"
+    nonInteractiveHint: "The agent cannot show questionnaires or extension dialogs"
+    subTaskOf: "Sub-task of this task"
+    originHint: "Set once when the task was created and never changed"
+    editTeams: "Edit owning teams"
+    editLeads: "Edit leads"
+    removeTag: "Remove tag"
+    releaseHold: "Release this hold"
+    changeOutcomeHint: "Switch between completed and cancelled"
+    tabs:
+      general: "General"
+      comments: "Comments"
+      plan: "Plan"
+      system: "System"
+      logs: "Logs"
+    logsTab:
+      activity: "Activity"
+      toolCalls: "Tool calls"
+    relateTo: "Relate it to {id}"
+    createRelated: "Create a task related to this one"
+    createRelatedBlocked: "A related task needs this task to belong to a project"
+    teamFallback: "Team {id}"
+    createdFromTemplate: "Created from template version {version}"
+    argumentsCount: "{count} argument | {count} arguments"
+    openChildren: "{count} open"
+    pendingHolds: "{count} pending"
+    heldSince: "Held since {at}"
+    releaseHoldAria: "Release the {plugin} hold {key}"
+    deletedTemplate: "Deleted template"
+  taskConsole:
+    copyFailed: "Copy failed"
+  taskView:
+    files: "Files"
+    task: "Task"
+  newTaskRelation:
+    informational: "Informational"
+    informationalHint: "The new task links to this one."
+    blockedBy: "Blocked by this task"
+    blockedByHint: "The new task waits for this one to be completed."
+    blocks: "Blocks this task"
+    blocksHint: "This task waits for the new one to be completed."
+    supersedes: "Supersedes this task"
+    supersedesHint: "The new task replaces this one and cancels it."
+    parent: "Sub-task"
+    parentHint: "The new task nests under this one."
+ru:
+  taskDetails:
+    holdsSlot: "занимает слот агента"
+    noProject: "Без проекта"
+    mode: "Режим"
+    taskId: "Идентификатор задачи"
+    origin: "Источник"
+    originDescription: "Задача, из которой создана эта."
+    creator: "Создатель"
+    noLead: "Руководителя пока нет — до запуска задаче нужен ответственный"
+    noArguments: "Аргументов нет."
+    attachments: "Вложения"
+    attachmentsHint: "Прикрепляйте файлы к сообщению ниже."
+    subTasks: "Подзадачи"
+    holds: "Удержания"
+    usage:
+      title: "Использование токенов"
+      totalCost: "Общая стоимость"
+      ttc: "Время до завершения"
+      active: "Активное время"
+      thinking: "Время размышления"
+      modelWait: "Ожидание модели"
+      speed: "Скорость генерации"
+      workspace: "Размер рабочего пространства"
+      ttcHint: "Время от первой постановки в очередь до завершения. Считается, пока задача открыта, и останавливается в бэклоге."
+      activeHint: "Рабочее время агента: без простоев и ожидания пользователя, включая вызовы инструментов."
+      thinkingHint: "Собственное рабочее время модели: активное время минус вызовы инструментов, включая ожидание модели."
+      modelWaitHint: "Часть времени размышления, потраченная на ожидание ответа провайдера."
+      speedHint: "Выходные токены за время генерации: время размышления минус ожидание модели."
+    artifacts: "Артефакты"
+    systemPrompt: "Системный промпт"
+    noPrompt: "Промпт не задан."
+    promptPinnedHint: "Показаны последние версии; задача фиксирует их при запуске."
+    queue: "Поставить в очередь"
+    stop: "Остановить запуск"
+    restartSession: "Перезапустить сеанс Pi"
+    changeOutcome: "Изменить результат"
+    alreadyRan: "Задача уже выполнялась. Отправьте уточнение, чтобы поставить её снова в очередь, или закройте её."
+    editableInBacklog: "В бэклоге можно изменить промпт, проект и модель."
+    followUpOrClose: "Отправьте уточнение, чтобы запустить задачу снова, или закройте её."
+    changeAssignee: "Изменить исполнителя"
+    changePriority: "Изменить приоритет"
+    changeSize: "Изменить размер"
+    changeProject: "Изменить проект"
+    nonInteractiveHint: "Агент не может показывать опросники и диалоги расширений"
+    subTaskOf: "Подзадача этой задачи"
+    originHint: "Задаётся при создании задачи и больше не меняется"
+    editTeams: "Изменить команды-владельцы"
+    editLeads: "Изменить руководителей"
+    removeTag: "Убрать тег"
+    releaseHold: "Снять это удержание"
+    changeOutcomeHint: "Переключить между «выполнено» и «отменено»"
+    tabs:
+      general: "Общее"
+      comments: "Комментарии"
+      plan: "План"
+      system: "Система"
+      logs: "Журналы"
+    logsTab:
+      activity: "Активность"
+      toolCalls: "Вызовы инструментов"
+    relateTo: "Связать с {id}"
+    createRelated: "Создать задачу, связанную с этой"
+    createRelatedBlocked: "Связанной задаче нужно, чтобы эта задача принадлежала проекту"
+    teamFallback: "Команда {id}"
+    createdFromTemplate: "Создано из версии шаблона {version}"
+    argumentsCount: "{count} аргумент | {count} аргумента | {count} аргументов"
+    openChildren: "открыто: {count}"
+    pendingHolds: "{count} в ожидании"
+    heldSince: "Удерживается с {at}"
+    releaseHoldAria: "Снять удержание {plugin} {key}"
+    deletedTemplate: "Удалённый шаблон"
+  taskConsole:
+    copyFailed: "Не удалось скопировать"
+  taskView:
+    files: "Файлы"
+    task: "Задача"
+  newTaskRelation:
+    informational: "Информационная"
+    informationalHint: "Новая задача ссылается на эту."
+    blockedBy: "Заблокирована этой задачей"
+    blockedByHint: "Новая задача ждёт завершения этой."
+    blocks: "Блокирует эту задачу"
+    blocksHint: "Эта задача ждёт завершения новой."
+    supersedes: "Заменяет эту задачу"
+    supersedesHint: "Новая задача заменяет эту и отменяет её."
+    parent: "Подзадача"
+    parentHint: "Новая задача вкладывается в эту."
+</i18n>

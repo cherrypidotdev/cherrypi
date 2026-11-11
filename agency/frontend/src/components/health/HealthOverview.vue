@@ -19,39 +19,39 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Health
+    CardTitle {{ $t("agentView.tabs.health") }}
     CardDescription {{ subtitle }}
     CardAction
       RouterLink.text-muted-foreground.text-xs.font-medium(
         class="hover:text-foreground"
         :to="{ name: 'agent', params: { username: currentAgentUsername }, query: { tab: 'health' } }"
-      ) View health
+      ) {{ $t("health.overview.view") }}
   CardContent
     p.text-destructive.text-sm(v-if="error") {{ error }}
     p.text-muted-foreground.text-sm(v-else-if="!current")
-      | No health data yet. The agent reports shortly after it starts.
+      | {{ $t("health.overview.empty") }}
     .grid.grid-cols-2.gap-4(v-else class="sm:grid-cols-4")
       .flex.flex-col.gap-1
         .flex.items-baseline.justify-between.gap-2
-          span.text-muted-foreground.text-2xs.font-semibold CPU
+          span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.cpu") }}
           span.text-lg.font-semibold.tabular-nums(
             :class="healthToneText(cpuTone)"
           ) {{ current.cpuPercent.toFixed(0) }}%
         .h-6
           HealthSparkline(:color="HEALTH_COLORS.cpu" :values="spark.cpu")
-        span.text-muted-foreground.text-2xs.tabular-nums load {{ current.load1.toFixed(2) }}
+        span.text-muted-foreground.text-2xs.tabular-nums {{ $t("health.kpis.loadValue", { value: current.load1.toFixed(2) }) }}
       .flex.flex-col.gap-1
         .flex.items-baseline.justify-between.gap-2
-          span.text-muted-foreground.text-2xs.font-semibold Memory
+          span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.memory") }}
           span.text-lg.font-semibold.tabular-nums(
             :class="healthToneText(memoryTone)"
           ) {{ (current.memory?.usedPercent ?? 0).toFixed(0) }}%
         .h-6
           HealthSparkline(:color="HEALTH_COLORS.memory" :values="spark.memory")
-        span.text-muted-foreground.text-2xs {{ formatBytes(current.memory?.usedBytes ?? 0) }} used
+        span.text-muted-foreground.text-2xs {{ $t("health.kpis.used", { used: formatBytes(current.memory?.usedBytes ?? 0) }) }}
       .flex.flex-col.gap-1
         .flex.items-baseline.justify-between.gap-2
-          span.text-muted-foreground.text-2xs.font-semibold Disk
+          span.text-muted-foreground.text-2xs.font-semibold {{ $t("health.kpis.disk") }}
           span.text-lg.font-semibold.tabular-nums(
             :class="healthToneText(diskTone)"
           ) {{ disk ? `${disk.usedPercent.toFixed(0)}%` : "—" }}
@@ -95,6 +95,7 @@ import {
 } from "@/lib/health";
 import { currentAgentUsername } from "@/lib/sdk";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 
 const props = defineProps<{ agentId: string }>();
@@ -134,7 +135,7 @@ const fourthSub = computed(() => {
 });
 
 const subtitle = computed(() => {
-  if (!current.value) return "Latest host sample from this agent.";
+  if (!current.value) return t("health.overview.hint");
   return `Updated ${new Date(Number(current.value.sampledAt)).toLocaleTimeString()} · ${current.value.scope === "host" ? "host" : "container"}`;
 });
 
@@ -149,4 +150,21 @@ const spark = computed(() => ({
   ),
   load: history.value.map((sample) => sample.load1),
 }));
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    overview:
+      view: "View health"
+      empty: "No health data yet. The agent reports shortly after it starts."
+      hint: "Latest host sample from this agent."
+ru:
+  health:
+    overview:
+      view: "Открыть здоровье"
+      empty: "Данных о здоровье пока нет. Агент сообщит их вскоре после запуска."
+      hint: "Последний замер хоста от этого агента."
+</i18n>

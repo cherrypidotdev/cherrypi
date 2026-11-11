@@ -20,24 +20,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent.overflow-y-auto.overscroll-contain(class="max-h-[92vh] sm:max-w-3xl")
     DialogHeader
-      DialogTitle Use a task template
+      DialogTitle {{ $t("templateApply.title") }}
       DialogDescription
-        | Pick a template, fill in its arguments, and either load the rendered
-        | prompt into the composer or create the task right away.
+        | {{ $t("templateApply.description") }}
     .flex.flex-col.gap-4
       .flex.flex-col.gap-1
-        span.text-sm.font-medium Template
+        span.text-sm.font-medium {{ $t("domainLog.kind.template") }}
         Combobox(
           v-model="templateId"
-          placeholder="Choose a template"
+          :placeholder="$t('templateApply.choosePlaceholder')"
           empty-text="No matching template."
-          aria-label="Task template"
+          :aria-label="$t('templateApply.templateAria')"
           :options="templateOptions"
         )
-        p.text-muted-foreground.text-xs(v-if="loading") Loading templates…
+        p.text-muted-foreground.text-xs(v-if="loading") {{ $t("templateApply.loading") }}
         p.text-muted-foreground.text-xs(v-else-if="!templates.length")
-          | This project has no templates yet. Create one in the project's
-          | Settings → Templates tab.
+          | {{ $t("templateApply.empty") }}
       template(v-if="selected")
         .flex.flex-wrap.items-center.gap-2.text-xs
           Badge(variant="secondary") v{{ Number(selected.latestVersion) }}
@@ -47,7 +45,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           :args="selected.latest?.content?.args ?? []"
         )
         .flex.flex-col.gap-1
-          span.text-xs.font-medium Preview
+          span.text-xs.font-medium {{ $t("settings.sounds.preview") }}
           p.text-destructive.text-xs(v-if="previewError") {{ previewError }}
           template(v-else-if="preview")
             span.text-sm.font-medium(v-if="preview.title")
@@ -56,14 +54,14 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
               class="prose-p:my-1 prose-pre:my-2"
               :text="preview.prompt"
             )
-          p.text-muted-foreground.text-xs(v-else) Rendering…
+          p.text-muted-foreground.text-xs(v-else) {{ $t("templateApply.rendering") }}
     DialogFooter
       Button(
         type="button"
         variant="outline"
         @click="emit('update:open', false)"
       )
-        | Cancel
+        | {{ $t("common.cancel") }}
       Button(
         type="button"
         variant="outline"
@@ -71,20 +69,20 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
         :disabled="!canApply"
       )
         PencilIcon(data-icon="inline-start")
-        span Use in composer
+        span {{ $t("templateApply.useInComposer") }}
       DropdownMenu
         DropdownMenuTrigger(as-child)
           Button(type="button" :disabled="!canApply")
             PlayIcon(data-icon="inline-start")
-            span Create now
+            span {{ $t("templateApply.createNow") }}
             ChevronDownIcon.size-3
         DropdownMenuContent.w-52(align="end")
           DropdownMenuItem(@click="createBacklog" :disabled="!canApply")
             InboxIcon.size-3
-            span Put to Backlog
+            span {{ $t("express.toBacklog") }}
           DropdownMenuItem(@click="createQueued" :disabled="!canApply")
             PlayIcon.size-3
-            span Queue
+            span {{ $t("tasks.action.queue") }}
 </template>
 
 <script setup lang="ts">
@@ -296,3 +294,28 @@ function create(state: TaskState) {
   emit("update:open", false);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  templateApply:
+    title: "Use a task template"
+    description: "Pick a template, fill in its arguments, and either load the rendered prompt into the composer or create the task right away."
+    loading: "Loading templates…"
+    empty: "This project has no templates yet. Create one in the project's Settings → Templates tab."
+    rendering: "Rendering…"
+    useInComposer: "Use in composer"
+    createNow: "Create now"
+    choosePlaceholder: "Choose a template"
+    templateAria: "Task template"
+ru:
+  templateApply:
+    title: "Использовать шаблон задачи"
+    description: "Выберите шаблон, заполните аргументы и загрузите готовый промпт в композер или сразу создайте задачу."
+    loading: "Загружаем шаблоны…"
+    empty: "В этом проекте пока нет шаблонов. Создайте его в настройках проекта → вкладка «Шаблоны»."
+    rendering: "Формируем…"
+    useInComposer: "В композер"
+    createNow: "Создать сейчас"
+    choosePlaceholder: "Выберите шаблон"
+    templateAria: "Шаблон задачи"
+</i18n>

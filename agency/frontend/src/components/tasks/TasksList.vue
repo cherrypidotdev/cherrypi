@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @click="activeTab = tab.key"
     )
       component.size-3.shrink-0(:is="taskStateIcon(tab.state)")
-      span {{ tab.label }}
+      span {{ $t(tab.labelKey) }}
       span.font-normal(:class="countClass(tab.state)")
         | {{ countFor(tab.state) }}
   .flex.w-full.flex-wrap.items-center.gap-2
@@ -42,29 +42,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Input#task-search.w-full.pl-8(
         v-model="search"
         type="search"
-        placeholder="Search title or prompt…"
+        :placeholder="$t('tasks.searchPlaceholder')"
         autocomplete="off"
       )
     Select(v-model="sizeFilter")
-      SelectTrigger.w-32(size="sm" title="Filter by size")
-        SelectValue(placeholder="Any size")
+      SelectTrigger.w-32(size="sm" :title="$t('tasks.filter.size')")
+        SelectValue(:placeholder="$t('tasks.filter.anySize')")
       SelectContent
         SelectGroup
-          SelectItem(:value="TaskSize.UNSPECIFIED") Any size
+          SelectItem(:value="TaskSize.UNSPECIFIED") {{ $t("tasks.filter.anySize") }}
           SelectItem(
             v-for="option in SIZE_FILTERS"
             :key="option.value"
             :value="option.value"
-          ) {{ option.label }}
+          ) {{ $t(option.labelKey) }}
     label.inline-flex.cursor-pointer.items-center.gap-2.text-xs(
-      title="Non-interactive tasks never surface questionnaires or extension dialogs"
+      :title="$t('tasks.interactiveHint')"
       data-testid="task-non-interactive-filter"
     )
       Switch(
         v-model="showNonInteractive"
-        aria-label="Show non-interactive tasks"
+        :aria-label="$t('tasks.showNonInteractive')"
       )
-      span Show non-interactive
+      span {{ $t("tasks.showNonInteractiveShort") }}
       span.text-muted-foreground(
         v-if="!showNonInteractive && hiddenNonInteractive.length"
       )
@@ -76,7 +76,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     data-testid="task-bulk-bar"
   )
     span.text-sm.font-medium
-      | {{ selectedTasks.length }} selected
+      | {{ $t("tasks.selected", { count: selectedTasks.length }) }}
     template(v-if="tabActions.length")
       .mx-1.h-5.border-l
       Button(
@@ -101,7 +101,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :disabled="bulkBusy || !mergeableSelection"
     )
       MergeIcon(data-icon="inline-start")
-      span Merge
+      span {{ $t("tasks.merge") }}
     Button(
       type="button"
       variant="outline"
@@ -111,14 +111,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :disabled="bulkBusy || !archiveableSelection"
     )
       ArchiveIcon(data-icon="inline-start")
-      span Archive
+      span {{ $t("tags.archive") }}
     DropdownMenu
       DropdownMenuTrigger(as-child)
         Button(type="button" variant="outline" size="sm" :disabled="bulkBusy")
           FlagIcon(data-icon="inline-start")
-          span Priority
+          span {{ $t("domainLog.kind.priority") }}
       DropdownMenuContent.w-40(align="start")
-        DropdownMenuLabel Set priority
+        DropdownMenuLabel {{ $t("tasks.setPriority") }}
         DropdownMenuSeparator
         DropdownMenuItem(
           v-for="option in BULK_PRIORITIES"
@@ -129,9 +129,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       DropdownMenuTrigger(as-child)
         Button(type="button" variant="outline" size="sm" :disabled="bulkBusy")
           RulerIcon(data-icon="inline-start")
-          span Size
+          span {{ $t("domainLog.kind.size") }}
       DropdownMenuContent.w-40(align="start")
-        DropdownMenuLabel Set size
+        DropdownMenuLabel {{ $t("tasks.setSize") }}
         DropdownMenuSeparator
         DropdownMenuItem(
           v-for="option in BULK_SIZES"
@@ -142,11 +142,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       DropdownMenuTrigger(as-child)
         Button(type="button" variant="outline" size="sm" :disabled="bulkBusy")
           UserIcon(data-icon="inline-start")
-          span Assignee
+          span {{ $t("domainLog.kind.assignee") }}
       DropdownMenuContent.w-56(align="start")
-        DropdownMenuLabel Set assignee
+        DropdownMenuLabel {{ $t("tasks.setAssignee") }}
         DropdownMenuSeparator
-        DropdownMenuItem(@click="applyAssignee('')") Unassign
+        DropdownMenuItem(@click="applyAssignee('')") {{ $t("tasks.unassign") }}
         DropdownMenuItem(
           v-for="option in assigneeOptions"
           :key="option.id"
@@ -162,12 +162,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :disabled="bulkBusy || !tagsEnabled"
         )
           TagsIcon(data-icon="inline-start")
-          span Add tags
+          span {{ $t("tasks.addTags") }}
       DropdownMenuContent.w-56(align="start")
-        DropdownMenuLabel Add tags
+        DropdownMenuLabel {{ $t("tasks.addTags") }}
         DropdownMenuSeparator
         .text-muted-foreground.px-2.py-1.text-xs(v-if="!projectTags.length")
-          | No tags in this project
+          | {{ $t("tasks.noTagsInProject") }}
         DropdownMenuItem(
           v-for="tag in projectTags"
           :key="tag.id"
@@ -187,12 +187,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :disabled="bulkBusy || !tagsEnabled"
         )
           TagsIcon(data-icon="inline-start")
-          span Remove tags
+          span {{ $t("tasks.removeTags") }}
       DropdownMenuContent.w-56(align="start")
-        DropdownMenuLabel Remove tags
+        DropdownMenuLabel {{ $t("tasks.removeTags") }}
         DropdownMenuSeparator
         .text-muted-foreground.px-2.py-1.text-xs(v-if="!removableTags.length")
-          | No tags on the selection
+          | {{ $t("tasks.noTagsOnSelection") }}
         DropdownMenuItem(
           v-for="tag in removableTags"
           :key="tag.id"
@@ -209,7 +209,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @click="clearSelection"
     )
       XIcon(data-icon="inline-start")
-      span Clear
+      span {{ $t("common.clear") }}
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
 
@@ -246,7 +246,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       data-testid="task-reveal-non-interactive"
     )
       EyeIcon.size-3.shrink-0
-      | Reveal {{ hiddenLabel(hiddenNonInteractive.length) }}
+      | {{ $t("tasks.reveal", { count: hiddenLabel(hiddenNonInteractive.length) }) }}
 
   .bg-card.overflow-hidden.rounded-xl.border(
     v-if="archivedTasks.length || archivedLoading"
@@ -259,20 +259,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :class="showArchived ? 'rotate-90' : ''"
       )
       ArchiveIcon.size-4.shrink-0
-      span.font-medium Archived
+      span.font-medium {{ $t("domainLog.kind.archived") }}
       span.text-muted-foreground
         | {{ archivedTasks.length }}
       span.text-muted-foreground(
         v-if="!showNonInteractive && archivedNonInteractiveCount"
       )
-        | · {{ archivedNonInteractiveCount }} non-interactive hidden
+        | {{ $t("tasks.hiddenNonInteractive", { count: archivedNonInteractiveCount }) }}
     .border-t(v-if="showArchived")
       .bg-card.sticky.top-0.z-20.flex.flex-wrap.items-center.gap-2.border-b.px-3.py-2(
         v-if="archivedSelectedTasks.length"
         data-testid="archive-bulk-bar"
       )
         span.text-sm.font-medium
-          | {{ archivedSelectedTasks.length }} selected
+          | {{ $t("tasks.selected", { count: archivedSelectedTasks.length }) }}
         DropdownMenu
           DropdownMenuTrigger(as-child)
             Button(
@@ -282,9 +282,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :disabled="bulkBusy"
             )
               FlagIcon(data-icon="inline-start")
-              span Priority
+              span {{ $t("domainLog.kind.priority") }}
           DropdownMenuContent.w-40(align="start")
-            DropdownMenuLabel Set priority
+            DropdownMenuLabel {{ $t("tasks.setPriority") }}
             DropdownMenuSeparator
             DropdownMenuItem(
               v-for="option in BULK_PRIORITIES"
@@ -300,9 +300,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :disabled="bulkBusy"
             )
               RulerIcon(data-icon="inline-start")
-              span Size
+              span {{ $t("domainLog.kind.size") }}
           DropdownMenuContent.w-40(align="start")
-            DropdownMenuLabel Set size
+            DropdownMenuLabel {{ $t("tasks.setSize") }}
             DropdownMenuSeparator
             DropdownMenuItem(
               v-for="option in BULK_SIZES"
@@ -319,14 +319,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :disabled="bulkBusy || !archivedTagsEnabled"
             )
               TagsIcon(data-icon="inline-start")
-              span Add tags
+              span {{ $t("tasks.addTags") }}
           DropdownMenuContent.w-56(align="start")
-            DropdownMenuLabel Add tags
+            DropdownMenuLabel {{ $t("tasks.addTags") }}
             DropdownMenuSeparator
             .text-muted-foreground.px-2.py-1.text-xs(
               v-if="!archivedProjectTags.length"
             )
-              | No tags in this project
+              | {{ $t("tasks.noTagsInProject") }}
             DropdownMenuItem(
               v-for="tag in archivedProjectTags"
               :key="tag.id"
@@ -346,14 +346,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :disabled="bulkBusy || !archivedTagsEnabled"
             )
               TagsIcon(data-icon="inline-start")
-              span Remove tags
+              span {{ $t("tasks.removeTags") }}
           DropdownMenuContent.w-56(align="start")
-            DropdownMenuLabel Remove tags
+            DropdownMenuLabel {{ $t("tasks.removeTags") }}
             DropdownMenuSeparator
             .text-muted-foreground.px-2.py-1.text-xs(
               v-if="!archivedRemovableTags.length"
             )
-              | No tags on the selection
+              | {{ $t("tasks.noTagsOnSelection") }}
             DropdownMenuItem(
               v-for="tag in archivedRemovableTags"
               :key="tag.id"
@@ -370,7 +370,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @click="clearArchivedSelection"
         )
           XIcon(data-icon="inline-start")
-          span Clear
+          span {{ $t("common.clear") }}
       .px-3.pt-3
         .bg-muted.inline-flex.flex-wrap.items-center.gap-1.self-start.rounded-lg.border(
           class="p-0.5"
@@ -385,7 +385,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="archivedTab = tab.key"
           )
             component.size-3.shrink-0(:is="taskStateIcon(tab.state)")
-            span {{ tab.label }}
+            span {{ $t(tab.labelKey) }}
             span.font-normal(:class="countClass(tab.state)")
               | {{ archivedCountFor(tab.state) }}
       .pt-2
@@ -420,7 +420,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           data-testid="task-archive-reveal-non-interactive"
         )
           EyeIcon.size-3.shrink-0
-          | Reveal {{ hiddenLabel(archivedHiddenNonInteractive) }}
+          | {{ $t("tasks.reveal", { count: hiddenLabel(archivedHiddenNonInteractive) }) }}
 
   ArchiveTaskDialog(
     :open="archiveDialog"
@@ -466,10 +466,9 @@ import {
   TASK_SIZES,
   TASK_STATE_RANK,
   TASK_STATE_TABS,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskProgressHasPlan,
   taskProgressPercent,
-  taskSizeLabel,
   taskStateIcon,
   taskStateTextClass,
 } from "@/lib/task";
@@ -500,8 +499,11 @@ import {
 } from "@lucide/vue";
 import { refDebounced } from "@vueuse/core";
 import { computed, onMounted, ref, watch, type Component } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 type SortKey =
   | "state"
@@ -524,7 +526,7 @@ const props = withDefaults(
     teamId?: number;
     leadActorId?: string;
   }>(),
-  { emptyText: "No tasks." },
+  { emptyText: undefined },
 );
 
 const router = useRouter();
@@ -577,13 +579,21 @@ const showArchived = ref(false);
 
 interface ArchivedTab {
   key: "all" | "completed" | "cancelled";
-  label: string;
+  labelKey: string;
   state?: TaskState;
 }
 const ARCHIVED_TABS: ArchivedTab[] = [
-  { key: "all", label: "All" },
-  { key: "completed", label: "Completed", state: TaskState.COMPLETED },
-  { key: "cancelled", label: "Cancelled", state: TaskState.CANCELLED },
+  { key: "all", labelKey: "common.all" },
+  {
+    key: "completed",
+    labelKey: "taskState.completed",
+    state: TaskState.COMPLETED,
+  },
+  {
+    key: "cancelled",
+    labelKey: "taskState.cancelled",
+    state: TaskState.CANCELLED,
+  },
 ];
 const archivedTab = ref<ArchivedTab["key"]>("all");
 const archivedTabTasks = computed(() => {
@@ -611,11 +621,13 @@ const archivedEmptyMessage = computed(() => {
     !showNonInteractive.value &&
     archivedTabTasks.value.some((task) => !task.interactive)
   ) {
-    return "No interactive archived tasks in this tab.";
+    return t("tasks.empty.archivedInteractive");
   }
   return tab?.state
-    ? `No archived ${tab.label.toLowerCase()} tasks.`
-    : "No archived tasks.";
+    ? t("tasks.empty.archivedState", {
+        state: t(tab.labelKey).toLowerCase(),
+      })
+    : t("tasks.empty.archived");
 });
 function archivedCountFor(state?: TaskState): number {
   if (!state) return archivedTasks.value.length;
@@ -674,12 +686,12 @@ const sizeFilterActive = computed(
 const emptyMessage = computed(() => {
   if (!showNonInteractive.value && hiddenNonInteractive.value.length) {
     return searchActive.value || sizeFilterActive.value
-      ? "No interactive tasks match the current filters."
-      : "No interactive tasks in this tab.";
+      ? t("tasks.empty.filteredInteractive")
+      : t("tasks.empty.tabInteractive");
   }
-  if (searchActive.value) return "No tasks match your search.";
-  if (sizeFilterActive.value) return "No tasks match the size filter.";
-  return props.emptyText;
+  if (searchActive.value) return t("tasks.empty.search");
+  if (sizeFilterActive.value) return t("tasks.empty.sizeFilter");
+  return props.emptyText ?? t("tasks.empty.none");
 });
 const { agents, loadAgents, actorIdFor } = useAgents();
 const { active: projects, loadProjects } = useProjects();
@@ -825,7 +837,7 @@ function clearSelection() {
 
 watch(activeTab, () => clearSelection());
 
-const TAGS_HINT = "Select tasks from one project";
+const TAGS_HINT = t("tasks.selectOneProject");
 const selectionProjectId = computed(() => {
   const ids = new Set(selectedTasks.value.map((task) => task.projectId));
   return ids.size === 1 ? [...ids][0]! : "";
@@ -876,23 +888,23 @@ interface BulkAction {
 
 const COMPLETE_ACTION: BulkAction = {
   key: "complete",
-  label: "Complete",
-  done: "Completed",
+  label: t("tasks.action.complete"),
+  done: t("taskState.completed"),
   icon: CheckIcon,
   run: (task) => agent.closeOutTask(task.id, TaskState.COMPLETED),
 };
 const CANCEL_ACTION: BulkAction = {
   key: "cancel",
-  label: "Cancel",
-  done: "Cancelled",
+  label: t("common.cancel"),
+  done: t("taskState.cancelled"),
   icon: BanIcon,
   run: (task) => agent.closeOutTask(task.id, TaskState.CANCELLED),
 };
 
 const MOVE_TO_BACKLOG_ACTION: BulkAction = {
   key: "reopen",
-  label: "Move to Backlog",
-  done: "Moved to backlog",
+  label: t("tasks.action.moveToBacklog"),
+  done: t("tasks.toasts.movedToBacklog"),
   icon: InboxIcon,
   run: (task) => agent.reopenTask(task.id, { queue: false }),
 };
@@ -908,13 +920,12 @@ const tabActions = computed<BulkAction[]>(() => {
     return [
       {
         key: "enqueue",
-        label: "Queue",
-        done: "Queued",
+        label: t("tasks.action.queue"),
+        done: t("tasks.toasts.queued"),
         icon: PlayIcon,
         run: (task) => agent.queueTask(task.id),
         unavailable: postponed,
-        unavailableHint:
-          "A task that already started is queued by sending a follow-up",
+        unavailableHint: t("tasks.queueFollowUpHint"),
       },
       COMPLETE_ACTION,
       CANCEL_ACTION,
@@ -924,8 +935,8 @@ const tabActions = computed<BulkAction[]>(() => {
     return [
       {
         key: "dequeue",
-        label: "Move to Backlog",
-        done: "Moved to backlog",
+        label: t("tasks.action.moveToBacklog"),
+        done: t("tasks.toasts.movedToBacklog"),
         icon: Undo2Icon,
         run: (task) => agent.dequeueTask(task.id),
       },
@@ -954,11 +965,11 @@ const BULK_PRIORITIES = [
   TaskPriority.NORMAL,
   TaskPriority.HIGH,
   TaskPriority.CRITICAL,
-].map((value) => ({ value, label: taskPriorityLabel(value) }));
+].map((value) => ({ value, label: t(taskPriorityKey(value)) }));
 
-const BULK_SIZES = TASK_SIZES.map(({ value }) => ({
+const BULK_SIZES = TASK_SIZES.map(({ value, labelKey }) => ({
   value,
-  label: taskSizeLabel(value),
+  label: t(labelKey),
 }));
 
 const assigneeOptions = computed(() =>
@@ -1001,14 +1012,13 @@ const closeOutSelection = computed(
 );
 const archiveHint = computed(() =>
   archiveableSelection.value
-    ? "Archive selected tasks"
-    : "Only completed or cancelled tasks can be archived",
+    ? t("tasks.archiveSelected")
+    : t("tasks.archiveOnlyFinished"),
 );
 const mergeHint = computed(() => {
-  if (selectedTasks.value.length < 2) return "Select at least two tasks";
-  if (!mergeableSelection.value)
-    return "Only backlog, queued, or failed tasks can be merged";
-  return "Merge selected tasks";
+  if (selectedTasks.value.length < 2) return t("tasks.mergeNeedsTwo");
+  if (!mergeableSelection.value) return t("tasks.mergeOnlySome");
+  return t("tasks.mergeSelected");
 });
 
 function reportBulk(done: string, total: number, failed: number) {
@@ -1077,26 +1087,34 @@ async function applyAttribute(
 }
 
 function applyPriority(priority: TaskPriority, targets?: Task[]) {
-  void applyAttribute({ priority }, "Priority set", targets);
+  void applyAttribute({ priority }, t("tasks.toasts.prioritySet"), targets);
 }
 
 function applySize(size: TaskSize, targets?: Task[]) {
-  void applyAttribute({ size }, "Size set", targets);
+  void applyAttribute({ size }, t("tasks.toasts.sizeSet"), targets);
 }
 
 function applyAssignee(agentId: string) {
   void applyAttribute(
     { assigneeActorId: agentId ? actorIdFor(agentId) : "" },
-    agentId ? "Assigned" : "Unassigned",
+    agentId ? t("tasks.toasts.assigned") : t("tasks.toasts.unassigned"),
   );
 }
 
 function applyAddTag(tag: Tag, targets?: Task[]) {
-  void applyAttribute({ addTagIds: [tag.id] }, "Tag added", targets);
+  void applyAttribute(
+    { addTagIds: [tag.id] },
+    t("tasks.toasts.tagAdded"),
+    targets,
+  );
 }
 
 function applyRemoveTag(tag: Tag, targets?: Task[]) {
-  void applyAttribute({ removeTagIds: [tag.id] }, "Tag removed", targets);
+  void applyAttribute(
+    { removeTagIds: [tag.id] },
+    t("tasks.toasts.tagRemoved"),
+    targets,
+  );
 }
 
 function applyArchivedPriority(priority: TaskPriority) {
@@ -1117,6 +1135,7 @@ function applyArchivedRemoveTag(tag: Tag) {
 
 const prefs = ref<UserPreferences>({
   notify_first_archive: true,
+  locale: "",
 });
 const archiveDialog = ref(false);
 const archiveTargets = ref<Task[]>([]);
@@ -1251,7 +1270,7 @@ function unarchive(task: Task) {
   void runRowAction(
     task,
     () => agent.unarchiveTask(task.id),
-    "Task unarchived",
+    t("tasks.toasts.unarchived"),
   );
 }
 
@@ -1259,7 +1278,7 @@ function cleanup(task: Task) {
   void runRowAction(
     task,
     () => agent.cleanupTaskSession(task.id),
-    "Session cleaned up",
+    t("tasks.toasts.sessionCleaned"),
   );
 }
 
@@ -1267,12 +1286,18 @@ async function closeOut(task: Task, outcome: TaskState) {
   await runRowAction(
     task,
     () => agent.closeOutTask(task.id, outcome),
-    outcome === TaskState.CANCELLED ? "Task cancelled" : "Task completed",
+    outcome === TaskState.CANCELLED
+      ? t("attention.event.cancelled")
+      : t("attention.event.completed"),
   );
 }
 
 function retry(task: Task) {
-  void runRowAction(task, () => agent.retryTask(task.id), "Task retried");
+  void runRowAction(
+    task,
+    () => agent.retryTask(task.id),
+    t("tasks.toasts.retried"),
+  );
 }
 
 function complete(task: Task) {
@@ -1292,3 +1317,116 @@ onMounted(() => {
   void loadProjects();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  tasks:
+    state:
+      cancelled: "Cancelled"
+    action:
+      queue: "Queue"
+      moveToBacklog: "Move to Backlog"
+      complete: "Complete"
+    filter:
+      anySize: "Any size"
+      size: "Filter by size"
+    showNonInteractiveShort: "Show non-interactive"
+    merge: "Merge"
+    setPriority: "Set priority"
+    setSize: "Set size"
+    setAssignee: "Set assignee"
+    unassign: "Unassign"
+    addTags: "Add tags"
+    noTagsInProject: "No tags in this project"
+    removeTags: "Remove tags"
+    noTagsOnSelection: "No tags on the selection"
+    searchPlaceholder: "Search title or prompt…"
+    interactiveHint: "Non-interactive tasks never surface questionnaires or extension dialogs"
+    showNonInteractive: "Show non-interactive tasks"
+    toasts:
+      retried: "Task retried"
+      sessionCleaned: "Session cleaned up"
+      unarchived: "Task unarchived"
+      tagRemoved: "Tag removed"
+      tagAdded: "Tag added"
+      unassigned: "Unassigned"
+      assigned: "Assigned"
+      sizeSet: "Size set"
+      prioritySet: "Priority set"
+      movedToBacklog: "Moved to backlog"
+      queued: "Queued"
+    mergeSelected: "Merge selected tasks"
+    mergeOnlySome: "Only backlog, queued, or failed tasks can be merged"
+    mergeNeedsTwo: "Select at least two tasks"
+    archiveOnlyFinished: "Only completed or cancelled tasks can be archived"
+    archiveSelected: "Archive selected tasks"
+    queueFollowUpHint: "A task that already started is queued by sending a follow-up"
+    empty:
+      sizeFilter: "No tasks match the size filter."
+      search: "No tasks match your search."
+      tabInteractive: "No interactive tasks in this tab."
+      filteredInteractive: "No interactive tasks match the current filters."
+      archived: "No archived tasks."
+      archivedInteractive: "No interactive archived tasks in this tab."
+      archivedState: "No archived {state} tasks."
+      none: "No tasks."
+    selectOneProject: "Select tasks from one project"
+    selected: "{count} selected"
+    reveal: "Reveal {count}"
+    hiddenNonInteractive: "· {count} non-interactive hidden"
+ru:
+  tasks:
+    state:
+      cancelled: "Отменена"
+    action:
+      queue: "В очередь"
+      moveToBacklog: "Переместить в бэклог"
+      complete: "Завершить"
+    filter:
+      anySize: "Любой размер"
+      size: "Фильтр по размеру"
+    showNonInteractiveShort: "Показывать неинтерактивные"
+    merge: "Объединить"
+    setPriority: "Задать приоритет"
+    setSize: "Задать размер"
+    setAssignee: "Назначить исполнителя"
+    unassign: "Снять исполнителя"
+    addTags: "Добавить теги"
+    noTagsInProject: "В этом проекте нет тегов"
+    removeTags: "Убрать теги"
+    noTagsOnSelection: "У выбранных задач нет тегов"
+    searchPlaceholder: "Поиск по названию или промпту…"
+    interactiveHint: "Неинтерактивные задачи никогда не показывают опросники и диалоги расширений"
+    showNonInteractive: "Показывать неинтерактивные задачи"
+    toasts:
+      retried: "Задача перезапущена"
+      sessionCleaned: "Сеанс очищен"
+      unarchived: "Задача разархивирована"
+      tagRemoved: "Тег убран"
+      tagAdded: "Тег добавлен"
+      unassigned: "Исполнитель снят"
+      assigned: "Исполнитель назначен"
+      sizeSet: "Размер задан"
+      prioritySet: "Приоритет задан"
+      movedToBacklog: "Перемещено в бэклог"
+      queued: "Поставлено в очередь"
+    mergeSelected: "Объединить выбранные задачи"
+    mergeOnlySome: "Объединять можно только задачи в бэклоге, в очереди или с ошибкой"
+    mergeNeedsTwo: "Выберите хотя бы две задачи"
+    archiveOnlyFinished: "Архивировать можно только выполненные или отменённые задачи"
+    archiveSelected: "Архивировать выбранные задачи"
+    queueFollowUpHint: "Уже запущенная задача ставится в очередь отправкой уточнения"
+    empty:
+      sizeFilter: "Нет задач, подходящих под фильтр размера."
+      search: "Нет задач, подходящих под поиск."
+      tabInteractive: "В этой вкладке нет интерактивных задач."
+      filteredInteractive: "Нет интерактивных задач, подходящих под текущие фильтры."
+      archived: "Архивных задач нет."
+      archivedInteractive: "В этой вкладке нет интерактивных архивных задач."
+      archivedState: "Нет архивных задач в состоянии «{state}»."
+      none: "Задач нет."
+    selectOneProject: "Выберите задачи из одного проекта"
+    selected: "выбрано: {count}"
+    reveal: "Показать {count}"
+    hiddenNonInteractive: "· {count} неинтерактивных скрыто"
+</i18n>

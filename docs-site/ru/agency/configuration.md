@@ -49,6 +49,8 @@ CHERRYPI_OTEL_ENABLED=1
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_SERVICE_NAME=cherrypi-agency
+# Collector с включённой авторизацией ([OtlpDashboard](https://github.com/Adiakys/OtlpDashboard) принимает оба заголовка):
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
 ```
 
 Для локального бэкенда запустите опциональный стек Grafana LGTM (Grafana,
@@ -65,7 +67,10 @@ Grafana доступна на <http://localhost:3000>; agency обращаетс
 `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` и endpoint на порту `4318`.
 Трейсы покрывают каждый унарный Connect/gRPC вызов, каждый REST-запрос под
 `/api/` и `/plugins/`, и каждый SQL-запрос, поэтому у медленного запроса
-видно, какой именно запрос к базе тормозит. Полный список переменных, включая
+видно, какой именно запрос к базе тормозит. Спаны SQL несут имя sqlc-запроса
+(например, `store.ListTasks`) и атрибут `db.query.summary`, поэтому
+представление самых нагруженных операций показывает store-операцию, а не
+только `sql.conn.query`. Полный список переменных, включая
 sampling и отключение отдельных сигналов, — в
 [справочнике окружения](/ru/reference/environment#наблюдаемость-opentelemetry).
 

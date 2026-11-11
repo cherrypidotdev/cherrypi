@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import { AgentStatus, AgentVersionStatus } from "@cherrypi/sdk";
 
 export function agentStatusLabel(status: AgentStatus | undefined): string {
@@ -31,13 +32,13 @@ export function agentVersionStatusLabel(
 ): string {
   switch (status) {
     case AgentVersionStatus.CURRENT:
-      return "Up to date";
+      return t("agentVersion.current");
     case AgentVersionStatus.OUTDATED:
-      return "Binary should be updated";
+      return t("agentVersion.outdated");
     case AgentVersionStatus.INCOMPATIBLE:
-      return "Binary incompatible";
+      return t("agentVersion.incompatible");
     default:
-      return "Unknown";
+      return t("common.unknown");
   }
 }
 
@@ -76,5 +77,5 @@ export function agentVersionTitle(agent: {
   if (agent.protocolVersion) {
     parts.push(`Protocol ${agent.protocolVersion}`);
   }
-  return parts.length ? parts.join(" · ") : "No version reported";
+  return parts.length ? parts.join(" · ") : t("agentVersion.none");
 }

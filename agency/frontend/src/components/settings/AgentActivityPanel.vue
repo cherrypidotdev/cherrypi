@@ -19,17 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Activity
+    CardTitle {{ $t("activity.title") }}
     CardDescription
-      | This agent's mutations: its creation, renames, credentials, tokens and
-      | ownership. Operational agent records live on the agent's Logs tab.
+      | {{ $t("agentActivity.description") }}
   CardContent
     p.text-destructive.text-sm(v-if="error") {{ error }}
     DomainLogList(:logs="logs")
     .flex.justify-center.pt-3(v-if="canLoadMore")
       Button(variant="outline" size="sm" @click="loadMore" :disabled="loading")
         Spinner(v-if="loading" data-icon="inline-start")
-        span Load more
+        span {{ $t("common.loadMore") }}
 </template>
 
 <script setup lang="ts">
@@ -45,6 +44,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { listAgentDomainLogs, type AuditEntry } from "@/lib/audit";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{ agentId: string | number }>();
 
@@ -76,7 +78,7 @@ async function load() {
     if (page.logs.length < PAGE_SIZE) reachedEnd.value = true;
   } catch (err) {
     error.value =
-      err instanceof Error ? err.message : "Could not load activity.";
+      err instanceof Error ? err.message : t("activity.errors.load");
   } finally {
     loading.value = false;
   }
@@ -99,3 +101,12 @@ onMounted(() => {
   void load();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  agentActivity:
+    description: "This agent's mutations: its creation, renames, credentials, tokens and ownership. Operational agent records live on the agent's Logs tab."
+ru:
+  agentActivity:
+    description: "Изменения этого агента: создание, переименования, учётные данные, токены и владельцы. Операционные записи агента находятся на вкладке «Журналы»."
+</i18n>

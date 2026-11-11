@@ -18,11 +18,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 Combobox(
-  :placeholder="placeholder"
+  :placeholder="placeholderText"
   :id="id"
   :model-value="modelValue"
   :options="options"
-  :empty-text="emptyText"
+  :empty-text="emptyTextValue"
   :size="size"
   :class="props.class"
   @update:model-value="emit('update:modelValue', $event)"
@@ -39,7 +39,7 @@ Combobox(
       span.truncate {{ option.label }}
       span.text-muted-foreground.truncate.text-xs
         | @{{ option.value }}
-        template(v-if="actor(option)?.kind === 'agent'") · agent
+        template(v-if="actor(option)?.kind === 'agent'") {{ $t("actorCombobox.agentSuffix") }}
 </template>
 
 <script setup lang="ts">
@@ -48,6 +48,9 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { useAgents } from "@/composables/useAgents";
 import { useUsers } from "@/composables/useUsers";
 import { computed, onMounted, type HTMLAttributes } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -64,12 +67,19 @@ const props = withDefaults(
   {
     modelValue: "",
     kinds: "all",
-    placeholder: "Search actors…",
-    emptyText: "No actors match.",
+    placeholder: undefined,
+    emptyText: undefined,
     disabled: false,
     size: "default",
     id: undefined,
   },
+);
+
+const placeholderText = computed(
+  () => props.placeholder ?? t("actorCombobox.search"),
+);
+const emptyTextValue = computed(
+  () => props.emptyText ?? t("actorCombobox.empty"),
 );
 
 const emit = defineEmits<{
@@ -135,3 +145,16 @@ function actor(option: ComboboxOption): ActorChoice | undefined {
   return byValue.value.get(option.value);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  actorCombobox:
+    agentSuffix: "· agent"
+    search: "Search actors…"
+    empty: "No actors match."
+ru:
+  actorCombobox:
+    agentSuffix: "· агент"
+    search: "Поиск субъектов…"
+    empty: "Субъекты не найдены."
+</i18n>

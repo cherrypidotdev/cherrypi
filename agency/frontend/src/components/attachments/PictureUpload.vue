@@ -43,7 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         Spinner(v-if="busy" data-icon="inline-start")
         UploadIcon(v-else data-icon="inline-start")
-        span {{ picture ? "Replace" : "Upload" }}
+        span {{ picture ? $t("picture.replace") : $t("picture.upload") }}
       Button(
         v-if="picture"
         type="button"
@@ -53,7 +53,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="busy"
       )
         Trash2Icon(data-icon="inline-start")
-        span Remove
+        span {{ $t("common.remove") }}
     input.hidden(
       ref="input"
       type="file"
@@ -69,6 +69,7 @@ import { agency } from "@/lib/sdk";
 import type { Attachment } from "@cherrypi/sdk";
 import { Trash2Icon, UploadIcon } from "@lucide/vue";
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -114,7 +115,7 @@ async function onChange(event: Event) {
       agencyFavicon: props.agencyKind === "favicon" ? true : undefined,
     });
     emit("changed", attachment);
-    toast.success("Picture updated");
+    toast.success(t("picture.toasts.updated"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -128,11 +129,30 @@ async function remove() {
   try {
     await agency.deleteAttachment(props.picture.id);
     emit("changed", undefined);
-    toast.success("Picture removed");
+    toast.success(t("picture.toasts.removed"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
     busy.value = false;
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  picture:
+    toasts:
+      removed: "Picture removed"
+      updated: "Picture updated"
+    upload: "Upload"
+    replace: "Replace"
+ru:
+  picture:
+    toasts:
+      removed: "Изображение удалено"
+      updated: "Изображение обновлено"
+    upload: "Загрузить"
+    replace: "Заменить"
+</i18n>

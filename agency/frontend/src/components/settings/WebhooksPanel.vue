@@ -20,16 +20,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-6
   Card
     CardHeader
-      CardTitle Add webhook
-      CardDescription Outbound JSON notifications on task events.
+      CardTitle {{ $t("webhooks.add") }}
+      CardDescription {{ $t("webhooks.description") }}
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="create")
         FieldGroup
           Field
-            FieldLabel(for="url") URL
-            Input#url(v-model="url" placeholder="https://example.com/cherrypi")
+            FieldLabel(for="url") {{ $t("webhooks.url") }}
+            Input#url(
+              v-model="url"
+              :placeholder="$t('webhooks.urlPlaceholder')"
+            )
           FieldSet
-            FieldLegend Events
+            FieldLegend {{ $t("webhooks.events") }}
             Field(
               v-for="option in EVENT_OPTIONS"
               :key="option.key"
@@ -40,12 +43,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :id="`create-${option.key}`"
               )
               FieldContent
-                FieldLabel(:for="`create-${option.key}`") {{ option.label }}
+                FieldLabel(:for="`create-${option.key}`") {{ $t(option.labelKey) }}
           Field
-            FieldLabel(for="secret") Secret (optional)
+            FieldLabel(for="secret") {{ $t("webhooks.secretOptional") }}
             Input#secret(
               v-model="secret"
-              placeholder="Sent as X-CherryPi-Secret"
+              :placeholder="$t('webhooks.secretHint')"
             )
         .flex.justify-end
           Button(
@@ -54,20 +57,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             Spinner(v-if="creating" data-icon="inline-start")
             PlusIcon(v-else data-icon="inline-start")
-            span Add
+            span {{ $t("common.add") }}
 
   Card
     CardHeader
-      CardTitle Webhooks
-      CardDescription {{ webhooks.length }} configured.
+      CardTitle {{ $t("settings.webhooks.title") }}
+      CardDescription {{ $t("webhooks.configured", { count: webhooks.length }) }}
     CardContent
       p.text-destructive.text-sm(v-if="error") {{ error }}
       Table
         TableHeader
           TableRow
-            TableHead URL
-            TableHead Events
-            TableHead Secret
+            TableHead {{ $t("webhooks.url") }}
+            TableHead {{ $t("webhooks.events") }}
+            TableHead {{ $t("webhooks.secret") }}
             TableHead
         TableBody
           TableRowsSkeleton(
@@ -84,7 +87,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   variant="secondary"
                 ) {{ eventLabel(event) }}
             TableCell
-              Badge(v-if="hook.hasSecret" variant="outline") set
+              Badge(v-if="hook.hasSecret" variant="outline") {{ $t("webhooks.secretSet") }}
               span.text-muted-foreground(v-else) —
             TableCell
               .flex.items-center.justify-end.gap-2
@@ -96,35 +99,35 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   DropdownMenuTrigger(as-child)
                     Button(variant="outline" size="sm")
                       PlayIcon(data-icon="inline-start")
-                      span Try
+                      span {{ $t("webhooks.try") }}
                   DropdownMenuContent.w-56(align="end")
-                    DropdownMenuLabel Send a test payload
+                    DropdownMenuLabel {{ $t("webhooks.sendTest") }}
                     DropdownMenuGroup
                       DropdownMenuItem(
                         v-for="option in EVENT_OPTIONS"
                         :key="option.key"
                         @select="tryHook(hook, option)"
-                      ) {{ option.label }}
+                      ) {{ $t(option.labelKey) }}
                 Button(variant="outline" size="sm" @click="openEdit(hook)")
                   PencilIcon(data-icon="inline-start")
-                  span Edit
+                  span {{ $t("common.edit") }}
                 Button(variant="outline" size="sm" @click="remove(hook.id)")
                   Trash2Icon(data-icon="inline-start")
-                  span Delete
+                  span {{ $t("common.delete") }}
           TableRow(v-if="!webhooks.length && !loading")
-            TableCell.text-muted-foreground(:colspan="4") No webhooks configured.
+            TableCell.text-muted-foreground(:colspan="4") {{ $t("webhooks.empty") }}
 
   Dialog(v-model:open="editingOpen")
     DialogContent
       DialogHeader
-        DialogTitle Edit webhook
+        DialogTitle {{ $t("webhooks.edit") }}
       form.flex.flex-col.gap-4(@submit.prevent="saveEdit")
         FieldGroup
           Field
-            FieldLabel(for="edit-url") URL
+            FieldLabel(for="edit-url") {{ $t("webhooks.url") }}
             Input#edit-url(v-model="editUrl")
           FieldSet
-            FieldLegend Events
+            FieldLegend {{ $t("webhooks.events") }}
             Field(
               v-for="option in EVENT_OPTIONS"
               :key="option.key"
@@ -135,28 +138,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :id="`edit-${option.key}`"
               )
               FieldContent
-                FieldLabel(:for="`edit-${option.key}`") {{ option.label }}
+                FieldLabel(:for="`edit-${option.key}`") {{ $t(option.labelKey) }}
           Field
-            FieldLabel(for="edit-secret") New secret
+            FieldLabel(for="edit-secret") {{ $t("webhooks.newSecret") }}
             Input#edit-secret(
               v-model="editSecret"
-              placeholder="Leave blank to keep the current secret"
+              :placeholder="$t('webhooks.keepSecret')"
             )
           Field(orientation="horizontal")
             Switch#clear-secret(v-model="editClearSecret")
             FieldContent
-              FieldLabel(for="clear-secret") Clear the current secret
+              FieldLabel(for="clear-secret") {{ $t("webhooks.clearSecret") }}
         DialogFooter
           Button(type="button" variant="outline" @click="editingOpen = false")
             XIcon(data-icon="inline-start")
-            span Cancel
+            span {{ $t("common.cancel") }}
           Button(
             type="submit"
             :disabled="saving || !editUrl.trim() || !anyEditEvent"
           )
             Spinner(v-if="saving" data-icon="inline-start")
             CheckIcon(v-else data-icon="inline-start")
-            span Save
+            span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -216,23 +219,26 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { computed, onMounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 type EventKey = "user_input_requested" | "agent_state_changed";
 
 const EVENT_OPTIONS: {
   key: EventKey;
-  label: string;
+  labelKey: string;
   value: AgencyWebhookEvent;
 }[] = [
   {
     key: "user_input_requested",
-    label: "User input requested",
+    labelKey: "webhooks.eventInputRequested",
     value: AgencyWebhookEvent.USER_INPUT_REQUESTED,
   },
   {
     key: "agent_state_changed",
-    label: "Agent state changed",
+    labelKey: "webhooks.eventAgentState",
     value: AgencyWebhookEvent.AGENT_STATE_CHANGED,
   },
 ];
@@ -354,7 +360,7 @@ async function saveEdit() {
 async function remove(id: bigint) {
   try {
     await withProgress(() => agent.deleteWebhook(id));
-    toast("AgencyWebhook deleted");
+    toast(t("webhooks.toasts.deleted"));
     await refresh();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -366,14 +372,14 @@ async function tryHook(
   option: (typeof EVENT_OPTIONS)[number],
 ) {
   const key = hook.id.toString();
-  tryResults[key] = { ok: true, text: "Sending…" };
+  tryResults[key] = { ok: true, text: t("webhooks.sending") };
   try {
     const res = await withProgress(() =>
       agent.testWebhook(hook.id, option.value),
     );
     const text = res.error
-      ? `${option.label}: ${res.error}`
-      : `${option.label}: HTTP ${res.statusCode}`;
+      ? `${t(option.labelKey)}: ${res.error}`
+      : `${t(option.labelKey)}: HTTP ${res.statusCode}`;
     tryResults[key] = { ok: res.ok, text };
   } catch (err) {
     tryResults[key] = {
@@ -385,3 +391,54 @@ async function tryHook(
 
 onMounted(refresh);
 </script>
+
+<i18n lang="yaml">
+en:
+  webhooks:
+    events: "Events"
+    add: "Add webhook"
+    description: "Outbound JSON notifications on task events."
+    url: "URL"
+    secretOptional: "Secret (optional)"
+    secret: "Secret"
+    secretSet: "set"
+    try: "Try"
+    sendTest: "Send a test payload"
+    empty: "No webhooks configured."
+    edit: "Edit webhook"
+    newSecret: "New secret"
+    clearSecret: "Clear the current secret"
+    urlPlaceholder: "https://example.com/cherrypi"
+    secretHint: "Sent as X-CherryPi-Secret"
+    keepSecret: "Leave blank to keep the current secret"
+    sending: "Sending…"
+    eventInputRequested: "User input requested"
+    eventAgentState: "Agent state changed"
+    toasts:
+      deleted: "Webhook deleted"
+    configured: "{count} configured."
+ru:
+  webhooks:
+    events: "События"
+    add: "Добавить вебхук"
+    description: "Исходящие JSON-уведомления о событиях задач."
+    url: "URL"
+    secretOptional: "Секрет (необязательно)"
+    secret: "Секрет"
+    secretSet: "задан"
+    try: "Проверить"
+    sendTest: "Отправить тестовое уведомление"
+    empty: "Вебхуки не настроены."
+    edit: "Изменить вебхук"
+    newSecret: "Новый секрет"
+    clearSecret: "Удалить текущий секрет"
+    urlPlaceholder: "https://example.com/cherrypi"
+    secretHint: "Отправляется как X-CherryPi-Secret"
+    keepSecret: "Оставьте пустым, чтобы сохранить текущий секрет"
+    sending: "Отправка…"
+    eventInputRequested: "Запрошен ввод пользователя"
+    eventAgentState: "Состояние агента изменилось"
+    toasts:
+      deleted: "Вебхук удалён"
+    configured: "настроено: {count}."
+</i18n>

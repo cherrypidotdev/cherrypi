@@ -20,16 +20,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-4
   Card
     CardHeader
-      CardTitle Plugins
+      CardTitle {{ $t("userPlugins.title") }}
       CardDescription
-        | Plugins that declare a user settings surface, for example a notification
-        | bridge. Enable one to edit its personal configuration; disabling keeps
-        | the stored values but stops the plugin from using them.
+        | {{ $t("userPlugins.description") }}
     CardContent
       p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
-      p.text-muted-foreground.text-sm(v-if="loading") Loading…
+      p.text-muted-foreground.text-sm(v-if="loading") {{ $t("common.loading") }}
       p.text-muted-foreground.text-sm(v-else-if="!rows.length")
-        | No installed plugin declares a user settings surface.
+        | {{ $t("userPlugins.empty") }}
 
   Card(v-for="row in rows" :key="row.pluginId")
     CardHeader.flex.flex-row.items-start.justify-between.gap-4
@@ -37,8 +35,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         CardTitle.flex.flex-wrap.items-center.gap-2
           PlugIcon.size-4
           | {{ pluginName(row.pluginId) }}
-          Badge(v-if="row.enabled" variant="default") enabled
-          Badge(v-else variant="secondary") disabled
+          Badge(v-if="row.enabled" variant="default") {{ $t("agentPlugins.enabled") }}
+          Badge(v-else variant="secondary") {{ $t("settings.auth.disabled") }}
         CardDescription {{ pluginDescription(row.pluginId) }}
       Button(
         size="sm"
@@ -50,6 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     CardContent.flex.flex-col.gap-4
       template(v-if="row.enabled")
         PluginSettingsForm(
+          scope="user"
           :schema="row.schemaJson"
           :settings="settingsFor(row)"
           :secret-keys="row.secretKeys"
@@ -57,16 +56,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :error="rowError[row.pluginId]"
           :saved="saved === row.pluginId"
           :errors="rowFieldErrors[row.pluginId] || []"
+          :plugin-id="row.pluginId"
+          :target-id="props.actorId"
           @save="saveSettings(row, $event)"
         )
       p.text-muted-foreground.text-sm(v-else)
-        | Enable the plugin to edit your settings.
+        | {{ $t("userPlugins.enableHint") }}
       template(v-if="plugins[row.pluginId]")
         Separator
         .flex.flex-col.gap-1
-          span.text-sm.font-medium Runtime logs
+          span.text-sm.font-medium {{ $t("agentPlugins.runtimeLogs") }}
           span.text-muted-foreground.text-xs
-            | Lines this plugin emitted for this user through cherrypi.log.*.
+            | {{ $t("userPlugins.runtimeLogsHint") }}
         PluginRuntimeLogs(
           scope="user"
           :plugin-id="row.pluginId"
@@ -92,6 +93,7 @@ import { agency } from "@/lib/sdk";
 import type { Plugin, PluginSettings } from "@cherrypi/sdk";
 import { PlugIcon } from "@lucide/vue";
 import { onMounted, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{ actorId: string }>();
 
@@ -138,7 +140,7 @@ function pluginName(id: string): string {
 }
 
 function pluginDescription(id: string): string {
-  return plugins.value[id]?.description || "No description";
+  return plugins.value[id]?.description || t("agentPlugins.noDescription");
 }
 
 function settingsFor(row: PluginSettings): Record<string, unknown> {
@@ -195,4 +197,23 @@ async function saveSettings(
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  userPlugins:
+    description: "Plugins that declare a user settings surface, for example a notification bridge. Enable one to edit its personal configuration; disabling keeps the stored values but stops the plugin from using them."
+    empty: "No installed plugin declares a user settings surface."
+    enableHint: "Enable the plugin to edit your settings."
+    runtimeLogsHint: "Lines this plugin emitted for this user through cherrypi.log.*."
+    title: "User plugins"
+ru:
+  userPlugins:
+    description: "Плагины, объявляющие поверхность настроек пользователя, например мост уведомлений. Включите плагин, чтобы редактировать личную конфигурацию; при отключении значения сохраняются, но плагин их не использует."
+    empty: "Ни один установленный плагин не объявляет поверхность настроек пользователя."
+    enableHint: "Включите плагин, чтобы редактировать свои настройки."
+    runtimeLogsHint: "Строки, которые плагин записал для этого пользователя через cherrypi.log.*."
+    title: "Плагины пользователя"
+</i18n>

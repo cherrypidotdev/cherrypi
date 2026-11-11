@@ -20,17 +20,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-4
   Card
     CardHeader
-      CardTitle Agent plugins
+      CardTitle {{ $t("agentPlugins.title") }}
       CardDescription
-        | Plugins that declare an agent settings surface. Enabling one lets this
-        | agent use the plugin's agent-scoped configuration, and only then is its
-        | form rendered here. Installing a plugin at the organization level does
-        | not enable it for an agent automatically.
+        | {{ $t("agentPlugins.description") }}
     CardContent
       p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
-      p.text-muted-foreground.text-sm(v-if="loading") Loading…
+      p.text-muted-foreground.text-sm(v-if="loading") {{ $t("common.loading") }}
       p.text-muted-foreground.text-sm(v-else-if="!rows.length")
-        | No installed plugin declares an agent settings surface.
+        | {{ $t("agentPlugins.empty") }}
 
   Card(v-for="row in rows" :key="row.pluginId")
     CardHeader.flex.flex-row.items-start.justify-between.gap-4
@@ -38,8 +35,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         CardTitle.flex.flex-wrap.items-center.gap-2
           PlugIcon.size-4
           | {{ pluginName(row.pluginId) }}
-          Badge(v-if="row.enabled" variant="default") enabled
-          Badge(v-else variant="secondary") disabled
+          Badge(v-if="row.enabled" variant="default") {{ $t("agentPlugins.enabled") }}
+          Badge(v-else variant="secondary") {{ $t("settings.auth.disabled") }}
         CardDescription {{ pluginDescription(row.pluginId) }}
       Button(
         size="sm"
@@ -51,6 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     CardContent.flex.flex-col.gap-4
       template(v-if="row.enabled")
         PluginSettingsForm(
+          scope="agent"
           :schema="row.schemaJson"
           :settings="settingsFor(row)"
           :secret-keys="row.secretKeys"
@@ -58,16 +56,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :error="rowError[row.pluginId]"
           :saved="saved === row.pluginId"
           :errors="rowFieldErrors[row.pluginId] || []"
+          :plugin-id="row.pluginId"
+          :target-id="props.agentActorId"
           @save="saveSettings(row, $event)"
         )
       p.text-muted-foreground.text-sm(v-else)
-        | Enable the plugin to edit its agent settings.
+        | {{ $t("agentPlugins.enableHint") }}
       template(v-if="plugins[row.pluginId]")
         Separator
         .flex.flex-col.gap-1
-          span.text-sm.font-medium Runtime logs
+          span.text-sm.font-medium {{ $t("agentPlugins.runtimeLogs") }}
           span.text-muted-foreground.text-xs
-            | Lines this plugin emitted for this agent through cherrypi.log.*.
+            | {{ $t("agentPlugins.runtimeLogsHint") }}
         PluginRuntimeLogs(
           scope="agent"
           :plugin-id="row.pluginId"
@@ -93,6 +93,7 @@ import { agency } from "@/lib/sdk";
 import type { Plugin, PluginSettings } from "@cherrypi/sdk";
 import { PlugIcon } from "@lucide/vue";
 import { onMounted, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{ agentActorId: string }>();
 
@@ -140,7 +141,7 @@ function pluginName(id: string): string {
 
 function pluginDescription(id: string): string {
   const plugin = plugins.value[id];
-  return plugin?.description || "No description";
+  return plugin?.description || t("agentPlugins.noDescription");
 }
 
 function settingsFor(row: PluginSettings): Record<string, unknown> {
@@ -197,4 +198,29 @@ async function saveSettings(
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  agentPlugins:
+    title: "Agent plugins"
+    description: "Plugins that declare an agent settings surface. Enabling one lets this agent use the plugin's agent-scoped configuration, and only then is its form rendered here. Installing a plugin at the organization level does not enable it for an agent automatically."
+    empty: "No installed plugin declares an agent settings surface."
+    enabled: "enabled"
+    enableHint: "Enable the plugin to edit its agent settings."
+    runtimeLogs: "Runtime logs"
+    runtimeLogsHint: "Lines this plugin emitted for this agent through cherrypi.log.*."
+    noDescription: "No description"
+ru:
+  agentPlugins:
+    title: "Плагины агента"
+    description: "Плагины, объявляющие поверхность настроек агента. После включения агент может использовать конфигурацию плагина для агентов, и только тогда здесь отображается её форма. Установка плагина на уровне организации не включает его для агента автоматически."
+    empty: "Ни один установленный плагин не объявляет поверхность настроек агента."
+    enabled: "включён"
+    enableHint: "Включите плагин, чтобы редактировать его настройки для агента."
+    runtimeLogs: "Журнал выполнения"
+    runtimeLogsHint: "Строки, которые плагин записал для этого агента через cherrypi.log.*."
+    noDescription: "Без описания"
+</i18n>

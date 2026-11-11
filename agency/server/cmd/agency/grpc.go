@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -25,6 +26,7 @@ import (
 	agentsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agents"
 	dashboardgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/desktop"
+	kpigrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/kpi"
 	notificationsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/notifications"
 	pluginsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/plugins"
 	projectsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/projects"
@@ -40,14 +42,50 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/telemetry"
+	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	agencyv1connect "cherrypi.vladfaust.com/shared/gen/buf/agency/v1/agencyv1connect"
 	tunnelv1connect "cherrypi.vladfaust.com/shared/gen/buf/tunnel/v1/tunnelv1connect"
 	sharedtunnel "cherrypi.vladfaust.com/shared/tunnel"
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
 )
+
+func pluginInputRequest(
+	taskID, requestID string,
+	answer pluginhost.TaskInputAnswer,
+) (*agencyv1.RespondToExtensionUiRequest, error) {
+	req := &agencyv1.RespondToExtensionUiRequest{
+		Id:        taskID,
+		RequestId: requestID,
+	}
+	switch answer.Kind {
+	case pluginhost.InputAnswerValue:
+		req.Response = &agencyv1.RespondToExtensionUiRequest_Value{
+			Value: answer.Value,
+		}
+	case pluginhost.InputAnswerConfirmed:
+		req.Response = &agencyv1.RespondToExtensionUiRequest_Confirmed{
+			Confirmed: answer.Confirmed,
+		}
+	case pluginhost.InputAnswerCancelled:
+		req.Response = &agencyv1.RespondToExtensionUiRequest_Cancelled{
+			Cancelled: true,
+		}
+	default:
+		return nil, fmt.Errorf("unknown input answer kind %q", answer.Kind)
+	}
+	for _, qa := range answer.Questionnaire {
+		req.Questionnaire = append(req.Questionnaire,
+			&agencyv1.QuestionnaireAnswer{
+				Question: qa.Question,
+				Answer:   qa.Answer,
+			})
+	}
+	return req, nil
+}
 
 func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	var telemetryInterceptor *otelconnect.Interceptor
@@ -74,6 +112,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 
 	agentService := &agentsgrpc.AgentServer{
 		Agents:      appCtx.Agents,
+		KpiLayouts:  appCtx.KpiLayouts,
 		Prompts:     appCtx.Prompts,
 		Limits:      appCtx.Limits,
 		Scheduler:   appCtx.Scheduler,
@@ -93,6 +132,14 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler = agencyv1connect.NewSettingsServiceHandler(settingsService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	kpiService := &kpigrpc.Server{
+		Layouts:  appCtx.KpiLayouts,
+		Projects: appCtx.Projects,
+		Agents:   appCtx.Agents,
+	}
+	path, handler = agencyv1connect.NewKpiLayoutServiceHandler(kpiService, handlerOptions()...)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
 	siteService := &sitesgrpc.SiteServer{
 		Sites:       appCtx.Sites,
 		Accounts:    appCtx.Accounts,
@@ -103,6 +150,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 
 	projectService := &projectsgrpc.ProjectServer{
 		Projects:    appCtx.Projects,
+		KpiLayouts:  appCtx.KpiLayouts,
 		Agents:      appCtx.Agents,
 		Hub:         appCtx.Hub,
 		Attachments: appCtx.Attachments,
@@ -159,6 +207,30 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		},
 		TeamName: appCtx.Teams.Name,
 		Input:    appCtx.Input,
+	}
+
+	appCtx.Plugins.RespondInput = func(
+		ctx context.Context,
+		plugin pluginhost.Plugin,
+		task tasks.Task,
+		requestID string,
+		answer pluginhost.TaskInputAnswer,
+	) error {
+		inner, err := pluginInputRequest(task.ID, requestID, answer)
+		if err != nil {
+			return err
+		}
+		actorID := ids.ActorID(plugin.ActorID)
+		ctx = auth.WithIdentity(ctx, auth.Identity{
+			ActorID:  actorID,
+			Kind:     "plugin",
+			Username: plugin.ActorUsername,
+			Name:     plugin.ActorName,
+		})
+		ctx = tasks.WithActor(ctx, tasks.ActorPlugin)
+		ctx = tasks.WithActorID(ctx, actorID)
+		_, err = taskService.RespondToExtensionUi(ctx, inner)
+		return err
 	}
 
 	actorInterceptor := connect.UnaryInterceptorFunc(

@@ -1,0 +1,155 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+
+
+
+
+
+
+
+
+
+
+
+
+service KpiLayoutService {
+  
+  
+  rpc GetKpiLayout(GetKpiLayoutRequest) returns (GetKpiLayoutResponse);
+  
+  
+  rpc UpdateKpiLayout(UpdateKpiLayoutRequest) returns (UpdateKpiLayoutResponse);
+  
+  
+  rpc ResetKpiLayout(ResetKpiLayoutRequest) returns (ResetKpiLayoutResponse);
+  
+  
+  rpc GetKpiLayoutDefaults(GetKpiLayoutDefaultsRequest)
+      returns (GetKpiLayoutDefaultsResponse);
+  
+  
+  rpc UpdateKpiLayoutDefaults(UpdateKpiLayoutDefaultsRequest)
+      returns (UpdateKpiLayoutDefaultsResponse);
+}
+
+
+enum KpiPageKind {
+  KPI_PAGE_KIND_UNSPECIFIED = 0;
+  
+  KPI_PAGE_KIND_AGENCY = 1;
+  
+  KPI_PAGE_KIND_PROJECT = 2;
+  
+  KPI_PAGE_KIND_AGENT = 3;
+}
+
+
+
+
+
+message KpiWidget {
+  
+  
+  string id = 1;
+  
+  string kind = 2;
+  
+  int32 width = 3;
+  
+  int32 height = 4;
+  
+  string range = 5;
+  
+  
+  string scope = 6;
+}
+
+
+
+message KpiLayout {
+  repeated KpiWidget widgets = 1;
+}
+
+message GetKpiLayoutRequest {
+  KpiPageKind kind = 1;
+  
+  string id = 2;
+}
+
+message GetKpiLayoutResponse {
+  
+  KpiLayout layout = 1;
+  
+  bool inherited = 2;
+  
+  bool can_edit = 3;
+  
+  
+  KpiLayout fallback = 4;
+}
+
+message UpdateKpiLayoutRequest {
+  KpiPageKind kind = 1;
+  string id = 2;
+  
+  KpiLayout layout = 3;
+}
+
+message UpdateKpiLayoutResponse {
+  KpiLayout layout = 1;
+  bool inherited = 2;
+  bool can_edit = 3;
+  KpiLayout fallback = 4;
+}
+
+message ResetKpiLayoutRequest {
+  KpiPageKind kind = 1;
+  string id = 2;
+}
+
+message ResetKpiLayoutResponse {
+  KpiLayout layout = 1;
+  bool inherited = 2;
+  bool can_edit = 3;
+  KpiLayout fallback = 4;
+}
+
+message GetKpiLayoutDefaultsRequest {}
+
+message GetKpiLayoutDefaultsResponse {
+  
+  KpiLayout project = 1;
+  
+  KpiLayout agent = 2;
+  
+  bool can_edit = 3;
+}
+
+message UpdateKpiLayoutDefaultsRequest {
+  KpiLayout project = 1;
+  KpiLayout agent = 2;
+}
+
+message UpdateKpiLayoutDefaultsResponse {
+  KpiLayout project = 1;
+  KpiLayout agent = 2;
+  bool can_edit = 3;
+}

@@ -19,16 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.gap-3
   .flex.items-center.justify-between
-    span.text-muted-foreground.text-xs Comments
+    span.text-muted-foreground.text-xs {{ $t("comments.title") }}
     span.text-muted-foreground.text-xs(v-if="unread")
-      | {{ unread }} new
+      | {{ $t("comments.unread", { count: unread }) }}
 
-  p.text-muted-foreground.text-xs(v-if="loading") Loading…
+  p.text-muted-foreground.text-xs(v-if="loading") {{ $t("common.loading") }}
   p.text-muted-foreground.text-xs(
     v-else-if="!comments.length"
     data-testid="comments-empty"
   )
-    | No comments yet. Discuss the task here — comments are never sent to Pi.
+    | {{ $t("comments.empty") }}
 
   .flex.flex-col.gap-2
     .group.rounded-md.border.p-2(
@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .text-muted-foreground.flex.items-center.gap-2
           Trash2Icon.size-3.shrink-0
           span.text-xs
-            | Comment deleted by {{ deleterName(comment) }}
+            | {{ $t("comments.deletedBy", { actor: deleterName(comment) }) }}
           span.text-muted-foreground.ml-auto.text-xs(
             :title="formatTimestamp(comment.deletedAt)"
           )
@@ -58,7 +58,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               )
                 | {{ formatRelativeTimestamp(comment.createdAt) }}
               span.text-muted-foreground.text-xs(v-if="comment.edited")
-                | · edited
+                | {{ $t("comments.edited") }}
             MarkdownText.prose.prose-sm.max-w-none.break-words(
               class="prose-p:my-1 prose-pre:my-2"
               :text="comment.body"
@@ -76,8 +76,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               type="button"
               variant="ghost"
               size="icon-sm"
-              title="Edit comment"
-              :aria-label="`Edit comment ${comment.id}`"
+              :title="$t('comments.edit')"
+              :aria-label="$t('comments.editAria', { id: comment.id })"
               @click="startEdit(comment)"
               :disabled="saving"
             )
@@ -86,8 +86,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               type="button"
               variant="ghost"
               size="icon-sm"
-              title="Delete comment"
-              :aria-label="`Delete comment ${comment.id}`"
+              :title="$t('comments.delete')"
+              :aria-label="$t('comments.deleteAria', { id: comment.id })"
               @click="remove(comment)"
               :disabled="saving"
             )
@@ -100,10 +100,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           MarkdownEditor(
             v-model="editDraft"
-            placeholder="Edit the comment… Type @ to mention someone or # to link a task."
+            :placeholder="$t('comments.editPlaceholder')"
             references
             test-id="comment-edit-body"
-            aria-label="Edit comment body"
+            :aria-label="$t('comments.editAriaLabel')"
             :reference-project-id="projectId"
             :reference-task-id="taskId"
             height="7rem"
@@ -115,9 +115,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               variant="ghost"
               size="sm"
               @click="cancelEdit"
-            ) Cancel
+            ) {{ $t("common.cancel") }}
             Button(type="submit" size="sm" :disabled="!canSaveEdit")
-              | Save
+              | {{ $t("common.save") }}
 
   form.flex.flex-col.gap-2.rounded-md.border.p-2(
     @submit.prevent="post"
@@ -125,10 +125,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   )
     MarkdownEditor(
       v-model="draft"
-      placeholder="Write a comment… Type @ to mention someone or # to link a task."
+      :placeholder="$t('comments.placeholder')"
       references
       test-id="comment-body"
-      aria-label="Comment body"
+      :aria-label="$t('comments.bodyAria')"
       :reference-project-id="projectId"
       :reference-task-id="taskId"
       height="8rem"
@@ -145,16 +145,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           type="button"
           variant="ghost"
           size="icon-sm"
-          title="Remove attachment"
-          :aria-label="`Remove ${file.filename}`"
+          :title="$t('comments.removeAttachment')"
+          :aria-label="$t('comments.removeAttachmentAria', { filename: file.filename })"
           @click="unstage(file)"
         )
           XIcon.size-3
     .flex.items-center.gap-2
       AttachmentUploadButton(
-        label="Attach"
+        :label="$t('taskPrompt.attach')"
         comment
-        title="Attach a file to this comment"
+        :title="$t('comments.attachAria')"
         :task-id="taskId"
         @uploaded="stage"
       )
@@ -165,7 +165,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         data-testid="comment-post"
       )
         SendIcon.size-3(data-icon="inline-start")
-        span Post
+        span {{ $t("comments.post") }}
 </template>
 
 <script setup lang="ts">
@@ -326,3 +326,44 @@ useRealtime(
   { rows: true },
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  comments:
+    title: "Comments"
+    empty: "No comments yet. Discuss the task here — comments are never sent to Pi."
+    edited: "· edited"
+    post: "Post"
+    edit: "Edit comment"
+    delete: "Delete comment"
+    editAriaLabel: "Edit comment body"
+    bodyAria: "Comment body"
+    removeAttachment: "Remove attachment"
+    attachAria: "Attach a file to this comment"
+    editAria: "Edit comment {id}"
+    deleteAria: "Delete comment {id}"
+    editPlaceholder: "Edit the comment… Type {'@'} to mention someone or # to link a task."
+    placeholder: "Write a comment… Type {'@'} to mention someone or # to link a task."
+    removeAttachmentAria: "Remove {filename}"
+    unread: "{count} new"
+    deletedBy: "Comment deleted by {actor}"
+ru:
+  comments:
+    title: "Комментарии"
+    empty: "Комментариев пока нет. Обсуждайте задачу здесь — комментарии никогда не отправляются в Pi."
+    edited: "· изменён"
+    post: "Отправить"
+    edit: "Редактировать комментарий"
+    delete: "Удалить комментарий"
+    editAriaLabel: "Текст комментария для редактирования"
+    bodyAria: "Текст комментария"
+    removeAttachment: "Удалить вложение"
+    attachAria: "Прикрепить файл к этому комментарию"
+    editAria: "Редактировать комментарий {id}"
+    deleteAria: "Удалить комментарий {id}"
+    editPlaceholder: "Измените комментарий… Введите {'@'}, чтобы упомянуть кого-то, или #, чтобы сослаться на задачу."
+    placeholder: "Напишите комментарий… Введите {'@'}, чтобы упомянуть кого-то, или #, чтобы сослаться на задачу."
+    removeAttachmentAria: "Удалить {filename}"
+    unread: "новых: {count}"
+    deletedBy: "Комментарий удалён: {actor}"
+</i18n>

@@ -44,6 +44,8 @@ import {
   type Tag,
   type Task,
   type TaskComment,
+  type TaskTool,
+  type TaskToolCallDetail,
 } from "./gen/buf/agency/v1/task_pb.js";
 import {
   AttachmentSchema,
@@ -74,6 +76,12 @@ import {
   type TaskTemplateVersion,
 } from "./gen/buf/agency/v1/task_templates_pb.js";
 import { DashboardService as AgencyDashboardService } from "./gen/buf/agency/v1/dashboard_pb.js";
+import {
+  KpiLayoutService,
+  KpiPageKind as KpiPageKindPb,
+  type KpiLayout,
+  type KpiWidget,
+} from "./gen/buf/agency/v1/kpi_pb.js";
 import {
   SettingsService,
   type Settings,
@@ -108,6 +116,7 @@ import {
   type PluginLog,
   type PluginPreview,
   type PluginSettings,
+  type PreviewPluginTemplateResponse,
   type ProjectPlugin,
 } from "./gen/buf/agency/v1/plugins_pb.js";
 import {
@@ -143,6 +152,7 @@ import {
   type ExtensionUiResponse,
   type GetTaskHistoryOptions,
   type GetTaskHistoryResult,
+  type GetTaskToolCallOptions,
   type GetDesktopResult,
   type ListSitesFilter,
   type ListTagsFilter,
@@ -237,10 +247,6 @@ export interface AgencySettingsInput {
   agencyName: string;
 
   primaryColor: string;
-
-  showUsageKpi?: boolean;
-
-  showConcurrencyKpi?: boolean;
 
   notificationSoundSet?: string;
 
@@ -351,6 +357,45 @@ export interface ProjectAgentPermissionsInput {
   canUpdateTasks: boolean;
 }
 
+export type KpiPage =
+  | { kind: "agency"; id?: undefined }
+  | { kind: "project" | "agent"; id: string };
+
+export interface KpiWidgetInput {
+  id: string;
+
+  kind: string;
+
+  width: number;
+  height: number;
+
+  range?: string;
+
+  scope?: string;
+}
+
+export interface KpiPageLayout {
+  widgets: KpiWidgetInput[];
+
+  inherited: boolean;
+
+  canEdit: boolean;
+
+  fallback: KpiWidgetInput[];
+}
+
+export interface KpiLayoutDefaults {
+  project: KpiWidgetInput[];
+  agent: KpiWidgetInput[];
+
+  canEdit: boolean;
+}
+
+export interface KpiLayoutDefaultsInput {
+  project: KpiWidgetInput[];
+  agent: KpiWidgetInput[];
+}
+
 export class AgencyClient {
   readonly baseUrl: string;
 
@@ -358,6 +403,7 @@ export class AgencyClient {
 
   private readonly agents: Client<typeof AgentService>;
   private readonly settings: Client<typeof SettingsService>;
+  private readonly kpiLayouts: Client<typeof KpiLayoutService>;
   private readonly tasks: Client<typeof AgencyTaskService>;
   private readonly tags: Client<typeof TagService>;
   private readonly projects: Client<typeof ProjectService>;
@@ -391,6 +437,7 @@ export class AgencyClient {
 
     this.agents = createClient(AgentService, transport);
     this.settings = createClient(SettingsService, transport);
+    this.kpiLayouts = createClient(KpiLayoutService, transport);
     this.tasks = createClient(AgencyTaskService, transport);
     this.tags = createClient(TagService, transport);
     this.projects = createClient(ProjectService, transport);
@@ -1051,6 +1098,73 @@ export class AgencyClient {
     return res.sections;
   }
 
+  async getKpiLayout(
+    page: KpiPage,
+    options?: CallOptions,
+  ): Promise<KpiPageLayout> {
+    const res = await this.kpiLayouts.getKpiLayout(
+      { kind: kpiPageKind(page), id: page.id ?? "" },
+      options,
+    );
+    return kpiPageLayout(res);
+  }
+
+  async updateKpiLayout(
+    page: KpiPage,
+    widgets: KpiWidgetInput[],
+    options?: CallOptions,
+  ): Promise<KpiPageLayout> {
+    const res = await this.kpiLayouts.updateKpiLayout(
+      {
+        kind: kpiPageKind(page),
+        id: page.id ?? "",
+        layout: { widgets: widgets.map(kpiWidget) },
+      },
+      options,
+    );
+    return kpiPageLayout(res);
+  }
+
+  async resetKpiLayout(
+    page: KpiPage,
+    options?: CallOptions,
+  ): Promise<KpiPageLayout> {
+    const res = await this.kpiLayouts.resetKpiLayout(
+      { kind: kpiPageKind(page), id: page.id ?? "" },
+      options,
+    );
+    return kpiPageLayout(res);
+  }
+
+  async getKpiLayoutDefaults(
+    options?: CallOptions,
+  ): Promise<KpiLayoutDefaults> {
+    const res = await this.kpiLayouts.getKpiLayoutDefaults({}, options);
+    return {
+      project: kpiWidgets(res.project),
+      agent: kpiWidgets(res.agent),
+      canEdit: res.canEdit,
+    };
+  }
+
+  async updateKpiLayoutDefaults(
+    defaults: KpiLayoutDefaultsInput,
+    options?: CallOptions,
+  ): Promise<KpiLayoutDefaults> {
+    const res = await this.kpiLayouts.updateKpiLayoutDefaults(
+      {
+        project: { widgets: defaults.project.map(kpiWidget) },
+        agent: { widgets: defaults.agent.map(kpiWidget) },
+      },
+      options,
+    );
+    return {
+      project: kpiWidgets(res.project),
+      agent: kpiWidgets(res.agent),
+      canEdit: res.canEdit,
+    };
+  }
+
   async getSettings(options?: CallOptions): Promise<Settings> {
     const res = await this.settings.getSettings({}, options);
     return res.settings!;
@@ -1065,8 +1179,6 @@ export class AgencyClient {
         settings: {
           agencyName: input.agencyName,
           primaryColor: input.primaryColor,
-          showUsageKpi: input.showUsageKpi ?? true,
-          showConcurrencyKpi: input.showConcurrencyKpi ?? true,
           notificationSoundSet: input.notificationSoundSet ?? "",
           voiceInput: input.voiceInput
             ? {
@@ -1709,6 +1821,28 @@ export class AgencyClient {
     return res.settings!;
   }
 
+  async previewPluginTemplate(
+    pluginId: string,
+    scope: string,
+    targetId: string,
+    field: string,
+    source: string,
+    samples: Record<string, unknown> = {},
+    options?: CallOptions,
+  ): Promise<PreviewPluginTemplateResponse> {
+    return this.plugins.previewPluginTemplate(
+      {
+        pluginId,
+        scope,
+        targetId,
+        field,
+        source,
+        samplesJson: JSON.stringify(samples),
+      },
+      options,
+    );
+  }
+
   async setPluginSettingsEnabled(
     pluginId: string,
     scope: string,
@@ -1904,6 +2038,26 @@ export class AgencyClient {
     return { calls: res.calls, total: res.total, names: res.names };
   }
 
+  async listTaskTools(
+    taskId: string,
+    options?: CallOptions,
+  ): Promise<{ tools: TaskTool[]; recorded: boolean }> {
+    const res = await this.tasks.listTaskTools({ taskId }, options);
+    return { tools: res.tools, recorded: res.recorded };
+  }
+
+  async getTaskToolCall(
+    taskId: string,
+    callId: string,
+    options?: GetTaskToolCallOptions,
+  ): Promise<TaskToolCallDetail> {
+    const res = await this.tasks.getTaskToolCall(
+      { taskId, callId, full: options?.full ?? false },
+      { signal: options?.signal },
+    );
+    return res.call!;
+  }
+
   async getTaskConfig(id: string, options?: CallOptions): Promise<TaskConfig> {
     const res = await this.tasks.getTaskConfig({ id }, options);
     return res.config!;
@@ -1962,6 +2116,14 @@ export class AgencyClient {
 
   async clearTaskQueue(id: string, options?: CallOptions): Promise<void> {
     await this.tasks.clearTaskQueue({ id }, options);
+  }
+
+  async removeTaskQueuedMessage(
+    id: string,
+    queueId: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.tasks.removeTaskQueuedMessage({ id, queueId }, options);
   }
 
   async restartTaskSession(id: string, options?: CallOptions): Promise<void> {
@@ -2465,6 +2627,53 @@ async function restError(res: Response): Promise<string> {
     }
   } catch {}
   return `${res.status} ${res.statusText}`;
+}
+
+function kpiPageKind(page: KpiPage): KpiPageKindPb {
+  switch (page.kind) {
+    case "agency":
+      return KpiPageKindPb.AGENCY;
+    case "project":
+      return KpiPageKindPb.PROJECT;
+    case "agent":
+      return KpiPageKindPb.AGENT;
+  }
+}
+
+function kpiPageLayout(res: {
+  layout?: KpiLayout;
+  inherited: boolean;
+  canEdit: boolean;
+  fallback?: KpiLayout;
+}): KpiPageLayout {
+  return {
+    widgets: kpiWidgets(res.layout),
+    inherited: res.inherited,
+    canEdit: res.canEdit,
+    fallback: kpiWidgets(res.fallback),
+  };
+}
+
+function kpiWidgets(layout: KpiLayout | undefined): KpiWidgetInput[] {
+  return (layout?.widgets ?? []).map((widget) => ({
+    id: widget.id,
+    kind: widget.kind,
+    width: widget.width,
+    height: widget.height,
+    range: widget.range,
+    scope: widget.scope,
+  }));
+}
+
+function kpiWidget(widget: KpiWidgetInput): KpiWidget {
+  return {
+    id: widget.id,
+    kind: widget.kind,
+    width: widget.width,
+    height: widget.height,
+    range: widget.range ?? "",
+    scope: widget.scope ?? "",
+  } as KpiWidget;
 }
 
 function templateContent(input: TaskTemplateContentInput): TaskTemplateContent {

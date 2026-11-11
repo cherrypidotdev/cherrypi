@@ -70,12 +70,12 @@ export function projectStatuses(
   return statuses;
 }
 
-export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
-  input: "Input required",
-  running: "Running",
-  settled: "Settled",
-  waiting: "Waiting",
-  queued: "Queued",
+export const PROJECT_STATUS_KEY: Record<ProjectStatus, string> = {
+  input: "projectStatus.input",
+  running: "projectStatus.running",
+  settled: "projectStatus.settled",
+  waiting: "projectStatus.waiting",
+  queued: "projectStatus.queued",
 };
 
 export const PROJECT_STATUS_STATE: Record<ProjectStatus, TaskState> = {

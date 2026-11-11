@@ -88,13 +88,13 @@ function defaultArgValue(arg: TaskTemplateArgInput): unknown {
   }
 }
 
-export const ARG_TYPE_LABELS: Record<TaskTemplateArgType, string> = {
-  [TaskTemplateArgType.UNSPECIFIED]: "Text",
-  [TaskTemplateArgType.TEXT]: "Text",
-  [TaskTemplateArgType.MULTILINE]: "Multiline text",
-  [TaskTemplateArgType.NUMBER]: "Number",
-  [TaskTemplateArgType.BOOLEAN]: "Boolean",
-  [TaskTemplateArgType.SELECT]: "Select",
+export const ARG_TYPE_KEYS: Record<TaskTemplateArgType, string> = {
+  [TaskTemplateArgType.UNSPECIFIED]: "argType.text",
+  [TaskTemplateArgType.TEXT]: "argType.text",
+  [TaskTemplateArgType.MULTILINE]: "argType.multiline",
+  [TaskTemplateArgType.NUMBER]: "argType.number",
+  [TaskTemplateArgType.BOOLEAN]: "argType.boolean",
+  [TaskTemplateArgType.SELECT]: "argType.select",
 };
 
 export const ARG_TYPES: TaskTemplateArgType[] = [

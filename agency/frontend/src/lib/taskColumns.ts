@@ -30,13 +30,13 @@ export type TaskColumnKey =
 
 export interface TaskColumn {
   key: TaskColumnKey;
-  label: string;
+  labelKey: string;
 
   widthClass?: string;
 
   sortKey?: string;
 
-  hint?: string;
+  hintKey?: string;
 
   skeleton: string;
 }
@@ -49,68 +49,83 @@ export interface TaskColumnPreference {
 export const TASK_COLUMNS: TaskColumn[] = [
   {
     key: "state",
-    label: "State",
+    labelKey: "taskColumn.state",
     widthClass: "w-56",
     sortKey: "state",
     skeleton: "h-5 w-20",
   },
   {
     key: "project",
-    label: "Project",
+    labelKey: "taskColumn.project",
     widthClass: "w-32",
     sortKey: "project",
     skeleton: "w-20",
   },
-  { key: "title", label: "Title", sortKey: "task", skeleton: "w-48" },
+  {
+    key: "title",
+    labelKey: "taskColumn.title",
+    sortKey: "task",
+    skeleton: "w-48",
+  },
   {
     key: "progress",
-    label: "Progress",
+    labelKey: "taskColumn.progress",
     widthClass: "w-32",
     sortKey: "progress",
-    hint: "The agent's reported plan: completed steps out of total",
+    hintKey: "taskColumn.progressHint",
     skeleton: "w-16",
   },
   {
     key: "badges",
-    label: "Badges",
+    labelKey: "taskColumn.badges",
     widthClass: "w-40",
-    hint: "Status an installed plugin reports for the task (the pull request, CI)",
+    hintKey: "taskColumn.badgesHint",
     skeleton: "w-20",
   },
-  { key: "links", label: "Links", widthClass: "w-28", skeleton: "w-12" },
-  { key: "tags", label: "Tags", widthClass: "w-40", skeleton: "w-24" },
+  {
+    key: "links",
+    labelKey: "taskColumn.links",
+    widthClass: "w-28",
+    skeleton: "w-12",
+  },
+  {
+    key: "tags",
+    labelKey: "taskColumn.tags",
+    widthClass: "w-40",
+    skeleton: "w-24",
+  },
   {
     key: "references",
-    label: "References",
+    labelKey: "taskColumn.references",
     widthClass: "w-40",
     skeleton: "w-24",
   },
   {
     key: "priority",
-    label: "Priority",
+    labelKey: "taskColumn.priority",
     widthClass: "w-24",
     sortKey: "priority",
     skeleton: "w-12",
   },
   {
     key: "size",
-    label: "Size",
+    labelKey: "taskColumn.size",
     widthClass: "w-24",
     sortKey: "size",
     skeleton: "w-12",
   },
   {
     key: "assignee",
-    label: "Assignee",
+    labelKey: "taskColumn.assignee",
     widthClass: "w-40",
     skeleton: "w-20",
   },
   {
     key: "cost",
-    label: "Cost",
+    labelKey: "taskColumn.cost",
     widthClass: "w-24",
     sortKey: "cost",
-    hint: "Cost across settled and in-flight runs",
+    hintKey: "taskColumn.costHint",
     skeleton: "w-12",
   },
 ];

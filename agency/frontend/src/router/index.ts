@@ -16,7 +16,9 @@
 
 import AppShell from "@/components/AppShell.vue";
 import { useAgents } from "@/composables/useAgents";
+import { loadLocalePreference } from "@/composables/useLocale";
 import { setPageTitle } from "@/composables/usePageTitle";
+import { t } from "@/i18n/translate";
 import { ensureSession } from "@/lib/account";
 import { currentAgentId, currentAgentUsername } from "@/lib/sdk";
 import AccountView from "@/views/AccountView.vue";
@@ -61,7 +63,7 @@ const devRoutes: RouteRecordRaw[] = import.meta.env.DEV
         path: "/dev-studio",
         name: "dev-studio",
         component: () => import("@/views/DevStudioView.vue"),
-        meta: { title: "Design studio" },
+        meta: { titleKey: "pageTitle.designStudio" },
       },
     ]
   : [];
@@ -73,25 +75,25 @@ const router = createRouter({
       path: "/login",
       name: "login",
       component: LoginView,
-      meta: { title: "Sign in" },
+      meta: { titleKey: "pageTitle.signIn" },
     },
     {
       path: "/magic-link",
       name: "magic-link",
       component: MagicLinkView,
-      meta: { title: "Signing in" },
+      meta: { titleKey: "pageTitle.signingIn" },
     },
     {
       path: "/reset-password",
       name: "reset-password",
       component: ResetPasswordView,
-      meta: { title: "Reset password" },
+      meta: { titleKey: "pageTitle.resetPassword" },
     },
     {
       path: "/invite",
       name: "invite",
       component: InviteView,
-      meta: { title: "Accept invitation" },
+      meta: { titleKey: "pageTitle.acceptInvitation" },
     },
     ...devRoutes,
     {
@@ -103,72 +105,72 @@ const router = createRouter({
           path: "agents",
           name: "agents",
           component: AgentsView,
-          meta: { title: "Agents" },
+          meta: { titleKey: "pageTitle.agents" },
         },
 
         {
           path: "tasks",
           name: "agency-tasks",
           component: AgencyTasksView,
-          meta: { title: "Tasks" },
+          meta: { titleKey: "pageTitle.tasks" },
         },
         {
           path: "tasks/:id",
           name: "task",
           component: TaskView,
           props: true,
-          meta: { title: "Task" },
+          meta: { titleKey: "pageTitle.task" },
         },
         {
           path: "sites",
           name: "sites",
           component: SitesView,
-          meta: { title: "Sites" },
+          meta: { titleKey: "pageTitle.sites" },
         },
         {
           path: "sites/:id",
           name: "site",
           component: SiteView,
           props: true,
-          meta: { title: "Site" },
+          meta: { titleKey: "pageTitle.site" },
         },
         {
           path: "usage",
           name: "agency-usage",
           component: AgencyUsageView,
-          meta: { title: "Usage" },
+          meta: { titleKey: "pageTitle.usage" },
         },
         {
           path: "inbox",
           name: "inbox",
           component: InboxView,
-          meta: { title: "Inbox" },
+          meta: { titleKey: "pageTitle.inbox" },
         },
         {
           path: "projects",
           name: "projects",
           component: ProjectsView,
-          meta: { title: "Projects" },
+          meta: { titleKey: "pageTitle.projects" },
         },
         {
           path: "teams",
           name: "teams",
           component: TeamsView,
-          meta: { title: "Teams" },
+          meta: { titleKey: "pageTitle.teams" },
         },
         {
           path: "teams/:id",
           name: "team",
           component: TeamView,
           props: true,
-          meta: { title: "Team" },
+          meta: { titleKey: "pageTitle.team" },
         },
         {
           path: "projects/:slug",
           name: "project",
           component: ProjectView,
           props: true,
-          meta: { title: "Project" },
+          meta: { titleKey: "pageTitle.project" },
         },
         {
           path: "projects/:slug/settings",
@@ -183,33 +185,33 @@ const router = createRouter({
           path: "settings",
           name: "settings",
           component: SettingsView,
-          meta: { title: "Organization settings", adminOnly: true },
+          meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
         },
         {
           path: "account",
           name: "account",
           component: AccountView,
-          meta: { title: "Account" },
+          meta: { titleKey: "pageTitle.account" },
         },
 
         {
           path: "agents/:username",
           name: "agent",
           component: AgentView,
-          meta: { title: "Agent" },
+          meta: { titleKey: "pageTitle.agent" },
         },
 
         {
           path: "users",
           name: "users",
           component: UsersView,
-          meta: { title: "Users" },
+          meta: { titleKey: "pageTitle.users" },
         },
         {
           path: "users/:username",
           name: "user",
           component: UserView,
-          meta: { title: "User" },
+          meta: { titleKey: "pageTitle.user" },
         },
 
         {
@@ -260,6 +262,8 @@ router.beforeEach(async (to) => {
   if (!actor) {
     return { name: "login", query: { redirect: to.fullPath } };
   }
+
+  await loadLocalePreference();
   if (to.meta.adminOnly && !actor.is_admin) {
     return { name: "agency-tasks" };
   }
@@ -291,7 +295,8 @@ router.beforeEach(async (to) => {
 });
 
 router.afterEach((to) => {
-  setPageTitle(typeof to.meta.title === "string" ? to.meta.title : "");
+  const key = to.meta.titleKey;
+  setPageTitle(typeof key === "string" ? t(key) : "");
 });
 
 export default router;

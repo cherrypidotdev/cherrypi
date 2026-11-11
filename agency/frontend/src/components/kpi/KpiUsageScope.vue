@@ -17,32 +17,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-UsageKpis(:summary="summary" :daily="daily" :range="RANGE" :context="context")
+slot(:data="data")
 </template>
 
 <script setup lang="ts">
-import UsageKpis from "@/components/usage/UsageKpis.vue";
 import {
   useUsageAnalytics,
   type UsageContext,
 } from "@/composables/useUsageAnalytics";
+import type { KpiUsageData } from "@/lib/kpiWidgets";
 import type { UsageRange } from "@/lib/usage";
 import { computed, ref } from "vue";
 
 const props = defineProps<{
-  context: UsageContext;
-  agentId?: string;
-  projectId?: string;
+  agentId: string;
+  projectId: string;
+  range: UsageRange;
 }>();
 
-const RANGE: UsageRange = "30";
+const context = computed<UsageContext>(() => {
+  if (props.agentId) return "agent";
+  if (props.projectId) return "project";
+  return "agency";
+});
+
 const includeArchived = ref(true);
 
-const { summary, daily } = useUsageAnalytics({
-  context: computed(() => props.context),
-  agentId: computed(() => props.agentId ?? ""),
-  projectId: computed(() => props.projectId ?? ""),
-  range: computed(() => RANGE),
+const { summary, insights, insightDaily, loading, error } = useUsageAnalytics({
+  context,
+  agentId: computed(() => props.agentId),
+  projectId: computed(() => props.projectId),
+  range: computed(() => props.range),
   includeArchived,
 });
+
+const data = computed<KpiUsageData>(() => ({
+  summary: summary.value,
+  insights: insights.value,
+  insightDaily: insightDaily.value,
+  loading: loading.value,
+  error: error.value,
+}));
 </script>

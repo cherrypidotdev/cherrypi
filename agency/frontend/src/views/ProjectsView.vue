@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .d-card-body
       .d-card-title.flex.items-center.gap-2
         FolderIcon
-        h2 Active projects
+        h2 {{ $t("projects.active") }}
         span.d-badge.d-badge-sm.d-badge-soft {{ active.length }}
 
       .d-alert.d-alert-error.d-alert-soft.text-sm(v-if="error" role="alert")
@@ -32,10 +32,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         table.d-table
           thead
             tr
-              th Project
-              th Slug
-              th Created
-              th.text-right Actions
+              th {{ $t("admin.projects.columnProject") }}
+              th {{ $t("settings.auth.slug") }}
+              th {{ $t("admin.teams.columnCreated") }}
+              th.text-right {{ $t("common.actions") }}
 
           tbody
             template(v-if="loading && !active.length")
@@ -61,37 +61,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     @click="archive(project)"
                   )
                     ArchiveIcon(:size="16")
-                    span Archive
+                    span {{ $t("tags.archive") }}
 
             tr(v-if="!active.length && !loading")
-              td.text-muted-foreground(:colspan="4") No active projects.
+              td.text-muted-foreground(:colspan="4") {{ $t("projects.empty.active") }}
 
   section.d-card.bg-base-100.border
     .d-card-body(class="@container")
       .d-card-title.flex.items-center.gap-2
         FolderPlusIcon
-        h2 New project
+        h2 {{ $t("admin.projects.create") }}
 
       form.grid.gap-3(class="@3xl:grid-cols-2" @submit.prevent="create")
         fieldset.d-fieldset
-          label.d-fieldset-legend(for="project-name") Name
+          label.d-fieldset-legend(for="project-name") {{ $t("common.name") }}
           input#project-name.d-input.w-full(
             v-model="name"
-            placeholder="Website"
+            :placeholder="$t('projects.create.websitePlaceholder')"
           )
 
         fieldset.d-fieldset
-          label.d-fieldset-legend(for="project-slug") Slug
+          label.d-fieldset-legend(for="project-slug") {{ $t("settings.auth.slug") }}
           input#project-slug.d-input.w-full(
             v-model="slug"
             :placeholder="slugPlaceholder"
             autocomplete="off"
           )
           p.d-fieldset-label
-            | Lowercase kebab-case, unique, and immutable.
+            | {{ $t("projects.create.slugHint") }}
 
         fieldset.d-fieldset
-          label.d-fieldset-legend(for="project-prefix") Task prefix
+          label.d-fieldset-legend(for="project-prefix") {{ $t("projectSettings.taskIds.prefix") }}
           input#project-prefix.d-input.w-full(
             v-model="prefix"
             :placeholder="prefixPlaceholder"
@@ -99,12 +99,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             autocomplete="off"
           )
           p.d-fieldset-label
-            | Uppercase letters, digits, and dashes prefixed to task ids;
-            | unique. Derived from the slug when blank.
+            | {{ $t("projects.create.taskPrefixHint") }}
 
         fieldset.d-fieldset
           label.d-fieldset-legend(for="project-description")
-            | Description
+            | {{ $t("common.description") }}
           textarea#project-description.d-textarea.w-full(v-model="description")
 
         .d-alert.d-alert-error.d-alert-soft.col-span-full(
@@ -120,14 +119,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             span.d-loading.d-loading-spinner.d-loading-xs(v-if="creating")
             SparklesIcon(v-else :size="16")
-            span Create
+            span {{ $t("common.create") }}
 
   section.d-collapse.d-collapse-arrow.bg-base-100.border
-    input(type="checkbox" aria-label="Show archived projects")
+    input(type="checkbox" :aria-label="$t('projects.showArchivedAria')")
 
     .d-collapse-title.flex.items-center.gap-2
       ArchiveIcon
-      h2 Archived projects
+      h2 {{ $t("projects.archived") }}
       span.d-badge.d-badge-sm.d-badge-soft {{ archived.length }}
 
     .d-collapse-content.p-0
@@ -135,17 +134,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .d-alert(role="alert")
           InfoIcon(:size="16")
           p
-            | Archiving a project hides it and its tasks; un-archiving shows them
-            | again.
+            | {{ $t("projects.archivedHint") }}
 
         .overflow-x-auto
           table.d-table
             thead
               tr
-                th Project
-                th Slug
-                th Archived
-                th.text-right Actions
+                th {{ $t("admin.projects.columnProject") }}
+                th {{ $t("settings.auth.slug") }}
+                th {{ $t("domainLog.kind.archived") }}
+                th.text-right {{ $t("common.actions") }}
 
             tbody
               tr(v-for="project in archived" :key="project.id")
@@ -167,10 +165,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       @click="unarchive(project)"
                     )
                       ArchiveRestoreIcon(:size="16")
-                      span Unarchive
+                      span {{ $t("tasksTable.unarchive") }}
 
               tr(v-if="!archived.length")
-                td.text-muted-foreground(:colspan="4") No archived projects.
+                td.text-muted-foreground(:colspan="4") {{ $t("projects.empty.archived") }}
 </template>
 
 <script setup lang="ts">
@@ -189,8 +187,11 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const {
   active,
@@ -239,7 +240,7 @@ async function create() {
     slug.value = "";
     prefix.value = "";
     description.value = "";
-    toast.success("Project created");
+    toast.success(t("projects.toasts.created"));
   } catch (err) {
     createError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -255,7 +256,7 @@ async function archive(project: Project) {
         `Project archived, but ${offline.length} offline agent(s) were skipped`,
       );
     } else {
-      toast.success("Project archived");
+      toast.success(t("admin.toasts.projectArchived"));
     }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -265,7 +266,7 @@ async function archive(project: Project) {
 async function unarchive(project: Project) {
   try {
     await withProgress(() => unarchiveProject(project.id));
-    toast.success("Project unarchived");
+    toast.success(t("admin.toasts.projectUnarchived"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   }
@@ -273,3 +274,36 @@ async function unarchive(project: Project) {
 
 onMounted(() => loadProjects(true));
 </script>
+
+<i18n lang="yaml">
+en:
+  projects:
+    active: "Active projects"
+    empty:
+      active: "No active projects."
+      archived: "No archived projects."
+    create:
+      websitePlaceholder: "Website"
+      slugHint: "Lowercase kebab-case, unique, and immutable."
+      taskPrefixHint: "Uppercase letters, digits, and dashes prefixed to task ids; unique. Derived from the slug when blank."
+    showArchivedAria: "Show archived projects"
+    archived: "Archived projects"
+    archivedHint: "Archiving a project hides it and its tasks; un-archiving shows them again."
+    toasts:
+      created: "Project created"
+ru:
+  projects:
+    active: "Активные проекты"
+    empty:
+      active: "Активных проектов нет."
+      archived: "Архивных проектов нет."
+    create:
+      websitePlaceholder: "Сайт"
+      slugHint: "Строчные буквы и дефисы, уникально и неизменяемо."
+      taskPrefixHint: "Заглавные буквы, цифры и дефисы перед идентификаторами задач; уникально. Если пусто, выводится из слага."
+    showArchivedAria: "Показать архивные проекты"
+    archived: "Архивные проекты"
+    archivedHint: "Архивация скрывает проект и его задачи; разархивация возвращает их."
+    toasts:
+      created: "Проект создан"
+</i18n>

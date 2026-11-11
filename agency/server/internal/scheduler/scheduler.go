@@ -57,6 +57,8 @@ type Scheduler struct {
 
 	Interval time.Duration
 
+	SettleGrace time.Duration
+
 	Connected  func(agentID ids.AgentID) bool
 	CreateTask func(
 		ctx context.Context,
@@ -316,6 +318,13 @@ func (s *Scheduler) Drain(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) settleGrace() time.Duration {
+	if s.SettleGrace != 0 {
+		return s.SettleGrace
+	}
+	return tasks.SettleGrace
+}
+
 func (s *Scheduler) noteWaiting(
 	ctx context.Context,
 	task tasks.Task,
@@ -407,6 +416,10 @@ func (s *Scheduler) Reconcile(ctx context.Context) {
 					}
 				}
 			default:
+
+				if task.RunMayBeStarting(time.Now(), s.settleGrace()) {
+					continue
+				}
 				if settled, err := s.Tasks.Settle(ctx, task.ID); err != nil {
 					log.Printf("[scheduler] settle %s: %v", task.ID, err)
 				} else if settled {

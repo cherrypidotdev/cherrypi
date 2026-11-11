@@ -19,8 +19,10 @@ import type { Patch } from "./patch";
 
 export interface SoundSet {
   id: string;
-  name: string;
-  description: string;
+
+  nameKey: string;
+  /** Catalog key for the set's one-line description. */
+  descriptionKey: string;
 
   volume: number;
 
@@ -41,8 +43,8 @@ export function clampSoundVolume(value: unknown): number {
 export const SOUND_SETS: SoundSet[] = [
   {
     id: "classic",
-    name: "Classic",
-    description: "The original CherryPi chime, note for note.",
+    nameKey: "soundSet.classic",
+    descriptionKey: "soundSet.classicHint",
     volume: 0.75,
     patches: {
       "task_started": {
@@ -116,8 +118,8 @@ export const SOUND_SETS: SoundSet[] = [
   },
   {
     id: "cherry",
-    name: "Cherry",
-    description: "Warm, rounded chimes. The default.",
+    nameKey: "soundSet.cherry",
+    descriptionKey: "soundSet.cherryHint",
     volume: 1,
     patches: {
       "task_started": {
@@ -204,8 +206,8 @@ export const SOUND_SETS: SoundSet[] = [
   },
   {
     id: "wood",
-    name: "Wood",
-    description: "Marimba and woodblock: a short knock with an organic body.",
+    nameKey: "soundSet.wood",
+    descriptionKey: "soundSet.woodHint",
     volume: 1,
     patches: {
       "task_started": {
@@ -354,8 +356,8 @@ export const SOUND_SETS: SoundSet[] = [
   },
   {
     id: "glass",
-    name: "Glass",
-    description: "Bell and glass partials with a short room around them.",
+    nameKey: "soundSet.glass",
+    descriptionKey: "soundSet.glassHint",
     volume: 1,
     patches: {
       "task_started": {
@@ -500,8 +502,8 @@ export const SOUND_SETS: SoundSet[] = [
   },
   {
     id: "arcade",
-    name: "Arcade",
-    description: "Dry chiptune blips: square waves, fast and bright.",
+    nameKey: "soundSet.arcade",
+    descriptionKey: "soundSet.arcadeHint",
     volume: 1.4,
     patches: {
       "task_started": {

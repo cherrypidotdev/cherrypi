@@ -22,39 +22,38 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
     DialogHeader
       DialogTitle {{ tag ? "Edit tag" : "Add tag" }}
       DialogDescription(v-if="tag")
-        | Rename the tag, adjust its colour, or change its agent routing.
+        | {{ $t("tagEditor.editHint") }}
       DialogDescription(v-else)
-        | Create a label for this project's tasks.
+        | {{ $t("tagEditor.createHint") }}
     form.flex.flex-col.gap-4(@submit.prevent="save")
       Field
-        FieldLabel(for="tag-editor-name") Name
+        FieldLabel(for="tag-editor-name") {{ $t("common.name") }}
         Input#tag-editor-name(
           v-model="name"
-          placeholder="bug"
+          :placeholder="$t('tagEditor.namePlaceholder')"
           autocomplete="off"
           data-test="tag-name"
         )
 
       Field
-        FieldLabel(for="tag-editor-description") Description
+        FieldLabel(for="tag-editor-description") {{ $t("common.description") }}
         Input#tag-editor-description(
           v-model="description"
-          placeholder="Optional"
+          :placeholder="$t('common.optional')"
           data-test="tag-description"
         )
 
       Field
-        FieldLabel Colour
+        FieldLabel {{ $t("tagEditor.colour") }}
         TagColorPicker(v-model="color" :disabled="saving")
-        FieldDescription Pick a palette colour or enter a custom hex value.
+        FieldDescription {{ $t("tagEditor.colourHint") }}
 
       Field
         .flex.items-center.justify-between.gap-3
           .flex.flex-col
-            FieldLabel(for="tag-editor-required") Required by agent
+            FieldLabel(for="tag-editor-required") {{ $t("tagEditor.required") }}
             FieldDescription
-              | Tasks with this tag only run on agents whose concurrency
-              | limits declare it. A 0 cap still declares the tag.
+              | {{ $t("tagEditor.requiredHint") }}
           Switch#tag-editor-required(
             v-model="isRequired"
             :disabled="saving"
@@ -62,7 +61,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           )
 
       Field(v-if="!tag && presets.length")
-        FieldLabel Suggested tags
+        FieldLabel {{ $t("tagEditor.suggested") }}
         .flex.flex-wrap(class="gap-1.5")
           button.rounded-full.border.px-2.text-xs.transition-opacity(
             v-for="preset in presets"
@@ -70,19 +69,19 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
             type="button"
             class="py-0.5 hover:opacity-80"
             :style="tagStyle(preset.color)"
-            :title="preset.description"
+            :title="$t(preset.descriptionKey)"
             @click="applyPreset(preset)"
             data-test="tag-preset"
           )
             | {{ preset.name }}
         FieldDescription
-          | One-click presets; nothing is created until you save.
+          | {{ $t("tagEditor.suggestedHint") }}
 
       p.text-destructive.text-sm(v-if="error") {{ error }}
 
       DialogFooter
         DialogClose
-          Button(type="button" variant="ghost") Cancel
+          Button(type="button" variant="ghost") {{ $t("common.cancel") }}
         Button(type="submit" :disabled="saving || !name.trim() || !projectId")
           Spinner(v-if="saving" data-icon="inline-start")
           CheckIcon(v-else data-icon="inline-start")
@@ -112,6 +111,7 @@ import { tagStyle } from "@/lib/task";
 import type { Tag } from "@cherrypi/sdk";
 import { CheckIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -160,7 +160,7 @@ watch(
 
 function applyPreset(preset: TagPreset) {
   name.value = preset.name;
-  description.value = preset.description;
+  description.value = t(preset.descriptionKey);
   color.value = preset.color;
 }
 
@@ -188,7 +188,9 @@ async function save() {
             isRequired: isRequired.value,
           }),
         );
-    toast.success(tag ? "Tag updated" : "Tag created");
+    toast.success(
+      tag ? t("tagEditor.toasts.updated") : t("tagEditor.toasts.created"),
+    );
     emit("saved", saved);
     emit("update:open", false);
   } catch (err) {
@@ -197,4 +199,37 @@ async function save() {
     saving.value = false;
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  tagEditor:
+    editHint: "Rename the tag, adjust its colour, or change its agent routing."
+    createHint: "Create a label for this project's tasks."
+    colour: "Colour"
+    colourHint: "Pick a palette colour or enter a custom hex value."
+    required: "Required by agent"
+    requiredHint: "Tasks with this tag only run on agents whose concurrency limits declare it. A 0 cap still declares the tag."
+    suggested: "Suggested tags"
+    suggestedHint: "One-click presets; nothing is created until you save."
+    namePlaceholder: "bug"
+    toasts:
+      created: "Tag created"
+      updated: "Tag updated"
+ru:
+  tagEditor:
+    editHint: "Переименуйте тег, измените его цвет или маршрутизацию по агентам."
+    createHint: "Создайте метку для задач этого проекта."
+    colour: "Цвет"
+    colourHint: "Выберите цвет из палитры или введите свой hex-код."
+    required: "Требуется агентом"
+    requiredHint: "Задачи с этим тегом выполняются только на агентах, где он объявлен в лимитах параллельности. Лимит 0 тоже объявляет тег."
+    suggested: "Предлагаемые теги"
+    suggestedHint: "Готовые варианты в один клик; ничего не создаётся до сохранения."
+    namePlaceholder: "bug"
+    toasts:
+      created: "Тег создан"
+      updated: "Тег обновлён"
+</i18n>

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import {
   fitViewBox,
   isHomeView,
@@ -97,7 +98,7 @@ export function attachMermaidTools(
   const toolbar = document.createElement("div");
   toolbar.className = "mermaid-toolbar";
   toolbar.setAttribute("role", "toolbar");
-  toolbar.setAttribute("aria-label", "Diagram controls");
+  toolbar.setAttribute("aria-label", t("mermaid.controls"));
 
   box.classList.add("mermaid-diagram");
 
@@ -130,57 +131,57 @@ export function attachMermaidTools(
   const zoomed = (v: MermaidView) => v.scale > MERMAID_HOME.scale;
   const zoomable = (v: MermaidView) => v.scale < MERMAID_MAX_SCALE;
 
-  const panLeft = iconButton("Pan left", "left");
+  const panLeft = iconButton(t("mermaid.panLeft"), "left");
   panLeft.addEventListener("click", () =>
     apply(pannedView(view, -MERMAID_PAN_STEP, 0)),
   );
   add(panLeft, zoomed);
 
-  const panUp = iconButton("Pan up", "up");
+  const panUp = iconButton(t("mermaid.panUp"), "up");
   panUp.addEventListener("click", () =>
     apply(pannedView(view, 0, -MERMAID_PAN_STEP)),
   );
   add(panUp, zoomed);
 
-  const panDown = iconButton("Pan down", "down");
+  const panDown = iconButton(t("mermaid.panDown"), "down");
   panDown.addEventListener("click", () =>
     apply(pannedView(view, 0, MERMAID_PAN_STEP)),
   );
   add(panDown, zoomed);
 
-  const panRight = iconButton("Pan right", "right");
+  const panRight = iconButton(t("mermaid.panRight"), "right");
   panRight.addEventListener("click", () =>
     apply(pannedView(view, MERMAID_PAN_STEP, 0)),
   );
   add(panRight, zoomed);
 
-  const zoomOut = iconButton("Zoom out", "zoomOut");
+  const zoomOut = iconButton(t("mermaid.zoomOut"), "zoomOut");
   zoomOut.addEventListener("click", () => apply(zoomedView(view, -1)));
   add(zoomOut, (v) => base !== null && zoomed(v));
 
-  const zoomIn = iconButton("Zoom in", "zoomIn");
+  const zoomIn = iconButton(t("mermaid.zoomIn"), "zoomIn");
   zoomIn.addEventListener("click", () => apply(zoomedView(view, 1)));
   add(zoomIn, (v) => base !== null && zoomable(v));
 
-  const reset = iconButton("Reset zoom", "reset");
+  const reset = iconButton(t("mermaid.resetZoom"), "reset");
   reset.addEventListener("click", () => apply(MERMAID_HOME));
   add(reset, (v) => !isHomeView(v));
 
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-  const copy = iconButton("Copy diagram source", "copy");
+  const copy = iconButton(t("mermaid.copySource"), "copy");
   copy.addEventListener("click", () => {
     const clipboard = options.clipboard ?? navigator.clipboard;
     void clipboard
       ?.writeText(options.code)
       .then(() => {
         copy.innerHTML = iconMarkup("copied");
-        copy.title = "Copied";
-        copy.setAttribute("aria-label", "Copied");
+        copy.title = t("common.copied");
+        copy.setAttribute("aria-label", t("common.copied"));
         clearTimeout(copiedTimer);
         copiedTimer = setTimeout(() => {
           copy.innerHTML = iconMarkup("copy");
-          copy.title = "Copy diagram source";
-          copy.setAttribute("aria-label", "Copy diagram source");
+          copy.title = t("mermaid.copySource");
+          copy.setAttribute("aria-label", t("mermaid.copySource"));
         }, COPIED_MS);
       })
       .catch(() => {});
@@ -188,7 +189,7 @@ export function attachMermaidTools(
   add(copy, () => options.code.trim() !== "");
 
   if (options.onExpand) {
-    const expand = iconButton("Open diagram enlarged", "expand");
+    const expand = iconButton(t("mermaid.openEnlarged"), "expand");
     expand.addEventListener("click", () => options.onExpand?.());
     add(expand, () => true);
   }

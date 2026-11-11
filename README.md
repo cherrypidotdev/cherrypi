@@ -63,7 +63,8 @@ Every agency also serves the user and agent documentation at `/docs`. Its
 source lives in [`docs-site/`](docs-site) (VitePress, English + Russian) and is
 embedded into the agency binary like the dashboard. The same site is published
 as the standalone `cherrypi-docs` image at the container root on port 8080, for
-serving at [docs.cherrypi.dev](https://docs.cherrypi.dev).
+serving at [docs.cherrypi.dev](https://docs.cherrypi.dev). The build also emits
+`llms.txt`, `llms-full.txt` and Markdown copies of every page for agents.
 
 ## Develop
 

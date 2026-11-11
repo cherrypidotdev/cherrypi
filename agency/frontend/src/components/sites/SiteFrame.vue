@@ -44,24 +44,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             class="bg-primary/10"
           )
             ShieldCheckIcon.size-4
-          span.text-muted-foreground.text-xs.font-medium.tracking-wide.uppercase CherryPi Agency
-        DialogTitle Allow this site to use your account?
+          span.text-muted-foreground.text-xs.font-medium.tracking-wide.uppercase {{ $t("siteFrame.agency") }}
+        DialogTitle {{ $t("siteFrame.consentTitle") }}
         DialogDescription
-          | The site
+          | {{ $t("siteFrame.consentSite") }}
           strong.mx-1 {{ site.title || site.id }}
-          | is asking for access to your CherryPi account. It will receive a
-          | personal access token you can revoke any time in Account → Tokens.
+          | {{ $t("siteFrame.consentBody") }}
       .flex.flex-col.gap-1.rounded-md.border.p-3.text-xs(class="bg-muted/40")
-        span.font-medium Site
+        span.font-medium {{ $t("siteFrame.consentLabel") }}
         span.font-mono.break-all {{ site.id }}
-        span.text-muted-foreground.mt-1(v-if="site.originTaskId") Published from task {{ site.originTaskId }}
+        span.text-muted-foreground.mt-1(v-if="site.originTaskId") {{ $t("siteFrame.publishedFrom", { id: site.originTaskId }) }}
       p.text-destructive.text-xs(v-if="consentError") {{ consentError }}
       DialogFooter
-        Button(variant="outline" @click="denyConsent" :disabled="consentBusy") Deny
+        Button(variant="outline" @click="denyConsent" :disabled="consentBusy") {{ $t("siteFrame.deny") }}
         Button(@click="allowConsent" :disabled="consentBusy")
           Spinner(v-if="consentBusy" data-icon="inline-start")
           ShieldCheckIcon(v-else data-icon="inline-start")
-          span Allow access
+          span {{ $t("siteFrame.allow") }}
 </template>
 
 <script setup lang="ts">
@@ -75,6 +74,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { t } from "@/i18n/translate";
 import { agency } from "@/lib/sdk";
 import type { Site } from "@cherrypi/sdk";
 import { ShieldCheckIcon } from "@lucide/vue";
@@ -241,7 +241,7 @@ function onMessage(event: MessageEvent) {
           data.id,
           false,
           undefined,
-          "Another access request is already open.",
+          t("siteFrame.alreadyOpen"),
         );
         return;
       }
@@ -289,7 +289,7 @@ function denyConsent() {
       pendingConsent.id,
       false,
       undefined,
-      "The visitor declined site access.",
+      t("siteFrame.declined"),
     );
   }
   pendingConsent = null;
@@ -303,7 +303,7 @@ async function allowConsent() {
   consentError.value = "";
   try {
     const token = await agency.createSiteToken(props.site.id);
-    if (!token) throw new Error("The agency returned an empty token.");
+    if (!token) throw new Error(t("siteFrame.emptyToken"));
     storeToken(token);
     reply(pendingConsent.source, pendingConsent.id, true, {
       token,
@@ -347,3 +347,32 @@ onBeforeUnmount(() => {
   denyConsent();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  siteFrame:
+    agency: "CherryPi Agency"
+    consentTitle: "Allow this site to use your account?"
+    consentSite: "The site"
+    consentBody: "is asking for access to your CherryPi account. It will receive a personal access token you can revoke any time in Account → Tokens."
+    consentLabel: "Site"
+    deny: "Deny"
+    allow: "Allow access"
+    publishedFrom: "Published from task {id}"
+    alreadyOpen: "Another access request is already open."
+    declined: "The visitor declined site access."
+    emptyToken: "The agency returned an empty token."
+ru:
+  siteFrame:
+    agency: "Агентство CherryPi"
+    consentTitle: "Разрешить сайту использовать ваш аккаунт?"
+    consentSite: "Сайт"
+    consentBody: "запрашивает доступ к вашему аккаунту CherryPi. Он получит персональный токен доступа, который можно отозвать в любой момент в разделе «Аккаунт → Токены»."
+    consentLabel: "Сайт"
+    deny: "Запретить"
+    allow: "Разрешить доступ"
+    publishedFrom: "Опубликовано из задачи {id}"
+    alreadyOpen: "Другой запрос доступа уже открыт."
+    declined: "Посетитель отклонил доступ к сайту."
+    emptyToken: "Агентство вернуло пустой токен."
+</i18n>

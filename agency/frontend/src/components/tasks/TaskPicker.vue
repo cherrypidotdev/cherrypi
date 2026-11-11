@@ -25,76 +25,76 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     class="gap-y-1.5 py-1.5"
   )
     label.flex.items-center.gap-1
-      span.text-muted-foreground.text-xs State
+      span.text-muted-foreground.text-xs {{ $t("domainLog.kind.state") }}
       select.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="stateFilter"
         class="py-0.5"
-        aria-label="Filter tasks by state"
+        :aria-label="$t('taskPicker.filterState')"
         data-testid="task-picker-state-filter"
       )
-        option(value) Any state
-        option(v-for="tab in STATE_FILTERS" :key="tab.key" :value="tab.state") {{ tab.label }}
+        option(value) {{ $t("taskPicker.anyState") }}
+        option(v-for="tab in STATE_FILTERS" :key="tab.key" :value="tab.state") {{ $t(tab.labelKey) }}
     label.flex.items-center.gap-1(v-if="showProjectFilter")
-      span.text-muted-foreground.text-xs Project
+      span.text-muted-foreground.text-xs {{ $t("admin.projects.columnProject") }}
       select.max-w-40.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="projectFilter"
         class="py-0.5"
-        aria-label="Filter tasks by project"
+        :aria-label="$t('taskPicker.filterProject')"
         data-testid="task-picker-project-filter"
       )
-        option(value) Any project
+        option(value) {{ $t("taskPicker.anyProject") }}
         option(
           v-for="project in projectOptions"
           :key="project.id"
           :value="project.id"
         ) {{ project.name }}
     label.flex.items-center.gap-1
-      span.text-muted-foreground.text-xs Assignee
+      span.text-muted-foreground.text-xs {{ $t("domainLog.kind.assignee") }}
       select.max-w-40.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="agentFilter"
         class="py-0.5"
-        aria-label="Filter tasks by assignee"
+        :aria-label="$t('taskPicker.filterAssignee')"
         data-testid="task-picker-agent-filter"
       )
-        option(value) Any agent
+        option(value) {{ $t("taskPicker.anyAgent") }}
         option(v-for="agent in agentOptions" :key="agent.id" :value="agent.id") {{ agent.displayName || agent.username }}
     label.flex.items-center.gap-1
-      span.text-muted-foreground.text-xs Priority
+      span.text-muted-foreground.text-xs {{ $t("domainLog.kind.priority") }}
       select.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="priorityFilter"
         class="py-0.5"
-        aria-label="Filter tasks by priority"
+        :aria-label="$t('taskPicker.filterPriority')"
         data-testid="task-picker-priority-filter"
       )
-        option(value) Any priority
+        option(value) {{ $t("taskPicker.anyPriority") }}
         option(
           v-for="option in PRIORITY_FILTERS"
           :key="option.value"
           :value="option.value"
         ) {{ option.label }}
     label.flex.items-center.gap-1
-      span.text-muted-foreground.text-xs Size
+      span.text-muted-foreground.text-xs {{ $t("domainLog.kind.size") }}
       select.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="sizeFilter"
         class="py-0.5"
-        aria-label="Filter tasks by size"
+        :aria-label="$t('taskPicker.filterSize')"
         data-testid="task-picker-size-filter"
       )
-        option(value) Any size
+        option(value) {{ $t("tasks.filter.anySize") }}
         option(
           v-for="option in SIZE_FILTERS"
           :key="option.value"
           :value="option.value"
-        ) {{ option.label }}
+        ) {{ $t(option.labelKey) }}
     label.flex.items-center.gap-1
-      span.text-muted-foreground.text-xs Tag
+      span.text-muted-foreground.text-xs {{ $t("tags.columnTag") }}
       select.max-w-40.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="tagFilter"
         class="py-0.5"
-        aria-label="Filter tasks by tag"
+        :aria-label="$t('taskPicker.filterTag')"
         data-testid="task-picker-tag-filter"
       )
-        option(value) Any tag
+        option(value) {{ $t("taskPicker.anyTag") }}
         option(v-for="tag in tagOptions" :key="tag.id" :value="tag.id") {{ tag.name }}
   .max-h-56.overflow-y-auto.p-1(
     ref="list"
@@ -103,14 +103,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     data-testid="task-picker-list"
   )
     p.text-muted-foreground.px-2.text-xs(v-if="loading && !candidates.length")
-      | Searching…
+      | {{ $t("taskPicker.searching") }}
     p.text-muted-foreground.px-2.text-xs(
       v-else-if="!candidates.length && !loading"
     )
-      | No available tasks.
+      | {{ $t("taskPicker.empty") }}
     template(v-else)
       p.text-muted-foreground.px-2.text-xs(v-if="!search.trim()")
-        | Recent tasks
+        | {{ $t("taskPicker.recent") }}
       button.inline-flex.w-full.min-w-0.items-center.gap-1.rounded-full.border.px-2.text-left.text-xs(
         v-for="(candidate, index) in candidates"
         :key="candidate.id"
@@ -132,7 +132,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       p.text-muted-foreground.px-2.text-xs(
         v-else-if="!hasMore && candidates.length"
       )
-        | End of list.
+        | {{ $t("taskPicker.endOfList") }}
 </template>
 
 <script setup lang="ts">
@@ -144,7 +144,7 @@ import {
   TASK_SIZES,
   TASK_STATE_TABS,
   taskNameClass,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskReferenceName,
   taskReferenceTitle,
   taskStateClassFor,
@@ -159,12 +159,15 @@ import {
 } from "@cherrypi/sdk";
 import { refDebounced } from "@vueuse/core";
 import { computed, nextTick, onMounted, ref, toRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const PAGE_SIZE = 20;
 
 const STATE_FILTERS = TASK_STATE_TABS.filter(
-  (tab): tab is { key: string; label: string; state: TaskState } =>
+  (tab): tab is { key: string; labelKey: string; state: TaskState } =>
     tab.state !== undefined,
 );
 
@@ -173,7 +176,7 @@ const PRIORITY_FILTERS = [
   TaskPriority.NORMAL,
   TaskPriority.HIGH,
   TaskPriority.CRITICAL,
-].map((value) => ({ value, label: taskPriorityLabel(value) }));
+].map((value) => ({ value, label: t(taskPriorityKey(value)) }));
 
 const SIZE_FILTERS = TASK_SIZES;
 
@@ -464,3 +467,40 @@ watch(
   },
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskPicker:
+    anyState: "Any state"
+    anyProject: "Any project"
+    anyAgent: "Any agent"
+    anyPriority: "Any priority"
+    anyTag: "Any tag"
+    searching: "Searching…"
+    empty: "No available tasks."
+    recent: "Recent tasks"
+    endOfList: "End of list."
+    filterState: "Filter tasks by state"
+    filterProject: "Filter tasks by project"
+    filterAssignee: "Filter tasks by assignee"
+    filterPriority: "Filter tasks by priority"
+    filterSize: "Filter tasks by size"
+    filterTag: "Filter tasks by tag"
+ru:
+  taskPicker:
+    anyState: "Любое состояние"
+    anyProject: "Любой проект"
+    anyAgent: "Любой агент"
+    anyPriority: "Любой приоритет"
+    anyTag: "Любой тег"
+    searching: "Поиск…"
+    empty: "Доступных задач нет."
+    recent: "Недавние задачи"
+    endOfList: "Конец списка."
+    filterState: "Фильтр задач по состоянию"
+    filterProject: "Фильтр задач по проекту"
+    filterAssignee: "Фильтр задач по исполнителю"
+    filterPriority: "Фильтр задач по приоритету"
+    filterSize: "Фильтр задач по размеру"
+    filterTag: "Фильтр задач по тегу"
+</i18n>

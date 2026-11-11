@@ -19,3 +19,8 @@ node_modules
 .vitepress/cache
 __pycache__/
 *.pyc
+
+# into public/, which VitePress copies verbatim into .vitepress/dist.
+public/llms.txt
+public/llms-full.txt
+public/**/*.md

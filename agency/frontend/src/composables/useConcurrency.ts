@@ -17,6 +17,7 @@
 import { useAgents } from "@/composables/useAgents";
 import { useRealtime } from "@/composables/useRealtime";
 import { useTags } from "@/composables/useTags";
+import { t } from "@/i18n/translate";
 import {
   buildAgentBoard,
   buildProjectBoard,
@@ -51,7 +52,7 @@ export function useAgentConcurrency(agentId: MaybeRefOrGetter<string>) {
     try {
       await Promise.all([loadAgents(), refreshTags()]);
       const agent = agents.value.find((item) => item.id === id);
-      if (!agent) throw new Error("Agent not found");
+      if (!agent) throw new Error(t("concurrency.agentNotFound"));
       const [tasks, limits, projects, memberships] = await Promise.all([
         agency.listTasks({ agentId: id }),
         agency.getAgentTaskLimits(id),

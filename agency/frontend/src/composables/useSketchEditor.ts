@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { SketchBackgroundImage } from "@/components/sketches/TldrawCanvas.vue";
+import { t } from "@/i18n/translate";
 import { loadImageSize, sketchSceneFor } from "@/lib/sketches";
 import type { Attachment } from "@cherrypi/sdk";
 import type { TLEditorSnapshot } from "tldraw";
@@ -47,9 +48,11 @@ export function useSketchEditor(options: {
   const target = ref<SketchTarget>({});
 
   const title = computed(() => {
-    if (target.value.stagedId || target.value.scene) return "Edit sketch";
-    if (target.value.image) return "Annotate image";
-    return "New sketch";
+    if (target.value.stagedId || target.value.scene) {
+      return t("stagedAttachments.editSketch");
+    }
+    if (target.value.image) return t("attachments.annotateImage");
+    return t("sketch.new");
   });
 
   function openNew() {

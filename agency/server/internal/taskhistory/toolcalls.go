@@ -33,9 +33,11 @@ type ToolCall struct {
 	ArgsJSON string
 
 	ResultJSON string
-	IsError    bool
-	StartedAt  *timestamppb.Timestamp
-	EndedAt    *timestamppb.Timestamp
+
+	DetailsJSON string
+	IsError     bool
+	StartedAt   *timestamppb.Timestamp
+	EndedAt     *timestamppb.Timestamp
 }
 
 func (c ToolCall) Interrupted() bool { return c.EndedAt == nil }
@@ -104,6 +106,7 @@ func CollectToolCallsFromEvents(events []*agentv1.TaskEvent) []ToolCall {
 		}
 		if tool.Phase == agentv1.ToolPhase_TOOL_PHASE_FINISHED {
 			call.ResultJSON = tool.ResultJson
+			call.DetailsJSON = tool.DetailsJson
 			call.IsError = tool.IsError
 			call.EndedAt = event.At
 		} else if call.StartedAt == nil {
@@ -197,6 +200,19 @@ func (c ToolCall) ArgsPreview() string {
 }
 
 func (c ToolCall) ResultBytes() int { return len(c.ResultJSON) }
+
+const ToolCallBodyLimit = 256 << 10
+
+func PreviewBody(s string, limit int) (string, bool) {
+	if limit <= 0 || len(s) <= limit {
+		return s, false
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n\n…(truncated)", true
+}
 
 func preview(s string, max int) string {
 	if len(s) <= max {

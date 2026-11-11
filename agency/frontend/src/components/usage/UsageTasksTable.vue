@@ -21,8 +21,8 @@ Card
   CardHeader
     .flex.flex-wrap.items-start.justify-between.gap-3
       div
-        CardTitle Task breakdown
-        CardDescription Range-scoped totals. Click a row to open the task.
+        CardTitle {{ $t("usage.tasks.title") }}
+        CardDescription {{ $t("usage.tasks.hint") }}
       .flex.flex-wrap.items-center.gap-2
         .bg-muted.flex.rounded-lg.p-1
           button.text-11.rounded-md.px-2.py-1.font-medium(
@@ -34,37 +34,37 @@ Card
         Input.h-8.w-44(
           v-model="search"
           type="search"
-          placeholder="Search tasks"
+          :placeholder="$t('usage.tasks.searchPlaceholder')"
         )
   CardContent.p-0
     Table
       TableHeader
         TableRow
-          TableHead Task
-          TableHead(v-if="context !== 'agent'") Agent
-          TableHead(v-if="context !== 'project'") Project
-          TableHead Tags
-          TableHead State
+          TableHead {{ $t("taskView.task") }}
+          TableHead(v-if="context !== 'agent'") {{ $t("admin.agents.columnAgent") }}
+          TableHead(v-if="context !== 'project'") {{ $t("admin.projects.columnProject") }}
+          TableHead {{ $t("domainLog.kind.tags") }}
+          TableHead {{ $t("domainLog.kind.state") }}
           TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('runs')"
-          ) Runs
+          ) {{ $t("usage.tasks.runs") }}
           TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('tokens')"
-          ) Tokens
+          ) {{ $t("account.tabs.tokens") }}
           TableHead.cursor-pointer.text-right.select-none(
-            title="Time from the first queue to completion"
+            :title="$t('usage.tasks.ttcTitle')"
             @click="sortBy('ttc')"
-          ) TTC
+          ) {{ $t("usage.breakdown.ttc") }}
           TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('active')"
-          ) Active
+          ) {{ $t("admin.users.statusActive") }}
           TableHead.cursor-pointer.text-right.select-none(
-            title="The model's own working time: active time minus tool calls"
+            :title="$t('usage.tasks.thinkingTitle')"
             @click="sortBy('thinking')"
-          ) Thinking
+          ) {{ $t("usage.insights.thinking") }}
           TableHead.cursor-pointer.text-right.select-none(
             @click="sortBy('cost')"
-          ) Cost
+          ) {{ $t("usage.graph.cost") }}
           TableHead
       TableBody
         TableRow(
@@ -80,7 +80,7 @@ Card
                 span.text-4xs.text-muted-foreground.rounded.border.px-1(
                   v-if="row.archived"
                 )
-                  | archived
+                  | {{ $t("usage.tasks.archived") }}
               span.text-3xs.text-muted-foreground.font-mono
                 | {{ row.task?.id ?? row.taskId }}
           TableCell(v-if="context !== 'agent'")
@@ -107,7 +107,7 @@ Card
               span.text-10.text-muted-foreground(v-if="!row.tags.length") —
           TableCell
             Badge(variant="outline" :class="taskStateClass(row.state)")
-              | {{ taskStateLabel(row.state) }}
+              | {{ $t(taskStateKey(row.state)) }}
           TableCell.text-right.tabular-nums {{ row.runs || "—" }}
           TableCell.text-right.tabular-nums {{ formatTokens(row.inputTokens + row.outputTokens) }}
           TableCell.text-right.tabular-nums {{ row.task ? formatDuration(ttcOf(row)) : "—" }}
@@ -130,10 +130,10 @@ Card
           TableCell.text-muted-foreground.py-8.text-center(
             :colspan="columnCount"
           )
-            | No tasks match these filters.
+            | {{ $t("usage.tasks.noMatch") }}
   CardFooter.justify-between.gap-3
-    span.text-2xs.text-muted-foreground Showing {{ visible.length }} of {{ filtered.length }} tasks
-    span.text-2xs.text-muted-foreground Task costs are clamped to the selected time range.
+    span.text-2xs.text-muted-foreground {{ $t("usage.tasks.showing", { visible: visible.length, total: filtered.length }) }}
+    span.text-2xs.text-muted-foreground {{ $t("usage.tasks.clamped") }}
 </template>
 
 <script setup lang="ts">
@@ -160,11 +160,14 @@ import type {
   UsageTaskRow,
 } from "@/composables/useUsageAnalytics";
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
-import { taskStateClass, taskStateLabel } from "@/lib/task";
+import { taskStateClass, taskStateKey } from "@/lib/task";
 import { usageAccent } from "@/lib/usage";
 import { TaskState } from "@cherrypi/sdk";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   context: UsageContext;
@@ -172,11 +175,11 @@ const props = defineProps<{
 }>();
 
 type StateFilter = "all" | "completed" | "active";
-const STATE_FILTERS: { value: StateFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "completed", label: "Completed" },
-  { value: "active", label: "Active" },
-];
+const STATE_FILTERS = computed<{ value: StateFilter; label: string }[]>(() => [
+  { value: "all", label: t("common.all") },
+  { value: "completed", label: t("usage.state.completed") },
+  { value: "active", label: t("usage.state.active") },
+]);
 
 const router = useRouter();
 const columnCount = computed(() => 11 + (props.context === "agency" ? 1 : 0));
@@ -255,3 +258,38 @@ function open(row: UsageTaskRow) {
   void router.push({ name: "task", params: { id: row.task.id } });
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  usage:
+    tasks:
+      title: "Task breakdown"
+      hint: "Range-scoped totals. Click a row to open the task."
+      runs: "Runs"
+      archived: "archived"
+      noMatch: "No tasks match these filters."
+      clamped: "Task costs are clamped to the selected time range."
+      searchPlaceholder: "Search tasks"
+      ttcTitle: "Time from the first queue to completion"
+      thinkingTitle: "The model's own working time: active time minus tool calls"
+      showing: "Showing {visible} of {total} tasks"
+    state:
+      completed: "Completed"
+      active: "Active"
+ru:
+  usage:
+    tasks:
+      title: "Разбивка по задачам"
+      hint: "Итоги за диапазон. Нажмите на строку, чтобы открыть задачу."
+      runs: "Запуски"
+      archived: "архив"
+      noMatch: "Нет задач, подходящих под фильтры."
+      clamped: "Стоимость задач ограничена выбранным диапазоном."
+      searchPlaceholder: "Поиск задач"
+      ttcTitle: "Время от первой постановки в очередь до завершения"
+      thinkingTitle: "Собственное рабочее время модели: активное время минус вызовы инструментов"
+      showing: "Показано {visible} из {total} задач"
+    state:
+      completed: "Завершённые"
+      active: "Активные"
+</i18n>

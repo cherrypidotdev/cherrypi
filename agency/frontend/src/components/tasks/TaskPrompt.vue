@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .flex.w-full.flex-col.gap-3
       .flex.flex-wrap.items-center.gap-2(v-if="showModelPicker")
         span.text-muted-foreground.text-xs(v-if="!agentId")
-          | Assign an agent to choose a model
+          | {{ $t("taskPrompt.assignAgentForModel") }}
         TaskModelPicker.ml-auto(
           :agent-id="agentId"
           :selection="modelSelection"
@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :class="previewClass"
             :role="editable ? 'button' : undefined"
             :tabindex="editable ? 0 : undefined"
-            :title="editable ? 'Click to edit the prompt' : undefined"
+            :title="editable ? $t('taskPrompt.clickToEdit') : undefined"
             @click="startEdit()"
             @keydown.enter.prevent="startEdit()"
             @keydown.space.prevent="startEdit()"
@@ -83,18 +83,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               .flex.flex-col.items-center.gap-1.text-sm.font-medium
                 PaperclipIcon.size-5
-                span Drop files to attach
+                span {{ $t("taskPrompt.dropFiles") }}
             MarkdownEditor(
               v-if="tab === 'write'"
               ref="editor"
               v-model="draft"
               v-model:resize-height="editorHeight"
-              placeholder="What should the agent do? Markdown supported."
+              :placeholder="$t('taskPrompt.placeholder')"
               resizable
               references
               test-id="prompt-textarea"
-              aria-label="Task prompt"
-              title="Tab indents · Ctrl+Enter saves · Ctrl+K deletes to the end of the line · @ mentions · # tasks"
+              :aria-label="$t('taskPrompt.aria')"
+              :title="$t('taskPrompt.shortcuts')"
               :reference-project-id="task.projectId"
               :reference-task-id="task.id"
               @submit="save"
@@ -112,8 +112,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
           .flex.flex-wrap.items-center.gap-2(v-if="showAttachments")
             AttachmentUploadButton(
-              label="Attach"
-              title="Attach files to the task"
+              :label="$t('taskPrompt.attach')"
+              :title="$t('taskPrompt.attachAria')"
               :task-id="task.id"
               @uploaded="onUploaded"
             )
@@ -122,18 +122,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               type="button"
               variant="outline"
               size="sm"
-              title="Draw a sketch"
+              :title="$t('taskPrompt.sketchAria')"
               @click="openNewSketch"
             )
               PencilIcon(data-icon="inline-start")
-              span Sketch
+              span {{ $t("taskPrompt.sketch") }}
 
             span.text-muted-foreground.text-xs(
               v-if="!task.attachments.length && !uploading"
-            ) Paste, drop, or pick files to attach them to the prompt
+            ) {{ $t("taskPrompt.attachmentsHint") }}
 
             span.text-muted-foreground.text-xs(v-if="uploading")
-              | Uploading…
+              | {{ $t("taskPrompt.uploading") }}
 
           div(
             v-if="showAttachments && task.attachments.length"
@@ -151,14 +151,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
           .flex.items-center.gap-2
             span.text-muted-foreground.mr-auto.text-xs
-              | Ctrl+Enter to save · Tab indents
+              | {{ $t("taskPrompt.shortcutsShort") }}
             Button(
               type="button"
               variant="ghost"
               size="sm"
               @click="cancel"
               :disabled="saving"
-            ) Cancel
+            ) {{ $t("common.cancel") }}
             Button(
               type="button"
               size="sm"
@@ -168,7 +168,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             )
               Spinner(v-if="saving" data-icon="inline-start")
               CheckIcon(v-else data-icon="inline-start")
-              span Save
+              span {{ $t("common.save") }}
 
           p.text-destructive.text-xs(v-if="error") {{ error }}
 
@@ -205,6 +205,7 @@ import type { TaskModelSelection } from "@/lib/task";
 import { type Attachment, type Task } from "@cherrypi/sdk";
 import { CheckIcon, PaperclipIcon, PencilIcon } from "@lucide/vue";
 import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = withDefaults(
@@ -245,7 +246,7 @@ const value = computed(() => props.text ?? props.task.prompt);
 const showAttachments = computed(() => props.field === "prompt");
 
 const hintText = computed(
-  () => props.hint || (props.editable ? "Unsent · click to edit" : ""),
+  () => props.hint || (props.editable ? t("taskPrompt.unsentHint") : ""),
 );
 
 const previewClass = computed(() => [
@@ -427,7 +428,9 @@ async function onPaste(event: ClipboardEvent) {
 }
 
 function hasFiles(event: DragEvent): boolean {
-  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  return Array.from(event.dataTransfer?.types ?? []).includes(
+    t("taskView.files"),
+  );
 }
 
 function onDragEnter(event: DragEvent) {
@@ -472,11 +475,52 @@ async function save() {
     }
     editing.value = false;
     emit("saved", next);
-    toast.success("Prompt updated");
+    toast.success(t("taskPrompt.toasts.updated"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     saving.value = false;
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  taskPrompt:
+    dropFiles: "Drop files to attach"
+    attach: "Attach"
+    sketch: "Sketch"
+    aria: "Task prompt"
+    attachAria: "Attach files to the task"
+    sketchAria: "Draw a sketch"
+    assignAgentForModel: "Assign an agent to choose a model"
+    attachmentsHint: "Paste, drop, or pick files to attach them to the prompt"
+    uploading: "Uploading…"
+    shortcutsShort: "Ctrl+Enter to save · Tab indents"
+    placeholder: "What should the agent do? Markdown supported."
+    shortcuts: "Tab indents · Ctrl+Enter saves · Ctrl+K deletes to the end of the line · {'@'} mentions · # tasks"
+    clickToEdit: "Click to edit the prompt"
+    toasts:
+      updated: "Prompt updated"
+    unsentHint: "Unsent · click to edit"
+ru:
+  taskPrompt:
+    dropFiles: "Перетащите файлы, чтобы прикрепить"
+    attach: "Прикрепить"
+    sketch: "Набросок"
+    aria: "Промпт задачи"
+    attachAria: "Прикрепить файлы к задаче"
+    sketchAria: "Нарисовать набросок"
+    assignAgentForModel: "Назначьте агента, чтобы выбрать модель"
+    attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы прикрепить их к промпту"
+    uploading: "Загрузка…"
+    shortcutsShort: "Ctrl+Enter — сохранить · Tab — отступ"
+    placeholder: "Что должен сделать агент? Поддерживается Markdown."
+    shortcuts: "Tab — отступ · Ctrl+Enter — сохранить · Ctrl+K — удалить до конца строки · {'@'} — упоминания · # — задачи"
+    clickToEdit: "Нажмите, чтобы изменить промпт"
+    toasts:
+      updated: "Промпт обновлён"
+    unsentHint: "Не отправлено · нажмите, чтобы изменить"
+</i18n>

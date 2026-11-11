@@ -22,23 +22,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
   Tabs(v-model="tab")
     TabsList
-      TabsTrigger(value="general") General
-      TabsTrigger(value="tasks") Tasks
-      TabsTrigger(value="templates") Templates
-      TabsTrigger(value="plugins") Plugins
-      TabsTrigger(value="access") Access
-      TabsTrigger(value="danger") Danger zone
+      TabsTrigger(value="general") {{ $t("settings.tabs.general") }}
+      TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
+      TabsTrigger(value="templates") {{ $t("projectSettings.tabs.templates") }}
+      TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
+      TabsTrigger(value="access") {{ $t("domainLog.kind.access") }}
+      TabsTrigger(value="danger") {{ $t("projectSettings.dangerZone") }}
 
     TabsContent(value="general")
       Card
         CardHeader
-          CardTitle General
-          CardDescription The project's picture, name, description, and slug.
+          CardTitle {{ $t("settings.tabs.general") }}
+          CardDescription {{ $t("projectSettings.general.description") }}
         CardContent.flex.flex-col.gap-6
           form.flex.flex-col.gap-4(@submit.prevent="saveGeneral")
             FieldGroup
               Field
-                FieldLabel Picture
+                FieldLabel {{ $t("projectSettings.general.picture") }}
                 PictureUpload(
                   :picture="project?.picture"
                   :project-id="project?.id"
@@ -46,34 +46,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @changed="onPictureChanged"
                 )
               Field
-                FieldLabel(for="project-name") Name
+                FieldLabel(for="project-name") {{ $t("common.name") }}
                 Input#project-name(v-model="name")
               Field
-                FieldLabel(for="project-description") Description
+                FieldLabel(for="project-description") {{ $t("common.description") }}
                 Textarea#project-description(v-model="description")
               Field
-                FieldLabel(for="project-slug") Slug
+                FieldLabel(for="project-slug") {{ $t("settings.auth.slug") }}
                 Input#project-slug(disabled :model-value="project?.slug ?? ''")
                 FieldDescription
-                  | The slug is set at creation and used in the project's URL.
+                  | {{ $t("projectSettings.general.slugHint") }}
             .flex.justify-end
               Button(type="submit" :disabled="saving || !name.trim()")
                 Spinner(v-if="saving" data-icon="inline-start")
                 CheckIcon(v-else data-icon="inline-start")
-                span Save
+                span {{ $t("common.save") }}
 
         Card
           CardHeader
-            CardTitle Project hierarchy
+            CardTitle {{ $t("domainLog.kind.hierarchy") }}
             CardDescription
-              | Projects form a tree. Anyone who can view a parent may also view
-              | every descendant, and tasks may reference tasks in descendant or
-              | sibling projects. Root projects are not siblings and cannot
-              | reference each other's tasks.
+              | {{ $t("projectSettings.hierarchy.description") }}
           CardContent.flex.flex-col.gap-5
             template(v-if="hierarchy")
               .flex.flex-col.gap-1(v-if="hierarchy.parent")
-                span.text-sm.font-medium Parent project
+                span.text-sm.font-medium {{ $t("projectSettings.hierarchy.parent") }}
                 .flex.items-center.gap-2
                   RouterLink.text-primary.font-medium(
                     :to="{ name: 'project', params: { slug: hierarchy.parent.slug } }"
@@ -84,41 +81,41 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     size="sm"
                     @click="detachParentProject"
                     :disabled="hierarchyBusy"
-                  ) Detach
+                  ) {{ $t("projectSettings.hierarchy.detach") }}
               p.text-muted-foreground.text-sm(v-else)
-                | This is a top-level project.
+                | {{ $t("projectSettings.hierarchy.topLevel") }}
 
               .flex.flex-wrap.items-center.justify-between.gap-2.rounded-md.border.p-3(
                 v-if="hierarchy.incoming_invitation"
               )
                 .flex.flex-col
                   span.text-sm.font-medium
-                    | Invitation from {{ hierarchy.incoming_invitation.parent_project_name }}
+                    | {{ $t("projectSettings.invitationFrom", { project: hierarchy.incoming_invitation.parent_project_name }) }}
                   span.text-muted-foreground.text-xs(
                     v-if="hierarchy.incoming_invitation.invited_by_username"
                   )
-                    | Invited by @{{ hierarchy.incoming_invitation.invited_by_username }}
+                    | {{ $t("projectSettings.invitedBy", { username: hierarchy.incoming_invitation.invited_by_username }) }}
                 .flex.gap-2(v-if="hierarchy.can_respond")
                   Button(
                     size="sm"
                     @click="respondParentInvitation(hierarchy.incoming_invitation, true)"
                     :disabled="hierarchyBusy"
-                  ) Accept
+                  ) {{ $t("projectSettings.hierarchy.accept") }}
                   Button(
                     variant="outline"
                     size="sm"
                     @click="respondParentInvitation(hierarchy.incoming_invitation, false)"
                     :disabled="hierarchyBusy"
-                  ) Decline
+                  ) {{ $t("extensionUi.decline") }}
 
               .flex.flex-col.gap-2(v-if="hierarchy.parent_options.length")
-                span.text-sm.font-medium Attach to a parent project
+                span.text-sm.font-medium {{ $t("projectSettings.hierarchy.attach") }}
                 .flex.flex-wrap.gap-2
                   Combobox.w-64(
                     v-model="newParentId"
-                    placeholder="Choose a parent"
+                    :placeholder="$t('projectSettings.hierarchy.chooseParent')"
                     empty-text="No matching project."
-                    aria-label="Parent project"
+                    :aria-label="$t('projectSettings.hierarchy.parent')"
                     :options="parentOptions"
                   )
                   Button(
@@ -131,11 +128,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Separator
 
               .flex.flex-col.gap-2
-                span.text-sm.font-medium Subprojects
+                span.text-sm.font-medium {{ $t("projectSettings.hierarchy.subprojects") }}
                 p.text-muted-foreground.text-sm(
                   v-if="!hierarchy.children.length"
                 )
-                  | None.
+                  | {{ $t("projectSettings.hierarchy.none") }}
                 .flex.items-center.justify-between.gap-2(
                   v-for="child in hierarchy.children"
                   :key="child.id"
@@ -149,16 +146,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     size="sm"
                     @click="detachChildProject(child)"
                     :disabled="hierarchyBusy"
-                  ) Detach
+                  ) {{ $t("projectSettings.hierarchy.detach") }}
 
               .flex.flex-col.gap-2(v-if="hierarchy.child_options.length")
-                span.text-sm.font-medium Add a subproject
+                span.text-sm.font-medium {{ $t("projectSettings.hierarchy.addSubproject") }}
                 .flex.flex-wrap.gap-2
                   Combobox.w-64(
                     v-model="newChildId"
-                    placeholder="Choose a project"
+                    :placeholder="$t('projectSettings.hierarchy.chooseProject')"
                     empty-text="No matching project."
-                    aria-label="Subproject"
+                    :aria-label="$t('projectSettings.hierarchy.subprojectAria')"
                     :options="childOptions"
                   )
                   Button(
@@ -169,7 +166,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   | {{ selectedChildTip }}
 
               .flex.flex-col.gap-2(v-if="pendingParentInvitations.length")
-                span.text-sm.font-medium Pending invitations
+                span.text-sm.font-medium {{ $t("projectSettings.hierarchy.pendingInvitations") }}
                 .flex.items-center.justify-between.gap-2(
                   v-for="invitation in pendingParentInvitations"
                   :key="invitation.id"
@@ -181,57 +178,54 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     size="sm"
                     @click="revokeParentInvitation(invitation)"
                     :disabled="hierarchyBusy"
-                  ) Revoke
+                  ) {{ $t("common.revoke") }}
 
     TabsContent(value="tasks")
       .flex.flex-col.gap-6
         Card
           CardHeader
-            CardTitle Task ids
+            CardTitle {{ $t("projectSettings.taskIds.title") }}
             CardDescription
-              | Task ids read {{ prefix.trim() || "MYPROJECT" }}-1. Changing the
-              | prefix renames this project's existing tasks.
+              | {{ $t("projectSettings.taskIds.description2", { prefix: prefix.trim() || "MYPROJECT" }) }}
           CardContent
             form.flex.items-end.gap-2(@submit.prevent="savePrefix")
               Field.flex-1
-                FieldLabel(for="project-prefix") Task prefix
+                FieldLabel(for="project-prefix") {{ $t("projectSettings.taskIds.prefix") }}
                 Input#project-prefix(
                   v-model="prefix"
-                  placeholder="MYPROJECT"
+                  :placeholder="$t('projectSettings.taskIds.placeholder')"
                   autocapitalize="characters"
                 )
               Button(type="submit" :disabled="savingPrefix || !prefix.trim()")
                 Spinner(v-if="savingPrefix" data-icon="inline-start")
                 CheckIcon(v-else data-icon="inline-start")
-                span Save prefix
+                span {{ $t("projectSettings.taskIds.save") }}
 
         Card
           CardHeader
-            CardTitle Project prompt
+            CardTitle {{ $t("projectSettings.prompt.title") }}
             CardDescription
-              | Injected into each new task's system prompt, after the agency and
-              | agent prompts. Edits affect future tasks only.
+              | {{ $t("projectSettings.prompt.description") }}
           CardContent
             PromptEditor(
-              placeholder="Instructions for tasks in this project…"
+              :placeholder="$t('projectSettings.prompt.placeholder')"
               :scope="PromptScope.PROJECT"
               :project-id="project?.id"
             )
 
         Card
           CardHeader
-            CardTitle Tags
-            CardDescription The tags task creators can pick inside this project.
+            CardTitle {{ $t("domainLog.kind.tags") }}
+            CardDescription {{ $t("projectSettings.tags.description") }}
           CardContent
             TagsPanel(:project-id="project?.id ?? ''")
 
     TabsContent(value="templates")
       Card
         CardHeader
-          CardTitle Templates
+          CardTitle {{ $t("projectSettings.tabs.templates") }}
           CardDescription
-            | Reusable Jinja prompts saved per project. A task created from a
-            | template records the version and the argument values it used.
+            | {{ $t("projectSettings.templates.description") }}
         CardContent
           TaskTemplatesPanel(:project-id="project?.id ?? ''")
 
@@ -242,28 +236,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       .flex.flex-col.gap-6
         Card
           CardHeader
-            CardTitle Access
+            CardTitle {{ $t("domainLog.kind.access") }}
             CardDescription
-              | Who can reach this project. The effective role is the strongest of a
-              | direct grant and the caller's teams; a viewer may view and comment,
-              | a member may prompt and edit, an owner may also manage access.
+              | {{ $t("projectSettings.access.description") }}
           CardContent.flex.flex-col.gap-6
             .flex.items-center.gap-2
               Badge(variant="secondary")
-                | Your role: {{ PROJECT_ROLE_LABEL[access?.role ?? "viewer"] }}
+                | {{ $t("projectSettings.yourRole", { role: $t(PROJECT_ROLE_KEY[access?.role ?? "viewer"]) }) }}
               span.text-muted-foreground.text-xs(
                 v-if="access && !access.can_manage_access"
-              ) Only project owners can change access.
+              ) {{ $t("projectSettings.access.ownersOnly") }}
 
             Separator
 
             .flex.flex-col.gap-3
-              span.text-sm.font-medium Direct access
+              span.text-sm.font-medium {{ $t("projectSettings.access.direct") }}
               Table
                 TableHeader
                   TableRow
-                    TableHead Actor
-                    TableHead Role
+                    TableHead {{ $t("settings.events.actor") }}
+                    TableHead {{ $t("admin.role") }}
                     TableHead
                 TableBody
                   TableRow(
@@ -288,8 +280,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                             v-for="role in ROLES"
                             :key="role"
                             :value="role"
-                          ) {{ PROJECT_ROLE_LABEL[role] }}
-                      span(v-else) {{ PROJECT_ROLE_LABEL[grant.role] }}
+                          ) {{ $t(PROJECT_ROLE_KEY[role]) }}
+                      span(v-else) {{ $t(PROJECT_ROLE_KEY[grant.role]) }}
                     TableCell
                       .flex.justify-end(v-if="access?.can_manage_access")
                         Button.text-destructive(
@@ -298,45 +290,44 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                           @click="removeMemberGrant(grant)"
                         )
                           Trash2Icon(data-icon="inline-start")
-                          span Remove
+                          span {{ $t("common.remove") }}
                   TableRow(v-if="!directMembers.length")
                     TableCell.text-muted-foreground(:colspan="3")
-                      | No direct access.
+                      | {{ $t("projectSettings.access.noDirect") }}
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
                 ActorCombobox#new-member-actor.w-56(
                   v-model="newMemberUsername"
-                  placeholder="Add a person or agent…"
+                  :placeholder="$t('projectSettings.access.addPlaceholder')"
                   kinds="all"
                 )
                 Select(v-model="newMemberRole")
                   SelectTrigger.w-36
                     SelectValue
                   SelectContent
-                    SelectItem(v-for="role in ROLES" :key="role" :value="role") {{ PROJECT_ROLE_LABEL[role] }}
+                    SelectItem(v-for="role in ROLES" :key="role" :value="role") {{ $t(PROJECT_ROLE_KEY[role]) }}
                 Button(
                   @click="addMemberGrant"
                   :disabled="!newMemberUsername.trim() || accessBusy"
                 )
                   PlusIcon(data-icon="inline-start")
-                  span Add
+                  span {{ $t("common.add") }}
 
             Separator
 
             .flex.flex-col.gap-3
-              span.text-sm.font-medium Installed plugins
+              span.text-sm.font-medium {{ $t("projectSettings.access.plugins") }}
               p.text-muted-foreground.text-xs
-                | Installed plugins have direct access to the project, always
-                | 'member' level.
+                | {{ $t("projectSettings.access.pluginsHint") }}
                 Button.h-auto.px-1(
                   variant="link"
                   size="xs"
                   @click="tab = 'plugins'"
-                ) Manage in Plugins
+                ) {{ $t("projectSettings.access.managePlugins") }}
               Table
                 TableHeader
                   TableRow
-                    TableHead Plugin
-                    TableHead Access
+                    TableHead {{ $t("taskBadges.plugin") }}
+                    TableHead {{ $t("domainLog.kind.access") }}
                 TableBody
                   TableRow(
                     v-for="grant in pluginMembers"
@@ -348,27 +339,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         .flex.flex-col
                           span.font-medium {{ grant.name || grant.username }}
                           span.text-muted-foreground.text-xs
-                            | plugin · @{{ grant.username }}
+                            | {{ $t("projectSettings.pluginGrant", { username: grant.username }) }}
                     TableCell
                       .flex.items-center.gap-2
                         Badge(variant="secondary")
-                          | {{ PROJECT_ROLE_LABEL[grant.role] }}
+                          | {{ $t(PROJECT_ROLE_KEY[grant.role]) }}
                         span.text-muted-foreground.text-xs
-                          | always · set by install
+                          | {{ $t("projectSettings.access.alwaysByInstall") }}
                   TableRow(v-if="!pluginMembers.length")
                     TableCell.text-muted-foreground(:colspan="2")
-                      | No plugins have access to this project.
+                      | {{ $t("projectSettings.access.noPlugins") }}
 
             Separator
 
             .flex.flex-col.gap-3
-              span.text-sm.font-medium Teams
+              span.text-sm.font-medium {{ $t("nav.teams") }}
               Table
                 TableHeader
                   TableRow
-                    TableHead Team
-                    TableHead Members
-                    TableHead Role
+                    TableHead {{ $t("admin.teams.columnTeam") }}
+                    TableHead {{ $t("admin.teams.columnMembers") }}
+                    TableHead {{ $t("admin.role") }}
                     TableHead
                 TableBody
                   TableRow(
@@ -381,7 +372,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         span.text-muted-foreground.text-xs(
                           v-if="link.inherited_role"
                         )
-                          | Also inherited as {{ PROJECT_ROLE_LABEL[link.inherited_role] }} from
+                          | {{ $t("projectSettings.alsoInherited", { role: $t(PROJECT_ROLE_KEY[link.inherited_role]) }) }}
                           RouterLink.text-primary.ml-1(
                             :to="{ name: 'project', params: { slug: link.inherited_from_project_slug }, query: { tab: 'settings', section: 'access' } }"
                           ) {{ link.inherited_from_project_name }}
@@ -399,8 +390,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                             v-for="role in roleOptionsAbove(link.inherited_role)"
                             :key="role"
                             :value="role"
-                          ) {{ PROJECT_ROLE_LABEL[role] }}
-                      span(v-else) {{ PROJECT_ROLE_LABEL[link.role] }}
+                          ) {{ $t(PROJECT_ROLE_KEY[role]) }}
+                      span(v-else) {{ $t(PROJECT_ROLE_KEY[link.role]) }}
                     TableCell
                       .flex.justify-end(v-if="access?.can_manage_access")
                         Button.text-destructive(
@@ -409,16 +400,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                           @click="removeTeamLink(link)"
                         )
                           Trash2Icon(data-icon="inline-start")
-                          span Remove
+                          span {{ $t("common.remove") }}
                   TableRow(v-if="!(access?.teams ?? []).length")
                     TableCell.text-muted-foreground(:colspan="4")
-                      | No teams attached.
+                      | {{ $t("projectSettings.teams.noTeams") }}
               .flex.items-center.gap-2(v-if="access?.can_manage_access")
                 Combobox.w-56(
                   v-model="newTeamId"
-                  placeholder="Invite a team…"
+                  :placeholder="$t('projectSettings.teams.invitePlaceholder')"
                   empty-text="No matching team."
-                  aria-label="Team to invite"
+                  :aria-label="$t('projectSettings.teams.inviteAria')"
                   :options="teamOptions"
                 )
                 Select(v-model="newTeamRole")
@@ -429,7 +420,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       v-for="role in newTeamRoleOptions"
                       :key="role"
                       :value="role"
-                    ) {{ PROJECT_ROLE_LABEL[role] }}
+                    ) {{ $t(PROJECT_ROLE_KEY[role]) }}
                 Button(
                   @click="inviteTeam"
                   :disabled="!newTeamId || accessBusy"
@@ -439,30 +430,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               p.text-muted-foreground.text-xs(
                 v-if="selectedTeamInheritedRole && !selectedTeamUpgrade"
               )
-                | This team already has inherited {{ PROJECT_ROLE_LABEL[selectedTeamInheritedRole] }}
-                | access from {{ selectedTeamInheritedFrom }}. Adding it directly
-                | links it without another approval.
+                | {{ $t("projectSettings.teamAlreadyInherited", { role: $t(PROJECT_ROLE_KEY[selectedTeamInheritedRole]), project: selectedTeamInheritedFrom }) }}
+                | {{ $t("projectSettings.teams.linksWithoutApproval") }}
               p.text-muted-foreground.text-xs(v-else-if="selectedTeamUpgrade")
-                | A role above the inherited role needs the team owner's approval.
+                | {{ $t("projectSettings.teams.needsApproval") }}
               p.text-muted-foreground.text-xs(v-if="!invitableTeams.length")
-                | No other teams available to invite.
+                | {{ $t("projectSettings.teams.noOtherTeams") }}
 
             template(v-if="(access?.inherited_teams ?? []).length")
               Separator
 
               .flex.flex-col.gap-3
-                span.text-sm.font-medium Inherited teams
+                span.text-sm.font-medium {{ $t("projectSettings.teams.inherited") }}
                 p.text-muted-foreground.text-xs
-                  | These teams reach this project through an ancestor project.
-                  | Their access is read-only here; attach the team explicitly above
-                  | to give it a project-specific role.
+                  | {{ $t("projectSettings.teams.inheritedHint") }}
                 Table
                   TableHeader
                     TableRow
-                      TableHead Team
-                      TableHead Members
-                      TableHead Effective role
-                      TableHead Inherited from
+                      TableHead {{ $t("admin.teams.columnTeam") }}
+                      TableHead {{ $t("admin.teams.columnMembers") }}
+                      TableHead {{ $t("projectSettings.teams.effectiveRole") }}
+                      TableHead {{ $t("projectSettings.teams.inheritedFrom") }}
                   TableBody
                     TableRow(
                       v-for="link in access?.inherited_teams ?? []"
@@ -472,7 +460,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       TableCell.text-muted-foreground {{ link.member_count }}
                       TableCell
                         Badge(variant="secondary")
-                          | {{ PROJECT_ROLE_LABEL[link.role] }}
+                          | {{ $t(PROJECT_ROLE_KEY[link.role]) }}
                       TableCell
                         RouterLink.text-primary(
                           :to="{ name: 'project', params: { slug: link.inherited_from_project_slug }, query: { tab: 'settings', section: 'access' } }"
@@ -481,13 +469,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             Separator
 
             .flex.flex-col.gap-3
-              span.text-sm.font-medium Invitations
+              span.text-sm.font-medium {{ $t("users.invitations.title") }}
               Table
                 TableHeader
                   TableRow
-                    TableHead Team
-                    TableHead Role
-                    TableHead Status
+                    TableHead {{ $t("admin.teams.columnTeam") }}
+                    TableHead {{ $t("admin.role") }}
+                    TableHead {{ $t("common.status") }}
                     TableHead
                 TableBody
                   TableRow(
@@ -495,7 +483,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     :key="invitation.id"
                   )
                     TableCell.font-medium {{ invitation.team_name }}
-                    TableCell {{ PROJECT_ROLE_LABEL[invitation.role] }}
+                    TableCell {{ $t(PROJECT_ROLE_KEY[invitation.role]) }}
                     TableCell.text-muted-foreground {{ invitation.status }}
                     TableCell
                       .flex.justify-end(
@@ -507,18 +495,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                           @click="revokeInvite(invitation)"
                         )
                           Trash2Icon(data-icon="inline-start")
-                          span Revoke
+                          span {{ $t("common.revoke") }}
                   TableRow(v-if="!(access?.invitations ?? []).length")
                     TableCell.text-muted-foreground(:colspan="4")
-                      | No invitations.
+                      | {{ $t("users.invitations.empty") }}
 
     TabsContent(value="danger")
       Card.border-destructive
         CardHeader
-          CardTitle Danger zone
+          CardTitle {{ $t("projectSettings.dangerZone") }}
           CardDescription
-            | Archiving hides the project and its tasks from the active lists.
-            | Un-archiving brings them back. Nothing is deleted.
+            | {{ $t("projectSettings.danger.description") }}
         CardContent
           .flex.items-center.justify-between.gap-4
             .flex.flex-col
@@ -531,10 +518,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               @click="archive"
             )
               ArchiveIcon(data-icon="inline-start")
-              span Archive
+              span {{ $t("tags.archive") }}
             Button(v-else-if="project" variant="outline" @click="unarchive")
               ArchiveRestoreIcon(data-icon="inline-start")
-              span Unarchive
+              span {{ $t("tasksTable.unarchive") }}
 </template>
 
 <script setup lang="ts">
@@ -583,7 +570,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import {
-  PROJECT_ROLE_LABEL,
+  PROJECT_ROLE_KEY,
   projectAccessApi,
   type ParentInvitation,
   type ParentOption,
@@ -606,8 +593,11 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const props = defineProps<{ slug: string; tab?: string }>();
 const emit = defineEmits<{ changed: [Project] }>();
@@ -832,7 +822,11 @@ async function attachToParent() {
       project.value.id,
       newParentId.value,
     );
-    toast.success(result.direct ? "Linked" : "Invitation sent");
+    toast.success(
+      result.direct
+        ? t("projectSettings.toasts.linked")
+        : t("projectSettings.toasts.invitationSent"),
+    );
     newParentId.value = "";
     await Promise.all([load(), refreshProjects()]);
   } catch (err) {
@@ -850,7 +844,11 @@ async function addChildProject() {
       newChildId.value,
       project.value.id,
     );
-    toast.success(result.direct ? "Linked" : "Invitation sent");
+    toast.success(
+      result.direct
+        ? t("projectSettings.toasts.linked")
+        : t("projectSettings.toasts.invitationSent"),
+    );
     newChildId.value = "";
     await Promise.all([load(), refreshProjects()]);
   } catch (err) {
@@ -862,11 +860,11 @@ async function addChildProject() {
 
 async function detachParentProject() {
   if (!project.value) return;
-  if (!window.confirm("Detach this project from its parent?")) return;
+  if (!window.confirm(t("projectSettings.toasts.detachQuestion"))) return;
   hierarchyBusy.value = true;
   try {
     await projectAccessApi.detachParent(project.value.id);
-    toast.success("Detached");
+    toast.success(t("projectSettings.toasts.detached"));
     await Promise.all([load(), refreshProjects()]);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -880,7 +878,7 @@ async function detachChildProject(child: { id: string; name: string }) {
   hierarchyBusy.value = true;
   try {
     await projectAccessApi.detachParent(child.id);
-    toast.success("Detached");
+    toast.success(t("projectSettings.toasts.detached"));
     await Promise.all([load(), refreshProjects()]);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -896,7 +894,11 @@ async function respondParentInvitation(
   hierarchyBusy.value = true;
   try {
     await projectAccessApi.respondParentInvitation(invitation.id, approve);
-    toast.success(approve ? "Linked" : "Invitation declined");
+    toast.success(
+      approve
+        ? t("projectSettings.toasts.linked")
+        : t("projectSettings.toasts.invitationDeclined"),
+    );
     await Promise.all([load(), refreshProjects()]);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -927,7 +929,7 @@ async function addMemberGrant() {
       newMemberRole.value,
     );
     newMemberUsername.value = "";
-    toast.success("Grant added");
+    toast.success(t("projectSettings.toasts.grantAdded"));
     await loadAccess();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -964,7 +966,7 @@ async function removeMemberGrant(grant: ProjectMemberGrant) {
   accessBusy.value = true;
   try {
     await projectAccessApi.removeMember(project.value.id, grant.actor_id);
-    toast.success("Grant removed");
+    toast.success(t("projectSettings.toasts.grantRemoved"));
     await loadAccess();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -984,7 +986,9 @@ async function inviteTeam() {
     );
     newTeamId.value = "";
     toast.success(
-      result.team ? "Team attached" : "Team invited; its owner must approve",
+      result.team
+        ? t("projectSettings.toasts.teamAttached")
+        : t("projectSettings.toasts.teamInvited"),
     );
     await loadAccess();
   } catch (err) {
@@ -1022,7 +1026,7 @@ async function removeTeamLink(link: ProjectTeamLink) {
   accessBusy.value = true;
   try {
     await projectAccessApi.removeTeam(project.value.id, link.team_id);
-    toast.success("Team detached");
+    toast.success(t("projectSettings.toasts.teamDetached"));
     await loadAccess();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -1057,7 +1061,7 @@ async function saveGeneral() {
     );
     prefix.value = project.value.prefix ?? "";
     emit("changed", project.value);
-    toast.success("Project updated");
+    toast.success(t("projectSettings.toasts.updated"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -1078,7 +1082,7 @@ async function savePrefix() {
     );
     prefix.value = project.value.prefix ?? "";
     emit("changed", project.value);
-    toast.success("Task prefix updated");
+    toast.success(t("projectSettings.toasts.prefixUpdated"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -1099,7 +1103,7 @@ async function archive() {
         `Project archived, but ${offlineAgents.length} offline agent(s) were skipped`,
       );
     } else {
-      toast.success("Project archived");
+      toast.success(t("admin.toasts.projectArchived"));
     }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -1113,7 +1117,7 @@ async function unarchive() {
       agency.unarchiveProject(project.value!.id),
     );
     emit("changed", project.value);
-    toast.success("Project unarchived");
+    toast.success(t("admin.toasts.projectUnarchived"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   }
@@ -1128,3 +1132,166 @@ watch(tab, (value) => {
 
 onMounted(load);
 </script>
+
+<i18n lang="yaml">
+en:
+  projectSettings:
+    dangerZone: "Danger zone"
+    general:
+      description: "The project's picture, name, description, and slug."
+      picture: "Picture"
+      slugHint: "The slug is set at creation and used in the project's URL."
+    hierarchy:
+      description: "Projects form a tree. Anyone who can view a parent may also view every descendant, and tasks may reference tasks in descendant or sibling projects. Root projects are not siblings and cannot reference each other's tasks."
+      parent: "Parent project"
+      detach: "Detach"
+      topLevel: "This is a top-level project."
+      accept: "Accept"
+      attach: "Attach to a parent project"
+      chooseParent: "Choose a parent"
+      subprojects: "Subprojects"
+      none: "None."
+      addSubproject: "Add a subproject"
+      chooseProject: "Choose a project"
+      subprojectAria: "Subproject"
+      pendingInvitations: "Pending invitations"
+    taskIds:
+      title: "Task ids"
+      prefix: "Task prefix"
+      placeholder: "MYPROJECT"
+      save: "Save prefix"
+      description2: "Task ids read {prefix}-1. Changing the prefix renames this project's existing tasks."
+    prompt:
+      title: "Project prompt"
+      description: "Injected into each new task's system prompt, after the agency and agent prompts. Edits affect future tasks only."
+      placeholder: "Instructions for tasks in this project…"
+    tags:
+      description: "The tags task creators can pick inside this project."
+    templates:
+      description: "Reusable Jinja prompts saved per project. A task created from a template records the version and the argument values it used."
+    access:
+      description: "Who can reach this project. The effective role is the strongest of a direct grant and the caller's teams; a viewer may view and comment, a member may prompt and edit, an owner may also manage access."
+      ownersOnly: "Only project owners can change access."
+      direct: "Direct access"
+      noDirect: "No direct access."
+      addPlaceholder: "Add a person or agent…"
+      plugins: "Installed plugins"
+      pluginsHint: "Installed plugins have direct access to the project, always 'member' level."
+      managePlugins: "Manage in Plugins"
+      alwaysByInstall: "always · set by install"
+      noPlugins: "No plugins have access to this project."
+    teams:
+      noTeams: "No teams attached."
+      invitePlaceholder: "Invite a team…"
+      inviteAria: "Team to invite"
+      linksWithoutApproval: "links it without another approval."
+      needsApproval: "A role above the inherited role needs the team owner's approval."
+      noOtherTeams: "No other teams available to invite."
+      inherited: "Inherited teams"
+      inheritedHint: "These teams reach this project through an ancestor project. Their access is read-only here; attach the team explicitly above to give it a project-specific role."
+      effectiveRole: "Effective role"
+      inheritedFrom: "Inherited from"
+    danger:
+      description: "Archiving hides the project and its tasks from the active lists. Un-archiving brings them back. Nothing is deleted."
+    toasts:
+      linked: "Linked"
+      invitationSent: "Invitation sent"
+      detachQuestion: "Detach this project from its parent?"
+      detached: "Detached"
+      invitationDeclined: "Invitation declined"
+      grantAdded: "Grant added"
+      grantRemoved: "Grant removed"
+      teamAttached: "Team attached"
+      teamInvited: "Team invited; its owner must approve"
+      teamDetached: "Team detached"
+      updated: "Project updated"
+      prefixUpdated: "Task prefix updated"
+    tabs:
+      templates: "Templates"
+    invitationFrom: "Invitation from {project}"
+    invitedBy: "Invited by {'@'}{username}"
+    yourRole: "Your role: {role}"
+    pluginGrant: "plugin · {'@'}{username}"
+    alsoInherited: "Also inherited as {role} from"
+    teamAlreadyInherited: "This team already has inherited {role} access from {project}. Adding it directly"
+ru:
+  projectSettings:
+    dangerZone: "Опасная зона"
+    general:
+      description: "Изображение, название, описание и слаг проекта."
+      picture: "Изображение"
+      slugHint: "Слаг задаётся при создании и используется в URL проекта."
+    hierarchy:
+      description: "Проекты образуют дерево. Тот, кто видит родительский проект, видит и все дочерние, а задачи могут ссылаться на задачи в дочерних или соседних проектах. Корневые проекты не являются соседними и не могут ссылаться на задачи друг друга."
+      parent: "Родительский проект"
+      detach: "Отсоединить"
+      topLevel: "Это проект верхнего уровня."
+      accept: "Принять"
+      attach: "Присоединить к родительскому проекту"
+      chooseParent: "Выберите родителя"
+      subprojects: "Дочерние проекты"
+      none: "Нет."
+      addSubproject: "Добавить дочерний проект"
+      chooseProject: "Выберите проект"
+      subprojectAria: "Дочерний проект"
+      pendingInvitations: "Ожидающие приглашения"
+    taskIds:
+      title: "Идентификаторы задач"
+      prefix: "Префикс задач"
+      placeholder: "MYPROJECT"
+      save: "Сохранить префикс"
+      description2: "Идентификаторы задач выглядят как {prefix}-1. Смена префикса переименовывает существующие задачи проекта."
+    prompt:
+      title: "Промпт проекта"
+      description: "Добавляется в системный промпт каждой новой задачи после промптов агентства и агента. Изменения влияют только на будущие задачи."
+      placeholder: "Инструкции для задач этого проекта…"
+    tags:
+      description: "Теги, которые создатели задач могут выбрать в этом проекте."
+    templates:
+      description: "Многоразовые Jinja-промпты, сохранённые для проекта. Созданная из шаблона задача запоминает версию и значения аргументов."
+    access:
+      description: "Кто имеет доступ к проекту. Итоговая роль — сильнейшая из прямого разрешения и ролей в командах; наблюдатель может смотреть и комментировать, участник — отправлять промпты и редактировать, владелец — ещё и управлять доступом."
+      ownersOnly: "Изменять доступ могут только владельцы проекта."
+      direct: "Прямой доступ"
+      noDirect: "Прямого доступа нет."
+      addPlaceholder: "Добавить пользователя или агента…"
+      plugins: "Установленные плагины"
+      pluginsHint: "Установленные плагины имеют прямой доступ к проекту, всегда уровня «участник»."
+      managePlugins: "Управлять в плагинах"
+      alwaysByInstall: "всегда · задано при установке"
+      noPlugins: "Ни один плагин не имеет доступа к этому проекту."
+    teams:
+      noTeams: "Команды не подключены."
+      invitePlaceholder: "Пригласить команду…"
+      inviteAria: "Команда для приглашения"
+      linksWithoutApproval: "подключает её без дополнительного одобрения."
+      needsApproval: "Роль выше унаследованной требует одобрения владельца команды."
+      noOtherTeams: "Нет других команд для приглашения."
+      inherited: "Унаследованные команды"
+      inheritedHint: "Эти команды получают доступ к проекту через родительский проект. Здесь их доступ только для чтения; подключите команду явно выше, чтобы задать роль в проекте."
+      effectiveRole: "Итоговая роль"
+      inheritedFrom: "Унаследовано от"
+    danger:
+      description: "Архивация скрывает проект и его задачи из активных списков. Разархивация возвращает их. Ничего не удаляется."
+    toasts:
+      linked: "Связано"
+      invitationSent: "Приглашение отправлено"
+      detachQuestion: "Отсоединить проект от родительского?"
+      detached: "Отсоединено"
+      invitationDeclined: "Приглашение отклонено"
+      grantAdded: "Разрешение добавлено"
+      grantRemoved: "Разрешение удалено"
+      teamAttached: "Команда подключена"
+      teamInvited: "Команда приглашена; требуется одобрение её владельца"
+      teamDetached: "Команда отключена"
+      updated: "Проект обновлён"
+      prefixUpdated: "Префикс задач обновлён"
+    tabs:
+      templates: "Шаблоны"
+    invitationFrom: "Приглашение от {project}"
+    invitedBy: "Приглашение от {'@'}{username}"
+    yourRole: "Ваша роль: {role}"
+    pluginGrant: "плагин · {'@'}{username}"
+    alsoInherited: "Также унаследовано как {role} из"
+    teamAlreadyInherited: "У этой команды уже есть унаследованный доступ {role} из {project}. Прямое подключение"
+</i18n>

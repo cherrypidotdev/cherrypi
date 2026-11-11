@@ -22,55 +22,55 @@ Dialog(:open="open" @update:open="requestOpen")
     DialogHeader
       DialogTitle {{ isEditing ? "Edit task template" : "New task template" }}
       DialogDescription
-        | A Jinja prompt with declared arguments and task defaults. Saving a
-        | changed template appends an immutable version; tasks pin the version
-        | they were created from.
+        | {{ $t("templateEditor.description") }}
     Tabs(v-model="tab")
       TabsList
-        TabsTrigger(value="content") Content
-        TabsTrigger(value="defaults") Defaults
-        TabsTrigger(value="preview") Preview
-        TabsTrigger(v-if="isEditing" value="versions") Versions
+        TabsTrigger(value="content") {{ $t("templateEditor.tab.content") }}
+        TabsTrigger(value="defaults") {{ $t("templateEditor.tab.defaults") }}
+        TabsTrigger(value="preview") {{ $t("settings.sounds.preview") }}
+        TabsTrigger(v-if="isEditing" value="versions") {{ $t("templateEditor.tab.versions") }}
       TabsContent.flex.flex-col.gap-4(value="content")
         FieldGroup
           Field
-            FieldLabel(for="template-name") Name
-            Input#template-name(v-model="name" placeholder="Bug report")
-          Field
-            FieldLabel(for="template-description") Description
-            Input#template-description(
-              v-model="description"
-              placeholder="What this template is for"
+            FieldLabel(for="template-name") {{ $t("common.name") }}
+            Input#template-name(
+              v-model="name"
+              :placeholder="$t('templateEditor.namePlaceholder')"
             )
           Field
-            FieldLabel(for="template-body") Prompt body (Jinja)
+            FieldLabel(for="template-description") {{ $t("common.description") }}
+            Input#template-description(
+              v-model="description"
+              :placeholder="$t('templateEditor.summaryPlaceholder')"
+            )
+          Field
+            FieldLabel(for="template-body") {{ $t("templateEditor.body") }}
             Textarea#template-body.font-mono(
               v-model="content.body"
-              placeholder="Fix the {{ component }} crash.\n\nSteps:\n{{ steps }}"
+              :placeholder="SAMPLE_BODY"
               rows="10"
             )
             FieldDescription {{ BODY_HINT }}
           Field
-            FieldLabel(for="template-title") Title template (optional)
+            FieldLabel(for="template-title") {{ $t("templateEditor.titleTemplate") }}
             Input#template-title.font-mono(
               v-model="content.titleTemplate"
-              placeholder="Fix {{ component }}"
+              :placeholder="SAMPLE_TITLE"
             )
             FieldDescription
-              | Rendered into the task's title. Empty leaves the title to the
-              | agent's auto-title.
+              | {{ $t("templateEditor.titleHint") }}
 
         .flex.flex-col.gap-2
           .flex.items-center.justify-between.gap-2
             .flex.flex-col
-              span.text-sm.font-medium Arguments
+              span.text-sm.font-medium {{ $t("templateEditor.arguments") }}
               span.text-muted-foreground.text-xs
-                | Every variable the body or title references must be declared here.
+                | {{ $t("templateEditor.argumentsHint") }}
             Button(type="button" variant="outline" size="sm" @click="addArg")
               PlusIcon(data-icon="inline-start")
-              span Add argument
+              span {{ $t("templateEditor.addArgument") }}
           p.text-muted-foreground.text-xs(v-if="!content.args?.length")
-            | No arguments yet.
+            | {{ $t("templateEditor.noArguments") }}
           .flex.flex-col.gap-2(
             v-for="(arg, index) in content.args"
             :key="index"
@@ -80,32 +80,34 @@ Dialog(:open="open" @update:open="requestOpen")
             )
               Input.font-mono(
                 v-model="arg.key"
-                placeholder="key"
-                aria-label="Argument key"
+                :placeholder="$t('templateEditor.keyPlaceholder')"
+                :aria-label="$t('templateEditor.keyAria')"
               )
               Input(
                 v-model="arg.label"
-                placeholder="Label"
-                aria-label="Argument label"
+                :placeholder="$t('templateEditor.labelPlaceholder')"
+                :aria-label="$t('templateEditor.labelAria')"
               )
               Select(
                 :model-value="arg.type ?? TaskTemplateArgType.TEXT"
                 @update:model-value="setArgTypeFromSelect(arg, $event)"
               )
-                SelectTrigger.w-full(aria-label="Argument type")
+                SelectTrigger.w-full(
+                  :aria-label="$t('templateEditor.typeAria')"
+                )
                   SelectValue
                 SelectContent
                   SelectItem(
                     v-for="type in ARG_TYPES"
                     :key="type"
                     :value="type"
-                  ) {{ ARG_TYPE_LABELS[type] }}
+                  ) {{ $t(ARG_TYPE_KEYS[type]) }}
               Button(
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                title="Remove argument"
-                aria-label="Remove argument"
+                :title="$t('templateEditor.removeArgument')"
+                :aria-label="$t('templateEditor.removeArgument')"
                 @click="removeArg(index)"
               )
                 XIcon.size-3
@@ -115,20 +117,20 @@ Dialog(:open="open" @update:open="requestOpen")
               Input(
                 v-model="arg.defaultValue"
                 :placeholder="defaultPlaceholder(arg)"
-                aria-label="Argument default"
+                :aria-label="$t('templateEditor.defaultAria')"
               )
               Input(
                 v-if="arg.type === TaskTemplateArgType.SELECT"
-                placeholder="Options, comma-separated"
-                aria-label="Argument options"
+                :placeholder="$t('templateEditor.optionsPlaceholder')"
+                :aria-label="$t('templateEditor.optionsAria')"
                 :model-value="formatOptions(arg.options)"
                 @update:model-value="setArgOptions(arg, $event)"
               )
               Input(
                 v-else
                 v-model="arg.description"
-                placeholder="Description (optional)"
-                aria-label="Argument description"
+                :placeholder="$t('templateEditor.descriptionPlaceholder')"
+                :aria-label="$t('templateEditor.descriptionAria')"
               )
               label.flex.items-center.gap-2.text-xs.whitespace-nowrap
                 Switch(
@@ -136,19 +138,18 @@ Dialog(:open="open" @update:open="requestOpen")
                   :model-value="arg.required ?? false"
                   @update:model-value="arg.required = $event"
                 )
-                span Required
+                span {{ $t("tags.required") }}
             p.text-destructive.text-xs(
               v-if="arg.type === TaskTemplateArgType.SELECT && !arg.options?.length"
             )
-              | A select needs at least one option.
+              | {{ $t("templateEditor.selectNeedsOption") }}
 
       TabsContent.flex.flex-col.gap-4(value="defaults")
         p.text-muted-foreground.text-xs
-          | Pre-filled in the composer. Explicit task fields override them, and
-          | a template never pins the assignee or the model.
+          | {{ $t("templateEditor.defaultsHint") }}
         .grid.grid-cols-2.gap-3
           Field
-            FieldLabel Priority
+            FieldLabel {{ $t("domainLog.kind.priority") }}
             Select(
               :model-value="content.defaultPriority ?? TaskPriority.NORMAL"
               @update:model-value="setDefaultPriority"
@@ -162,7 +163,7 @@ Dialog(:open="open" @update:open="requestOpen")
                   :value="option.value"
                 ) {{ option.label }}
           Field
-            FieldLabel Size
+            FieldLabel {{ $t("domainLog.kind.size") }}
             Select(
               :model-value="content.defaultSize ?? TaskSize.MEDIUM"
               @update:model-value="setDefaultSize"
@@ -174,9 +175,9 @@ Dialog(:open="open" @update:open="requestOpen")
                   v-for="option in TASK_SIZES"
                   :key="option.value"
                   :value="option.value"
-                ) {{ option.label }}
+                ) {{ $t(option.labelKey) }}
         .flex.flex-col.gap-2
-          span.text-sm.font-medium Tags
+          span.text-sm.font-medium {{ $t("domainLog.kind.tags") }}
           .flex.flex-wrap.items-center.gap-1
             span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
               v-for="tag in selectedTags"
@@ -189,24 +190,24 @@ Dialog(:open="open" @update:open="requestOpen")
               button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
                 type="button"
                 class="p-0.5 hover:opacity-100"
-                title="Remove tag"
+                :title="$t('taskDetails.removeTag')"
                 @click="toggleTag(tag.id)"
               )
                 XIcon.size-3
             span.text-muted-foreground.text-xs(v-if="!selectedTags.length")
-              | None.
+              | {{ $t("projectSettings.hierarchy.none") }}
             DropdownMenu
               DropdownMenuTrigger(as-child)
                 Button(type="button" variant="outline" size="sm")
                   TagIcon(data-icon="inline-start")
-                  span Add tag
+                  span {{ $t("tags.add") }}
               DropdownMenuContent.w-48(align="start")
-                DropdownMenuLabel Tags
+                DropdownMenuLabel {{ $t("domainLog.kind.tags") }}
                 DropdownMenuSeparator
                 p.text-muted-foreground.px-2.py-1.text-xs(
                   v-if="!activeTags.length"
                 )
-                  | No tags in this project
+                  | {{ $t("tasks.noTagsInProject") }}
                 DropdownMenuCheckboxItem(
                   v-for="tag in activeTags"
                   :key="tag.id"
@@ -214,7 +215,7 @@ Dialog(:open="open" @update:open="requestOpen")
                   @update:model-value="toggleTag(tag.id)"
                 ) {{ tag.name }}
         .flex.flex-col.gap-2
-          span.text-sm.font-medium Owning teams
+          span.text-sm.font-medium {{ $t("domainLog.kind.teams") }}
           .flex.flex-wrap.items-center.gap-1
             span.inline-flex.items-center.gap-1.rounded-full.border.pr-1.pl-2.text-xs(
               v-for="team in selectedTeams"
@@ -226,24 +227,24 @@ Dialog(:open="open" @update:open="requestOpen")
               button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
                 type="button"
                 class="p-0.5 hover:opacity-100"
-                title="Remove team"
+                :title="$t('express.removeTeam')"
                 @click="toggleTeam(team.team_id)"
               )
                 XIcon.size-3
             span.text-muted-foreground.text-xs(v-if="!selectedTeams.length")
-              | None; the project default applies.
+              | {{ $t("templateEditor.defaultTeams.none") }}
             DropdownMenu
               DropdownMenuTrigger(as-child)
                 Button(type="button" variant="outline" size="sm")
                   UsersIcon(data-icon="inline-start")
-                  span Add team
+                  span {{ $t("templateEditor.addTeam") }}
               DropdownMenuContent.w-56(align="start")
-                DropdownMenuLabel Owning teams
+                DropdownMenuLabel {{ $t("domainLog.kind.teams") }}
                 DropdownMenuSeparator
                 p.text-muted-foreground.px-2.py-1.text-xs(
                   v-if="!projectTeams.length"
                 )
-                  | No teams in this project
+                  | {{ $t("express.noTeams") }}
                 DropdownMenuCheckboxItem(
                   v-for="team in projectTeams"
                   :key="team.team_id"
@@ -251,7 +252,7 @@ Dialog(:open="open" @update:open="requestOpen")
                   @update:model-value="toggleTeam(team.team_id)"
                 ) {{ team.team_name }}
         .flex.flex-col.gap-2
-          span.text-sm.font-medium Leads
+          span.text-sm.font-medium {{ $t("domainLog.kind.leads") }}
           .flex.flex-wrap.items-center.gap-1
             span.inline-flex.items-center.gap-1.rounded-full.border.pr-2.pl-1.text-xs(
               v-for="lead in selectedLeads"
@@ -268,24 +269,24 @@ Dialog(:open="open" @update:open="requestOpen")
               button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
                 type="button"
                 class="p-0.5 hover:opacity-100"
-                title="Remove lead"
+                :title="$t('express.removeLead')"
                 @click="toggleLead(lead.actor_id)"
               )
                 XIcon.size-3
             span.text-muted-foreground.text-xs(v-if="!selectedLeads.length")
-              | None.
+              | {{ $t("projectSettings.hierarchy.none") }}
             DropdownMenu
               DropdownMenuTrigger(as-child)
                 Button(type="button" variant="outline" size="sm")
                   UserCheckIcon(data-icon="inline-start")
-                  span Add lead
+                  span {{ $t("templateEditor.addLead") }}
               DropdownMenuContent.w-56(align="start")
-                DropdownMenuLabel Leads
+                DropdownMenuLabel {{ $t("domainLog.kind.leads") }}
                 DropdownMenuSeparator
                 p.text-muted-foreground.px-2.py-1.text-xs(
                   v-if="!leadCandidates.length"
                 )
-                  | No members to pick
+                  | {{ $t("express.noMembers") }}
                 DropdownMenuCheckboxItem(
                   v-for="candidate in leadCandidates"
                   :key="candidate.actor_id"
@@ -302,36 +303,35 @@ Dialog(:open="open" @update:open="requestOpen")
 
       TabsContent.flex.flex-col.gap-3(value="preview")
         p.text-muted-foreground.text-xs
-          | Rendered by the agency with every argument's default value, exactly
-          | as a task created from this template would be.
+          | {{ $t("templateEditor.previewHint") }}
         .flex.flex-col.gap-1(v-if="previewError")
           p.text-destructive.text-sm {{ previewError }}
         template(v-else-if="preview")
           .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Title
+            span.text-muted-foreground.text-xs {{ $t("common.title") }}
             span.text-sm.font-medium {{ preview.title || "— (auto-title)" }}
           .flex.flex-col(class="gap-0.5")
-            span.text-muted-foreground.text-xs Prompt
+            span.text-muted-foreground.text-xs {{ $t("domainLog.kind.prompt") }}
             MarkdownText.prose.prose-sm.max-w-none(
               class="prose-p:my-1 prose-pre:my-2"
               :text="preview.prompt"
             )
           .flex.flex-wrap.items-center.gap-2.text-xs
-            Badge(variant="secondary") {{ taskPriorityLabel(preview.priority) }}
-            Badge(variant="secondary") {{ taskSizeLabel(preview.size) }}
+            Badge(variant="secondary") {{ $t(taskPriorityKey(preview.priority)) }}
+            Badge(variant="secondary") {{ $t(taskSizeKey(preview.size)) }}
             Badge(v-if="preview.tagIds.length" variant="secondary")
-              | {{ preview.tagIds.length }} tag(s)
+              | {{ $t("templateEditor.tags", { count: preview.tagIds.length }) }}
         p.text-muted-foreground.text-xs(v-else)
-          | Rendering…
+          | {{ $t("templateApply.rendering") }}
         .flex.flex-col.gap-1(v-if="validationErrors.length")
-          span.text-destructive.text-xs.font-medium Validation
+          span.text-destructive.text-xs.font-medium {{ $t("templateEditor.validation") }}
           p.text-destructive.text-xs(
             v-for="error in validationErrors"
             :key="error"
           )
             | {{ error }}
         .flex.flex-col.gap-1(v-if="validationWarnings.length")
-          span.text-xs.font-medium Warnings
+          span.text-xs.font-medium {{ $t("templateEditor.warnings") }}
           p.text-muted-foreground.text-xs(
             v-for="warning in validationWarnings"
             :key="warning"
@@ -340,18 +340,17 @@ Dialog(:open="open" @update:open="requestOpen")
 
       TabsContent.flex.flex-col.gap-3(v-if="isEditing" value="versions")
         p.text-muted-foreground.text-xs
-          | Versions are immutable. Tasks keep the version and arguments they
-          | were created with, so editing only affects new tasks.
-        p.text-muted-foreground.text-xs(v-if="!versions.length") No versions yet.
+          | {{ $t("templateEditor.versionsHint") }}
+        p.text-muted-foreground.text-xs(v-if="!versions.length") {{ $t("templateEditor.noVersions") }}
         .flex.items-center.justify-between.gap-2.rounded-md.border.px-3.py-2(
           v-for="version in versions"
           :key="String(version.version)"
         )
           .flex.flex-col
-            span.text-sm.font-medium Version {{ version.version }}
+            span.text-sm.font-medium {{ $t("templateEditor.version", { version: version.version }) }}
             span.text-muted-foreground.text-xs
               | {{ formatTimestamp(version.createdAt) }}
-              | · {{ version.content?.args?.length ?? 0 }} argument(s)
+              | {{ $t("templateEditor.argumentsCount", { count: version.content?.args?.length ?? 0 }) }}
           Button(
             type="button"
             variant="outline"
@@ -360,11 +359,11 @@ Dialog(:open="open" @update:open="requestOpen")
             :disabled="busy || Number(version.version) === Number(template?.latestVersion ?? 0)"
           )
             ArchiveRestoreIcon(data-icon="inline-start")
-            span Restore
+            span {{ $t("tags.restore") }}
     p.text-destructive.text-sm(v-if="error") {{ error }}
     DialogFooter
       Button(type="button" variant="outline" @click="requestClose")
-        | Cancel
+        | {{ $t("common.cancel") }}
       Button(
         type="button"
         @click="save"
@@ -377,15 +376,14 @@ Dialog(:open="open" @update:open="requestOpen")
 Dialog(v-model:open="discardOpen")
   DialogContent(class="sm:max-w-md")
     DialogHeader
-      DialogTitle Discard unsaved changes?
+      DialogTitle {{ $t("templateEditor.discardQuestion") }}
       DialogDescription
-        | This template has edits that were never saved. Discarding them cannot
-        | be undone.
+        | {{ $t("templateEditor.discardHint") }}
     DialogFooter
       Button(type="button" variant="outline" @click="discardOpen = false")
-        | Keep editing
+        | {{ $t("templateEditor.keepEditing") }}
       Button(type="button" variant="destructive" @click="discardChanges")
-        | Discard
+        | {{ $t("templateEditor.discard") }}
 </template>
 
 <script setup lang="ts">
@@ -436,15 +434,10 @@ import {
   type ProjectTeamLink,
 } from "@/lib/projectAccess";
 import { agency } from "@/lib/sdk";
-import {
-  TASK_SIZES,
-  tagStyle,
-  taskPriorityLabel,
-  taskSizeLabel,
-} from "@/lib/task";
+import { TASK_SIZES, tagStyle, taskPriorityKey, taskSizeKey } from "@/lib/task";
 import {
   ARG_TYPES,
-  ARG_TYPE_LABELS,
+  ARG_TYPE_KEYS,
   defaultTemplateArgs,
   emptyTemplateContent,
   formatOptions,
@@ -470,7 +463,10 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   open: boolean;
@@ -483,17 +479,22 @@ const emit = defineEmits<{
 }>();
 
 const PRIORITIES = [
-  { value: TaskPriority.LOW, label: taskPriorityLabel(TaskPriority.LOW) },
-  { value: TaskPriority.NORMAL, label: taskPriorityLabel(TaskPriority.NORMAL) },
-  { value: TaskPriority.HIGH, label: taskPriorityLabel(TaskPriority.HIGH) },
+  { value: TaskPriority.LOW, label: t(taskPriorityKey(TaskPriority.LOW)) },
+  {
+    value: TaskPriority.NORMAL,
+    label: t(taskPriorityKey(TaskPriority.NORMAL)),
+  },
+  { value: TaskPriority.HIGH, label: t(taskPriorityKey(TaskPriority.HIGH)) },
   {
     value: TaskPriority.CRITICAL,
-    label: taskPriorityLabel(TaskPriority.CRITICAL),
+    label: t(taskPriorityKey(TaskPriority.CRITICAL)),
   },
 ];
 
-const BODY_HINT =
-  "Use {{ variable }} for arguments and {% if %} / {% for %} blocks. Includes and macros are not supported.";
+const SAMPLE_BODY = "Fix the {{ component }} crash.\n\nSteps:\n{{ steps }}";
+const SAMPLE_TITLE = "Fix {{ component }}";
+
+const BODY_HINT = computed(() => t("templateEditor.bodyHint"));
 
 const isEditing = computed(() => !!props.template);
 const tab = ref("content");
@@ -645,8 +646,8 @@ function removeArg(index: number) {
 
 function defaultPlaceholder(arg: TaskTemplateArgInput): string {
   return arg.type === TaskTemplateArgType.SELECT
-    ? "Default option"
-    : "Default value";
+    ? t("templateEditor.defaultOption")
+    : t("templateEditor.defaultValue");
 }
 
 function setArgType(arg: TaskTemplateArgInput, type: TaskTemplateArgType) {
@@ -741,7 +742,7 @@ async function save() {
     validationWarnings.value = validation.warnings;
     if (!validation.valid) {
       tab.value = "preview";
-      error.value = "Fix the validation errors before saving.";
+      error.value = t("templateEditor.errors.validation");
       return;
     }
     const result = props.template
@@ -759,9 +760,13 @@ async function save() {
 
     savedSnapshot.value = snapshot();
     if ("versionCreated" in result && result.versionCreated) {
-      toast.success("Saved as a new version");
+      toast.success(t("templateEditor.toasts.versionCreated"));
     } else {
-      toast.success(props.template ? "Template saved" : "Template created");
+      toast.success(
+        props.template
+          ? t("templateEditor.toasts.saved")
+          : t("templateEditor.toasts.created"),
+      );
     }
     emit("saved", result.template);
     emit("update:open", false);
@@ -794,3 +799,114 @@ async function restoreVersion(version: number | bigint) {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  templateEditor:
+    noVersions: "No versions yet."
+    description: "A Jinja prompt with declared arguments and task defaults. Saving a changed template appends an immutable version; tasks pin the version they were created from."
+    tab:
+      content: "Content"
+      defaults: "Defaults"
+      versions: "Versions"
+    body: "Prompt body (Jinja)"
+    bodyHint: "Use {'{'}variable{'}'} for arguments and {'{'}% if %{'}'} / {'{'}% for %{'}'} blocks. Includes and macros are not supported."
+    titleTemplate: "Title template (optional)"
+    titleHint: "Rendered into the task's title. Empty leaves the title to the agent's auto-title."
+    arguments: "Arguments"
+    argumentsHint: "Every variable the body or title references must be declared here."
+    addArgument: "Add argument"
+    noArguments: "No arguments yet."
+    selectNeedsOption: "A select needs at least one option."
+    defaultsHint: "Pre-filled in the composer. Explicit task fields override them, and a template never pins the assignee or the model."
+    defaultTeams:
+      none: "None; the project default applies."
+    addTeam: "Add team"
+    addLead: "Add lead"
+    previewHint: "Rendered by the agency with every argument's default value, exactly as a task created from this template would be."
+    validation: "Validation"
+    warnings: "Warnings"
+    versionsHint: "Versions are immutable. Tasks keep the version and arguments they were created with, so editing only affects new tasks."
+    discardQuestion: "Discard unsaved changes?"
+    discardHint: "This template has edits that were never saved. Discarding them cannot be undone."
+    keepEditing: "Keep editing"
+    discard: "Discard"
+    namePlaceholder: "Bug report"
+    summaryPlaceholder: "What this template is for"
+    keyPlaceholder: "key"
+    keyAria: "Argument key"
+    labelPlaceholder: "Label"
+    labelAria: "Argument label"
+    typeAria: "Argument type"
+    removeArgument: "Remove argument"
+    defaultAria: "Argument default"
+    optionsPlaceholder: "Options, comma-separated"
+    optionsAria: "Argument options"
+    descriptionPlaceholder: "Description (optional)"
+    descriptionAria: "Argument description"
+    toasts:
+      created: "Template created"
+      saved: "Template saved"
+      versionCreated: "Saved as a new version"
+    errors:
+      validation: "Fix the validation errors before saving."
+    defaultValue: "Default value"
+    defaultOption: "Default option"
+    tags: "{count} tag | {count} tags"
+    version: "Version {version}"
+    argumentsCount: "· {count} argument | · {count} arguments"
+ru:
+  templateEditor:
+    noVersions: "Версий пока нет."
+    description: "Jinja-промпт с объявленными аргументами и значениями по умолчанию. При сохранении изменённого шаблона добавляется неизменяемая версия; задачи фиксируют версию, из которой созданы."
+    tab:
+      content: "Содержимое"
+      defaults: "Значения по умолчанию"
+      versions: "Версии"
+    body: "Тело промпта (Jinja)"
+    bodyHint: "Используйте {'{'}variable{'}'} для аргументов и блоки {'{'}% if %{'}'} / {'{'}% for %{'}'}. Include и макросы не поддерживаются."
+    titleTemplate: "Шаблон названия (необязательно)"
+    titleHint: "Подставляется в название задачи. Если пусто, название создаёт агент автоматически."
+    arguments: "Аргументы"
+    argumentsHint: "Каждая переменная, используемая в теле или названии, должна быть объявлена здесь."
+    addArgument: "Добавить аргумент"
+    noArguments: "Аргументов пока нет."
+    selectNeedsOption: "Для списка нужен хотя бы один вариант."
+    defaultsHint: "Подставляются в композер. Явно заданные поля задачи их переопределяют, а шаблон никогда не фиксирует исполнителя и модель."
+    defaultTeams:
+      none: "Нет; действует значение проекта по умолчанию."
+    addTeam: "Добавить команду"
+    addLead: "Добавить руководителя"
+    previewHint: "Агентство формирует его со значениями всех аргументов по умолчанию — так же, как для созданной из шаблона задачи."
+    validation: "Проверка"
+    warnings: "Предупреждения"
+    versionsHint: "Версии неизменяемы. Задачи сохраняют версию и аргументы, с которыми созданы, поэтому правки влияют только на новые задачи."
+    discardQuestion: "Отменить несохранённые изменения?"
+    discardHint: "В шаблоне есть несохранённые правки. Отмена необратима."
+    keepEditing: "Продолжить редактирование"
+    discard: "Отменить"
+    namePlaceholder: "Отчёт об ошибке"
+    summaryPlaceholder: "Для чего этот шаблон"
+    keyPlaceholder: "ключ"
+    keyAria: "Ключ аргумента"
+    labelPlaceholder: "Подпись"
+    labelAria: "Подпись аргумента"
+    typeAria: "Тип аргумента"
+    removeArgument: "Удалить аргумент"
+    defaultAria: "Значение аргумента по умолчанию"
+    optionsPlaceholder: "Варианты через запятую"
+    optionsAria: "Варианты аргумента"
+    descriptionPlaceholder: "Описание (необязательно)"
+    descriptionAria: "Описание аргумента"
+    toasts:
+      created: "Шаблон создан"
+      saved: "Шаблон сохранён"
+      versionCreated: "Сохранено как новая версия"
+    errors:
+      validation: "Исправьте ошибки проверки перед сохранением."
+    defaultValue: "Значение по умолчанию"
+    defaultOption: "Вариант по умолчанию"
+    tags: "{count} тег | {count} тега | {count} тегов"
+    version: "Версия {version}"
+    argumentsCount: "· {count} аргумент | · {count} аргумента | · {count} аргументов"
+</i18n>

@@ -20,30 +20,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent.overflow-y-auto(class="max-h-[90vh] sm:max-w-lg")
     DialogHeader
-      DialogTitle Edit task
+      DialogTitle {{ $t("editTask.title") }}
     form.flex.flex-col.gap-4(v-if="task" @submit.prevent="save")
       Field
-        FieldLabel(for="edit-prompt") Prompt
+        FieldLabel(for="edit-prompt") {{ $t("domainLog.kind.prompt") }}
         Textarea#edit-prompt.field-sizing-content.resize-y(
           v-model="prompt"
-          placeholder="What should the agent do?"
+          :placeholder="$t('editTask.promptPlaceholder')"
         )
       Field
-        FieldLabel(for="edit-title") Title
-        Input#edit-title(v-model="title" placeholder="Optional title")
+        FieldLabel(for="edit-title") {{ $t("common.title") }}
+        Input#edit-title(
+          v-model="title"
+          :placeholder="$t('editTask.titlePlaceholder')"
+        )
 
       .grid.gap-4(class="sm:grid-cols-2")
         Field
-          FieldLabel(for="edit-assignee") Assignee
+          FieldLabel(for="edit-assignee") {{ $t("domainLog.kind.assignee") }}
           Select(
             v-model="assigneeChoice"
             @update:model-value="onAssigneeChange"
           )
             SelectTrigger#edit-assignee.w-full
-              SelectValue(placeholder="Auto-assign")
+              SelectValue(:placeholder="$t('editTask.autoAssign')")
             SelectContent
               SelectGroup
-                SelectItem(:value="AUTO") Auto-assign
+                SelectItem(:value="AUTO") {{ $t("editTask.autoAssign") }}
                 SelectItem(
                   v-for="item in agents"
                   :key="item.id"
@@ -51,18 +54,18 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
                 )
                   | {{ item.displayName || item.username }}
         Field
-          FieldLabel(for="edit-project") Project
+          FieldLabel(for="edit-project") {{ $t("admin.projects.columnProject") }}
           Combobox#edit-project(
             v-model="projectChoice"
-            placeholder="Select project"
+            :placeholder="$t('editTask.selectProject')"
             empty-text="No matching project."
-            aria-label="Project"
+            :aria-label="$t('admin.projects.columnProject')"
             :options="projectComboboxOptions"
           )
-          FieldDescription Every task belongs to a project.
+          FieldDescription {{ $t("editTask.projectHint") }}
 
       Field
-        FieldLabel Tags
+        FieldLabel {{ $t("domainLog.kind.tags") }}
         TagPicker(
           :project-id="selectedProjectId"
           :tags="activeTags"
@@ -74,7 +77,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
 
       .grid.gap-4(class="sm:grid-cols-2")
         Field
-          FieldLabel Priority
+          FieldLabel {{ $t("domainLog.kind.priority") }}
           .bg-muted.inline-flex.items-center.gap-1.rounded-lg.border(class="p-0.5")
             button.rounded-md.px-3.py-1.text-xs.font-medium.transition-colors(
               v-for="option in PRIORITIES"
@@ -82,9 +85,9 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
               type="button"
               :class="priority === option.value ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground'"
               @click="priority = option.value"
-            ) {{ option.label }}
+            ) {{ $t(option.labelKey) }}
         Field
-          FieldLabel Size
+          FieldLabel {{ $t("domainLog.kind.size") }}
           .bg-muted.inline-flex.flex-wrap.items-center.gap-1.rounded-lg.border(
             class="p-0.5"
           )
@@ -94,7 +97,7 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
               type="button"
               :class="size === option.value ? 'bg-card text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground'"
               @click="size = option.value"
-            ) {{ option.label }}
+            ) {{ $t(option.labelKey) }}
 
       p.text-destructive.text-sm(v-if="error") {{ error }}
       DialogFooter
@@ -105,19 +108,19 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           :disabled="deleting"
         )
           Trash2Icon(data-icon="inline-start")
-          span Delete
+          span {{ $t("common.delete") }}
         Button(
           type="button"
           variant="outline"
           @click="emit('update:open', false)"
-        ) Cancel
+        ) {{ $t("common.cancel") }}
         Button(
           type="submit"
           :disabled="saving || !prompt.trim() || !projectReady"
         )
           Spinner(v-if="saving" data-icon="inline-start")
           CheckIcon(v-else data-icon="inline-start")
-          span Save
+          span {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -158,16 +161,19 @@ import {
 } from "@cherrypi/sdk";
 import { CheckIcon, Trash2Icon } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const NO_PROJECT = "__none__";
 const AUTO = "__auto__";
 
 const PRIORITIES = [
-  { value: TaskPriority.LOW, label: "Low" },
-  { value: TaskPriority.NORMAL, label: "Normal" },
-  { value: TaskPriority.HIGH, label: "High" },
-  { value: TaskPriority.CRITICAL, label: "Critical" },
+  { value: TaskPriority.LOW, labelKey: "taskPriority.low" },
+  { value: TaskPriority.NORMAL, labelKey: "taskPriority.normal" },
+  { value: TaskPriority.HIGH, labelKey: "taskPriority.high" },
+  { value: TaskPriority.CRITICAL, labelKey: "taskPriority.critical" },
 ];
 
 const SIZES = TASK_SIZES;
@@ -288,7 +294,7 @@ async function save() {
     };
 
     await agency.updateTask(current.id, input);
-    toast.success("Task updated");
+    toast.success(t("editTask.toasts.updated"));
     emit("saved");
     emit("update:open", false);
   } catch (err) {
@@ -307,7 +313,7 @@ async function remove() {
   error.value = "";
   try {
     await agency.deleteTask(current.id);
-    toast.success("Task deleted");
+    toast.success(t("editTask.toasts.deleted"));
     emit("deleted");
     emit("update:open", false);
   } catch (err) {
@@ -321,3 +327,28 @@ onMounted(() => {
   void Promise.all([loadAgents(), loadProjects()]);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  editTask:
+    title: "Edit task"
+    autoAssign: "Auto-assign"
+    projectHint: "Every task belongs to a project."
+    promptPlaceholder: "What should the agent do?"
+    titlePlaceholder: "Optional title"
+    selectProject: "Select project"
+    toasts:
+      deleted: "Task deleted"
+      updated: "Task updated"
+ru:
+  editTask:
+    title: "Редактировать задачу"
+    autoAssign: "Автоназначение"
+    projectHint: "Каждая задача принадлежит проекту."
+    promptPlaceholder: "Что должен сделать агент?"
+    titlePlaceholder: "Необязательное название"
+    selectProject: "Выберите проект"
+    toasts:
+      deleted: "Задача удалена"
+      updated: "Задача обновлена"
+</i18n>

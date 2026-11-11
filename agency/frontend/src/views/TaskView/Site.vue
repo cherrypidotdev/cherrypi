@@ -39,13 +39,13 @@ defineEmits<{
 
     .flex.items-center.gap-2
       button.d-btn.d-btn-sm.d-btn-square(
-        title="Open the site in a full-size agency view"
+        :title="$t('taskSite.openFull')"
         @click="$emit('open-full')"
       )
         MaximizeIcon(:size="18")
 
       button.d-btn.d-btn-sm.d-btn-square(
-        title="Open the site in a new browser tab"
+        :title="$t('taskSite.openTab')"
         @click="$emit('open-new')"
       )
         ExternalLinkIcon(:size="18")
@@ -54,3 +54,14 @@ defineEmits<{
 </template>
 
 <style lang="postcss" scoped></style>
+
+<i18n lang="yaml">
+en:
+  taskSite:
+    openFull: "Open the site in a full-size agency view"
+    openTab: "Open the site in a new browser tab"
+ru:
+  taskSite:
+    openFull: "Открыть сайт в полноэкранном режиме агентства"
+    openTab: "Открыть сайт в новой вкладке браузера"
+</i18n>

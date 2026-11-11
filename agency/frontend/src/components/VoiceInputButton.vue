@@ -54,7 +54,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
     span.tabular-nums {{ elapsedLabel }}
   span.text-muted-foreground.text-xs(v-else-if="transcribing")
-    | Transcribing…
+    | {{ $t("voiceButton.transcribing") }}
 </template>
 
 <script setup lang="ts">
@@ -75,6 +75,7 @@ import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { MicIcon, SquareIcon } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = withDefaults(
@@ -113,11 +114,11 @@ const elapsedLabel = computed(() => {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 });
 const buttonTitle = computed(() => {
-  if (transcribing.value) return "Transcribing…";
-  if (recording.value) return "Stop dictation";
+  if (transcribing.value) return t("voiceButton.transcribing");
+  if (recording.value) return t("voiceButton.stop");
   return mode.value === "server"
-    ? "Dictate (transcribed by the agency)"
-    : "Dictate (browser speech recognition)";
+    ? t("voiceButton.dictateServer")
+    : t("voiceButton.dictateBrowser");
 });
 
 let startedAt = 0;
@@ -204,7 +205,7 @@ let disposed = false;
 
 async function startServerRecording() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    toast.error("This browser cannot record audio.");
+    toast.error(t("voice.errors.recordUnsupported"));
     return;
   }
   starting.value = true;
@@ -236,7 +237,7 @@ async function startServerRecording() {
     startTimer();
   } catch (error) {
     console.error("microphone unavailable", error);
-    toast.error("Microphone access was denied. Allow it and try again.");
+    toast.error(t("voice.errors.micDenied"));
     stopStream();
   } finally {
     starting.value = false;
@@ -335,9 +336,7 @@ function startBrowserRecognition() {
     startTimer();
   } catch (error) {
     toast.error(
-      error instanceof Error
-        ? error.message
-        : "Speech recognition could not start.",
+      error instanceof Error ? error.message : t("voice.errors.startFailed"),
     );
     recognition = undefined;
   }
@@ -398,4 +397,31 @@ watch(available, (stillAvailable) => {
   stopServerRecording();
   stopBrowserRecognition();
 });
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  voiceButton:
+    transcribing: "Transcribing…"
+    stop: "Stop dictation"
+    dictateServer: "Dictate (transcribed by the agency)"
+    dictateBrowser: "Dictate (browser speech recognition)"
+  voice:
+    errors:
+      micDenied: "Microphone access was denied. Allow it and try again."
+      recordUnsupported: "This browser cannot record audio."
+      startFailed: "Speech recognition could not start."
+ru:
+  voiceButton:
+    transcribing: "Распознавание…"
+    stop: "Остановить диктовку"
+    dictateServer: "Диктовать (расшифровывает агентство)"
+    dictateBrowser: "Диктовать (распознавание браузера)"
+  voice:
+    errors:
+      micDenied: "Доступ к микрофону запрещён. Разрешите его и повторите попытку."
+      recordUnsupported: "Этот браузер не умеет записывать звук."
+      startFailed: "Не удалось запустить распознавание речи."
+</i18n>

@@ -43,6 +43,11 @@ UPDATE tasks
 SET pending_prompt = NULL, updated_at = ?
 WHERE id = ?;
 
+-- name: SetSessionPendingQueue :exec
+UPDATE tasks
+SET pending_queue = ?, updated_at = ?
+WHERE id = ?;
+
 -- name: SetSessionAgencyRef :exec
 UPDATE tasks
 SET agency_project_id = ?, agency_task_seq = ?, updated_at = ?

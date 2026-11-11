@@ -20,11 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogContent(class="sm:max-w-md")
     DialogHeader
-      DialogTitle Close out task
+      DialogTitle {{ $t("closeOut.title") }}
       DialogDescription
-        | Choose how to close out "{{ task ? taskName(task) : "" }}". It
-        | releases the agent's slot and stays in the task list under the chosen
-        | state.
+        | {{ $t("closeOut.description", { name: task ? taskName(task) : "" }) }}
     .grid.gap-2
       button.flex.items-center.gap-2.rounded-lg.border.p-3.text-left.text-sm.transition-colors(
         type="button"
@@ -33,8 +31,8 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         CheckIcon.size-4.shrink-0
         .flex.flex-col
-          span.font-medium Completed
-          span.text-muted-foreground.text-xs The work is done.
+          span.font-medium {{ $t("usage.state.completed") }}
+          span.text-muted-foreground.text-xs {{ $t("closeOut.completed") }}
       button.flex.items-center.gap-2.rounded-lg.border.p-3.text-left.text-sm.transition-colors(
         type="button"
         :class="choice === TaskState.CANCELLED ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-muted/50'"
@@ -42,18 +40,18 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
       )
         BanIcon.size-4.shrink-0
         .flex.flex-col
-          span.font-medium Cancelled
-          span.text-muted-foreground.text-xs The work is abandoned.
+          span.font-medium {{ $t("tasks.state.cancelled") }}
+          span.text-muted-foreground.text-xs {{ $t("closeOut.cancelled") }}
     DialogFooter
       Button(
         type="button"
         variant="outline"
         @click="emit('update:open', false)"
-      ) Cancel
+      ) {{ $t("common.cancel") }}
       Button(type="button" @click="closeOut" :disabled="busy || !task")
         Spinner(v-if="busy" data-icon="inline-start")
         CheckIcon(v-else data-icon="inline-start")
-        span Close out
+        span {{ $t("closeOut.submit") }}
 </template>
 
 <script setup lang="ts">
@@ -72,6 +70,7 @@ import { defaultCloseOutOutcome, taskName } from "@/lib/task";
 import { TaskState, type Task } from "@cherrypi/sdk";
 import { BanIcon, CheckIcon } from "@lucide/vue";
 import { ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
 
 const props = defineProps<{
@@ -103,8 +102,8 @@ async function closeOut() {
     await agent.closeOutTask(task.id, choice.value);
     toast.success(
       choice.value === TaskState.CANCELLED
-        ? "Task cancelled"
-        : "Task completed",
+        ? t("attention.event.cancelled")
+        : t("attention.event.completed"),
     );
     emit("update:open", false);
     emit("closed");
@@ -114,4 +113,25 @@ async function closeOut() {
     busy.value = false;
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  closeOut:
+    title: "Close out task"
+    completed: "The work is done."
+    cancelled: "The work is abandoned."
+    submit: "Close out"
+    description: 'Choose how to close out "{name}". It releases the agent''s slot and stays in the task list under the chosen state.'
+    blockedHint: "Stop the run or let it settle before closing out"
+ru:
+  closeOut:
+    title: "Закрыть задачу"
+    completed: "Работа выполнена."
+    cancelled: "Работа заброшена."
+    submit: "Закрыть"
+    description: "Выберите, как закрыть «{name}». Слот агента освобождается, а задача остаётся в списке в выбранном состоянии."
+    blockedHint: "Остановите запуск или дождитесь завершения, прежде чем закрывать"
+</i18n>

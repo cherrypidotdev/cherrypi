@@ -78,6 +78,8 @@ Agency экспортирует трейсы, метрики и логи по OT
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Базовый URL collector'а, например `http://otel-collector:4317` (gRPC) или `http://otel-collector:4318` (HTTP). |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` или `http/protobuf`. Переопределения для сигнала (`OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `..._METRICS_PROTOCOL`, `..._LOGS_PROTOCOL`) важнее. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | — | Endpoint для конкретного сигнала. Аналогично для метрик и логов. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | — | Дополнительные заголовки OTLP-запросов: пары `key=value` через запятую, значения URL-encoded, например `Authorization=Bearer%20<token>` или `x-otlp-api-key=<token>`. |
+| `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` | — | Заголовки для конкретного сигнала (`..._TRACES_HEADERS`, `..._METRICS_HEADERS`, `..._LOGS_HEADERS`); важнее общего значения. |
 | `OTEL_SERVICE_NAME` | `cherrypi-agency` | Имя сервиса во всех сигналах. |
 | `OTEL_RESOURCE_ATTRIBUTES` | — | Дополнительные resource-атрибуты, например `deployment.environment=prod`. |
 | `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Стандартный sampler (`always_on`, `always_off`, `traceidratio`, `parentbased_traceidratio`, …). |
@@ -93,6 +95,10 @@ CHERRYPI_OTEL_ENABLED=1
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 OTEL_SERVICE_NAME=cherrypi-agency
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,team=platform
+# Collector с включённой авторизацией ([OtlpDashboard](https://github.com/Adiakys/OtlpDashboard) принимает оба варианта):
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<token>
+# OTEL_EXPORTER_OTLP_HEADERS=x-otlp-api-key=<token>
 ```
 
 Инструментируется:
@@ -104,7 +110,10 @@ OTEL_SERVICE_NAME=cherrypi-agency
 - каждый REST-запрос под `/api/` и `/plugins/` — HTTP-спан и
   гистограмма длительности HTTP;
 - каждый SQL-запрос agency через `database/sql` (SQLite и PostgreSQL), включая
-  `db.query.text`, плюс gauge'и пула `sql.DB`;
+  `db.query.text`, плюс gauge'и пула `sql.DB`. Спаны SQL и метрика
+  `db.client.operation.duration` несут `db.query.summary` с именем sqlc-запроса
+  (например, `store.ListTasks`), поэтому представление самых нагруженных
+  операций показывает store-операцию, а не только `sql.conn.query`;
 - строки стандартного логгера процесса как OTel-логи, дополнительно к
   process-логу на диске.
 

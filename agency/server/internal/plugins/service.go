@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,8 @@ type Config struct {
 	RequirePGDatabase bool
 
 	AllowPrivateNetwork bool
+
+	PublicURL string
 
 	DisableTicks bool
 }
@@ -81,6 +84,14 @@ type Service struct {
 		t tasks.Task,
 		prompt string,
 		actorID ids.ActorID,
+	) error
+
+	RespondInput func(
+		ctx context.Context,
+		plugin Plugin,
+		task tasks.Task,
+		requestID string,
+		answer TaskInputAnswer,
 	) error
 
 	RecordMessage func(
@@ -376,6 +387,37 @@ func (s *Service) TaskPlugin(ctx context.Context, taskID string) (TaskPlugin, bo
 	return row, ok
 }
 
+func (s *Service) PublicURL() string {
+	return strings.TrimRight(s.Config.PublicURL, "/")
+}
+
+func (s *Service) PreviewTemplate(
+	_ context.Context,
+	p Plugin,
+	scope, key, source string,
+	samples map[string]any,
+) (TemplatePreview, error) {
+	if !p.Manifest.HasSurface(scope) {
+		return TemplatePreview{}, fmt.Errorf(
+			"plugin %s has no %s settings", p.ID, scope,
+		)
+	}
+	field, ok := p.Manifest.TemplateField(scope, key)
+	if !ok {
+		return TemplatePreview{}, fmt.Errorf(
+			"plugin %s has no %s template %q", p.ID, scope, key,
+		)
+	}
+
+	return field.Preview(source, samples), nil
+}
+
+func (s *Service) SettingsSchema(
+	p Plugin, scope, target string,
+) json.RawMessage {
+	return p.Manifest.RenderSettingsSchema(scope, target, s.PublicURL())
+}
+
 func (s *Service) SettingsFor(
 	ctx context.Context,
 	id, scope, target string,
@@ -446,6 +488,10 @@ func (s *Service) validateSettings(
 	scope, target string,
 	values, previous map[string]any,
 ) error {
+
+	if errs := p.Manifest.ValidateSettingsTemplates(scope, values); len(errs) > 0 {
+		return &SettingsRejected{Errors: errs}
+	}
 	if !p.Enabled {
 		return nil
 	}
@@ -586,7 +632,7 @@ func (s *Service) UpdateProjectSettings(
 		values = row.Values
 	} else {
 		secrets := p.Manifest.SecretKeys(ScopeProject)
-		previous := row.Values
+		previous := p.Manifest.ApplySettingsDefaults(ScopeProject, row.Values)
 		for key := range secrets {
 			if value, ok := values[key].(string); !ok || value == "" {
 				if old, ok := previous[key]; ok {
@@ -617,13 +663,13 @@ func (s *Service) settingsForPlugin(
 		if err != nil {
 			return nil, err
 		}
-		return row.Values, nil
+		return p.Manifest.ApplySettingsDefaults(scope, row.Values), nil
 	}
 	row, err := s.Store.Settings(ctx, p.ID, scope, target)
 	if err != nil {
 		return nil, err
 	}
-	return row.Values, nil
+	return p.Manifest.ApplySettingsDefaults(scope, row.Values), nil
 }
 
 func (s *Service) AgentSettings(ctx context.Context, id string) ([]Settings, error) {

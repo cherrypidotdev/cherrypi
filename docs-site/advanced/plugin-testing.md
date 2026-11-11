@@ -15,7 +15,7 @@ agency and agent binaries:
 ```sh
 cherrypi-plugin version
 # cherrypi-plugin dev (abc1234)
-# plugin API 0.2.3
+# plugin API 0.2.4
 ```
 
 ## Three layers
@@ -33,7 +33,7 @@ seconds, and an e2e run boots a real agency.
 
 ```sh
 cherrypi-plugin lint .
-# ok acme-git-reviewer 0.1.0 (plugin API 0.2.3)
+# ok acme-git-reviewer 0.1.0 (plugin API 0.2.4)
 ```
 
 `lint` runs the installation validation (manifest schema, entry file, bundle

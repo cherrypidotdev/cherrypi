@@ -28,13 +28,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           span.inline-flex.items-center.rounded-full.border.px-2.text-xs(
             v-if="site?.agencyWide"
             class="py-0.5"
-            title="Listed under Sites for every signed-in user"
-          ) Agency-wide
+            :title="$t('siteView.agencyWideTitle')"
+          ) {{ $t("sitesView.agencyWide") }}
           span.inline-flex.items-center.rounded-full.border.px-2.text-xs(
             v-if="site?.onlyCreatorMayEdit"
             class="py-0.5"
-            title="Only the creating agent may republish or change settings through the tools"
-          ) Creator-only edits
+            :title="$t('siteView.creatorOnlyTitle')"
+          ) {{ $t("siteView.creatorOnly") }}
         p.text-muted-foreground.truncate.text-xs(v-if="site?.description")
           | {{ site.description }}
         p.text-muted-foreground.truncate.text-xs(v-else)
@@ -43,12 +43,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         RouterLink.text-muted-foreground.text-xs(
           v-if="site.originTaskId"
           class="hover:text-foreground"
-          title="Open the task this site was first published from"
           :to="{ name: 'task', params: { id: site.originTaskId } }"
+          :title="$t('siteView.originTitle')"
         ) {{ site.originTaskId }}
         Button(variant="outline" size="sm" @click="openNewTab")
           ExternalLinkIcon(data-icon="inline-start")
-          span New tab
+          span {{ $t("siteView.newTab") }}
         Button(
           v-if="site.canEdit"
           variant="outline"
@@ -56,7 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @click="settingsOpen = true"
         )
           SettingsIcon(data-icon="inline-start")
-          span Settings
+          span {{ $t("common.settings") }}
         Button.text-destructive(
           v-if="site.canDelete"
           variant="ghost"
@@ -66,7 +66,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           Spinner(v-if="deleting" data-icon="inline-start")
           Trash2Icon(v-else data-icon="inline-start")
-          span Delete
+          span {{ $t("common.delete") }}
   .flex.min-h-0.flex-1.items-center.justify-center.p-6(v-if="loading && !site")
     Spinner.size-5
   .flex.min-h-0.flex-1.items-center.justify-center.p-6(v-else-if="error")
@@ -151,3 +151,20 @@ useRealtime(["sites"], () => {
   if (site.value) void load();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  siteView:
+    creatorOnly: "Creator-only edits"
+    newTab: "New tab"
+    agencyWideTitle: "Listed under Sites for every signed-in user"
+    creatorOnlyTitle: "Only the creating agent may republish or change settings through the tools"
+    originTitle: "Open the task this site was first published from"
+ru:
+  siteView:
+    creatorOnly: "Правки только автором"
+    newTab: "Новая вкладка"
+    agencyWideTitle: "Показывается в разделе «Сайты» всем вошедшим пользователям"
+    creatorOnlyTitle: "Только создавший агент может переопубликовать или изменить настройки через инструменты"
+    originTitle: "Открыть задачу, из которой сайт впервые опубликован"
+</i18n>

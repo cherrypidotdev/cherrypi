@@ -197,6 +197,9 @@ func (m *Manifest) Validate() error {
 			if err := validateSchema("settings."+scope, raw); err != nil {
 				return err
 			}
+			if err := validateSettingsSchema("settings."+scope, raw); err != nil {
+				return err
+			}
 			normalized[scope] = raw
 		}
 		m.Settings = normalized
@@ -298,13 +301,44 @@ func validateSchema(name string, raw json.RawMessage) error {
 		return fmt.Errorf("%s must be valid JSON", name)
 	}
 	var shape struct {
-		Type string `json:"type"`
+		Type  string          `json:"type"`
+		Setup json.RawMessage `json:"setup"`
 	}
 	if err := json.Unmarshal(raw, &shape); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	if shape.Type != "" && shape.Type != "object" {
 		return fmt.Errorf("%s must be an object schema", name)
+	}
+
+	if strings.HasPrefix(name, "settings.") && len(shape.Setup) > 0 {
+		if err := validateSetupBlock(name, shape.Setup); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSetupBlock(name string, raw json.RawMessage) error {
+	var markdown string
+	if err := json.Unmarshal(raw, &markdown); err == nil {
+		if strings.TrimSpace(markdown) == "" {
+			return fmt.Errorf("%s.setup must not be empty", name)
+		}
+		return nil
+	}
+	var block struct {
+		Title    string `json:"title"`
+		Markdown string `json:"markdown"`
+	}
+	if err := json.Unmarshal(raw, &block); err != nil {
+		return fmt.Errorf(
+			"%s.setup must be a Markdown string or an object with a markdown string",
+			name,
+		)
+	}
+	if strings.TrimSpace(block.Markdown) == "" {
+		return fmt.Errorf("%s.setup.markdown is required", name)
 	}
 	return nil
 }
@@ -392,6 +426,45 @@ func (m Manifest) SettingsSchema(scope string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","additionalProperties":true}`)
 	}
 	return raw
+}
+
+func (m Manifest) RenderSettingsSchema(
+	scope, target, agencyURL string,
+) json.RawMessage {
+	agencyURL = strings.TrimRight(agencyURL, "/")
+	values := [][2]string{
+		{"agencyUrl", agencyURL},
+		{"pluginId", m.ID},
+		{"pluginName", m.Name},
+		{"pluginUrl", agencyURL + "/plugins/" + m.ID},
+		{"scope", scope},
+		{"targetId", target},
+	}
+	return renderSchemaPlaceholders(m.SettingsSchema(scope), values)
+}
+
+func renderSchemaPlaceholders(
+	raw json.RawMessage, values [][2]string,
+) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	out := string(raw)
+	for _, pair := range values {
+		encoded, err := json.Marshal(pair[1])
+		if err != nil || len(encoded) < 2 {
+			continue
+		}
+		value := string(encoded[1 : len(encoded)-1])
+		out = strings.ReplaceAll(out, "{{ "+pair[0]+" }}", value)
+		out = strings.ReplaceAll(out, "{{"+pair[0]+"}}", value)
+	}
+	rendered := json.RawMessage(out)
+	if !json.Valid(rendered) {
+
+		return raw
+	}
+	return rendered
 }
 
 func (m Manifest) SecretKeys(scope string) map[string]bool {

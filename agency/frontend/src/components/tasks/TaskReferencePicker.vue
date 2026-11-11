@@ -28,15 +28,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="disabled"
       )
         ListTreeIcon(data-icon="inline-start")
-        span References
+        span {{ $t("domainLog.kind.references") }}
         span.text-muted-foreground(v-if="selected.length") {{ selected.length }}
     DropdownMenuContent.w-96(align="start" @select.prevent)
       .p-2
         DropdownMenuFilter(
           v-model="search"
-          placeholder="Search tasks…"
-          aria-label="Search tasks to reference"
+          :placeholder="$t('taskParent.searchPlaceholder')"
           auto-focus
+          :aria-label="$t('taskRefs.searchAria')"
         )
       TaskPicker(
         embedded
@@ -64,7 +64,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
           type="button"
           class="p-0.5 hover:opacity-100"
-          title="Reference kind"
+          :title="$t('taskRefs.kindLabel')"
         )
           ChevronDownIcon.size-3
       DropdownMenuContent.w-40(align="end")
@@ -76,11 +76,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-for="option in TASK_REFERENCE_KINDS"
             :key="option.value"
             :value="option.value"
-          ) {{ option.label }}
+          ) {{ $t(option.labelKey) }}
     button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
       type="button"
       class="p-0.5 hover:opacity-100"
-      title="Remove reference"
+      :title="$t('taskRefs.remove')"
       @click="remove(entry)"
     )
       XIcon.size-3
@@ -112,7 +112,10 @@ import {
 } from "@cherrypi/sdk";
 import { ChevronDownIcon, ListTreeIcon, XIcon } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import TaskPicker from "./TaskPicker.vue";
+
+const { t } = useI18n();
 
 interface SelectedReference {
   task: Task;
@@ -139,7 +142,9 @@ const search = ref("");
 const menuOpen = ref(false);
 
 const triggerTitle = computed(() =>
-  props.projectId ? "References" : "Select a project first",
+  props.projectId
+    ? t("taskRefs.triggerTitle")
+    : t("taskRefs.selectProjectFirst"),
 );
 
 const excludeIds = computed(() => selected.value.map((entry) => entry.task.id));
@@ -202,3 +207,18 @@ watch(
   { deep: true },
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskRefs:
+    searchAria: "Search tasks to reference"
+    selectProjectFirst: "Select a project first"
+    kindLabel: "Reference kind"
+    triggerTitle: "References"
+ru:
+  taskRefs:
+    searchAria: "Поиск задач для ссылки"
+    selectProjectFirst: "Сначала выберите проект"
+    kindLabel: "Тип ссылки"
+    triggerTitle: "Связи"
+</i18n>

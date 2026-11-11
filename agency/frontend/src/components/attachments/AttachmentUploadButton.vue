@@ -22,13 +22,13 @@ span.inline-flex
     type="button"
     variant="outline"
     size="sm"
-    :title="title"
+    :title="titleText"
     @click="pick"
     :disabled="uploading"
   )
     Spinner(v-if="uploading" data-icon="inline-start")
     PaperclipIcon(v-else data-icon="inline-start")
-    span {{ label }}
+    span {{ labelText }}
   input.hidden(
     ref="input"
     type="file"
@@ -44,7 +44,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { useAttachmentUpload } from "@/composables/useAttachmentUpload";
 import type { Attachment } from "@cherrypi/sdk";
 import { PaperclipIcon } from "@lucide/vue";
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -57,9 +60,12 @@ const props = withDefaults(
     title?: string;
     accept?: string;
   }>(),
-  { label: "Attach", title: "Attach files", accept: "" },
+  { label: undefined, title: undefined, accept: "" },
 );
 const emit = defineEmits<{ uploaded: [attachment: Attachment] }>();
+
+const labelText = computed(() => props.label ?? t("taskPrompt.attach"));
+const titleText = computed(() => props.title ?? t("taskPrompt.attachAria"));
 
 const input = ref<HTMLInputElement>();
 const { uploading, upload } = useAttachmentUpload(() => ({

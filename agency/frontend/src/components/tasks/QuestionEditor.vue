@@ -52,7 +52,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               v-if="option.recommended"
               class="bg-primary/10 px-1.5 py-0.5 text-[10px]"
               data-test="recommended"
-            ) Recommended
+            ) {{ $t("questionEditor.recommended") }}
           p.text-muted-foreground.text-xs(v-if="option.description")
             MarkdownText(inline :allow-html="false" :text="option.description")
 
@@ -72,8 +72,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           CheckIcon(v-if="answer.customSelected" class="size-2.5")
         .flex.min-w-0.flex-col(class="gap-0.5")
-          span.text-sm.font-medium(data-test="custom-option") Type something.
-          p.text-muted-foreground.text-xs(v-if="!readonly") Type your answer in the field below
+          span.text-sm.font-medium(data-test="custom-option") {{ $t("questionEditor.customOption") }}
+          p.text-muted-foreground.text-xs(v-if="!readonly") {{ $t("questionEditor.answerInField") }}
           MarkdownText.prose.prose-sm.max-w-none(
             v-else
             class="prose-p:my-1 prose-pre:my-2"
@@ -84,7 +84,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
   .flex.flex-col.gap-1(v-if="!readonly")
     span.text-muted-foreground.text-xs
-      | {{ answer.customSelected ? "Custom answer" : "Note (optional)" }}
+      | {{ answer.customSelected ? $t("questionEditor.customAnswer") : $t("questionEditor.noteOptional") }}
     .rounded-lg(
       :class="{ 'questionnaire-custom-blink': blinking }"
       @animationend="blinking = false"
@@ -92,17 +92,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       MarkdownEditor(
         ref="notesEditor"
         v-model:resize-height="noteHeight"
-        :placeholder="answer.customSelected ? 'Write your own answer… Markdown supported.' : 'Add context for this answer… Markdown supported.'"
+        :placeholder="answer.customSelected ? $t('questionEditor.customPlaceholder') : $t('questionEditor.notePlaceholder')"
         resizable
         test-id="note"
         :model-value="answer.notes"
-        :aria-label="answer.customSelected ? 'Custom answer' : 'Note'"
+        :aria-label="answer.customSelected ? $t('questionEditor.customAnswer') : $t('questionEditor.note')"
         @update:model-value="(value) => emit('notes', String(value))"
         :disabled="disabled"
       )
 
   .flex.flex-col(v-else-if="answer.notes")
-    p.text-muted-foreground.text-xs Note
+    p.text-muted-foreground.text-xs {{ $t("questionEditor.note") }}
     MarkdownText.prose.prose-sm.max-w-none(
       :style="INHERIT_PROSE"
       :allow-html="false"
@@ -238,3 +238,26 @@ function onSpace(event: KeyboardEvent, action: () => void) {
   }
 }
 </style>
+
+<i18n lang="yaml">
+en:
+  questionEditor:
+    recommended: "Recommended"
+    customOption: "Type something."
+    answerInField: "Type your answer in the field below"
+    note: "Note"
+    noteOptional: "Note (optional)"
+    customPlaceholder: "Write your own answer… Markdown supported."
+    notePlaceholder: "Add context for this answer… Markdown supported."
+    customAnswer: "Custom answer"
+ru:
+  questionEditor:
+    recommended: "Рекомендуется"
+    customOption: "Напишите свой вариант."
+    answerInField: "Введите ответ в поле ниже"
+    note: "Заметка"
+    noteOptional: "Заметка (необязательно)"
+    customPlaceholder: "Напишите свой ответ… Поддерживается Markdown."
+    notePlaceholder: "Добавьте пояснение к ответу… Поддерживается Markdown."
+    customAnswer: "Свой ответ"
+</i18n>

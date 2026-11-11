@@ -33,7 +33,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.text-3xs.rounded-full.font-medium.text-amber-600(
         v-if="row.full"
         class="bg-amber-500/12 px-1.5 py-0.5 dark:text-amber-400"
-      ) At cap
+      ) {{ $t("concurrencyRow.atCap") }}
     span.text-3xs.text-muted-foreground(v-if="row.detail") {{ row.detail }}
     span.text-3xs.text-amber-600(v-if="reservedLabel" class="dark:text-amber-400")
       | {{ reservedLabel }}
@@ -59,3 +59,12 @@ const reservedLabel = computed(() => {
   return reserved > 0 ? `${reserved} reserved` : "";
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  concurrencyRow:
+    atCap: "At cap"
+ru:
+  concurrencyRow:
+    atCap: "На пределе"
+</i18n>

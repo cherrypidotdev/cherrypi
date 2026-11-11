@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Health over time
+    CardTitle {{ $t("health.trend.title") }}
     CardDescription {{ subtitle }}
     CardAction
       .bg-muted.flex.rounded-lg.p-1
@@ -28,10 +28,10 @@ Card
           :key="option.value"
           :class="metric === option.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
           @click="metric = option.value"
-        ) {{ option.label }}
+        ) {{ $t(option.labelKey) }}
   CardContent
     p.text-muted-foreground.py-10.text-center.text-sm(v-if="!points.length")
-      | No health samples in this range.
+      | {{ $t("health.trend.empty") }}
     .health-chart(v-else ref="chartRoot")
       ChartContainer.chart.w-full(class="h-[238px]" :config="config")
         VisXYContainer(
@@ -79,7 +79,7 @@ Card
         span.flex.items-center.gap-1(v-for="item in legend" :key="item.label")
           i.inline-block.size-2.rounded-sm(:style="{ background: item.color }")
           | {{ item.label }}
-      span.tabular-nums {{ points.length }} samples · {{ rangeLabel }}
+      span.tabular-nums {{ $t("health.trend.samples", { count: points.length, range: rangeLabel }) }}
 </template>
 
 <script setup lang="ts">
@@ -119,6 +119,9 @@ import {
   ref,
   watch,
 } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 type Metric = "cpu" | "memory" | "disk" | "load" | "network" | "gpu";
 
@@ -138,14 +141,19 @@ const props = defineProps<{
   range: HealthRange;
 }>();
 
-const METRICS: { value: Metric; label: string }[] = [
-  { value: "cpu", label: "CPU" },
-  { value: "memory", label: "Memory" },
-  { value: "disk", label: "Disk" },
-  { value: "load", label: "Load" },
-  { value: "network", label: "Network" },
-  { value: "gpu", label: "GPU" },
+const METRICS: { value: Metric; labelKey: string }[] = [
+  { value: "cpu", labelKey: "health.kpis.cpu" },
+  { value: "memory", labelKey: "health.trend.memory" },
+  { value: "disk", labelKey: "health.trend.disk" },
+  { value: "load", labelKey: "health.trend.load" },
+  { value: "network", labelKey: "health.trend.network" },
+  { value: "gpu", labelKey: "health.gpus.title" },
 ];
+
+function metricLabel(): string {
+  const option = METRICS.find((item) => item.value === metric.value);
+  return option ? t(option.labelKey) : t("health.kpis.cpu");
+}
 const metric = ref<Metric>("cpu");
 
 const points = computed<HealthPoint[]>(() =>
@@ -373,22 +381,20 @@ const config = computed<ChartConfig>(() => {
   if (metric.value === "network") {
     return {
       rx: {
-        label: "Received",
+        label: t("health.trend.received"),
         color: HEALTH_COLORS.network,
         format: (value: number) => formatBytesPerSecond(value),
       },
       tx: {
-        label: "Sent",
+        label: t("health.trend.sent"),
         color: HEALTH_COLORS.cpu,
         format: (value: number) => formatBytesPerSecond(value),
       },
     };
   }
-  const label =
-    METRICS.find((option) => option.value === metric.value)?.label ?? "CPU";
   return {
     [metric.value]: {
-      label: metric.value === "load" ? "Load 1m" : label,
+      label: metric.value === "load" ? t("health.trend.load1m") : metricLabel(),
       color: activeColor.value,
       format:
         metric.value === "load"
@@ -401,13 +407,22 @@ const config = computed<ChartConfig>(() => {
 const subtitle = computed(() => {
   switch (metric.value) {
     case "network":
-      return `Interface throughput · ${healthRangeLabel(props.range)}.`;
+      return t("health.trend.subtitleNetwork", {
+        range: healthRangeLabel(props.range),
+      });
     case "gpu":
-      return `Busiest GPU utilization · ${healthRangeLabel(props.range)}.`;
+      return t("health.trend.subtitleGpu", {
+        range: healthRangeLabel(props.range),
+      });
     case "load":
-      return `Load average (1m) · ${healthRangeLabel(props.range)}.`;
+      return t("health.trend.subtitleLoad", {
+        range: healthRangeLabel(props.range),
+      });
     default:
-      return `${METRICS.find((option) => option.value === metric.value)?.label} over ${healthRangeLabel(props.range)}.`;
+      return t("health.trend.subtitleMetric", {
+        metric: metricLabel(),
+        range: healthRangeLabel(props.range),
+      });
   }
 });
 
@@ -416,13 +431,11 @@ const rangeLabel = computed(() => healthRangeLabel(props.range));
 const legend = computed(() => {
   if (metric.value === "network") {
     return [
-      { label: "Received", color: HEALTH_COLORS.network },
-      { label: "Sent", color: HEALTH_COLORS.cpu },
+      { label: t("health.trend.received"), color: HEALTH_COLORS.network },
+      { label: t("health.trend.sent"), color: HEALTH_COLORS.cpu },
     ];
   }
-  const label =
-    METRICS.find((option) => option.value === metric.value)?.label ?? "CPU";
-  return [{ label, color: activeColor.value }];
+  return [{ label: metricLabel(), color: activeColor.value }];
 });
 
 function timeTick(value: number): string {
@@ -433,3 +446,40 @@ function timeTick(value: number): string {
     : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    trend:
+      title: "Health over time"
+      empty: "No health samples in this range."
+      sent: "Sent"
+      received: "Received"
+      load1m: "Load 1m"
+      memory: "Memory"
+      disk: "Disk"
+      subtitleNetwork: "Interface throughput · {range}."
+      subtitleGpu: "Busiest GPU utilization · {range}."
+      subtitleLoad: "Load average (1m) · {range}."
+      subtitleMetric: "{metric} over {range}."
+      load: "Load"
+      network: "Network"
+      samples: "{count} samples · {range}"
+ru:
+  health:
+    trend:
+      title: "Здоровье во времени"
+      empty: "В этом диапазоне нет замеров здоровья."
+      sent: "Отправлено"
+      received: "Получено"
+      load1m: "Нагрузка 1м"
+      memory: "Память"
+      disk: "Диск"
+      subtitleNetwork: "Пропускная способность интерфейса · {range}."
+      subtitleGpu: "Загрузка самой нагруженной GPU · {range}."
+      subtitleLoad: "Средняя нагрузка (1м) · {range}."
+      subtitleMetric: "{metric} за {range}."
+      load: "Нагрузка"
+      network: "Сеть"
+      samples: "замеров: {count} · {range}"
+</i18n>

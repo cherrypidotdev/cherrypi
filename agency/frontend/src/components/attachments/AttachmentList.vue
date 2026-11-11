@@ -28,8 +28,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       type="button"
       class="hover:opacity-75"
       :class="thumbClass"
-      :title="`Preview ${attachment.filename}`"
-      :aria-label="`Preview ${attachment.filename}`"
+      :title="$t('attachments.preview', { filename: attachment.filename })"
+      :aria-label="$t('attachments.preview', { filename: attachment.filename })"
       @click="emit('open', attachment)"
     )
       img.rounded.object-cover(
@@ -43,7 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         class="hover:underline"
         :class="nameClass"
         :href="attachment.url"
-        :title="`Preview ${attachment.filename}`"
+        :title="$t('attachments.preview', { filename: attachment.filename })"
         @click.prevent="emit('open', attachment)"
       ) {{ attachment.filename }}
       .flex.shrink-0.items-center.gap-1.text-xs(:class="metaClass")
@@ -65,9 +65,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Button.shrink-0(
         as-child
         variant="ghost"
-        title="Open in new tab"
+        :title="$t('taskFiles.openInNewTab')"
         :size="actionSize"
-        :aria-label="`Open ${attachment.filename} in a new tab`"
+        :aria-label="$t('attachments.openInNewTab', { filename: attachment.filename })"
       )
         a(rel="noopener noreferrer" :href="attachment.url" target="_blank")
           ExternalLinkIcon.size-3
@@ -75,9 +75,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         v-if="removable"
         type="button"
         variant="ghost"
-        title="Delete attachment"
+        :title="$t('attachments.delete')"
         :size="actionSize"
-        :aria-label="`Delete ${attachment.filename}`"
+        :aria-label="$t('attachments.deleteNamed', { filename: attachment.filename })"
         @click="emit('remove', attachment)"
       )
         Trash2Icon.size-3
@@ -97,6 +97,7 @@ import {
   Trash2Icon,
 } from "@lucide/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -158,7 +159,9 @@ function hasScene(attachment: Attachment): boolean {
 }
 
 function sketchTitle(attachment: Attachment): string {
-  return hasScene(attachment) ? "Edit sketch" : "Annotate image";
+  return hasScene(attachment)
+    ? t("stagedAttachments.editSketch")
+    : t("attachments.annotateImage");
 }
 
 function sketchTestId(attachment: Attachment): string {
@@ -166,4 +169,21 @@ function sketchTestId(attachment: Attachment): string {
     ? `edit-sketch-${attachment.id}`
     : `annotate-image-${attachment.id}`;
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  attachments:
+    delete: "Delete attachment"
+    annotateImage: "Annotate image"
+    openInNewTab: "Open {filename} in a new tab"
+    deleteNamed: "Delete {filename}"
+ru:
+  attachments:
+    delete: "Удалить вложение"
+    annotateImage: "Разметить изображение"
+    openInNewTab: "Открыть {filename} в новой вкладке"
+    deleteNamed: "Удалить {filename}"
+</i18n>

@@ -19,8 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle GPUs
-    CardDescription NVIDIA utilization, memory, temperature and power.
+    CardTitle {{ $t("health.gpus.title") }}
+    CardDescription {{ $t("health.gpus.hint") }}
   CardContent.grid.grid-cols-1.gap-4(class="md:grid-cols-2")
     .ring-border.flex.flex-col.gap-3.rounded-lg.p-3.ring-1(
       v-for="gpu in gpus"
@@ -29,15 +29,15 @@ Card
       .flex.items-start.justify-between.gap-3
         .flex.min-w-0.flex-col
           span.truncate.text-sm.font-medium {{ gpu.name }}
-          span.text-muted-foreground.text-2xs.font-mono GPU {{ gpu.index }}
+          span.text-muted-foreground.text-2xs.font-mono {{ $t("health.gpus.index", { index: gpu.index }) }}
         .flex.items-baseline.gap-2.tabular-nums
           span.text-lg.font-semibold(
             :class="healthToneText(healthTone(gpu.utilizationPercent, 80, 95))"
           ) {{ gpu.utilizationPercent.toFixed(0) }}%
-          span.text-muted-foreground.text-2xs util
+          span.text-muted-foreground.text-2xs {{ $t("health.gpus.util") }}
       .flex.flex-col.gap-1
         .text-2xs.flex.justify-between
-          span.text-muted-foreground VRAM
+          span.text-muted-foreground {{ $t("health.gpus.vram") }}
           span.tabular-nums
             | {{ formatBytes(gpu.memoryUsedBytes) }} / {{ formatBytes(gpu.memoryTotalBytes) }}
         .bg-muted.w-full.overflow-hidden.rounded-full(class="h-1.5")
@@ -46,9 +46,9 @@ Card
             :style="{ width: `${Math.min(100, Math.max(0, memoryPercent(gpu)))}%` }"
           )
       .text-2xs.text-muted-foreground.flex.flex-wrap.items-center.gap-3
-        span Temperature
+        span {{ $t("health.gpus.temperature") }}
           span.text-foreground.ml-1.font-medium.tabular-nums {{ gpu.temperatureCelsius.toFixed(0) }}°C
-        span Power
+        span {{ $t("health.gpus.power") }}
           span.text-foreground.ml-1.font-medium.tabular-nums {{ gpu.powerWatts.toFixed(0) }} W
 </template>
 
@@ -71,3 +71,26 @@ function memoryPercent(gpu: AgentGpuUsage): number {
   return (Number(gpu.memoryUsedBytes) / Number(gpu.memoryTotalBytes)) * 100;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  health:
+    gpus:
+      title: "GPUs"
+      hint: "NVIDIA utilization, memory, temperature and power."
+      util: "util"
+      vram: "VRAM"
+      temperature: "Temperature"
+      power: "Power"
+      index: "GPU {index}"
+ru:
+  health:
+    gpus:
+      title: "GPU"
+      hint: "Загрузка, память, температура и мощность NVIDIA."
+      util: "загр."
+      vram: "VRAM"
+      temperature: "Температура"
+      power: "Мощность"
+      index: "GPU {index}"
+</i18n>

@@ -19,17 +19,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 Card
   CardHeader
-    CardTitle Activity
+    CardTitle {{ $t("activity.title") }}
     CardDescription
-      | Sign-ins, password and two-factor changes, tokens, sessions and e-mail
-      | changes on your account. Newest first.
+      | {{ $t("activity.description") }}
   CardContent
     p.text-destructive.text-sm(v-if="error") {{ error }}
     DomainLogList(:logs="logs")
     .flex.justify-center.pt-3(v-if="canLoadMore")
       Button(variant="outline" size="sm" @click="loadMore" :disabled="loading")
         Spinner(v-if="loading" data-icon="inline-start")
-        span Load more
+        span {{ $t("common.loadMore") }}
 </template>
 
 <script setup lang="ts">
@@ -45,6 +44,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { listAccountLogs, type AuditEntry } from "@/lib/audit";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const PAGE_SIZE = 50;
 
@@ -69,7 +71,7 @@ async function load() {
     if (page.logs.length < PAGE_SIZE) reachedEnd.value = true;
   } catch (err) {
     error.value =
-      err instanceof Error ? err.message : "Could not load activity.";
+      err instanceof Error ? err.message : t("activity.errors.load");
   } finally {
     loading.value = false;
   }
@@ -83,3 +85,18 @@ onMounted(() => {
   void load();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  activity:
+    title: "Activity"
+    description: "Sign-ins, password and two-factor changes, tokens, sessions and e-mail changes on your account. Newest first."
+    errors:
+      load: "Could not load activity."
+ru:
+  activity:
+    title: "Активность"
+    description: "Входы, изменения пароля и двухфакторной защиты, токены, сеансы и изменения e-mail в вашем аккаунте. Сначала новые."
+    errors:
+      load: "Не удалось загрузить активность."
+</i18n>

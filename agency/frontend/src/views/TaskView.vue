@@ -29,7 +29,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           v-if="task && titleEditing"
           ref="titleInput"
           v-model="titleDraft"
-          placeholder="Task title"
+          :placeholder="$t('express.titlePlaceholder')"
           @keydown.enter.prevent="saveTitle"
           @keydown.esc="cancelTitleEdit"
           @blur="saveTitle"
@@ -39,8 +39,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           button.group.-mx-1.flex.min-w-0.items-center.gap-1.rounded-md.px-1.text-left.transition-colors.outline-none(
             v-else
             type="button"
-            title="Click to edit the title"
             class="hover:bg-muted/60 focus-visible:ring-ring/50 focus-visible:ring-2"
+            :title="$t('taskView.editTitleTitle')"
             @click="startTitleEdit"
           )
             Skeleton.h-4.w-48(v-if="taskTitlePending(task)")
@@ -57,17 +57,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         span.text-muted-foreground.inline-flex.shrink-0.items-center.gap-1.rounded-full.border.px-2.text-xs(
           v-if="sessionDeleted"
           class="py-0.5"
-          title="The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency and a follow-up starts a new Pi session"
+          :title="$t('taskView.sessionGoneTitle')"
         )
           CircleSlashIcon.size-3.shrink-0
-          | Session gone
+          | {{ $t("taskView.sessionGone") }}
       .flex.shrink-0.items-center.gap-2(v-if="task")
         Button(
           variant="ghost"
           size="icon-sm"
           :class="task.favorite ? 'text-amber-500' : 'text-muted-foreground'"
-          :title="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
-          :aria-label="task.favorite ? 'Remove from favorites' : 'Add to favorites'"
+          :title="task.favorite ? $t('taskView.removeFavorite') : $t('taskView.addFavorite')"
+          :aria-label="task.favorite ? $t('taskView.removeFavorite') : $t('taskView.addFavorite')"
           :aria-pressed="task.favorite"
           @click="toggleFavorite"
           :disabled="saving.favorite"
@@ -78,22 +78,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :class="taskStateClassFor(task)"
         )
           component.size-3.shrink-0(:is="taskStateIcon(task.state)")
-          | {{ taskStateLabelFor(task) }}
+          | {{ $t(taskStateKeyFor(task)) }}
         span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
           class="py-0.5"
           :class="taskPriorityClass(task.priority)"
-          :title="`Task priority: ${taskPriorityLabel(task.priority)}`"
-        ) {{ taskPriorityLabel(task.priority, true) }}
+          :title="`Task priority: ${$t(taskPriorityKey(task.priority))}`"
+        ) {{ $t(taskPriorityKey(task.priority, true)) }}
         span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
           class="py-0.5"
           :class="taskSizeClass(task.size)"
-          :title="`Task size: ${taskSizeLabel(task.size)}`"
-        ) {{ taskSizeLabel(task.size, true) }}
+          :title="`Task size: ${$t(taskSizeKey(task.size))}`"
+        ) {{ $t(taskSizeKey(task.size, true)) }}
         Button(
           variant="ghost"
           size="icon-sm"
           aria-controls="task-details"
-          :title="detailsOpen ? 'Hide task details' : 'Show task details'"
+          :title="detailsOpen ? $t('taskView.hideDetails') : $t('taskView.showDetails')"
           :aria-expanded="detailsOpen"
           @click="toggleDetails"
         )
@@ -127,6 +127,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :task-queue="taskQueue"
       :state-changes="stateChanges"
       :clearing-queue="clearingQueue"
+      :removing-queue-id="removingQueueId"
       :sending="sending"
       :stopping="stopping"
       @update:prompt="prompt = $event"
@@ -153,6 +154,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @paste="onPaste"
       @queue="onQueue"
       @clear-queue="clearQueue"
+      @remove-queued="removeQueued"
       @open-plan="openPlan"
       @remind-plan="remindPlan"
       @live-timing="liveTiming = $event"
@@ -337,12 +339,12 @@ import {
   taskName,
   taskNameClass,
   taskPriorityClass,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskSizeClass,
-  taskSizeLabel,
+  taskSizeKey,
   taskStateClassFor,
   taskStateIcon,
-  taskStateLabelFor,
+  taskStateKeyFor,
   taskTitlePending,
   type NewTaskRelation,
   type TaskModelSelection,
@@ -538,7 +540,11 @@ const sending = ref(false);
 const stopping = ref(false);
 const clearingQueue = ref(false);
 
-const taskQueue = ref<(UserMessageParts & { id: number })[]>([]);
+const removingQueueId = ref("");
+
+const taskQueue = ref<(UserMessageParts & { id: number; queueId: string })[]>(
+  [],
+);
 let taskQueueId = 0;
 const actionBusy = ref(false);
 
@@ -1130,6 +1136,7 @@ async function dequeue() {
 const archiveOpen = ref(false);
 const archivePrefs = ref<UserPreferences>({
   notify_first_archive: true,
+  locale: "",
 });
 
 async function runArchive() {
@@ -1451,10 +1458,11 @@ async function persistSketch({ png, snapshot, target }: SketchSavePayload) {
   }
 }
 
-function onQueue(steering: string[]) {
-  taskQueue.value = steering.map((text) => ({
+function onQueue(steering: { id: string; text: string }[]) {
+  taskQueue.value = steering.map((item) => ({
     id: taskQueueId++,
-    ...queuedMessageParts(text),
+    queueId: item.id,
+    ...queuedMessageParts(item.text),
   }));
 }
 
@@ -1466,6 +1474,17 @@ async function clearQueue() {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
     clearingQueue.value = false;
+  }
+}
+
+async function removeQueued(queueId: string) {
+  removingQueueId.value = queueId;
+  try {
+    await withProgress(() => agency.removeTaskQueuedMessage(props.id, queueId));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    removingQueueId.value = "";
   }
 }
 
@@ -1580,3 +1599,24 @@ watch(
   () => void loadSystemPrompt(),
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  taskView:
+    sessionGone: "Session gone"
+    editTitleTitle: "Click to edit the title"
+    sessionGoneTitle: "The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency and a follow-up starts a new Pi session"
+    removeFavorite: "Remove from favorites"
+    addFavorite: "Add to favorites"
+    hideDetails: "Hide task details"
+    showDetails: "Show task details"
+ru:
+  taskView:
+    sessionGone: "Сеанс потерян"
+    editTitleTitle: "Нажмите, чтобы изменить название"
+    sessionGoneTitle: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными); переписка хранится в агентстве, а уточнение запустит новый сеанс Pi"
+    removeFavorite: "Убрать из избранного"
+    addFavorite: "Добавить в избранное"
+    hideDetails: "Скрыть подробности задачи"
+    showDetails: "Показать подробности задачи"
+</i18n>

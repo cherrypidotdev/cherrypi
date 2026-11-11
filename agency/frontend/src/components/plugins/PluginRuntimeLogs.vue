@@ -23,31 +23,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       SelectTrigger.w-36
         SelectValue
       SelectContent
-        SelectItem(value="all") All levels
+        SelectItem(value="all") {{ $t("pluginLog.allLevels") }}
         SelectItem(
           v-for="level in PLUGIN_LOG_LEVELS"
           :key="level"
           :value="level"
-        ) {{ PLUGIN_LOG_LEVEL_LABELS[level] }} and above
+        ) {{ $t("pluginLog.andAbove", { level: $t(PLUGIN_LOG_LEVEL_KEYS[level]) }) }}
     Input.flex-1(
       v-model="search"
-      placeholder="Filter messages…"
-      aria-label="Filter runtime log messages"
+      :placeholder="$t('pluginLog.filterPlaceholder')"
+      :aria-label="$t('pluginLog.filterAria')"
       @keyup.enter="reload"
     )
     Button(variant="outline" size="sm" @click="reload" :disabled="loading")
       Spinner(v-if="loading" data-icon="inline-start")
       RefreshCwIcon(v-else data-icon="inline-start")
-      span Refresh
+      span {{ $t("common.refresh") }}
   p.text-destructive.text-sm(v-if="error" role="alert") {{ error }}
   .max-h-80.overflow-auto.rounded-md.border(v-if="logs.length")
     Table
       TableHeader
         TableRow
-          TableHead.w-28 Time
-          TableHead.w-20 Level
-          TableHead Message
-          TableHead.w-40 Surfaces
+          TableHead.w-28 {{ $t("plugins.column.time") }}
+          TableHead.w-20 {{ $t("plugins.column.level") }}
+          TableHead {{ $t("plugins.column.message") }}
+          TableHead.w-40 {{ $t("pluginLog.surfaces") }}
       TableBody
         TableRow(v-for="line in logs" :key="String(line.id)")
           TableCell.text-xs.whitespace-nowrap {{ formatTime(line.at) }}
@@ -77,7 +77,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :loading="loadingMore"
     )
   p.text-muted-foreground.text-sm(v-else-if="!loading && !error")
-    | No runtime log lines{{ scope ? " for this surface" : "" }} yet.
+    | {{ scope ? $t("pluginLog.emptyScoped") : $t("pluginLog.empty") }}
 </template>
 
 <script setup lang="ts">
@@ -107,11 +107,12 @@ import { usePluginLogPager } from "@/composables/usePluginLogPager";
 import { useProjects } from "@/composables/useProjects";
 import { useUsers } from "@/composables/useUsers";
 import { currentAccount } from "@/lib/account";
-import { PLUGIN_LOG_LEVELS, PLUGIN_LOG_LEVEL_LABELS } from "@/lib/plugins";
+import { PLUGIN_LOG_LEVELS, PLUGIN_LOG_LEVEL_KEYS } from "@/lib/plugins";
 import { agency } from "@/lib/sdk";
 import type { PluginLog } from "@cherrypi/sdk";
 import { RefreshCwIcon } from "@lucide/vue";
 import { onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import type { RouteLocationRaw } from "vue-router";
 
 const props = defineProps<{
@@ -214,7 +215,7 @@ function surfaceChip(scope: string, targetId: string): SurfaceChip {
     return {
       key,
       label: "Organization",
-      title: "Organization settings",
+      title: t("nav.orgSettings"),
       to: currentAccount.value?.is_admin
         ? { name: "settings", query: { tab: "plugins" } }
         : undefined,
@@ -273,6 +274,8 @@ function formatTime(value: PluginLog["at"]): string {
     Number(value.seconds) * 1000 + Math.floor(value.nanos / 1_000_000),
   ).toLocaleTimeString();
 }
+
+const { t } = useI18n();
 </script>
 
 <style scoped>
@@ -297,3 +300,36 @@ a.surface-chip:hover {
   color: var(--muted-foreground);
 }
 </style>
+
+<i18n lang="yaml">
+en:
+  pluginLog:
+    allLevels: "All levels"
+    surfaces: "Surfaces"
+    filterPlaceholder: "Filter messages…"
+    filterAria: "Filter runtime log messages"
+    andAbove: "{level} and above"
+    empty: "No runtime log lines yet."
+    emptyScoped: "No runtime log lines for this surface yet."
+    level:
+      trace: "Trace"
+      debug: "Debug"
+      info: "Info"
+      warn: "Warn"
+      error: "Error"
+ru:
+  pluginLog:
+    allLevels: "Все уровни"
+    surfaces: "Поверхности"
+    filterPlaceholder: "Фильтр сообщений…"
+    filterAria: "Фильтр сообщений журнала выполнения"
+    andAbove: "{level} и выше"
+    empty: "Записей журнала выполнения пока нет."
+    emptyScoped: "Записей журнала выполнения для этой поверхности пока нет."
+    level:
+      trace: "Trace"
+      debug: "Debug"
+      info: "Info"
+      warn: "Warn"
+      error: "Error"
+</i18n>

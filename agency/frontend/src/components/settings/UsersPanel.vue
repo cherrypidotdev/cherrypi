@@ -20,17 +20,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-6
   Card
     CardHeader
-      CardTitle Invite a user
+      CardTitle {{ $t("admin.invite.title") }}
       CardDescription
-        | The username is reserved when the invitation is created. Username
-        | invites return a one-time password; e-mail invites mail a link and
-        | show a copyable fallback.
+        | {{ $t("users.invite.hint") }}
     CardContent
       form.flex.flex-col.gap-4(@submit.prevent="submitInvite")
         FieldGroup
           .grid.grid-cols-2.gap-3
             Field
-              FieldLabel Invitation kind
+              FieldLabel {{ $t("users.invite.kind") }}
               Select(
                 :model-value="invite.kind"
                 @update:model-value="onKindChange(String($event))"
@@ -38,27 +36,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="username") Username + password
-                  SelectItem(value="email") E-mail + link
-                  SelectItem(value="oidc") OIDC provider
-                  SelectItem(value="ldap") LDAP directory
+                  SelectItem(value="username") {{ $t("users.invite.kindPassword") }}
+                  SelectItem(value="email") {{ $t("users.invite.kindEmail") }}
+                  SelectItem(value="oidc") {{ $t("users.invite.oidcProvider") }}
+                  SelectItem(value="ldap") {{ $t("account.identities.ldapDirectory") }}
             Field
-              FieldLabel Username
+              FieldLabel {{ $t("common.username") }}
               Input(
                 v-model="invite.username"
-                placeholder="jane"
+                :placeholder="$t('admin.invite.usernamePlaceholder')"
                 autocomplete="off"
               )
             Field(v-if="invite.kind === 'email'")
-              FieldLabel E-mail
+              FieldLabel {{ $t("common.email") }}
               Input(
                 v-model="invite.email"
                 type="email"
-                placeholder="jane@example.com"
+                :placeholder="$t('users.invite.emailPlaceholder')"
                 autocomplete="off"
               )
             Field(v-if="invite.kind === 'oidc'")
-              FieldLabel Provider
+              FieldLabel {{ $t("users.invite.provider") }}
               Select(
                 :model-value="String(invite.provider_id)"
                 @update:model-value="invite.provider_id = Number($event)"
@@ -72,7 +70,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     :value="String(provider.id)"
                   ) {{ provider.name }}
             Field(v-if="invite.kind === 'ldap'")
-              FieldLabel Directory
+              FieldLabel {{ $t("users.invite.directory") }}
               Select(
                 :model-value="String(invite.provider_id)"
                 @update:model-value="invite.provider_id = Number($event)"
@@ -86,14 +84,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     :value="String(provider.id)"
                   ) {{ provider.name }}
             Field(v-if="invite.kind === 'oidc' || invite.kind === 'ldap'")
-              FieldLabel Provider username
+              FieldLabel {{ $t("users.invite.providerUsername") }}
               Input(
                 v-model="invite.external_username"
-                placeholder="directory username"
+                :placeholder="$t('users.invite.providerUsernamePlaceholder')"
                 autocomplete="off"
               )
             Field
-              FieldLabel Role
+              FieldLabel {{ $t("admin.role") }}
               Select(
                 :model-value="invite.role"
                 @update:model-value="invite.role = String($event)"
@@ -101,22 +99,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="member") Member
-                  SelectItem(value="admin") Administrator
+                  SelectItem(value="member") {{ $t("admin.roleMember") }}
+                  SelectItem(value="admin") {{ $t("admin.roleAdmin") }}
         p.text-destructive.text-sm(v-if="error") {{ error }}
         .flex.justify-end
           Button(type="submit" :disabled="saving || !invite.username.trim()")
             Spinner(v-if="saving" data-icon="inline-start")
             SendIcon(v-else data-icon="inline-start")
-            span Send invitation
+            span {{ $t("users.invite.send") }}
 
   Card(v-if="lastResult")
     CardHeader
-      CardTitle Invitation created
-      CardDescription Share it with the invitee; it is shown once.
+      CardTitle {{ $t("admin.invite.created") }}
+      CardDescription {{ $t("users.invite.shareOnce") }}
     CardContent.flex.flex-col.gap-3
       .flex.flex-col.gap-1(v-if="lastResult.password")
-        p.text-sm.font-medium One-time password for @{{ lastResult.invitation.username }}
+        p.text-sm.font-medium {{ $t("users.invite.passwordFor", { username: lastResult.invitation.username }) }}
         .flex.items-center.gap-2
           code.bg-muted.flex-1.rounded-md.px-2.py-1.font-mono.text-sm.break-all {{ lastResult.password }}
           Button(
@@ -126,10 +124,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="copy(lastResult.password)"
           )
             CopyIcon(data-icon="inline-start")
-            span Copy
-        p.text-muted-foreground.text-xs The user must change it on first sign-in.
+            span {{ $t("common.copy") }}
+        p.text-muted-foreground.text-xs {{ $t("users.invite.mustChange") }}
       .flex.flex-col.gap-1(v-if="lastResult.link")
-        p.text-sm.font-medium Acceptance link
+        p.text-sm.font-medium {{ $t("users.invite.acceptanceLink") }}
+        p.text-muted-foreground.text-xs {{ $t("users.invite.acceptanceLinkHint") }}
         .flex.items-center.gap-2
           code.bg-muted.flex-1.rounded-md.px-2.py-1.font-mono.text-xs.break-all {{ lastResult.link }}
           Button(
@@ -139,31 +138,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @click="copy(lastResult.link)"
           )
             CopyIcon(data-icon="inline-start")
-            span Copy
+            span {{ $t("common.copy") }}
         p.text-destructive.text-xs(v-if="lastResult.delivery_error")
-          | Mail delivery failed: {{ lastResult.delivery_error }}. Copy the link
-          | above and share it directly.
+          | {{ $t("users.invite.deliveryFailed", { error: lastResult.delivery_error }) }}
       .flex.justify-end
         Button(
           type="button"
           variant="ghost"
           size="sm"
           @click="lastResult = null"
-        ) Dismiss
+        ) {{ $t("common.dismiss") }}
 
   Card
     CardHeader
-      CardTitle Users
-      CardDescription Agency accounts, their roles and status.
+      CardTitle {{ $t("nav.users") }}
+      CardDescription {{ $t("users.description") }}
     CardContent
       p.text-destructive.text-sm(v-if="error") {{ error }}
       Table
         TableHeader
           TableRow
-            TableHead Username
-            TableHead.w-36 Role
-            TableHead.w-36 Status
-            TableHead Last login
+            TableHead {{ $t("common.username") }}
+            TableHead.w-36 {{ $t("admin.role") }}
+            TableHead.w-36 {{ $t("common.status") }}
+            TableHead {{ $t("admin.users.lastLogin") }}
             TableHead.w-40
         TableBody
           TableRowsSkeleton(
@@ -174,7 +172,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableCell.font-medium
               .flex.items-center.gap-2
                 span {{ user.username }}
-                Badge(v-if="user.invitation" variant="secondary") invited
+                Badge(v-if="user.invitation" variant="secondary") {{ $t("admin.users.statusInvited") }}
             TableCell
               Select(
                 :model-value="user.role"
@@ -183,8 +181,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="member") Member
-                  SelectItem(value="admin") Admin
+                  SelectItem(value="member") {{ $t("admin.roleMember") }}
+                  SelectItem(value="admin") {{ $t("settings.tabs.admin") }}
             TableCell
               Select(
                 :model-value="user.status"
@@ -193,34 +191,34 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="invited") Invited
-                  SelectItem(value="active") Active
-                  SelectItem(value="disabled") Disabled
+                  SelectItem(value="invited") {{ $t("admin.users.statusInvitedLabel") }}
+                  SelectItem(value="active") {{ $t("admin.users.statusActive") }}
+                  SelectItem(value="disabled") {{ $t("common.disabled") }}
             TableCell.text-muted-foreground
               | {{ formatDate(user.last_login_at) }}
             TableCell
               .flex.justify-end.gap-2
                 Button(variant="outline" size="sm" @click="openReset(user)")
                   KeyRoundIcon(data-icon="inline-start")
-                  span Password
+                  span {{ $t("common.password") }}
                 Button(variant="destructive" size="sm" @click="remove(user)")
                   Trash2Icon(data-icon="inline-start")
-                  span Delete
+                  span {{ $t("common.delete") }}
           TableRow(v-if="!users.length && !loading")
-            TableCell.text-muted-foreground(:colspan="5") No users.
+            TableCell.text-muted-foreground(:colspan="5") {{ $t("admin.users.empty") }}
 
   Card
     CardHeader
-      CardTitle Invitations
-      CardDescription Pending and past invitations.
+      CardTitle {{ $t("users.invitations.title") }}
+      CardDescription {{ $t("users.invitations.description") }}
     CardContent
       Table
         TableHeader
           TableRow
-            TableHead Username
-            TableHead Kind
-            TableHead.w-28 Status
-            TableHead Expires
+            TableHead {{ $t("common.username") }}
+            TableHead {{ $t("common.kind") }}
+            TableHead.w-28 {{ $t("common.status") }}
+            TableHead {{ $t("users.invitations.expires") }}
             TableHead.w-40
         TableBody
           TableRow(v-for="invitation in invitations" :key="invitation.id")
@@ -241,7 +239,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @click="resend(invitation)"
                 )
                   RefreshCwIcon(data-icon="inline-start")
-                  span Resend
+                  span {{ $t("users.invitations.resend") }}
                 Button(
                   v-if="invitation.status === 'pending'"
                   variant="destructive"
@@ -249,18 +247,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @click="revoke(invitation)"
                 )
                   Trash2Icon(data-icon="inline-start")
-                  span Revoke
+                  span {{ $t("common.revoke") }}
           TableRow(v-if="!invitations.length")
-            TableCell.text-muted-foreground(:colspan="5") No invitations.
+            TableCell.text-muted-foreground(:colspan="5") {{ $t("users.invitations.empty") }}
 
   Dialog(v-model:open="resetOpen")
     DialogContent
       DialogHeader
-        DialogTitle Reset password
-        DialogDescription Set a new password for {{ resetTarget?.username }}.
+        DialogTitle {{ $t("users.password.reset") }}
+        DialogDescription {{ $t("users.password.forUser", { username: resetTarget?.username }) }}
       .flex.flex-col.gap-3
         Field
-          FieldLabel New password
+          FieldLabel {{ $t("common.newPassword") }}
           Input(
             v-model="resetPassword"
             type="password"
@@ -269,12 +267,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         p.text-destructive.text-sm(v-if="error") {{ error }}
       DialogFooter
         DialogClose
-          Button(type="button" variant="outline") Cancel
+          Button(type="button" variant="outline") {{ $t("common.cancel") }}
         Button(
           type="button"
           @click="submitReset"
           :disabled="saving || !resetPassword"
-        ) Set password
+        ) {{ $t("users.password.set") }}
 </template>
 
 <script setup lang="ts">
@@ -332,7 +330,10 @@ import {
   Trash2Icon,
 } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const users = ref<AdminUser[]>([]);
 const invitations = ref<Invitation[]>([]);
@@ -386,7 +387,8 @@ async function load(): Promise<void> {
     providers.value = providerResult.providers;
     ldapProviders.value = ldapResult.ldap_providers;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to load";
+    error.value =
+      err instanceof Error ? err.message : t("settings.auth.errors.load");
   } finally {
     loading.value = false;
   }
@@ -428,9 +430,10 @@ async function submitInvite(): Promise<void> {
     invite.email = "";
     invite.external_username = "";
     await load();
-    toast.success("Invitation created");
+    toast.success(t("admin.invite.created"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Could not invite";
+    error.value =
+      err instanceof Error ? err.message : t("users.toasts.inviteFailed");
   } finally {
     saving.value = false;
   }
@@ -441,7 +444,9 @@ async function setRole(user: AdminUser, role: string): Promise<void> {
     const result = await accountApi.updateUser(user.id, { role });
     Object.assign(user, result.user);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Could not update role");
+    toast.error(
+      err instanceof Error ? err.message : t("users.toasts.roleFailed"),
+    );
     await load();
   }
 }
@@ -451,7 +456,9 @@ async function setStatus(user: AdminUser, status: string): Promise<void> {
     const result = await accountApi.updateUser(user.id, { status });
     Object.assign(user, result.user);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Could not update status");
+    toast.error(
+      err instanceof Error ? err.message : t("users.toasts.statusFailed"),
+    );
     await load();
   }
 }
@@ -462,9 +469,11 @@ async function remove(user: AdminUser): Promise<void> {
   try {
     await accountApi.deleteUser(user.id);
     await load();
-    toast.success("User deleted");
+    toast.success(t("admin.toasts.userDeleted"));
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Could not delete user");
+    toast.error(
+      err instanceof Error ? err.message : t("users.toasts.deleteFailed"),
+    );
   }
 }
 
@@ -481,9 +490,10 @@ async function submitReset(): Promise<void> {
   try {
     await accountApi.setUserPassword(resetTarget.value.id, resetPassword.value);
     resetOpen.value = false;
-    toast.success("Password updated");
+    toast.success(t("users.toasts.passwordUpdated"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Could not set password";
+    error.value =
+      err instanceof Error ? err.message : t("users.toasts.passwordFailed");
   } finally {
     saving.value = false;
   }
@@ -493,9 +503,11 @@ async function revoke(invitation: Invitation): Promise<void> {
   try {
     await accountApi.revokeInvitation(invitation.id);
     await load();
-    toast.success("Invitation revoked");
+    toast.success(t("users.toasts.revoked"));
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Could not revoke");
+    toast.error(
+      err instanceof Error ? err.message : t("users.toasts.revokeFailed"),
+    );
   }
 }
 
@@ -503,18 +515,109 @@ async function resend(invitation: Invitation): Promise<void> {
   try {
     const result = await accountApi.resendInvitation(invitation.id);
     lastResult.value = { invitation: result.invitation, link: result.link };
-    toast.success("Invitation re-sent");
+    toast.success(t("users.toasts.resent"));
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Could not resend");
+    toast.error(
+      err instanceof Error ? err.message : t("users.toasts.resendFailed"),
+    );
   }
 }
 
 async function copy(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    toast.success("Copied");
+    toast.success(t("common.copied"));
   } catch {
-    toast.error("Could not copy");
+    toast.error(t("users.toasts.copyFailed"));
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  users:
+    invite:
+      hint: "The username is reserved when the invitation is created. Username invites return a one-time password; e-mail invites mail a link and show a copyable fallback."
+      kind: "Invitation kind"
+      kindPassword: "Username + password"
+      kindEmail: "E-mail + link"
+      oidcProvider: "OIDC provider"
+      provider: "Provider"
+      directory: "Directory"
+      providerUsername: "Provider username"
+      send: "Send invitation"
+      shareOnce: "Share it with the invitee; it is shown once."
+      mustChange: "The user must change it on first sign-in."
+      acceptanceLink: "Acceptance link"
+      emailPlaceholder: "jane{'@'}example.com"
+      providerUsernamePlaceholder: "directory username"
+      acceptanceLinkHint: "Copy the link above and share it directly."
+      deliveryFailed: "Mail delivery failed: {error}. Copy the link above and share it directly."
+      passwordFor: "One-time password for {'@'}{username}"
+    description: "Agency accounts, their roles and status."
+    invitations:
+      title: "Invitations"
+      description: "Pending and past invitations."
+      expires: "Expires"
+      resend: "Resend"
+      empty: "No invitations."
+    password:
+      reset: "Reset password"
+      set: "Set password"
+      forUser: "Set a new password for {username}."
+    toasts:
+      copyFailed: "Could not copy"
+      resendFailed: "Could not resend"
+      resent: "Invitation re-sent"
+      revokeFailed: "Could not revoke"
+      revoked: "Invitation revoked"
+      passwordFailed: "Could not set password"
+      passwordUpdated: "Password updated"
+      deleteFailed: "Could not delete user"
+      statusFailed: "Could not update status"
+      roleFailed: "Could not update role"
+      inviteFailed: "Could not invite"
+ru:
+  users:
+    invite:
+      hint: "Имя пользователя резервируется при создании приглашения. Приглашения по имени пользователя возвращают одноразовый пароль; приглашения по e-mail отправляют ссылку и показывают копируемый запасной вариант."
+      kind: "Тип приглашения"
+      kindPassword: "Имя пользователя + пароль"
+      kindEmail: "E-mail + ссылка"
+      oidcProvider: "Провайдер OIDC"
+      provider: "Провайдер"
+      directory: "Каталог"
+      providerUsername: "Имя пользователя у провайдера"
+      send: "Отправить приглашение"
+      shareOnce: "Передайте его приглашённому; оно показывается один раз."
+      mustChange: "Пользователь должен сменить его при первом входе."
+      acceptanceLink: "Ссылка для принятия"
+      emailPlaceholder: "jane{'@'}example.com"
+      providerUsernamePlaceholder: "имя пользователя в каталоге"
+      acceptanceLinkHint: "Скопируйте ссылку выше и передайте её напрямую."
+      deliveryFailed: "Не удалось отправить письмо: {error}. Скопируйте ссылку выше и передайте её напрямую."
+      passwordFor: "Одноразовый пароль для {'@'}{username}"
+    description: "Аккаунты агентства, их роли и статус."
+    invitations:
+      title: "Приглашения"
+      description: "Ожидающие и прошлые приглашения."
+      expires: "Истекает"
+      resend: "Отправить снова"
+      empty: "Приглашений нет."
+    password:
+      reset: "Сбросить пароль"
+      set: "Задать пароль"
+      forUser: "Задайте новый пароль для {username}."
+    toasts:
+      copyFailed: "Не удалось скопировать"
+      resendFailed: "Не удалось отправить снова"
+      resent: "Приглашение отправлено снова"
+      revokeFailed: "Не удалось отозвать"
+      revoked: "Приглашение отозвано"
+      passwordFailed: "Не удалось задать пароль"
+      passwordUpdated: "Пароль обновлён"
+      deleteFailed: "Не удалось удалить пользователя"
+      statusFailed: "Не удалось изменить статус"
+      roleFailed: "Не удалось изменить роль"
+      inviteFailed: "Не удалось пригласить"
+</i18n>

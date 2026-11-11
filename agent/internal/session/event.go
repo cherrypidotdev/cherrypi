@@ -125,8 +125,12 @@ type ModelWaitEvent struct {
 }
 
 type QueueEvent struct {
-	Steering []string
-	FollowUp []string
+	Steering []QueuedPrompt
+}
+
+type QueuedPrompt struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
 }
 
 type ExtensionUIEvent struct {

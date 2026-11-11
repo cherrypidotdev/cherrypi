@@ -18,6 +18,7 @@ import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
 import { useRealtime } from "@/composables/useRealtime";
 import { useUsage, type UsageBucket } from "@/composables/useUsage";
+import { t } from "@/i18n/translate";
 import { agency } from "@/lib/sdk";
 import {
   DAY_MS,
@@ -201,18 +202,15 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
 
   function agentName(id: string): string {
     const agent = agentById.value.get(id);
-    return (
-      agent?.displayName ||
-      agent?.username ||
-      (id ? `Agent ${id}` : "Unknown agent")
-    );
+    return agent?.displayName || agent?.username || id
+      ? t("usage.agentFallback", { id })
+      : t("usage.unknownAgent");
   }
 
   function projectName(id: string): string {
-    return (
-      projectById.value.get(id)?.name ||
-      (id ? `Project ${id}` : "Unknown project")
-    );
+    return projectById.value.get(id)?.name || id
+      ? t("usage.projectFallback", { id })
+      : t("usage.unknownProject");
   }
 
   const completedAll = computed(() =>

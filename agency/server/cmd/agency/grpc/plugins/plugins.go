@@ -22,6 +22,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/agents"
@@ -244,6 +245,40 @@ func (s *Server) UpdatePluginSettings(
 		return nil, err
 	}
 	return &agencyv1.UpdatePluginSettingsResponse{Settings: out}, nil
+}
+
+func (s *Server) PreviewPluginTemplate(
+	ctx context.Context,
+	req *agencyv1.PreviewPluginTemplateRequest,
+) (*agencyv1.PreviewPluginTemplateResponse, error) {
+	scope, _, err := s.authorizeSurfaces(ctx, req.Scope, req.TargetId)
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.Plugins.Get(ctx, req.PluginId)
+	if err != nil {
+		return nil, mapPluginError(err)
+	}
+	samples := map[string]any{}
+	if strings.TrimSpace(req.SamplesJson) != "" {
+		if err := json.Unmarshal([]byte(req.SamplesJson), &samples); err != nil {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				errors.New("samples_json must be a JSON object"),
+			)
+		}
+	}
+	preview, err := s.Plugins.PreviewTemplate(
+		ctx, p, scope, req.Field, req.Source, samples,
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return &agencyv1.PreviewPluginTemplateResponse{
+		Rendered:  preview.Rendered,
+		Errors:    preview.Errors,
+		Variables: preview.Variables,
+	}, nil
 }
 
 func (s *Server) SetPluginSettingsEnabled(
@@ -654,7 +689,7 @@ func (s *Server) pluginSettings(
 		SettingsJson: string(raw),
 		SecretKeys:   pluginhost.SecretKeyList(secrets),
 		Enabled:      enabled,
-		SchemaJson:   string(p.Manifest.SettingsSchema(scope)),
+		SchemaJson:   string(s.Plugins.SettingsSchema(p, scope, target)),
 		UpdatedAt:    timestamppb.New(updated),
 	}, nil
 }
@@ -677,7 +712,9 @@ func (s *Server) projectPlugin(
 	}
 	secrets := p.Manifest.SecretKeys(pluginhost.ScopeProject)
 
-	raw, err := json.Marshal(row.Values)
+	raw, err := json.Marshal(
+		p.Manifest.ApplySettingsDefaults(pluginhost.ScopeProject, row.Values),
+	)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -689,7 +726,7 @@ func (s *Server) projectPlugin(
 		MaxPriority:       int32(row.MaxPriority),
 		SettingsJson:      string(raw),
 		SecretKeys:        pluginhost.SecretKeyList(secrets),
-		SchemaJson:        string(p.Manifest.SettingsSchema(pluginhost.ScopeProject)),
+		SchemaJson:        string(s.Plugins.SettingsSchema(p, pluginhost.ScopeProject, projectID)),
 		CanManage:         true,
 		UpdatedAt:         timestamppb.New(row.Updated),
 	}, nil

@@ -26,12 +26,12 @@ header.flex.h-14.shrink-0.items-center.gap-3.border-b.px-6
       img.block.size-6.rounded-full.object-cover(
         v-if="item?.picture"
         :src="item.picture.url"
-        :alt="name"
+        :alt="$t('settings.auth.namePlaceholderPath')"
       )
       span.block.size-6(v-else :innerHTML="avatar")
       span.border-background.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
         :class="online ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-        :title="online ? 'Online' : 'Offline'"
+        :title="online ? $t('agentHeader.online') : $t('agentHeader.offline')"
       )
     .flex.min-w-0.flex-col
       span.truncate.text-sm.font-semibold {{ name }}
@@ -71,7 +71,10 @@ import { AgentStatus } from "@cherrypi/sdk";
 import { MonitorIcon, SettingsIcon, TerminalIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
+
+const { t } = useI18n();
 
 const { agents } = useAgents();
 const { canManageAgent } = useAgentAccess();
@@ -82,7 +85,10 @@ const item = computed(() =>
   agents.value.find((a) => a.id === currentAgentId.value),
 );
 const name = computed(
-  () => item.value?.displayName || item.value?.username || "Agent",
+  () =>
+    item.value?.displayName ||
+    item.value?.username ||
+    t("admin.agents.columnAgent"),
 );
 const online = computed(() => item.value?.status === AgentStatus.ONLINE);
 const avatar = computed(() => toSvg(currentAgentId.value || "agent", 24));
@@ -96,14 +102,31 @@ const canUseTerminals = computed(() => canManageAgent(currentAgentId.value));
 const nav = computed(() => [
   {
     name: "root-terminals",
-    label: `Root terminals (${stats.value.root})`,
+    label: t("agentHeader.rootTerminals", { count: stats.value.root }),
     icon: TerminalIcon,
     disabled: !canUseTerminals.value,
     title: canUseTerminals.value
-      ? "Open root terminals"
-      : "Only agent owners can open terminals",
+      ? t("agentHeader.openRootTerminals")
+      : t("agentHeader.ownersOnlyTerminals"),
   },
   { name: "desktop", label: "RDP", icon: MonitorIcon },
-  { name: "agent-settings", label: "Settings", icon: SettingsIcon },
+  { name: "agent-settings", label: t("common.settings"), icon: SettingsIcon },
 ]);
 </script>
+
+<i18n lang="yaml">
+en:
+  agentHeader:
+    rootTerminals: "Root terminals ({count})"
+    openRootTerminals: "Open root terminals"
+    ownersOnlyTerminals: "Only agent owners can open terminals"
+    online: "Online"
+    offline: "Offline"
+ru:
+  agentHeader:
+    rootTerminals: "Root-терминалы ({count})"
+    openRootTerminals: "Открыть root-терминалы"
+    ownersOnlyTerminals: "Открывать терминалы могут только владельцы агента"
+    online: "В сети"
+    offline: "Не в сети"
+</i18n>

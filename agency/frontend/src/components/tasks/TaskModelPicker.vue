@@ -21,11 +21,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   Select(:model-value="modelChoice" @update:model-value="onModelChange")
     SelectTrigger(
       size="sm"
-      title="Model for this task"
+      :title="$t('taskModel.title')"
       :disabled="!canPickModel"
       data-testid="task-model"
     )
-      SelectValue(placeholder="Model")
+      SelectValue(:placeholder="$t('domainLog.kind.model')")
         | {{ modelDisplayLabel }}
     SelectContent
       SelectGroup
@@ -37,11 +37,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   Select(:model-value="thinkingChoice" @update:model-value="onThinkingChange")
     SelectTrigger(
       size="sm"
-      title="Thinking level for this task"
+      :title="$t('taskModel.thinkingHint')"
       :disabled="!canPickThinking"
       data-testid="task-thinking"
     )
-      SelectValue(placeholder="Thinking level")
+      SelectValue(:placeholder="$t('taskModel.thinking')")
         | {{ thinkingDisplayLabel }}
     SelectContent
       SelectGroup
@@ -71,6 +71,7 @@ import {
   type TaskModel,
 } from "@cherrypi/sdk";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -244,13 +245,15 @@ const modelDisplayLabel = computed(() => {
     const name = props.selection.modelName || props.selection.modelId;
     return `${props.selection.modelProvider}/${name}`;
   }
-  return selectedModel.value ? modelLabel(selectedModel.value) : "Model";
+  return selectedModel.value
+    ? modelLabel(selectedModel.value)
+    : t("domainLog.kind.model");
 });
 const thinkingDisplayLabel = computed(
   () =>
     props.selection.thinkingLevel ||
     defaultThinkingLevel.value ||
-    "Thinking level",
+    t("taskModel.thinking"),
 );
 
 const canPickModel = computed(
@@ -292,4 +295,19 @@ function onThinkingChange(value: unknown) {
       props.useDefaults && level === defaultThinkingLevel.value ? "" : level,
   });
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  taskModel:
+    title: "Model for this task"
+    thinkingHint: "Thinking level for this task"
+    thinking: "Thinking level"
+ru:
+  taskModel:
+    title: "Модель для этой задачи"
+    thinkingHint: "Уровень размышления для этой задачи"
+    thinking: "Уровень размышления"
+</i18n>

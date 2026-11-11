@@ -1019,6 +1019,10 @@ func (s *PgStore) UpsertSetting(ctx context.Context, p UpsertSettingParams) erro
 	return s.q.UpsertSetting(ctx, pgdb.UpsertSettingParams(p))
 }
 
+func (s *PgStore) DeleteSetting(ctx context.Context, key string) error {
+	return s.q.DeleteSetting(ctx, key)
+}
+
 func (s *PgStore) ClearSettingValue(ctx context.Context, key, value string) error {
 	return s.q.ClearSettingValue(ctx, pgdb.ClearSettingValueParams(ClearSettingValueParams{
 		Key:   key,

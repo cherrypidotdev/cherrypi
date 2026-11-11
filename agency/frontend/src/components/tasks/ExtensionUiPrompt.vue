@@ -47,14 +47,14 @@ Card.border-primary
       .flex.gap-2
         Button(@click="respond({ confirmed: true })" :disabled="disabled")
           CheckIcon(data-icon="inline-start")
-          span Confirm
+          span {{ $t("common.confirm") }}
         Button(
           variant="outline"
           @click="respond({ confirmed: false })"
           :disabled="disabled"
         )
           XIcon(data-icon="inline-start")
-          span Decline
+          span {{ $t("extensionUi.decline") }}
     template(v-else-if="request.method === 'input'")
       form.flex.flex-col.gap-2(@submit.prevent="respond({ value: text })")
         Input(
@@ -65,7 +65,7 @@ Card.border-primary
         .flex.gap-2
           Button(type="submit" :disabled="disabled")
             SendIcon(data-icon="inline-start")
-            span Submit
+            span {{ $t("extensionUi.submit") }}
           Button(
             type="button"
             variant="outline"
@@ -73,14 +73,14 @@ Card.border-primary
             :disabled="disabled"
           )
             XIcon(data-icon="inline-start")
-            span Cancel
+            span {{ $t("common.cancel") }}
     template(v-else-if="request.method === 'editor'")
       form.flex.flex-col.gap-2(@submit.prevent="respond({ value: text })")
         Textarea(v-model="text" rows="8" :disabled="disabled")
         .flex.gap-2
           Button(type="submit" :disabled="disabled")
             CheckIcon(data-icon="inline-start")
-            span Save
+            span {{ $t("common.save") }}
           Button(
             type="button"
             variant="outline"
@@ -88,11 +88,11 @@ Card.border-primary
             :disabled="disabled"
           )
             XIcon(data-icon="inline-start")
-            span Cancel
+            span {{ $t("common.cancel") }}
   CardFooter.justify-end.border-t(v-if="!blockedReason")
     Button(variant="ghost" size="sm" @click="cancel" :disabled="disabled")
       XIcon(data-icon="inline-start")
-      span Decline
+      span {{ $t("extensionUi.decline") }}
 </template>
 
 <script setup lang="ts">
@@ -114,6 +114,9 @@ import {
 } from "@cherrypi/sdk";
 import { CheckIcon, SendIcon, XIcon } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -134,15 +137,18 @@ const disabled = computed(
 
 const options = computed(() => props.request.options.map(parseOption));
 
+// i18n:dynamic — the dialog title is picked from this map by request method,
+
 const labels: Record<string, string> = {
-  select: "Select an option",
-  confirm: "Confirm",
-  input: "Input required",
-  editor: "Edit",
+  select: "extensionUi.selectOption",
+  confirm: "common.confirm",
+  input: "extensionUi.inputRequired",
+  editor: "common.edit",
 };
-const dialogLabel = computed(
-  () => labels[props.request.method] ?? props.request.method,
-);
+const dialogLabel = computed(() => {
+  const key = labels[props.request.method];
+  return key ? t(key) : props.request.method;
+});
 
 function respond(response: ExtensionUiResponse) {
   emit("respond", response);
@@ -152,3 +158,18 @@ function cancel() {
   respond({ cancelled: true });
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  extensionUi:
+    decline: "Decline"
+    submit: "Submit"
+    selectOption: "Select an option"
+    inputRequired: "Input required"
+ru:
+  extensionUi:
+    decline: "Отклонить"
+    submit: "Отправить"
+    selectOption: "Выберите вариант"
+    inputRequired: "Требуется ввод"
+</i18n>

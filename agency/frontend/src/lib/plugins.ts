@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
 import {
   PluginSettingErrorsSchema,
   type Plugin,
@@ -78,12 +79,16 @@ export function settingErrorsFrom(err: unknown): SettingFieldError[] {
 export const PLUGIN_SCOPES = ["org", "project", "agent", "user"] as const;
 export type PluginScope = (typeof PLUGIN_SCOPES)[number];
 
-export const PLUGIN_SCOPE_LABELS: Record<PluginScope, string> = {
-  org: "Organization",
-  project: "Project",
-  agent: "Agent",
-  user: "User",
+export const PLUGIN_SCOPE_KEYS: Record<PluginScope, string> = {
+  org: "pluginScope.org",
+  project: "pluginScope.project",
+  agent: "pluginScope.agent",
+  user: "pluginScope.user",
 };
+
+export function scopeLabelKey(scope: PluginScope): string {
+  return PLUGIN_SCOPE_KEYS[scope];
+}
 
 export function parseManifest(plugin: Plugin): PluginManifest {
   return parseManifestJSON(plugin.manifestJson, {
@@ -189,15 +194,15 @@ export function pluginActorId(plugin: Plugin): string {
 export function handlerLabel(handler: string): string {
   switch (handler) {
     case "http":
-      return "HTTP requests";
+      return t("pluginHandler.http");
     case "tool":
-      return "Agent tools";
+      return t("pluginHandler.tool");
     case "event":
-      return "Agency events";
+      return t("pluginHandler.event");
     case "tick":
-      return "Scheduled ticks";
+      return t("pluginHandler.tick");
     case "task_tools":
-      return "Task tool filter";
+      return t("pluginHandler.taskTools");
     default:
       return handler;
   }
@@ -218,8 +223,8 @@ export function pluginPermissions(
     out.push({
       key: "network",
       label: allowsAnyHost(manifest)
-        ? "Outbound network: any host"
-        : "Outbound network",
+        ? t("pluginPermission.networkAnyHost")
+        : t("pluginPermission.network"),
       detail: manifest.network.join(", "),
       tone: allowsAnyHost(manifest) ? "danger" : "info",
     });
@@ -227,7 +232,7 @@ export function pluginPermissions(
   if (manifest.routes.length) {
     out.push({
       key: "routes",
-      label: "Public HTTP routes",
+      label: t("pluginPermission.routes"),
       detail: manifest.routes
         .map((route) => `${route.methods.join("/")} ${route.path}`)
         .join(", "),
@@ -237,7 +242,7 @@ export function pluginPermissions(
   if (manifest.events.length) {
     out.push({
       key: "events",
-      label: "Agency events",
+      label: t("pluginPermission.events"),
       detail: manifest.events.join(", "),
       tone: "info",
     });
@@ -245,7 +250,7 @@ export function pluginPermissions(
   if (manifest.tools.length) {
     out.push({
       key: "tools",
-      label: "Agent tools",
+      label: t("pluginPermission.tools"),
       detail: manifest.tools.map((tool) => tool.name).join(", "),
       tone: "info",
     });
@@ -253,8 +258,10 @@ export function pluginPermissions(
   if (manifest.schedule?.every_seconds) {
     out.push({
       key: "schedule",
-      label: "Scheduled ticks",
-      detail: `Calls handle_tick every ${manifest.schedule.every_seconds}s while the plugin is enabled.`,
+      label: t("pluginPermission.schedule"),
+      detail: t("pluginPermission.scheduleDetail", {
+        seconds: manifest.schedule.every_seconds,
+      }),
       tone: "info",
     });
   }
@@ -262,8 +269,8 @@ export function pluginPermissions(
   if (surfaces.length) {
     out.push({
       key: "settings",
-      label: "Settings surfaces",
-      detail: surfaces.map((scope) => PLUGIN_SCOPE_LABELS[scope]).join(", "),
+      label: t("pluginPermission.settings"),
+      detail: surfaces.map((scope) => t(scopeLabelKey(scope))).join(", "),
       tone: "info",
     });
   }
@@ -276,9 +283,8 @@ export function pluginPermissions(
   if (handlers.size > 0) {
     out.push({
       key: "tasks",
-      label: "Task creation",
-      detail:
-        "May create tasks in projects where it is installed, capped by each project's switches.",
+      label: t("pluginPermission.tasks"),
+      detail: t("pluginPermission.tasksDetail"),
       tone: "warning",
     });
   }
@@ -294,10 +300,132 @@ export const PLUGIN_LOG_LEVELS = [
 ] as const;
 export type PluginLogLevel = (typeof PLUGIN_LOG_LEVELS)[number];
 
-export const PLUGIN_LOG_LEVEL_LABELS: Record<PluginLogLevel, string> = {
-  trace: "Trace",
-  debug: "Debug",
-  info: "Info",
-  warn: "Warn",
-  error: "Error",
+export const PLUGIN_LOG_LEVEL_KEYS: Record<PluginLogLevel, string> = {
+  trace: "pluginLog.level.trace",
+  debug: "pluginLog.level.debug",
+  info: "pluginLog.level.info",
+  warn: "pluginLog.level.warn",
+  error: "pluginLog.level.error",
 };
+
+export interface PluginSettingsGroup {
+  id: string;
+  title: string;
+  description?: string;
+  fields: string[];
+  collapsed?: boolean;
+}
+
+export interface PluginTemplateVariable {
+  type?: string;
+  description?: string;
+  sample?: unknown;
+  items?: PluginTemplateVariable;
+  properties?: Record<string, PluginTemplateVariable>;
+}
+
+export interface PluginTemplateMeta {
+  engine?: string;
+  variables?: Record<string, PluginTemplateVariable>;
+}
+
+export function pluginSettingsGroups(
+  schema: string | undefined,
+): PluginSettingsGroup[] {
+  const parsed = parseJSONSchema(schema) as Record<string, unknown> | null;
+  const groups = parsed?.["x-groups"];
+  if (!Array.isArray(groups)) return [];
+  return groups
+    .filter(
+      (group): group is Record<string, unknown> =>
+        !!group && typeof group === "object" && !Array.isArray(group),
+    )
+    .map((group) => ({
+      id: typeof group.id === "string" ? group.id : "",
+      title: typeof group.title === "string" ? group.title : "",
+      description:
+        typeof group.description === "string" ? group.description : undefined,
+      fields: Array.isArray(group.fields)
+        ? group.fields.filter(
+            (field): field is string => typeof field === "string",
+          )
+        : [],
+      collapsed: group.collapsed === true,
+    }))
+    .filter((group) => group.id && group.title);
+}
+
+export function pluginTemplateMeta(
+  property: Record<string, unknown> | undefined,
+): PluginTemplateMeta | null {
+  if (!property || property.format !== "template") return null;
+  const raw = property["x-template"];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const meta = raw as PluginTemplateMeta;
+  return {
+    engine: typeof meta.engine === "string" ? meta.engine : "jinja",
+    variables:
+      meta.variables && typeof meta.variables === "object"
+        ? meta.variables
+        : {},
+  };
+}
+
+export function pluginTemplateDefault(
+  property: Record<string, unknown> | undefined,
+): string {
+  return typeof property?.default === "string" ? property.default : "";
+}
+
+function templateVariableZero(variable: PluginTemplateVariable): unknown {
+  switch (variable.type) {
+    case "array":
+      return [];
+    case "object":
+      return {};
+    case "number":
+    case "integer":
+      return 0;
+    case "boolean":
+      return false;
+    default:
+      return "";
+  }
+}
+
+export function pluginTemplateSamples(
+  variables: Record<string, PluginTemplateVariable> | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [path, variable] of Object.entries(variables ?? {})) {
+    out[path] =
+      variable.sample !== undefined
+        ? variable.sample
+        : templateVariableZero(variable);
+  }
+  return out;
+}
+
+export function pluginTemplateVariables(
+  schema: string | undefined,
+): Record<string, PluginTemplateVariable> {
+  const parsed = parseJSONSchema(schema) as Record<string, unknown> | null;
+  const properties = parsed?.properties;
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  ) {
+    return {};
+  }
+  const out: Record<string, PluginTemplateVariable> = {};
+  for (const property of Object.values(
+    properties as Record<string, Record<string, unknown>>,
+  )) {
+    const meta = pluginTemplateMeta(property);
+    for (const [path, variable] of Object.entries(meta?.variables ?? {})) {
+      if (!(path in out)) out[path] = variable;
+    }
+  }
+  return out;
+}

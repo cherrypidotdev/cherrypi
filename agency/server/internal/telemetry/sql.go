@@ -17,6 +17,7 @@
 package telemetry
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"net/url"
@@ -88,11 +89,43 @@ func sqlOptions(
 		otelsql.WithMeterProvider(otel.GetMeterProvider()),
 		otelsql.WithAttributes(attributes...),
 
+		otelsql.WithSpanNameFormatter(sqlSpanName),
+		otelsql.WithAttributesGetter(sqlSpanAttributes),
+		otelsql.WithInstrumentAttributesGetter(sqlInstrumentAttributes),
+
 		otelsql.WithSpanOptions(otelsql.SpanOptions{
 			OmitConnResetSession: true,
 			RowsChildOfQuery:     true,
 		}),
 	}
+}
+
+func sqlSpanName(_ context.Context, method otelsql.Method, query string) string {
+	if summary := querySummary(query); summary != "" {
+		return summary
+	}
+
+	return string(method)
+}
+
+func sqlSpanAttributes(
+	_ context.Context, _ otelsql.Method, query string, _ []driver.NamedValue,
+) []attribute.KeyValue {
+	return sqlSummaryAttributes(query)
+}
+
+func sqlInstrumentAttributes(
+	_ context.Context, _ otelsql.Method, query string, _ []driver.NamedValue,
+) []attribute.KeyValue {
+	return sqlSummaryAttributes(query)
+}
+
+func sqlSummaryAttributes(query string) []attribute.KeyValue {
+	if summary := querySummary(query); summary != "" {
+		return []attribute.KeyValue{semconv.DBQuerySummary(summary)}
+	}
+
+	return nil
 }
 
 func dbNamespace(dsn string, dbSystem attribute.KeyValue) string {

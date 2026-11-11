@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { t } from "@/i18n/translate";
+
 export interface SpeechRecognitionAlternative {
   transcript: string;
   confidence: number;
@@ -104,15 +106,15 @@ export function recognitionErrorMessage(error: string): string {
   switch (error) {
     case "not-allowed":
     case "service-not-allowed":
-      return "Microphone access was denied. Allow it in the browser settings, then try again.";
+      return t("speech.errors.denied");
     case "network":
-      return "Browser speech recognition needs a network connection.";
+      return t("speech.errors.network");
     case "audio-capture":
-      return "No microphone was found. Check the system input device and try again.";
+      return t("speech.errors.noMicrophone");
     case "language-not-supported":
-      return "Browser speech recognition does not support this language.";
+      return t("speech.errors.language");
     default:
-      return `Speech recognition failed: ${error}`;
+      return t("speech.errors.failed", { error });
   }
 }
 

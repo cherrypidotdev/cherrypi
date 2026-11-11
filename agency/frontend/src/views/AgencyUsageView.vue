@@ -20,9 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   header.flex.flex-wrap.items-start.justify-between.gap-4
     .flex.min-w-0.flex-col
-      h1.truncate.text-lg.font-semibold Usage
+      h1.truncate.text-lg.font-semibold {{ $t("projectView.usage") }}
       p.text-muted-foreground.text-sm
-        | Cost, tokens and task executions across every agent and project.
+        | {{ $t("agencyUsage.description") }}
     AgencyViewTabs
 
   UsageDashboard(context="agency")
@@ -32,3 +32,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import AgencyViewTabs from "@/components/AgencyViewTabs.vue";
 import UsageDashboard from "@/components/usage/UsageDashboard.vue";
 </script>
+
+<i18n lang="yaml">
+en:
+  agencyUsage:
+    description: "Cost, tokens and task executions across every agent and project."
+ru:
+  agencyUsage:
+    description: "Стоимость, токены и выполнения задач по всем агентам и проектам."
+</i18n>

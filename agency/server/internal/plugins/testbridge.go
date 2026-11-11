@@ -59,6 +59,7 @@ type TestBridge struct {
 	httpCalls       []map[string]any
 	httpFixtures    []httpFixture
 	messages        []testMessage
+	inputs          []testInputAnswer
 	closed          []testClose
 	badges          map[string][]TaskBadge
 	holds           map[string]map[string]tasks.TaskHold
@@ -69,6 +70,12 @@ type TestBridge struct {
 type testMessage struct {
 	TaskID string
 	Text   string
+}
+
+type testInputAnswer struct {
+	TaskID    string
+	RequestID string
+	Answer    TaskInputAnswer
 }
 
 type testClose struct {
@@ -93,8 +100,12 @@ type httpFixture struct {
 
 func NewTestBridge(pluginID string) *TestBridge {
 	return &TestBridge{
-		pluginID:        pluginID,
-		org:             map[string]any{"id": "org", "name": "Test Agency"},
+		pluginID: pluginID,
+		org: map[string]any{
+			"id":   "org",
+			"name": "Test Agency",
+			"url":  "https://agency.test",
+		},
 		projects:        map[string]projects.Project{},
 		projectRoles:    map[string]map[ids.ActorID]string{},
 		projectSettings: map[string]ProjectSettings{},
@@ -114,7 +125,13 @@ func NewTestBridge(pluginID string) *TestBridge {
 func (b *TestBridge) SetOrg(name string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.org = map[string]any{"id": "org", "name": name}
+	b.org = map[string]any{"id": "org", "name": name, "url": b.org["url"]}
+}
+
+func (b *TestBridge) SetAgencyURL(url string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.org["url"] = url
 }
 
 func (b *TestBridge) SetProject(p projects.Project, tagNames ...string) {
@@ -277,6 +294,12 @@ func (b *TestBridge) Tools(taskID string) []Tool {
 		return row.Tools
 	}
 	return nil
+}
+
+func (b *TestBridge) InputAnswers() []testInputAnswer {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]testInputAnswer(nil), b.inputs...)
 }
 
 func (b *TestBridge) TaskMessages() []testMessage {
@@ -570,6 +593,28 @@ func (b *TestBridge) AddTaskMessage(_ context.Context, taskID, text string) erro
 			b.tasks[taskID] = t
 		}
 	}
+	return nil
+}
+
+func (b *TestBridge) RespondTaskInput(
+	_ context.Context,
+	taskID, requestID string,
+	answer TaskInputAnswer,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	t, ok := b.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+	if t.State != tasks.StateInput {
+		return fmt.Errorf("task %s is not waiting for input", taskID)
+	}
+	b.inputs = append(b.inputs, testInputAnswer{
+		TaskID: taskID, RequestID: requestID, Answer: answer,
+	})
+	t.State = tasks.StateRunning
+	b.tasks[taskID] = t
 	return nil
 }
 

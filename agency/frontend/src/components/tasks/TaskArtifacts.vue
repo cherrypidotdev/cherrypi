@@ -30,10 +30,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         ) {{ entry.artifact.description }}
       span.text-muted-foreground.inline-flex.shrink-0.items-center.gap-1.text-xs(
         v-if="entry.artifact.streaming"
-        title="The agent is still adding parts"
+        :title="$t('artifacts.streamingHint')"
       )
         Spinner.size-3
-        | streaming
+        | {{ $t("artifacts.streaming") }}
     .flex.flex-col.gap-2(v-if="entry.parts.length")
       template(v-for="(partView, index) in entry.parts" :key="index")
         p.text-xs.break-words.whitespace-pre-wrap(
@@ -46,8 +46,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           button.group.relative.block.w-full.cursor-zoom-in.overflow-hidden.rounded-md.border(
             v-if="partView.item.image"
             type="button"
-            :title="`Preview ${partView.item.filename}`"
-            :aria-label="`Preview ${partView.item.filename}`"
+            :title="$t('artifacts.preview', { filename: partView.item.filename })"
+            :aria-label="$t('artifacts.preview', { filename: partView.item.filename })"
             @click="emit('open', partView.item)"
           )
             img.max-h-48.w-full.object-contain(
@@ -62,14 +62,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-else
             type="button"
             class="hover:underline"
-            :title="`Preview ${partView.item.filename}`"
+            :title="$t('artifacts.preview', { filename: partView.item.filename })"
             @click="emit('open', partView.item)"
           )
             FileIcon.size-3.shrink-0
             span.truncate {{ partView.item.filename }}
-    span.text-muted-foreground.text-xs(v-else) No parts.
+    span.text-muted-foreground.text-xs(v-else) {{ $t("artifacts.empty") }}
 span.text-muted-foreground.text-sm(v-else)
-  | No artifacts yet. The agent publishes its outputs here.
+  | {{ $t("artifacts.emptyHint") }}
 </template>
 
 <script setup lang="ts">
@@ -98,3 +98,20 @@ function formatData(value: string): string {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  artifacts:
+    streaming: "streaming"
+    empty: "No parts."
+    emptyHint: "No artifacts yet. The agent publishes its outputs here."
+    streamingHint: "The agent is still adding parts"
+    preview: "Preview {filename}"
+ru:
+  artifacts:
+    streaming: "поток"
+    empty: "Частей нет."
+    emptyHint: "Артефактов пока нет. Агент публикует здесь свои результаты."
+    streamingHint: "Агент всё ещё добавляет части"
+    preview: "Просмотр {filename}"
+</i18n>

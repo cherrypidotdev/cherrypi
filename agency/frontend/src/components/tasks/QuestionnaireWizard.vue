@@ -26,7 +26,7 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
         v-if="readonly && answeredBy"
         data-test="questionnaire-answered-by"
       )
-        span Answered by
+        span {{ $t("questionnaire.answeredBy") }}
 
         span.d-inline-flex.border-base-300.items-center.rounded-full.border.px-2(
           class="bg-base-200/60 py-0.5"
@@ -36,35 +36,35 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
             :picture="answeredByPicture"
           )
         template(v-if="answeredAt !== undefined")
-          span at
+          span {{ $t("questionnaire.at") }}
           time.tabular-nums(
             :datetime="isoInstant(answeredAt)"
             :title="formatInstant(answeredAt)"
             data-test="questionnaire-answered-at"
           ) {{ formatClock(answeredAt) }}
       p.text-muted-foreground.text-sm(v-if="readonly && unavailable")
-        | This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text.
+        | {{ $t("questionnaire.nonInteractive") }}
       p.text-muted-foreground.text-sm(v-else-if="readonly && cancelled")
-        | The questionnaire was declined.
+        | {{ $t("questionnaire.declined") }}
       p.text-muted-foreground.text-sm(v-else-if="blockedReason")
         | {{ blockedReason }}
       p.text-muted-foreground.text-sm(v-else-if="readonly")
-        | Review the answers that were sent; they can no longer be changed.
+        | {{ $t("questionnaire.review") }}
       p.text-muted-foreground.text-sm(v-else-if="submitting")
-        | Sending your answers…
+        | {{ $t("questionnaire.sending") }}
       p.text-muted-foreground.text-sm(v-else-if="multiple")
-        | Answer the questions below, then submit them together.
+        | {{ $t("questionnaire.answerMany") }}
       p.text-muted-foreground.text-sm(v-else)
-        | Answer the question below, then submit.
+        | {{ $t("questionnaire.answerOne") }}
 
     .flex.items-center.gap-3(v-if="multiple && !locked" data-test="progress")
       progress.d-progress.d-progress-primary.flex-1(
         :value="answeredCount"
-        aria-label="Questions answered"
+        :aria-label="$t('questionnaire.answered')"
         :max="questions.length"
       )
       span.text-muted-foreground.text-xs.tabular-nums
-        | {{ answeredCount }} / {{ questions.length }} answered
+        | {{ $t("questionnaire.answeredCount", { answered: answeredCount, total: questions.length }) }}
 
     template(v-if="multiple")
       .w-full.overflow-x-auto.overflow-y-hidden.overscroll-x-none(
@@ -135,10 +135,10 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
         @click="finalNoteOpen = !finalNoteOpen"
         data-test="final-note-toggle"
       )
-        span.text-sm.font-medium Final note (optional)
+        span.text-sm.font-medium {{ $t("questionnaire.finalNoteOptional") }}
         span.d-badge.d-badge-sm.d-badge-soft(
           v-if="finalNote.trim() && !finalNoteOpen"
-        ) added
+        ) {{ $t("questionnaire.added") }}
 
       .d-collapse-content
         .flex.flex-col.gap-1(v-if="finalNoteOpen")
@@ -146,10 +146,10 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
             MarkdownEditor(
               v-model="finalNote"
               v-model:resize-height="finalNoteHeight"
-              placeholder="Anything not tied to a single answer… Markdown supported."
-              aria-label="Final note"
+              :placeholder="$t('questionnaire.finalNotePlaceholder')"
               resizable
               test-id="final-note"
+              :aria-label="$t('questionnaire.finalNote')"
               :disabled="submitting"
             )
 
@@ -160,7 +160,7 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
         :disabled="submitting"
       )
         XIcon(:size="16")
-        span Decline
+        span {{ $t("questionnaire.decline") }}
 
       .flex.items-center.gap-2
         TaskModelPicker(
@@ -183,7 +183,7 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
           span {{ submitting ? "Submitting…" : "Submit" }}
 
   .border-t.p-4(v-else-if="finalNote.trim()" data-test="final-note-review")
-    p.text-muted-foreground.text-xs Final note
+    p.text-muted-foreground.text-xs {{ $t("questionnaire.finalNote") }}
     MarkdownText.prose.prose-sm.max-w-none(
       class="prose-p:my-1 prose-pre:my-2"
       :style="INHERIT_PROSE"
@@ -225,6 +225,7 @@ import {
   XIcon,
 } from "@lucide/vue";
 import { computed, nextTick, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import QuestionEditor from "./QuestionEditor.vue";
 
 const props = withDefaults(
@@ -280,9 +281,11 @@ const emit = defineEmits<{
 
 const readonlyTitle = computed(() => {
   if (props.unavailable) {
-    return "Questionnaire not shown";
+    return t("questionnaire.notShown");
   }
-  return props.cancelled ? "Questionnaire declined" : "Questions answered";
+  return props.cancelled
+    ? t("questionnaire.declinedTitle")
+    : t("questionnaire.answered");
 });
 
 const locked = computed(
@@ -294,8 +297,8 @@ const title = computed(() => {
     return readonlyTitle.value;
   }
   return props.blockedReason === undefined
-    ? "Need your input"
-    : "Questionnaire";
+    ? t("questionnaire.needInput")
+    : t("questionnaire.title");
 });
 
 const answeredBySender = computed<ChatSender>(() => ({
@@ -592,4 +595,51 @@ if (locked.value) {
 } else {
   focusUnanswered();
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  questionnaire:
+    answeredBy: "Answered by"
+    at: "at"
+    nonInteractive: "This task is non-interactive, so the questionnaire was not shown. The agent was told to ask in plain text."
+    declined: "The questionnaire was declined."
+    review: "Review the answers that were sent; they can no longer be changed."
+    sending: "Sending your answers…"
+    answerMany: "Answer the questions below, then submit them together."
+    answerOne: "Answer the question below, then submit."
+    finalNoteOptional: "Final note (optional)"
+    added: "added"
+    finalNote: "Final note"
+    answered: "Questions answered"
+    finalNotePlaceholder: "Anything not tied to a single answer… Markdown supported."
+    decline: "Decline"
+    notShown: "Questionnaire not shown"
+    declinedTitle: "Questionnaire declined"
+    needInput: "Need your input"
+    title: "Questionnaire"
+    answeredCount: "{answered} / {total} answered"
+ru:
+  questionnaire:
+    answeredBy: "Ответил"
+    at: "в"
+    nonInteractive: "Эта задача неинтерактивная, поэтому опросник не показывался. Агенту сообщили, что нужно спрашивать обычным текстом."
+    declined: "Опросник отклонён."
+    review: "Проверьте отправленные ответы; изменить их уже нельзя."
+    sending: "Отправляем ответы…"
+    answerMany: "Ответьте на вопросы ниже и отправьте их вместе."
+    answerOne: "Ответьте на вопрос ниже и отправьте."
+    finalNoteOptional: "Итоговая заметка (необязательно)"
+    added: "добавлено"
+    finalNote: "Итоговая заметка"
+    answered: "Ответы отправлены"
+    finalNotePlaceholder: "Всё, что не относится к одному ответу… Поддерживается Markdown."
+    decline: "Отклонить"
+    notShown: "Опросник не показан"
+    declinedTitle: "Опросник отклонён"
+    needInput: "Нужен ваш ответ"
+    title: "Опросник"
+    answeredCount: "отвечено {answered} / {total}"
+</i18n>

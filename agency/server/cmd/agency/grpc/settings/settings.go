@@ -59,8 +59,6 @@ func (s *SettingsServer) UpdateSettings(
 	if in == nil {
 
 		in = &agencyv1.Settings{
-			ShowUsageKpi:         true,
-			ShowConcurrencyKpi:   true,
 			NotificationSoundSet: settings.DefaultNotificationSoundSet,
 		}
 	}
@@ -78,8 +76,6 @@ func (s *SettingsServer) UpdateSettings(
 	updated, err := s.Settings.Update(ctx, settings.Settings{
 		AgencyName:           in.AgencyName,
 		PrimaryColor:         in.PrimaryColor,
-		ShowUsageKPI:         in.ShowUsageKpi,
-		ShowConcurrencyKPI:   in.ShowConcurrencyKpi,
 		NotificationSoundSet: in.NotificationSoundSet,
 		VoiceInputEnabled:    voice.VoiceInputEnabled,
 		STTBaseURL:           voice.STTBaseURL,
@@ -105,8 +101,6 @@ func (s *SettingsServer) toProto(
 	return &agencyv1.Settings{
 		AgencyName:           in.AgencyName,
 		PrimaryColor:         in.PrimaryColor,
-		ShowUsageKpi:         in.ShowUsageKPI,
-		ShowConcurrencyKpi:   in.ShowConcurrencyKPI,
 		NotificationSoundSet: in.NotificationSoundSet,
 		Logo:                 s.attachment(ctx, in.LogoAttachmentID),
 		Favicon:              s.attachment(ctx, in.FaviconAttachmentID),

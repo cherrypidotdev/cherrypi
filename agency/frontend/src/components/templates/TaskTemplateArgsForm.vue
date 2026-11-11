@@ -19,11 +19,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col.gap-3
   p.text-muted-foreground.text-xs(v-if="!args.length")
-    | This template takes no arguments.
+    | {{ $t("templateArgs.none") }}
   Field(v-for="arg in args" :key="arg.key")
     FieldLabel(:for="`template-arg-${arg.key}`")
       | {{ arg.label || arg.key }}
-      span.text-destructive(v-if="arg.required" title="Required" class="ml-0.5") *
+      span.text-destructive(
+        v-if="arg.required"
+        class="ml-0.5"
+        :title="$t('tags.required')"
+      ) *
     Textarea(
       v-if="arg.type === TaskTemplateArgType.MULTILINE"
       :placeholder="arg.defaultValue || arg.description || arg.key"
@@ -38,7 +42,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @update:model-value="setValue(arg.key, $event)"
     )
       SelectTrigger.w-full(:id="`template-arg-${arg.key}`")
-        SelectValue(:placeholder="arg.description || 'Choose an option'")
+        SelectValue(
+          :placeholder="arg.description || $t('templateArgs.chooseOption')"
+        )
       SelectContent
         SelectItem(
           v-for="option in arg.options"
@@ -104,3 +110,14 @@ function setValue(key: string, value: unknown) {
   emit("update:modelValue", { ...props.modelValue, [key]: value });
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  templateArgs:
+    none: "This template takes no arguments."
+    chooseOption: "Choose an option"
+ru:
+  templateArgs:
+    none: "Этот шаблон не принимает аргументов."
+    chooseOption: "Выберите вариант"
+</i18n>

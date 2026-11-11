@@ -39,7 +39,7 @@ Card
           span.text-3xs.text-muted-foreground(v-if="showAgent && item.agent") @{{ item.agent.username }}
           span.text-3xs.text-muted-foreground(
             v-else-if="showAgent && item.reason"
-          ) unpinned
+          ) {{ $t("concurrencyWaiting.unpinned") }}
           span.text-3xs.text-muted-foreground.ml-auto {{ queuedFor(item.task) }}
         span.truncate.text-sm.font-medium {{ taskName(item.task) }}
         .flex.flex-wrap.items-center(class="gap-1.5")
@@ -114,3 +114,12 @@ function blockerClass(kind: ConcurrencyBlocker["kind"]): string {
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  concurrencyWaiting:
+    unpinned: "unpinned"
+ru:
+  concurrencyWaiting:
+    unpinned: "не закреплено"
+</i18n>

@@ -24,7 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         type="button"
         variant="outline"
         size="sm"
-        :title="parent ? `Sub-task of ${taskReferenceTitle(parent)}` : 'Nest this task under a parent'"
+        :title="parent ? $t('taskParent.subTaskOf', { task: taskReferenceTitle(parent) }) : $t('taskParent.nest')"
         :disabled="disabled"
         data-testid="composer-parent"
       )
@@ -34,14 +34,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :is="taskStateIcon(parent.state)"
         )
         span.max-w-40.truncate(v-if="parent") {{ parent.id }} · {{ taskName(parent) }}
-        span(v-else) No parent
+        span(v-else) {{ $t("taskParent.none") }}
     DropdownMenuContent.w-96(align="start" @select.prevent)
       .p-2
         DropdownMenuFilter(
           v-model="search"
-          placeholder="Search tasks…"
-          aria-label="Search tasks for a parent"
+          :placeholder="$t('taskParent.searchPlaceholder')"
           auto-focus
+          :aria-label="$t('taskParent.searchAria')"
           data-testid="parent-picker-search"
         )
 
@@ -56,12 +56,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           type="button"
           variant="ghost"
           size="sm"
-          title="Clear parent"
+          :title="$t('taskParent.clear')"
           @click="clear"
           data-testid="parent-picker-clear"
         )
           XIcon(data-icon="inline-start")
-          span Clear parent
+          span {{ $t("taskParent.clear") }}
 </template>
 
 <script setup lang="ts">
@@ -125,3 +125,22 @@ function clear() {
   menuOpen.value = false;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  taskParent:
+    none: "No parent"
+    clear: "Clear parent"
+    searchPlaceholder: "Search tasks…"
+    searchAria: "Search tasks for a parent"
+    subTaskOf: "Sub-task of {task}"
+    nest: "Nest this task under a parent"
+ru:
+  taskParent:
+    none: "Без родителя"
+    clear: "Убрать родителя"
+    searchPlaceholder: "Поиск задач…"
+    searchAria: "Поиск задач для родителя"
+    subTaskOf: "Подзадача {task}"
+    nest: "Вложить задачу в родительскую"
+</i18n>

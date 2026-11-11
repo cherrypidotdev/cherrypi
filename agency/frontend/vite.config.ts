@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
+import { i18nPlugin } from "./scripts/i18n/vite-plugin.mjs";
 import { formatVersion } from "./src/lib/version";
 
 // in as `VITE_APP_VERSION` (the Docker context has no `.git`); a local dev
@@ -75,7 +76,7 @@ function apiProxy(target: string | undefined) {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue(), i18nPlugin(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },

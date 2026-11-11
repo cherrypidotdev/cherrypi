@@ -20,24 +20,23 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-6
   Tabs(v-model="tab")
     TabsList
-      TabsTrigger(value="general") General
-      TabsTrigger(value="projects") Projects
-      TabsTrigger(value="plugins") Plugins
-      TabsTrigger(value="tasks") Tasks
-      TabsTrigger(value="security") Security
+      TabsTrigger(value="general") {{ $t("settings.tabs.general") }}
+      TabsTrigger(value="projects") {{ $t("nav.projects") }}
+      TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
+      TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
+      TabsTrigger(value="security") {{ $t("account.tabs.security") }}
 
     TabsContent(value="general")
       Card
         CardHeader
-          CardTitle General
+          CardTitle {{ $t("settings.tabs.general") }}
           CardDescription
-            | The agent's picture, name, description, and username. The username
-            | is the agent's stable identifier.
+            | {{ $t("agentSettings.profileHint") }}
         CardContent
           form.flex.flex-col.gap-4(@submit.prevent="saveGeneral")
             FieldGroup
               Field
-                FieldLabel Picture
+                FieldLabel {{ $t("projectSettings.general.picture") }}
                 PictureUpload(
                   :picture="item?.picture"
                   :agent-id="id"
@@ -45,16 +44,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @changed="onPictureChanged"
                 )
               Field
-                FieldLabel Username
+                FieldLabel {{ $t("common.username") }}
                 Input(disabled :model-value="item?.username ?? ''")
               Field
-                FieldLabel(for="agent-display-name") Name
+                FieldLabel(for="agent-display-name") {{ $t("common.name") }}
                 Input#agent-display-name(v-model="name")
               Field
-                FieldLabel(for="agent-description") Description
+                FieldLabel(for="agent-description") {{ $t("common.description") }}
                 Textarea#agent-description(v-model="description")
               Field
-                FieldLabel Status
+                FieldLabel {{ $t("common.status") }}
                 .flex.items-center.gap-2
                   Badge(
                     variant="outline"
@@ -63,7 +62,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     | {{ agentStatusLabel(item?.status) }}
                   span.text-muted-foreground.font-mono.text-xs {{ item?.remoteAddr || "—" }}
               Field
-                FieldLabel Role
+                FieldLabel {{ $t("admin.role") }}
                 template(v-if="isAdmin")
                   Select(
                     :model-value="item?.role || 'member'"
@@ -72,12 +71,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     SelectTrigger.w-48
                       SelectValue
                     SelectContent
-                      SelectItem(value="member") Member
-                      SelectItem(value="admin") Admin
+                      SelectItem(value="member") {{ $t("admin.roleMember") }}
+                      SelectItem(value="admin") {{ $t("settings.tabs.admin") }}
                   FieldDescription
-                    | Admin agents may read the agency's process log and every
-                    | agent's logs and metadata, read-only. Only a human
-                    | administrator can change the role.
+                    | {{ $t("agentSettings.adminHint") }}
                 template(v-else)
                   Badge(variant="outline") {{ item?.role === "admin" ? "Admin" : "Member" }}
             p.text-destructive.text-sm(v-if="error") {{ error }}
@@ -85,19 +82,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Button(type="submit" :disabled="saving || !name.trim()")
                 Spinner(v-if="saving" data-icon="inline-start")
                 CheckIcon(v-else data-icon="inline-start")
-                span Save
+                span {{ $t("common.save") }}
 
       Card
         CardHeader
-          CardTitle Health sampling
+          CardTitle {{ $t("agentSettings.health.title") }}
           CardDescription
-            | How often the agent probes its host for the Health tab. The agency
-            | stores the interval and pushes it over the agent's tunnel, so a
-            | change applies without restarting the agent.
+            | {{ $t("agentSettings.health.description") }}
         CardContent.flex.flex-col.gap-4
           FieldGroup
             Field(data-testid="agent-health-interval-field")
-              FieldLabel Probe interval
+              FieldLabel {{ $t("agentSettings.health.interval") }}
               Select(
                 :model-value="healthChoice"
                 @update:model-value="onHealthChoiceChange"
@@ -110,18 +105,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   SelectValue
                 SelectContent
                   SelectGroup
-                    SelectItem(value="default") Agent default
+                    SelectItem(value="default") {{ $t("agentSettings.health.agentDefault") }}
                     SelectItem(
                       v-for="preset in HEALTH_INTERVAL_PRESETS"
                       :key="preset.seconds"
                       :value="String(preset.seconds)"
                     ) {{ preset.label }}
-                    SelectItem(value="off") Off
-                    SelectItem(value="custom") Custom…
+                    SelectItem(value="off") {{ $t("agentSettings.health.off") }}
+                    SelectItem(value="custom") {{ $t("agentSettings.health.custom") }}
               FieldDescription(data-testid="agent-health-interval-summary")
                 | {{ healthIntervalSummary }}
             Field(v-if="healthChoice === 'custom'")
-              FieldLabel(for="agent-health-interval") Custom interval
+              FieldLabel(for="agent-health-interval") {{ $t("agentSettings.health.customInterval") }}
               .flex.items-center.gap-2
                 Input#agent-health-interval(
                   v-model="customHealthInterval"
@@ -139,23 +134,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 )
                   Spinner(v-if="savingHealth" data-icon="inline-start")
                   CheckIcon(v-else data-icon="inline-start")
-                  span Save
+                  span {{ $t("common.save") }}
               FieldDescription.text-destructive(v-if="customHealthError")
                 | {{ customHealthError }}
           p.text-muted-foreground.text-xs(v-if="!canManage")
-            | Only agent owners can change the sampling interval.
+            | {{ $t("agentSettings.health.ownersOnly") }}
 
     TabsContent(value="projects")
       Card
         CardHeader
-          CardTitle Projects
+          CardTitle {{ $t("nav.projects") }}
           CardDescription
-            | Projects this agent has joined, with a project-specific prompt and
-            | concurrency caps. Task access is governed by the project's roles, so
-            | there are no per-project task permissions here.
+            | {{ $t("agentSettings.projects.description") }}
         CardContent
           p.text-muted-foreground.text-sm(v-if="!projectPrompts.length")
-            | This agent has not joined any project.
+            | {{ $t("agentSettings.projects.empty") }}
           .flex.flex-col.gap-4
             Collapsible.rounded-lg.border(
               v-for="entry in projectPrompts"
@@ -171,8 +164,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   span.text-sm.font-medium {{ entry.project?.name }}
                 RouterLink.text-muted-foreground(
                   class="hover:text-foreground"
-                  aria-label="Open project"
                   :to="{ name: 'project', params: { slug: entry.project?.slug } }"
+                  :aria-label="$t('team.projects.openAria')"
                 )
                   ArrowUpRightIcon.size-4
                 Button.text-destructive(
@@ -181,11 +174,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @click="leaveProject(entry)"
                 )
                   LogOutIcon(data-icon="inline-start")
-                  span Leave
+                  span {{ $t("team.members.leave") }}
               CollapsibleContent
                 .flex.flex-col.gap-3.px-4.pb-4
                   PromptEditor(
-                    placeholder="Project-specific instructions for this agent…"
+                    :placeholder="$t('agentSettings.projects.promptPlaceholder')"
                     :scope="PromptScope.AGENT_PROJECT"
                     :agent-id="id"
                     :project-id="entry.project?.id"
@@ -203,24 +196,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       .flex.flex-col.gap-6
         Card
           CardHeader
-            CardTitle Agent prompt
+            CardTitle {{ $t("agentSettings.prompt.title") }}
             CardDescription
-              | Injected into new tasks on this agent, after the organization prompt
-              | and before the project prompts. Edits affect future tasks only.
+              | {{ $t("agentSettings.prompt.description") }}
           CardContent.flex.flex-col.gap-3
             PromptEditor(
-              placeholder="Agent-wide instructions…"
+              :placeholder="$t('agentSettings.prompt.placeholder')"
               :scope="PromptScope.AGENT"
               :agent-id="id"
             )
 
         Card
           CardHeader
-            CardTitle Self-prompt auto-approve
+            CardTitle {{ $t("agentSettings.selfPrompt.title") }}
             CardDescription
-              | When enabled, this agent's proposals to its own agent and
-              | agent-project prompts apply immediately instead of waiting for an
-              | owner. Project prompt proposals still need a project owner.
+              | {{ $t("agentSettings.selfPrompt.description") }}
           CardContent.flex.items-center.justify-between.gap-3
             p.text-muted-foreground.text-sm
               | {{ item?.promptAutoApprove ? "Enabled: self-proposals apply immediately." : "Disabled: an owner approves self-proposals." }}
@@ -233,31 +223,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
         Card
           CardHeader
-            CardTitle Model defaults
+            CardTitle {{ $t("agentSettings.models.title") }}
             CardDescription
-              | New tasks start with this model and thinking level. Only agent
-              | owners can change them; everyone can see the selection.
+              | {{ $t("agentSettings.models.description") }}
           CardContent.flex.flex-col.gap-4
             p.text-muted-foreground.text-sm(v-if="!canManage")
-              | Only agent owners can change the default model and thinking
-              | level.
+              | {{ $t("agentSettings.models.ownersOnly") }}
             FieldGroup
               Field
                 .flex.items-center.justify-between.gap-2
-                  FieldLabel Model
+                  FieldLabel {{ $t("domainLog.kind.model") }}
 
                   Button(
                     type="button"
                     variant="ghost"
                     size="sm"
-                    title="Re-read the agent's models.json"
+                    :title="$t('agentSettings.models.resetTitle')"
                     @click="reloadModels"
                     :disabled="loadingDefaults"
                     data-testid="reset-models"
                   )
                     Spinner(v-if="loadingDefaults" data-icon="inline-start")
                     RefreshCwIcon(v-else data-icon="inline-start")
-                    span Reset models
+                    span {{ $t("agentSettings.models.reset") }}
                 Select(
                   :model-value="modelChoice"
                   @update:model-value="onDefaultModelChange"
@@ -265,17 +253,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   data-testid="agent-default-model-select"
                 )
                   SelectTrigger.w-full(data-testid="agent-default-model")
-                    SelectValue(placeholder="Pi default")
+                    SelectValue(
+                      :placeholder="$t('agentSettings.models.piDefaultPlaceholder')"
+                    )
                   SelectContent
                     SelectGroup
-                      SelectItem(:value="PI_DEFAULT") Pi default
+                      SelectItem(:value="PI_DEFAULT") {{ $t("agentSettings.models.piDefaultPlaceholder") }}
                       SelectItem(
                         v-for="model in modelOptions"
                         :key="`${model.provider}/${model.id}`"
                         :value="`${model.provider}/${model.id}`"
                       ) {{ modelLabel(model) }}
               Field
-                FieldLabel Thinking level
+                FieldLabel {{ $t("taskModel.thinking") }}
                 Select(
                   :model-value="thinkingChoice"
                   @update:model-value="onDefaultThinkingChange"
@@ -283,17 +273,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   data-testid="agent-default-thinking-select"
                 )
                   SelectTrigger.w-full(data-testid="agent-default-thinking")
-                    SelectValue(placeholder="Model default")
+                    SelectValue(
+                      :placeholder="$t('agentSettings.models.defaultPlaceholder')"
+                    )
                   SelectContent
                     SelectGroup
-                      SelectItem(:value="PI_DEFAULT_LEVEL") Model default
+                      SelectItem(:value="PI_DEFAULT_LEVEL") {{ $t("agentSettings.models.defaultPlaceholder") }}
                       SelectItem(
                         v-for="level in thinkingOptions"
                         :key="level"
                         :value="level"
                       ) {{ level }}
             p.text-muted-foreground.text-xs(v-if="!modelOptions.length")
-              | The agent is offline, so its model list is unavailable.
+              | {{ $t("agentSettings.models.offline") }}
 
     TabsContent(value="security")
       .flex.flex-col.gap-6
@@ -302,38 +294,36 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
         Card(v-if="canManage")
           CardHeader
-            CardTitle Personal access tokens
+            CardTitle {{ $t("account.tokens.title") }}
             CardDescription
-              | Long-lived credentials for this agent's tunnel, bundled Pi tools
-              | and artifact uploads. The plaintext is shown only once, at
-              | creation.
+              | {{ $t("agentSettings.tokens.description") }}
           CardContent.flex.flex-col.gap-4
             Alert(v-if="revealedToken")
-              AlertTitle Token created
+              AlertTitle {{ $t("domainLog.kind.tokenCreated") }}
               AlertDescription
-                | Set CHERRYPI_AGENT_TOKEN to this value. It is shown only once.
+                | {{ $t("agentSettings.tokens.setToken") }}
               .mt-3.flex.flex-col.gap-1.font-mono.text-sm
-                span Name: {{ revealedToken.name }}
-                span.break-all Token: {{ revealedToken.plaintext }}
+                span {{ $t("agentSettings.tokenName", { name: revealedToken.name }) }}
+                span.break-all {{ $t("agentSettings.tokenValue", { token: revealedToken.plaintext }) }}
               .mt-3.flex.gap-2
                 Button(size="sm" variant="outline" @click="copyToken")
                   CopyIcon(data-icon="inline-start")
-                  span Copy
+                  span {{ $t("common.copy") }}
                 Button(
                   size="sm"
                   variant="ghost"
                   @click="revealedToken = undefined"
-                ) Dismiss
+                ) {{ $t("common.dismiss") }}
             form.flex.items-end.gap-2(@submit.prevent="createToken")
               Field.flex-1
-                FieldLabel(for="agent-token-name") Name
+                FieldLabel(for="agent-token-name") {{ $t("common.name") }}
                 Input#agent-token-name(
                   v-model="tokenName"
                   placeholder="agent"
                   autocomplete="off"
                 )
                 FieldDescription
-                  | A label for this token; it does not grant permissions.
+                  | {{ $t("agentSettings.tokens.nameHint") }}
               Button(
                 type="submit"
                 variant="outline"
@@ -341,15 +331,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               )
                 Spinner(v-if="creatingToken" data-icon="inline-start")
                 PlusIcon(v-else data-icon="inline-start")
-                span Create token
+                span {{ $t("agentSettings.tokens.create") }}
             Table
               TableHeader
                 TableRow
-                  TableHead Name
-                  TableHead Prefix
-                  TableHead Created
-                  TableHead Last used
-                  TableHead Expires
+                  TableHead {{ $t("common.name") }}
+                  TableHead {{ $t("agentSettings.tokens.prefix") }}
+                  TableHead {{ $t("admin.teams.columnCreated") }}
+                  TableHead {{ $t("agentSettings.tokens.lastUsed") }}
+                  TableHead {{ $t("users.invitations.expires") }}
                   TableHead
               TableBody
                 TableRowsSkeleton(
@@ -373,9 +363,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         :disabled="revokingToken === token.id"
                       )
                         Trash2Icon(data-icon="inline-start")
-                        span Revoke
+                        span {{ $t("common.revoke") }}
                 TableRow(v-if="!tokens.length && !loadingTokens")
-                  TableCell.text-muted-foreground(:colspan="6") No tokens.
+                  TableCell.text-muted-foreground(:colspan="6") {{ $t("agentSettings.tokens.empty") }}
 
         AgentActivityPanel(:agent-id="id")
 
@@ -385,10 +375,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               type="button"
             )
               .flex.flex-col.text-left
-                CardTitle Runtime logs
+                CardTitle {{ $t("agentPlugins.runtimeLogs") }}
                 CardDescription
-                  | Operational records this agent pushed to the agency, plus the
-                  | terminal lifecycle events the agency observed.
+                  | {{ $t("agentSettings.logs.description") }}
               ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
                 :class="open ? 'rotate-90' : ''"
               )
@@ -480,9 +469,12 @@ import {
 } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
 import { toast } from "vue3-toastify";
 import LogsView from "./LogsView.vue";
+
+const { t } = useI18n();
 
 const id = computed(() => currentAgentId.value);
 const { canManageAgent } = useAgentAccess();
@@ -531,15 +523,13 @@ const healthChoice = computed(() => {
 });
 
 const healthIntervalSummary = computed(() => {
-  if (!healthSettingsLoaded.value) return "Loading the current cadence…";
+  if (!healthSettingsLoaded.value) return t("agentSettings.health.loading");
   const seconds = healthIntervalSeconds.value;
   let summary: string;
   if (seconds === undefined) {
-    summary =
-      "Inherits the agent's local default (CHERRYPI_HEALTH_INTERVAL, one minute unless set).";
+    summary = t("agentSettings.health.inherits");
   } else if (seconds === 0) {
-    summary =
-      "Sampling is disabled; the Health tab keeps its existing history.";
+    summary = t("agentSettings.health.disabled");
   } else {
     summary = `The agent probes the host every ${formatHealthInterval(seconds)}.`;
   }
@@ -705,7 +695,7 @@ async function saveHealthInterval(seconds: number | undefined) {
         healthIntervalSeconds.value,
       );
     }
-    toast.success("Health sampling interval updated");
+    toast.success(t("agentSettings.toasts.intervalUpdated"));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
     await loadHealthSettings();
@@ -737,7 +727,7 @@ function onHealthChoiceChange(value: unknown) {
 function saveCustomHealthInterval() {
   const seconds = parseHealthIntervalSeconds(customHealthInterval.value);
   if (seconds === undefined) {
-    customHealthError.value = "Enter a duration like 90s, 5m or 1h.";
+    customHealthError.value = t("agentSettings.errors.duration");
     return;
   }
   if (
@@ -745,7 +735,7 @@ function saveCustomHealthInterval() {
     (seconds < HEALTH_INTERVAL_MIN_SECONDS ||
       seconds > HEALTH_INTERVAL_MAX_SECONDS)
   ) {
-    customHealthError.value = "Choose an interval between 10s and 24h, or Off.";
+    customHealthError.value = t("agentSettings.errors.intervalRange");
     return;
   }
   customHealthError.value = "";
@@ -758,7 +748,7 @@ async function reloadModels() {
     toast.success(`${modelCatalog.value.length} models loaded from the agent`);
     return;
   }
-  toast.error("The agent is offline, so its model list is unavailable.");
+  toast.error(t("agentSettings.models.offline"));
 }
 
 async function saveDefaults(
@@ -793,7 +783,7 @@ async function saveDefaults(
     defaultModelId.value = saved.modelId;
     defaultModelName.value = saved.modelName;
     defaultThinking.value = saved.thinkingLevel;
-    toast.success("Model defaults updated");
+    toast.success(t("agentSettings.toasts.modelsUpdated"));
   } catch (err) {
     defaultProvider.value = previous.provider;
     defaultModelId.value = previous.id;
@@ -853,7 +843,7 @@ async function saveGeneral() {
         description: description.value.trim(),
       }),
     );
-    toast.success("Agent updated");
+    toast.success(t("agentSettings.toasts.updated"));
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -869,7 +859,9 @@ async function onRoleChange(value: unknown) {
       agency.updateAgentRole(id.value, role),
     );
     toast.success(
-      role === "admin" ? "Agent promoted to admin" : "Agent demoted to member",
+      role === "admin"
+        ? t("agentSettings.toasts.promoted")
+        : t("agentSettings.toasts.demoted"),
     );
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -889,8 +881,8 @@ async function setAutoApprove(value: unknown) {
     );
     toast.success(
       enabled
-        ? "Self-prompt auto-approve enabled"
-        : "Self-prompt auto-approve disabled",
+        ? t("agentSettings.toasts.selfPromptOn")
+        : t("agentSettings.toasts.selfPromptOff"),
     );
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -941,7 +933,7 @@ async function revokeToken(token: AgentToken) {
   revokingToken.value = token.id;
   try {
     await withProgress(() => agency.revokeAgentToken(id.value, token.id));
-    toast.success("Token revoked");
+    toast.success(t("domainLog.kind.tokenRevoked"));
     await loadTokens();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -954,9 +946,9 @@ async function copyToken() {
   if (!revealedToken.value) return;
   try {
     await navigator.clipboard.writeText(revealedToken.value.plaintext);
-    toast.success("Copied");
+    toast.success(t("common.copied"));
   } catch {
-    toast.error("Copy failed");
+    toast.error(t("taskConsole.copyFailed"));
   }
 }
 
@@ -973,7 +965,7 @@ async function leaveProject(entry: AgentProjectPrompt) {
   if (!window.confirm(warning)) return;
   try {
     await withProgress(() => agency.removeProjectAgent(project.id, id.value));
-    toast.success("Left project");
+    toast.success(t("agentSettings.toasts.leftProject"));
     await load();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -994,3 +986,126 @@ onMounted(() => {
   void loadHealthSettings();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  agentSettings:
+    tokens:
+      description: "Long-lived credentials for this agent's tunnel, bundled Pi tools and artifact uploads. The plaintext is shown only once, at creation."
+      setToken: "Set CHERRYPI_AGENT_TOKEN to this value. It is shown only once."
+      nameHint: "A label for this token; it does not grant permissions."
+      create: "Create token"
+      prefix: "Prefix"
+      lastUsed: "Last used"
+      empty: "No tokens."
+    profileHint: "The agent's picture, name, description, and username. The username is the agent's stable identifier."
+    adminHint: "Admin agents may read the agency's process log and every agent's logs and metadata, read-only. Only a human administrator can change the role."
+    health:
+      title: "Health sampling"
+      description: "How often the agent probes its host for the Health tab. The agency stores the interval and pushes it over the agent's tunnel, so a change applies without restarting the agent."
+      interval: "Probe interval"
+      agentDefault: "Agent default"
+      off: "Off"
+      custom: "Custom…"
+      customInterval: "Custom interval"
+      ownersOnly: "Only agent owners can change the sampling interval."
+      disabled: "Sampling is disabled; the Health tab keeps its existing history."
+      inherits: "Inherits the agent's local default (CHERRYPI_HEALTH_INTERVAL, one minute unless set)."
+      loading: "Loading the current cadence…"
+    projects:
+      description: "Projects this agent has joined, with a project-specific prompt and concurrency caps. Task access is governed by the project's roles, so there are no per-project task permissions here."
+      empty: "This agent has not joined any project."
+      promptPlaceholder: "Project-specific instructions for this agent…"
+    prompt:
+      title: "Agent prompt"
+      description: "Injected into new tasks on this agent, after the organization prompt and before the project prompts. Edits affect future tasks only."
+      placeholder: "Agent-wide instructions…"
+    selfPrompt:
+      title: "Self-prompt auto-approve"
+      description: "When enabled, this agent's proposals to its own agent and agent-project prompts apply immediately instead of waiting for an owner. Project prompt proposals still need a project owner."
+    models:
+      title: "Model defaults"
+      description: "New tasks start with this model and thinking level. Only agent owners can change them; everyone can see the selection."
+      ownersOnly: "Only agent owners can change the default model and thinking level."
+      reset: "Reset models"
+      piDefaultPlaceholder: "Pi default"
+      defaultPlaceholder: "Model default"
+      offline: "The agent is offline, so its model list is unavailable."
+      resetTitle: "Re-read the agent's models.json"
+    logs:
+      description: "Operational records this agent pushed to the agency, plus the terminal lifecycle events the agency observed."
+    toasts:
+      leftProject: "Left project"
+      selfPromptOff: "Self-prompt auto-approve disabled"
+      selfPromptOn: "Self-prompt auto-approve enabled"
+      demoted: "Agent demoted to member"
+      promoted: "Agent promoted to admin"
+      updated: "Agent updated"
+      modelsUpdated: "Model defaults updated"
+      intervalUpdated: "Health sampling interval updated"
+    errors:
+      intervalRange: "Choose an interval between 10s and 24h, or Off."
+      duration: "Enter a duration like 90s, 5m or 1h."
+    tokenName: "Name: {name}"
+    tokenValue: "Token: {token}"
+ru:
+  agentSettings:
+    tokens:
+      description: "Долгоживущие учётные данные для туннеля агента, встроенных инструментов Pi и загрузки артефактов. Открытый текст показывается только один раз, при создании."
+      setToken: "Задайте это значение в CHERRYPI_AGENT_TOKEN. Оно показывается только один раз."
+      nameHint: "Подпись для токена; разрешений она не даёт."
+      create: "Создать токен"
+      prefix: "Префикс"
+      lastUsed: "Последнее использование"
+      empty: "Токенов нет."
+    profileHint: "Изображение, название, описание и имя пользователя агента. Имя пользователя — стабильный идентификатор агента."
+    adminHint: "Агенты-администраторы могут читать журнал процесса агентства и журналы и метаданные всех агентов, только для чтения. Изменять роль может только человек-администратор."
+    health:
+      title: "Частота проверок здоровья"
+      description: "Как часто агент опрашивает свой хост для вкладки «Здоровье». Агентство хранит интервал и передаёт его через туннель агента, поэтому изменение применяется без перезапуска агента."
+      interval: "Интервал опроса"
+      agentDefault: "По умолчанию у агента"
+      off: "Выключено"
+      custom: "Другое…"
+      customInterval: "Свой интервал"
+      ownersOnly: "Изменять интервал опроса могут только владельцы агента."
+      disabled: "Опрос отключён; вкладка «Здоровье» сохраняет прежнюю историю."
+      inherits: "Наследует локальное значение агента (CHERRYPI_HEALTH_INTERVAL, иначе одна минута)."
+      loading: "Загружаем текущую частоту…"
+    projects:
+      description: "Проекты, в которые вступил агент, с промптом и лимитами параллельности для каждого проекта. Доступ к задачам определяется ролями проекта, поэтому отдельных разрешений на задачи здесь нет."
+      empty: "Агент не вступил ни в один проект."
+      promptPlaceholder: "Инструкции для этого агента в проекте…"
+    prompt:
+      title: "Промпт агента"
+      description: "Добавляется в новые задачи этого агента после промпта организации и перед промптами проекта. Изменения влияют только на будущие задачи."
+      placeholder: "Инструкции для всего агента…"
+    selfPrompt:
+      title: "Автоодобрение собственных промптов"
+      description: "Если включено, предложения агента к его собственным промптам и промптам в проектах применяются сразу, без ожидания владельца. Предложения промптов проекта по-прежнему требуют владельца проекта."
+    models:
+      title: "Модели по умолчанию"
+      description: "Новые задачи начинаются с этой модели и уровня размышления. Изменять их могут только владельцы агента; выбор видят все."
+      ownersOnly: "Изменять модель и уровень размышления по умолчанию могут только владельцы агента."
+      reset: "Сбросить модели"
+      piDefaultPlaceholder: "Значение Pi"
+      defaultPlaceholder: "Модель по умолчанию"
+      offline: "Агент не в сети, поэтому список моделей недоступен."
+      resetTitle: "Перечитать models.json агента"
+    logs:
+      description: "Операционные записи, которые агент отправил в агентство, а также события жизненного цикла терминалов, замеченные агентством."
+    toasts:
+      leftProject: "Вы вышли из проекта"
+      selfPromptOff: "Автоодобрение собственных промптов отключено"
+      selfPromptOn: "Автоодобрение собственных промптов включено"
+      demoted: "Агент понижен до участника"
+      promoted: "Агент повышен до администратора"
+      updated: "Агент обновлён"
+      modelsUpdated: "Модели по умолчанию обновлены"
+      intervalUpdated: "Интервал проверок здоровья обновлён"
+    errors:
+      intervalRange: "Выберите интервал от 10s до 24h или «Выключено»."
+      duration: "Введите длительность, например 90s, 5m или 1h."
+    tokenName: "Имя: {name}"
+    tokenValue: "Токен: {token}"
+</i18n>

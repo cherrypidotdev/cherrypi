@@ -25,18 +25,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   header.flex.h-12.shrink-0.items-center.gap-3.border-b.px-6
     .flex.min-w-0.items-center.gap-2
       MonitorIcon.text-muted-foreground.size-4
-      span.text-sm.font-semibold Desktop
+      span.text-sm.font-semibold {{ $t("desktop.title") }}
       Badge(v-if="desktop" variant="outline")
         | {{ desktop.display }} · {{ desktop.width }}×{{ desktop.height }}
-      Badge(v-else-if="!loading && !available" variant="destructive") Unavailable
+      Badge(v-else-if="!loading && !available" variant="destructive") {{ $t("desktop.unavailableBadge") }}
     .ml-auto.flex.items-center.gap-2
       Badge(
         v-if="!canControl"
         variant="outline"
-        title="Only agent owners can control this desktop"
-      ) View only
-      Badge(v-if="connected" variant="secondary") Connected
-      Badge(v-else-if="available" variant="secondary") Connecting…
+        :title="$t('desktop.ownerOnlyTitle')"
+      ) {{ $t("desktop.viewOnly") }}
+      Badge(v-if="connected" variant="secondary") {{ $t("desktop.connected") }}
+      Badge(v-else-if="available" variant="secondary") {{ $t("desktop.connecting") }}
       Button(
         variant="outline"
         size="sm"
@@ -55,28 +55,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :disabled="!available"
       )
         RefreshCwIcon
-        span Reconnect
+        span {{ $t("desktop.reconnect") }}
   .relative.flex-1.overflow-hidden.bg-neutral-950(data-testid="desktop-stage")
     .h-full.w-full(ref="screenEl" v-show="available")
     .flex.h-full.flex-col.items-center.justify-center.gap-3.p-6.text-center(
       v-if="!available"
     )
       MonitorIcon.text-muted-foreground.size-8
-      p.text-sm.font-medium Desktop unavailable
+      p.text-sm.font-medium {{ $t("desktop.unavailable") }}
       p.text-muted-foreground.max-w-md.text-xs(
         v-if="unavailableReason || error"
       ) {{ unavailableReason || error }}
       p.text-muted-foreground.max-w-md.text-xs
-        | CherryPi reuses the X session already running on this agent. Inside
-        | Docker, mount the host's X socket and set DISPLAY and XAUTHORITY.
+        | {{ $t("desktop.xHint") }}
     .pointer-events-none.absolute.inset-x-0.top-0.flex.justify-center.p-2(
       v-else-if="!connected"
     )
-      Badge(variant="secondary") Connecting…
+      Badge(variant="secondary") {{ $t("desktop.connecting") }}
     .pointer-events-none.absolute.inset-x-0.bottom-0.flex.justify-center.p-2(
       v-if="keyboardLocked"
     )
-      Badge(variant="secondary") Keyboard captured · Esc to exit
+      Badge(variant="secondary") {{ $t("desktop.keyboardCaptured") }}
 </template>
 
 <script setup lang="ts">
@@ -85,6 +84,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useDesktop } from "@/composables/useDesktop";
+import { t } from "@/i18n/translate";
 import {
   lockKeyboard,
   supportsKeyboardLock,
@@ -130,9 +130,11 @@ const isFullscreen = ref(false);
 const keyboardLocked = ref(false);
 let rfb: RFB | null = null;
 
-const fullscreenHint = supportsKeyboardLock()
-  ? "Enter fullscreen and send every shortcut (Ctrl+W, Ctrl+T, …) to the desktop. Esc exits."
-  : "Enter fullscreen. This browser cannot capture shortcuts it reserves for itself.";
+const fullscreenHint = computed(() =>
+  supportsKeyboardLock()
+    ? t("desktop.fullscreenHint")
+    : t("desktop.fullscreenHintNoLock"),
+);
 
 function disconnect() {
   if (rfb) {
@@ -244,3 +246,30 @@ watch(canControl, (control) => {
   applyKeyboardLock();
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  desktop:
+    title: "Desktop"
+    unavailableBadge: "Unavailable"
+    viewOnly: "View only"
+    connected: "Connected"
+    connecting: "Connecting…"
+    reconnect: "Reconnect"
+    unavailable: "Desktop unavailable"
+    xHint: "CherryPi reuses the X session already running on this agent. Inside Docker, mount the host's X socket and set DISPLAY and XAUTHORITY."
+    keyboardCaptured: "Keyboard captured · Esc to exit"
+    ownerOnlyTitle: "Only agent owners can control this desktop"
+ru:
+  desktop:
+    title: "Рабочий стол"
+    unavailableBadge: "Недоступен"
+    viewOnly: "Только просмотр"
+    connected: "Подключено"
+    connecting: "Подключение…"
+    reconnect: "Переподключиться"
+    unavailable: "Рабочий стол недоступен"
+    xHint: "CherryPi использует X-сеанс, уже запущенный на агенте. Внутри Docker смонтируйте X-сокет хоста и задайте DISPLAY и XAUTHORITY."
+    keyboardCaptured: "Клавиатура захвачена · Esc для выхода"
+    ownerOnlyTitle: "Управлять рабочим столом могут только владельцы агента"
+</i18n>

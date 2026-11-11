@@ -20,23 +20,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-4
   Card
     CardHeader
-      CardTitle Overall and per-tag limits
+      CardTitle {{ $t("concurrency.title") }}
       CardDescription
-        | A task consumes every cap that applies to it: the overall cap and
-        | each of its tags. All must have room. Per-project and per-project×tag
-        | limits live on the Projects tab.
+        | {{ $t("concurrency.description") }}
     CardContent.flex.flex-col.gap-4
       .flex.items-center.justify-between.gap-3
         .flex.flex-col
-          span.text-sm.font-medium Max concurrent tasks
-          span.text-muted-foreground.text-xs Overall cap for this agent.
+          span.text-sm.font-medium {{ $t("concurrency.maxConcurrent") }}
+          span.text-muted-foreground.text-xs {{ $t("concurrency.maxConcurrentHint") }}
         Input.w-24(v-model.number="maxConcurrent" type="number" min="1")
       .bg-border.h-px
       .flex.flex-col.gap-2
-        span.text-sm.font-medium Per-tag limits
+        span.text-sm.font-medium {{ $t("concurrency.perTag") }}
         p.text-muted-foreground.text-xs
-          | Keyed by tag name, these are global: one cap gates that name in
-          | every project. Unlisted tags use the overall cap only.
+          | {{ $t("concurrency.perTagHint") }}
         .flex.items-center.gap-2(
           v-for="(limit, index) in tagLimits"
           :key="limit.tagName"
@@ -55,14 +52,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           Button(
             variant="ghost"
             size="icon-sm"
-            title="Remove"
+            :title="$t('common.remove')"
             @click="tagLimits.splice(index, 1)"
           )
             XIcon
         .flex.items-center.gap-2
           Select(:model-value="addTagName" @update:model-value="addTagLimit")
             SelectTrigger.w-48
-              SelectValue(placeholder="Add a tag limit…")
+              SelectValue(:placeholder="$t('concurrency.addTagLimit')")
             SelectContent
               SelectGroup
                 SelectItem(
@@ -71,30 +68,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :value="name"
                 ) {{ name }}
           span.text-muted-foreground.text-xs(v-if="!availableTagNames.length")
-            | No more tags
+            | {{ $t("concurrency.noMoreTags") }}
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
   .flex.justify-end
     Button(@click="save" :disabled="saving")
       Spinner(v-if="saving" data-icon="inline-start")
       CheckIcon(v-else data-icon="inline-start")
-      span Save limits
+      span {{ $t("concurrency.saveLimits") }}
 
   Card(data-testid="agent-tag-declarations")
     CardHeader
-      CardTitle Tags this agent handles
+      CardTitle {{ $t("concurrency.declaredTags") }}
       CardDescription
-        | A per-tag concurrency cap also declares the tag. Tasks whose tag is
-        | marked required only run on agents that declare it, and a 0 cap still
-        | declares it (the agent is interested but has no capacity right now).
+        | {{ $t("concurrency.declaredTagsHint") }}
     CardContent.flex.flex-col.gap-3
       p.text-muted-foreground.text-sm(
         v-if="!declaredGlobal.length && !declaredProjects.length"
       )
-        | No per-tag caps yet, so this agent declares no tags.
+        | {{ $t("concurrency.noDeclaredTags") }}
       template(v-else)
         .flex.flex-col.gap-1(v-if="declaredGlobal.length")
-          span.text-xs.font-medium Global
+          span.text-xs.font-medium {{ $t("concurrency.global") }}
           .flex.flex-wrap.items-center(class="gap-1.5")
             span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs(
               v-for="name in declaredGlobal"
@@ -146,7 +141,10 @@ import { tagStyle } from "@/lib/task";
 import type { AgentTaskLimits, Project, Tag } from "@cherrypi/sdk";
 import { CheckIcon, XIcon } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const props = defineProps<{ agentId: string }>();
 
@@ -271,7 +269,7 @@ async function save() {
         projectTagLimits: current.projectTagLimits,
       }),
     );
-    toast.success("Concurrency limits saved");
+    toast.success(t("concurrency.toasts.saved"));
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -285,3 +283,40 @@ onMounted(async () => {
   await Promise.all([refreshTags(), load()]);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  concurrency:
+    noMoreTags: "No more tags"
+    addTagLimit: "Add a tag limit…"
+    title: "Overall and per-tag limits"
+    description: "A task consumes every cap that applies to it: the overall cap and each of its tags. All must have room. Per-project and per-project×tag limits live on the Projects tab."
+    maxConcurrent: "Max concurrent tasks"
+    maxConcurrentHint: "Overall cap for this agent."
+    perTag: "Per-tag limits"
+    perTagHint: "Keyed by tag name, these are global: one cap gates that name in every project. Unlisted tags use the overall cap only."
+    saveLimits: "Save limits"
+    declaredTags: "Tags this agent handles"
+    declaredTagsHint: "A per-tag concurrency cap also declares the tag. Tasks whose tag is marked required only run on agents that declare it, and a 0 cap still declares it (the agent is interested but has no capacity right now)."
+    noDeclaredTags: "No per-tag caps yet, so this agent declares no tags."
+    global: "Global"
+    toasts:
+      saved: "Concurrency limits saved"
+ru:
+  concurrency:
+    noMoreTags: "Больше тегов нет"
+    addTagLimit: "Добавить лимит тега…"
+    title: "Общие лимиты и лимиты по тегам"
+    description: "Задача занимает каждый применимый к ней лимит: общий лимит и лимиты всех её тегов. Место должно быть везде. Лимиты по проектам и по проекту × тегу находятся на вкладке «Проекты»."
+    maxConcurrent: "Максимум одновременных задач"
+    maxConcurrentHint: "Общий лимит для этого агента."
+    perTag: "Лимиты по тегам"
+    perTagHint: "Задаются по имени тега и действуют глобально: один лимит ограничивает этот тег во всех проектах. Для тегов без лимита действует только общий лимит."
+    saveLimits: "Сохранить лимиты"
+    declaredTags: "Теги, которые обрабатывает агент"
+    declaredTagsHint: "Лимит по тегу также объявляет этот тег. Задачи с обязательным тегом выполняются только на агентах, которые его объявляют; лимит 0 тоже объявляет тег (агент заинтересован, но сейчас не имеет ресурсов)."
+    noDeclaredTags: "Лимитов по тегам пока нет, поэтому агент не объявляет ни одного тега."
+    global: "Глобальный"
+    toasts:
+      saved: "Лимиты параллельности сохранены"
+</i18n>

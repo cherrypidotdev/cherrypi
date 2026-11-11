@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :aria-pressed="props.modelValue === option.value"
     @click="emit('update:modelValue', option.value)"
     :data-testid="testIdFor(option.value)"
-  ) {{ option.label }}
+  ) {{ $t(option.labelKey) }}
 </template>
 
 <script setup lang="ts">
@@ -42,11 +42,20 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:modelValue": [value: MarkdownTab] }>();
 
 const TABS = [
-  { value: "write", label: "Write" },
-  { value: "preview", label: "Preview" },
+  { value: "write", labelKey: "writePreview.write" },
+  { value: "preview", labelKey: "settings.sounds.preview" },
 ] as const;
 
 function testIdFor(value: MarkdownTab): string | undefined {
   return props.testId ? `${props.testId}-${value}` : undefined;
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  writePreview:
+    write: "Write"
+ru:
+  writePreview:
+    write: "Редактирование"
+</i18n>

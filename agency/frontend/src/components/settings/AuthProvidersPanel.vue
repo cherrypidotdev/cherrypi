@@ -20,15 +20,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .flex.flex-col.gap-6
   Card
     CardHeader
-      CardTitle Federated identity providers
+      CardTitle {{ $t("settings.auth.title") }}
       CardDescription
-        | Generic OIDC discovery and the generic OAuth2 shim. Users link an
-        | identity from their account after signing in. Without automatic
-        | account creation, logins stay invite-only.
+        | {{ $t("settings.auth.description") }}
       .flex.justify-end
         Button(size="sm" variant="outline" @click="startAddProvider")
           PlusIcon(data-icon="inline-start")
-          span Add provider
+          span {{ $t("settings.auth.addProvider") }}
     CardContent.flex.flex-col.gap-4
       .flex.items-center.justify-between.gap-2.rounded-md.border.p-3(
         v-for="provider in providers"
@@ -38,8 +36,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.items-center.gap-2
             p.truncate.text-sm.font-medium {{ provider.name }}
             Badge(variant="secondary") {{ provider.kind }}
-            Badge(v-if="provider.auto_provision" variant="outline") auto-provision
-            Badge(v-if="!provider.enabled" variant="outline") disabled
+            Badge(v-if="provider.auto_provision" variant="outline") {{ $t("settings.auth.autoProvision") }}
+            Badge(v-if="!provider.enabled" variant="outline") {{ $t("settings.auth.disabled") }}
           p.text-muted-foreground.truncate.text-xs
             | {{ provider.slug }} · {{ provider.issuer || provider.authorization_endpoint }}
         .flex.shrink-0.gap-2
@@ -47,15 +45,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             variant="outline"
             size="sm"
             @click="startEditProvider(provider)"
-          ) Edit
+          ) {{ $t("common.edit") }}
           Button(
             variant="destructive"
             size="sm"
             @click="removeProvider(provider)"
-          ) Delete
+          ) {{ $t("common.delete") }}
       Empty(v-if="!providers.length")
-        EmptyTitle No providers
-        EmptyDescription Add an OIDC or OAuth2 provider to enable federated sign-in.
+        EmptyTitle {{ $t("settings.auth.noProviders") }}
+        EmptyDescription {{ $t("settings.auth.noProvidersHint") }}
 
       form.flex.flex-col.gap-4.rounded-md.border.p-4(
         v-if="providerFormOpen"
@@ -65,7 +63,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         FieldGroup
           .grid.grid-cols-2.gap-3
             Field
-              FieldLabel Kind
+              FieldLabel {{ $t("common.kind") }}
               Select(
                 :model-value="providerForm.kind"
                 @update:model-value="providerForm.kind = String($event)"
@@ -73,122 +71,133 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="oidc") OIDC (discovery)
-                  SelectItem(value="oauth2") OAuth2 (shim)
+                  SelectItem(value="oidc") {{ $t("settings.auth.kindOidc") }}
+                  SelectItem(value="oauth2") {{ $t("settings.auth.kindOauth2") }}
             Field
-              FieldLabel Slug
-              Input(v-model="providerForm.slug" placeholder="dex")
+              FieldLabel {{ $t("settings.auth.slug") }}
+              Input(
+                v-model="providerForm.slug"
+                :placeholder="$t('settings.auth.slugPlaceholder')"
+              )
             Field
-              FieldLabel Name
-              Input(v-model="providerForm.name" placeholder="Company SSO")
+              FieldLabel {{ $t("common.name") }}
+              Input(
+                v-model="providerForm.name"
+                :placeholder="$t('settings.auth.namePlaceholder')"
+              )
             Field
-              FieldLabel Client ID
+              FieldLabel {{ $t("settings.auth.clientId") }}
               Input(v-model="providerForm.client_id")
             Field
-              FieldLabel(for="provider-secret") Client secret
+              FieldLabel(for="provider-secret") {{ $t("settings.auth.clientSecret") }}
               Input#provider-secret(
                 v-model="providerForm.client_secret"
                 type="password"
-                :placeholder="editingProviderId ? 'Leave blank to keep' : ''"
+                :placeholder="editingProviderId ? $t('settings.auth.keepBlank') : ''"
               )
             Field
-              FieldLabel Scopes
+              FieldLabel {{ $t("settings.auth.scopes") }}
               Input(
                 v-model="providerForm.scopes"
-                placeholder="openid email profile"
+                :placeholder="$t('settings.auth.scopesPlaceholder')"
               )
           template(v-if="providerForm.kind === 'oidc'")
             Field
-              FieldLabel Issuer
+              FieldLabel {{ $t("settings.auth.issuer") }}
               Input(
                 v-model="providerForm.issuer"
-                placeholder="https://id.example.com"
+                :placeholder="$t('settings.auth.issuerPlaceholder')"
               )
             .grid.grid-cols-3.gap-3
               Field
-                FieldLabel Authorization URL
+                FieldLabel {{ $t("settings.auth.authorizationUrl") }}
                 Input(
                   v-model="providerForm.authorization_endpoint"
-                  placeholder="discovered"
+                  :placeholder="$t('settings.auth.discovered')"
                 )
               Field
-                FieldLabel Token URL
+                FieldLabel {{ $t("settings.auth.tokenUrl") }}
                 Input(
                   v-model="providerForm.token_endpoint"
-                  placeholder="discovered"
+                  :placeholder="$t('settings.auth.discovered')"
                 )
               Field
-                FieldLabel Userinfo URL
+                FieldLabel {{ $t("settings.auth.userinfoUrl") }}
                 Input(
                   v-model="providerForm.userinfo_endpoint"
-                  placeholder="discovered"
+                  :placeholder="$t('settings.auth.discovered')"
                 )
           template(v-else)
             Field
-              FieldLabel Authorization URL
+              FieldLabel {{ $t("settings.auth.authorizationUrl") }}
               Input(
                 v-model="providerForm.authorization_endpoint"
-                placeholder="https://id.example.com/authorize"
+                :placeholder="$t('settings.auth.authorizationPlaceholder')"
               )
             Field
-              FieldLabel Token URL
+              FieldLabel {{ $t("settings.auth.tokenUrl") }}
               Input(
                 v-model="providerForm.token_endpoint"
-                placeholder="https://id.example.com/token"
+                :placeholder="$t('settings.auth.tokenPlaceholder')"
               )
             Field
-              FieldLabel Userinfo URL
+              FieldLabel {{ $t("settings.auth.userinfoUrl") }}
               Input(
                 v-model="providerForm.userinfo_endpoint"
-                placeholder="https://id.example.com/userinfo"
+                :placeholder="$t('settings.auth.userinfoPlaceholder')"
               )
             .grid.grid-cols-3.gap-3
               Field
-                FieldLabel Subject path
-                Input(v-model="providerForm.subject_path" placeholder="sub")
+                FieldLabel {{ $t("settings.auth.subjectPath") }}
+                Input(
+                  v-model="providerForm.subject_path"
+                  :placeholder="$t('settings.auth.subjectPlaceholder')"
+                )
               Field
-                FieldLabel E-mail path
-                Input(v-model="providerForm.email_path" placeholder="email")
+                FieldLabel {{ $t("settings.auth.emailPath") }}
+                Input(
+                  v-model="providerForm.email_path"
+                  :placeholder="$t('settings.auth.emailPlaceholder')"
+                )
               Field
-                FieldLabel Name path
-                Input(v-model="providerForm.name_path" placeholder="name")
+                FieldLabel {{ $t("settings.auth.namePath") }}
+                Input(
+                  v-model="providerForm.name_path"
+                  :placeholder="$t('settings.auth.namePlaceholderPath')"
+                )
           .flex.flex-col.gap-1
             Field.flex-row.items-center.gap-2
               Switch(
                 :model-value="providerForm.enabled"
                 @update:model-value="providerForm.enabled = Boolean($event)"
               )
-              FieldLabel Enabled
+              FieldLabel {{ $t("common.enabled") }}
             Field.flex-row.items-center.gap-2
               Switch(
                 :model-value="providerForm.auto_provision"
                 @update:model-value="providerForm.auto_provision = Boolean($event)"
               )
-              FieldLabel Create users on first sign-in
+              FieldLabel {{ $t("settings.auth.createUsers") }}
             p.text-muted-foreground.text-xs
-              | A member account is created and linked on the first successful
-              | login. The provider username is used; a numeric suffix is added
-              | when it is taken. Leave off to keep invite-only.
+              | {{ $t("settings.auth.createUsersHint") }}
         p.text-destructive.text-sm(v-if="error") {{ error }}
         .flex.justify-end.gap-2
           Button(
             type="button"
             variant="outline"
             @click="providerFormOpen = false"
-          ) Cancel
-          Button(type="submit" :disabled="saving") Save provider
+          ) {{ $t("common.cancel") }}
+          Button(type="submit" :disabled="saving") {{ $t("settings.auth.saveProvider") }}
 
   Card
     CardHeader
-      CardTitle LDAP directories
+      CardTitle {{ $t("settings.auth.ldapTitle") }}
       CardDescription
-        | Multiple providers; the sign-in page lists them. Users link a
-        | directory username from their account. Without automatic account
-        | creation, directory logins stay invite-only.
+        | {{ $t("settings.auth.ldapDescription") }}
       .flex.justify-end
         Button(size="sm" variant="outline" @click="startAddLDAP")
           PlusIcon(data-icon="inline-start")
-          span Add directory
+          span {{ $t("settings.auth.addDirectory") }}
     CardContent.flex.flex-col.gap-4
       .flex.items-center.justify-between.gap-2.rounded-md.border.p-3(
         v-for="provider in ldapProviders"
@@ -198,16 +207,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.items-center.gap-2
             p.truncate.text-sm.font-medium {{ provider.name }}
             Badge(variant="secondary") {{ provider.encryption }}
-            Badge(v-if="provider.auto_provision" variant="outline") auto-provision
-            Badge(v-if="!provider.enabled" variant="outline") disabled
+            Badge(v-if="provider.auto_provision" variant="outline") {{ $t("settings.auth.autoProvision") }}
+            Badge(v-if="!provider.enabled" variant="outline") {{ $t("settings.auth.disabled") }}
           p.text-muted-foreground.truncate.text-xs
             | {{ provider.slug }} · {{ provider.host }}:{{ provider.port }} · {{ provider.base_dn }}
         .flex.shrink-0.gap-2
-          Button(variant="outline" size="sm" @click="startEditLDAP(provider)") Edit
-          Button(variant="destructive" size="sm" @click="removeLDAP(provider)") Delete
+          Button(variant="outline" size="sm" @click="startEditLDAP(provider)") {{ $t("common.edit") }}
+          Button(variant="destructive" size="sm" @click="removeLDAP(provider)") {{ $t("common.delete") }}
       Empty(v-if="!ldapProviders.length")
-        EmptyTitle No directories
-        EmptyDescription Add an LDAP directory to enable directory sign-in.
+        EmptyTitle {{ $t("settings.auth.noDirectories") }}
+        EmptyDescription {{ $t("settings.auth.noDirectoriesHint") }}
 
       form.flex.flex-col.gap-4.rounded-md.border.p-4(
         v-if="ldapFormOpen"
@@ -217,13 +226,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         FieldGroup
           .grid.grid-cols-3.gap-3
             Field
-              FieldLabel Slug
-              Input(v-model="ldapForm.slug" placeholder="glauth")
+              FieldLabel {{ $t("settings.auth.slug") }}
+              Input(
+                v-model="ldapForm.slug"
+                :placeholder="$t('settings.auth.ldapSlugPlaceholder')"
+              )
             Field
-              FieldLabel Name
-              Input(v-model="ldapForm.name" placeholder="Company directory")
+              FieldLabel {{ $t("common.name") }}
+              Input(
+                v-model="ldapForm.name"
+                :placeholder="$t('settings.auth.ldapNamePlaceholder')"
+              )
             Field
-              FieldLabel Encryption
+              FieldLabel {{ $t("settings.auth.encryption") }}
               Select(
                 :model-value="ldapForm.encryption"
                 @update:model-value="ldapForm.encryption = String($event)"
@@ -231,141 +246,150 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 SelectTrigger
                   SelectValue
                 SelectContent
-                  SelectItem(value="none") None
-                  SelectItem(value="starttls") STARTTLS
-                  SelectItem(value="ldaps") LDAPS
+                  SelectItem(value="none") {{ $t("common.none") }}
+                  SelectItem(value="starttls") {{ $t("settings.auth.starttls") }}
+                  SelectItem(value="ldaps") {{ $t("settings.auth.ldaps") }}
           .grid.grid-cols-3.gap-3
             Field
-              FieldLabel Host
-              Input(v-model="ldapForm.host" placeholder="ldap.example.com")
+              FieldLabel {{ $t("settings.auth.host") }}
+              Input(
+                v-model="ldapForm.host"
+                :placeholder="$t('settings.auth.hostPlaceholder')"
+              )
             Field
-              FieldLabel Port
+              FieldLabel {{ $t("settings.auth.port") }}
               Input(v-model.number="ldapForm.port" type="number")
             Field.flex-row.items-center.gap-2
               Switch(
                 :model-value="ldapForm.insecure"
                 @update:model-value="ldapForm.insecure = Boolean($event)"
               )
-              FieldLabel Skip TLS verification
+              FieldLabel {{ $t("settings.auth.skipTls") }}
           Field
-            FieldLabel Base DN
-            Input(v-model="ldapForm.base_dn" placeholder="dc=example,dc=org")
+            FieldLabel {{ $t("settings.auth.baseDn") }}
+            Input(
+              v-model="ldapForm.base_dn"
+              :placeholder="$t('settings.auth.baseDnPlaceholder')"
+            )
           .grid.grid-cols-2.gap-3
             Field
-              FieldLabel Bind DN / template
+              FieldLabel {{ $t("settings.auth.bindDn") }}
               Input(
                 v-model="ldapForm.bind_dn"
-                placeholder="uid={username},ou=people,dc=example,dc=org"
+                :placeholder="$t('settings.auth.bindDnPlaceholder')"
               )
             Field
-              FieldLabel Bind password
+              FieldLabel {{ $t("settings.auth.bindPassword") }}
               Input(
                 v-model="ldapForm.bind_password"
                 type="password"
-                :placeholder="editingLDAPId ? 'Leave blank to keep' : ''"
+                :placeholder="editingLDAPId ? $t('settings.auth.keepBlank') : ''"
               )
           .grid.grid-cols-2.gap-3
             Field
-              FieldLabel User filter
+              FieldLabel {{ $t("settings.auth.userFilter") }}
               Input(
                 v-model="ldapForm.user_filter"
-                placeholder="(uid={username})"
+                :placeholder="$t('settings.auth.userFilterPlaceholder')"
               )
             Field
-              FieldLabel Username attribute
-              Input(v-model="ldapForm.username_attr" placeholder="uid")
+              FieldLabel {{ $t("settings.auth.usernameAttribute") }}
+              Input(
+                v-model="ldapForm.username_attr"
+                :placeholder="$t('settings.auth.usernameAttributePlaceholder')"
+              )
           .grid.grid-cols-2.gap-3
             Field
-              FieldLabel E-mail attribute
-              Input(v-model="ldapForm.email_attr" placeholder="mail")
+              FieldLabel {{ $t("settings.auth.emailAttribute") }}
+              Input(
+                v-model="ldapForm.email_attr"
+                :placeholder="$t('settings.auth.emailAttributePlaceholder')"
+              )
             Field
-              FieldLabel Name attribute
-              Input(v-model="ldapForm.name_attr" placeholder="cn")
+              FieldLabel {{ $t("settings.auth.nameAttribute") }}
+              Input(
+                v-model="ldapForm.name_attr"
+                :placeholder="$t('settings.auth.nameAttributePlaceholder')"
+              )
           .flex.flex-col.gap-1
             Field.flex-row.items-center.gap-2
               Switch(
                 :model-value="ldapForm.enabled"
                 @update:model-value="ldapForm.enabled = Boolean($event)"
               )
-              FieldLabel Enabled
+              FieldLabel {{ $t("common.enabled") }}
             Field.flex-row.items-center.gap-2
               Switch(
                 :model-value="ldapForm.auto_provision"
                 @update:model-value="ldapForm.auto_provision = Boolean($event)"
               )
-              FieldLabel Create users on first sign-in
+              FieldLabel {{ $t("settings.auth.createUsers") }}
             p.text-muted-foreground.text-xs
-              | A member account is created and linked on the first successful
-              | bind. The directory username is used; a numeric suffix is added
-              | when it is taken. Leave off to keep invite-only.
+              | {{ $t("settings.auth.ldapCreateUsersHint") }}
         p.text-destructive.text-sm(v-if="error") {{ error }}
         .flex.justify-end.gap-2
-          Button(type="button" variant="outline" @click="ldapFormOpen = false") Cancel
-          Button(type="submit" :disabled="saving") Save directory
+          Button(type="button" variant="outline" @click="ldapFormOpen = false") {{ $t("common.cancel") }}
+          Button(type="submit" :disabled="saving") {{ $t("settings.auth.saveDirectory") }}
 
   Card
     CardHeader
-      CardTitle Two-factor enforcement
+      CardTitle {{ $t("settings.auth.twoFactorTitle") }}
       CardDescription
-        | Whether a method must present TOTP when the account has it enabled.
-        | Turning a method off lets an upstream provider supply the second
-        | factor.
+        | {{ $t("settings.auth.twoFactorDescription") }}
     CardContent.flex.flex-col.gap-3
       .flex.items-center.justify-between.gap-2.rounded-md.border.p-3(
         v-for="toggle in totpToggles"
         :key="toggle.key"
       )
         .min-w-0
-          p.text-sm.font-medium {{ toggle.label }}
-          p.text-muted-foreground.text-xs {{ toggle.description }}
+          p.text-sm.font-medium {{ $t(toggle.labelKey) }}
+          p.text-muted-foreground.text-xs {{ $t(toggle.descriptionKey) }}
         Switch(
           :model-value="Boolean(totpSettings[toggle.key])"
           @update:model-value="totpSettings[toggle.key] = Boolean($event)"
         )
       .flex.justify-end
-        Button(@click="saveSettings" :disabled="saving") Save
+        Button(@click="saveSettings" :disabled="saving") {{ $t("common.save") }}
 
   Card
     CardHeader
-      CardTitle Sign-in methods
+      CardTitle {{ $t("settings.auth.methodsTitle") }}
       CardDescription
-        | Org-wide toggles for the credential-based sign-in methods.
-        | Administrators always keep the username/password escape hatch.
+        | {{ $t("settings.auth.methodsDescription") }}
     CardContent.flex.flex-col.gap-3
       .flex.items-center.justify-between.gap-2.rounded-md.border.p-3(
         v-for="toggle in signInToggles"
         :key="toggle.key"
       )
         .min-w-0
-          p.text-sm.font-medium {{ toggle.label }}
-          p.text-muted-foreground.text-xs {{ toggle.description }}
+          p.text-sm.font-medium {{ $t(toggle.labelKey) }}
+          p.text-muted-foreground.text-xs {{ $t(toggle.descriptionKey) }}
         Switch(
           :model-value="Boolean(totpSettings[toggle.key])"
           @update:model-value="totpSettings[toggle.key] = Boolean($event)"
         )
       .flex.justify-end
-        Button(@click="saveSettings" :disabled="saving") Save
+        Button(@click="saveSettings" :disabled="saving") {{ $t("common.save") }}
 
   Card
     CardHeader
-      CardTitle Membership & governance
+      CardTitle {{ $t("settings.auth.governanceTitle") }}
       CardDescription
-        | What plain members may do, and whether destructive object actions
-        | are reserved for administrators.
+        | {{ $t("settings.auth.governanceDescription") }}
     CardContent.flex.flex-col.gap-3
       .flex.items-center.justify-between.gap-2.rounded-md.border.p-3(
         v-for="toggle in governanceToggles"
         :key="toggle.key"
       )
         .min-w-0
-          p.text-sm.font-medium {{ toggle.label }}
-          p.text-muted-foreground.text-xs {{ toggle.description }}
+          p.text-sm.font-medium {{ $t(toggle.labelKey) }}
+          p.text-muted-foreground.text-xs {{ $t(toggle.descriptionKey) }}
         Switch(
           :model-value="Boolean(totpSettings[toggle.key])"
           @update:model-value="totpSettings[toggle.key] = Boolean($event)"
         )
       .flex.justify-end
-        Button(@click="saveSettings" :disabled="saving") Save
+        Button(@click="saveSettings" :disabled="saving") {{ $t("common.save") }}
 </template>
 
 <script setup lang="ts">
@@ -397,7 +421,10 @@ import {
 } from "@/lib/account";
 import { PlusIcon } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const providers = ref<IdentityProvider[]>([]);
 const ldapProviders = ref<LDAPProvider[]>([]);
@@ -433,75 +460,74 @@ const totpSettings = reactive({
 const signInToggles = [
   {
     key: "password_login" as const,
-    label: "Password sign-in",
-    description:
-      "Username and password login; disabling also disables username invites.",
+    labelKey: "settings.auth.passwordSignIn",
+    descriptionKey: "settings.auth.passwordSignInHint",
   },
   {
     key: "magic_link_login" as const,
-    label: "Magic-link sign-in",
-    description: "Password-less sign-in via a confirmed e-mail address.",
+    labelKey: "settings.auth.magicLinkSignIn",
+    descriptionKey: "settings.auth.magicLinkSignInHint",
   },
   {
     key: "email_confirmation" as const,
-    label: "Require e-mail confirmation",
-    description: "Users must confirm an address before they can sign in.",
+    labelKey: "settings.auth.requireEmail",
+    descriptionKey: "settings.auth.requireEmailHint",
   },
 ];
 
 const governanceToggles = [
   {
     key: "members_can_invite_users" as const,
-    label: "Members may invite users",
-    description: "Plain members may send invitations from this page.",
+    labelKey: "settings.auth.membersInvite",
+    descriptionKey: "settings.auth.membersInviteHint",
   },
   {
     key: "members_can_create_agents" as const,
-    label: "Members may create agents",
-    description: "Plain members may register new agents (phase 4).",
+    labelKey: "settings.auth.membersAgents",
+    descriptionKey: "settings.auth.membersAgentsHint",
   },
   {
     key: "members_can_create_teams" as const,
-    label: "Members may create teams",
-    description: "Plain members may create teams (phase 4).",
+    labelKey: "settings.auth.membersTeams",
+    descriptionKey: "settings.auth.membersTeamsHint",
   },
   {
     key: "project_deletion_admin_only" as const,
-    label: "Project deletion is admin-only",
-    description: "Only administrators may delete a project (phase 5).",
+    labelKey: "settings.auth.projectDeleteAdmin",
+    descriptionKey: "settings.auth.projectDeleteAdminHint",
   },
   {
     key: "team_deletion_admin_only" as const,
-    label: "Team deletion is admin-only",
-    description: "Only administrators may delete a team (phase 4).",
+    labelKey: "settings.auth.teamDeleteAdmin",
+    descriptionKey: "settings.auth.teamDeleteAdminHint",
   },
 ];
 
 const totpToggles = [
   {
     key: "totp_password" as const,
-    label: "Password",
-    description: "Username/password sign-in.",
+    labelKey: "common.password",
+    descriptionKey: "settings.auth.methodPassword",
   },
   {
     key: "totp_magic_link" as const,
-    label: "Magic link",
-    description: "Password-less e-mail sign-in.",
+    labelKey: "settings.auth.methodMagicLink",
+    descriptionKey: "settings.auth.methodMagicLinkHint",
   },
   {
     key: "totp_oidc" as const,
-    label: "OIDC",
-    description: "OIDC discovery providers.",
+    labelKey: "settings.auth.methodOidc",
+    descriptionKey: "settings.auth.methodOidcHint",
   },
   {
     key: "totp_oauth2" as const,
-    label: "OAuth2",
-    description: "The generic OAuth2 shim.",
+    labelKey: "settings.auth.methodOauth2",
+    descriptionKey: "settings.auth.methodOauth2Hint",
   },
   {
     key: "totp_ldap" as const,
-    label: "LDAP",
-    description: "Directory sign-in.",
+    labelKey: "settings.auth.methodLdap",
+    descriptionKey: "settings.auth.methodLdapHint",
   },
 ];
 
@@ -559,7 +585,8 @@ async function load(): Promise<void> {
     ldapProviders.value = ldaps.ldap_providers;
     applySettings(settings);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Failed to load";
+    error.value =
+      err instanceof Error ? err.message : t("settings.auth.errors.load");
   }
 }
 
@@ -610,9 +637,10 @@ async function submitProvider(): Promise<void> {
     }
     providerFormOpen.value = false;
     await load();
-    toast.success("Provider saved");
+    toast.success(t("settings.auth.toasts.providerSaved"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Save failed";
+    error.value =
+      err instanceof Error ? err.message : t("account.toasts.saveFailed");
   } finally {
     saving.value = false;
   }
@@ -623,7 +651,11 @@ async function removeProvider(provider: IdentityProvider): Promise<void> {
     await accountApi.deleteProvider(provider.id);
     await load();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Delete failed");
+    toast.error(
+      err instanceof Error
+        ? err.message
+        : t("settings.auth.toasts.deleteFailed"),
+    );
   }
 }
 
@@ -669,9 +701,10 @@ async function submitLDAP(): Promise<void> {
     }
     ldapFormOpen.value = false;
     await load();
-    toast.success("Directory saved");
+    toast.success(t("settings.auth.toasts.directorySaved"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Save failed";
+    error.value =
+      err instanceof Error ? err.message : t("account.toasts.saveFailed");
   } finally {
     saving.value = false;
   }
@@ -682,7 +715,11 @@ async function removeLDAP(provider: LDAPProvider): Promise<void> {
     await accountApi.deleteLDAPProvider(provider.id);
     await load();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Delete failed");
+    toast.error(
+      err instanceof Error
+        ? err.message
+        : t("settings.auth.toasts.deleteFailed"),
+    );
   }
 }
 
@@ -708,11 +745,227 @@ async function saveSettings(): Promise<void> {
       team_deletion_admin_only: totpSettings.team_deletion_admin_only,
     });
     applySettings(settings);
-    toast.success("Authentication settings saved");
+    toast.success(t("settings.auth.toasts.saved"));
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "Save failed";
+    error.value =
+      err instanceof Error ? err.message : t("account.toasts.saveFailed");
   } finally {
     saving.value = false;
   }
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  settings:
+    auth:
+      namePlaceholderPath: "name"
+      host: "Host"
+      slug: "Slug"
+      disabled: "disabled"
+      title: "Federated identity providers"
+      description: "Generic OIDC discovery and the generic OAuth2 shim. Users link an identity from their account after signing in. Without automatic account creation, logins stay invite-only."
+      addProvider: "Add provider"
+      autoProvision: "auto-provision"
+      noProviders: "No providers"
+      noProvidersHint: "Add an OIDC or OAuth2 provider to enable federated sign-in."
+      kindOidc: "OIDC (discovery)"
+      kindOauth2: "OAuth2 (shim)"
+      clientId: "Client ID"
+      clientSecret: "Client secret"
+      scopes: "Scopes"
+      issuer: "Issuer"
+      authorizationUrl: "Authorization URL"
+      tokenUrl: "Token URL"
+      userinfoUrl: "Userinfo URL"
+      subjectPath: "Subject path"
+      emailPath: "E-mail path"
+      namePath: "Name path"
+      createUsers: "Create users on first sign-in"
+      createUsersHint: "A member account is created and linked on the first successful login. The provider username is used; a numeric suffix is added when it is taken. Leave off to keep invite-only."
+      saveProvider: "Save provider"
+      ldapTitle: "LDAP directories"
+      ldapDescription: "Multiple providers; the sign-in page lists them. Users link a directory username from their account. Without automatic account creation, directory logins stay invite-only."
+      addDirectory: "Add directory"
+      noDirectories: "No directories"
+      noDirectoriesHint: "Add an LDAP directory to enable directory sign-in."
+      encryption: "Encryption"
+      starttls: "STARTTLS"
+      ldaps: "LDAPS"
+      port: "Port"
+      skipTls: "Skip TLS verification"
+      baseDn: "Base DN"
+      bindDn: "Bind DN / template"
+      bindPassword: "Bind password"
+      userFilter: "User filter"
+      usernameAttribute: "Username attribute"
+      emailAttribute: "E-mail attribute"
+      nameAttribute: "Name attribute"
+      ldapCreateUsersHint: "A member account is created and linked on the first successful bind. The directory username is used; a numeric suffix is added when it is taken. Leave off to keep invite-only."
+      saveDirectory: "Save directory"
+      twoFactorTitle: "Two-factor enforcement"
+      twoFactorDescription: "Whether a method must present TOTP when the account has it enabled. Turning a method off lets an upstream provider supply the second factor."
+      methodsTitle: "Sign-in methods"
+      methodsDescription: "Org-wide toggles for the credential-based sign-in methods. Administrators always keep the username/password escape hatch."
+      governanceTitle: "Membership & governance"
+      governanceDescription: "What plain members may do, and whether destructive object actions are reserved for administrators."
+      slugPlaceholder: "dex"
+      namePlaceholder: "Company SSO"
+      scopesPlaceholder: "openid email profile"
+      issuerPlaceholder: "https://id.example.com"
+      discovered: "discovered"
+      authorizationPlaceholder: "https://id.example.com/authorize"
+      tokenPlaceholder: "https://id.example.com/token"
+      userinfoPlaceholder: "https://id.example.com/userinfo"
+      subjectPlaceholder: "sub"
+      emailPlaceholder: "email"
+      ldapSlugPlaceholder: "glauth"
+      ldapNamePlaceholder: "Company directory"
+      hostPlaceholder: "ldap.example.com"
+      baseDnPlaceholder: "dc=example,dc=org"
+      bindDnPlaceholder: "uid={username},ou=people,dc=example,dc=org"
+      userFilterPlaceholder: "(uid={username})"
+      usernameAttributePlaceholder: "uid"
+      emailAttributePlaceholder: "mail"
+      nameAttributePlaceholder: "cn"
+      implicitTls: "Implicit TLS"
+      keepBlank: "Leave blank to keep"
+      passwordSignIn: "Password sign-in"
+      passwordSignInHint: "Username and password login; disabling also disables username invites."
+      magicLinkSignIn: "Magic-link sign-in"
+      magicLinkSignInHint: "Password-less sign-in via a confirmed e-mail address."
+      requireEmail: "Require e-mail confirmation"
+      requireEmailHint: "Users must confirm an address before they can sign in."
+      membersInvite: "Members may invite users"
+      membersInviteHint: "Plain members may send invitations from this page."
+      membersAgents: "Members may create agents"
+      membersAgentsHint: "Plain members may register new agents (phase 4)."
+      membersTeams: "Members may create teams"
+      membersTeamsHint: "Plain members may create teams (phase 4)."
+      projectDeleteAdmin: "Project deletion is admin-only"
+      projectDeleteAdminHint: "Only administrators may delete a project (phase 5)."
+      teamDeleteAdmin: "Team deletion is admin-only"
+      teamDeleteAdminHint: "Only administrators may delete a team (phase 4)."
+      methodMagicLink: "Magic link"
+      methodOidc: "OIDC"
+      methodOauth2: "OAuth2"
+      methodLdap: "LDAP"
+      errors:
+        load: "Failed to load"
+      toasts:
+        providerSaved: "Provider saved"
+        deleteFailed: "Delete failed"
+        directorySaved: "Directory saved"
+        saved: "Authentication settings saved"
+      methodPassword: "Username/password sign-in."
+      methodMagicLinkHint: "Password-less e-mail sign-in."
+      methodOidcHint: "OIDC discovery providers."
+      methodOauth2Hint: "The generic OAuth2 shim."
+      methodLdapHint: "Directory sign-in."
+ru:
+  settings:
+    auth:
+      namePlaceholderPath: "name"
+      host: "Хост"
+      slug: "Слаг"
+      disabled: "отключён"
+      title: "Федеративные провайдеры идентификации"
+      description: "Универсальное обнаружение OIDC и общая прослойка OAuth2. Пользователи привязывают учётную запись из своего аккаунта после входа. Без автоматического создания аккаунтов вход остаётся только по приглашениям."
+      addProvider: "Добавить провайдера"
+      autoProvision: "автосоздание"
+      noProviders: "Провайдеров нет"
+      noProvidersHint: "Добавьте провайдера OIDC или OAuth2, чтобы включить федеративный вход."
+      kindOidc: "OIDC (обнаружение)"
+      kindOauth2: "OAuth2 (прослойка)"
+      clientId: "Client ID"
+      clientSecret: "Client secret"
+      scopes: "Области доступа"
+      issuer: "Издатель"
+      authorizationUrl: "URL авторизации"
+      tokenUrl: "URL токена"
+      userinfoUrl: "URL профиля"
+      subjectPath: "Путь к subject"
+      emailPath: "Путь к e-mail"
+      namePath: "Путь к имени"
+      createUsers: "Создавать пользователей при первом входе"
+      createUsersHint: "Аккаунт участника создаётся и связывается при первом успешном входе. Используется имя пользователя из провайдера; при совпадении добавляется числовой суффикс. Выключите, чтобы оставить вход только по приглашениям."
+      saveProvider: "Сохранить провайдера"
+      ldapTitle: "Каталоги LDAP"
+      ldapDescription: "Несколько провайдеров; страница входа показывает их списком. Пользователи привязывают имя пользователя каталога из своего аккаунта. Без автоматического создания аккаунтов вход через каталог остаётся только по приглашениям."
+      addDirectory: "Добавить каталог"
+      noDirectories: "Каталогов нет"
+      noDirectoriesHint: "Добавьте каталог LDAP, чтобы включить вход через каталог."
+      encryption: "Шифрование"
+      starttls: "STARTTLS"
+      ldaps: "LDAPS"
+      port: "Порт"
+      skipTls: "Пропускать проверку TLS"
+      baseDn: "Base DN"
+      bindDn: "Bind DN / шаблон"
+      bindPassword: "Пароль привязки"
+      userFilter: "Фильтр пользователей"
+      usernameAttribute: "Атрибут имени пользователя"
+      emailAttribute: "Атрибут e-mail"
+      nameAttribute: "Атрибут имени"
+      ldapCreateUsersHint: "Аккаунт участника создаётся и связывается при первой успешной привязке. Используется имя пользователя каталога; при совпадении добавляется числовой суффикс. Выключите, чтобы оставить вход только по приглашениям."
+      saveDirectory: "Сохранить каталог"
+      twoFactorTitle: "Обязательность двухфакторной защиты"
+      twoFactorDescription: "Должен ли способ входа запрашивать TOTP, если в аккаунте он включён. Если способ выключен, второй фактор может предоставить внешний провайдер."
+      methodsTitle: "Способы входа"
+      methodsDescription: "Общие для агентства переключатели способов входа по учётным данным. Администраторы всегда могут войти по имени пользователя и паролю."
+      governanceTitle: "Участники и управление"
+      governanceDescription: "Что могут делать обычные участники и закреплены ли разрушительные действия за администраторами."
+      slugPlaceholder: "dex"
+      namePlaceholder: "Корпоративный SSO"
+      scopesPlaceholder: "openid email profile"
+      issuerPlaceholder: "https://id.example.com"
+      discovered: "определяется автоматически"
+      authorizationPlaceholder: "https://id.example.com/authorize"
+      tokenPlaceholder: "https://id.example.com/token"
+      userinfoPlaceholder: "https://id.example.com/userinfo"
+      subjectPlaceholder: "sub"
+      emailPlaceholder: "email"
+      ldapSlugPlaceholder: "glauth"
+      ldapNamePlaceholder: "Корпоративный каталог"
+      hostPlaceholder: "ldap.example.com"
+      baseDnPlaceholder: "dc=example,dc=org"
+      bindDnPlaceholder: "uid={username},ou=people,dc=example,dc=org"
+      userFilterPlaceholder: "(uid={username})"
+      usernameAttributePlaceholder: "uid"
+      emailAttributePlaceholder: "mail"
+      nameAttributePlaceholder: "cn"
+      implicitTls: "Неявный TLS"
+      keepBlank: "Оставьте пустым, чтобы не менять"
+      passwordSignIn: "Вход по паролю"
+      passwordSignInHint: "Вход по имени пользователя и паролю; при отключении отключаются и приглашения по имени пользователя."
+      magicLinkSignIn: "Вход по ссылке"
+      magicLinkSignInHint: "Вход без пароля через подтверждённый адрес e-mail."
+      requireEmail: "Требовать подтверждение e-mail"
+      requireEmailHint: "Пользователи должны подтвердить адрес, прежде чем войти."
+      membersInvite: "Участники могут приглашать пользователей"
+      membersInviteHint: "Обычные участники могут отправлять приглашения с этой страницы."
+      membersAgents: "Участники могут создавать агентов"
+      membersAgentsHint: "Обычные участники могут регистрировать новых агентов (этап 4)."
+      membersTeams: "Участники могут создавать команды"
+      membersTeamsHint: "Обычные участники могут создавать команды (этап 4)."
+      projectDeleteAdmin: "Удалять проекты может только администратор"
+      projectDeleteAdminHint: "Удалять проект могут только администраторы (этап 5)."
+      teamDeleteAdmin: "Удалять команды может только администратор"
+      teamDeleteAdminHint: "Удалять команду могут только администраторы (этап 4)."
+      methodMagicLink: "Ссылка для входа"
+      methodOidc: "OIDC"
+      methodOauth2: "OAuth2"
+      methodLdap: "LDAP"
+      errors:
+        load: "Не удалось загрузить"
+      toasts:
+        providerSaved: "Провайдер сохранён"
+        deleteFailed: "Не удалось удалить"
+        directorySaved: "Каталог сохранён"
+        saved: "Настройки аутентификации сохранены"
+      methodPassword: "Вход по имени пользователя и паролю."
+      methodMagicLinkHint: "Вход по e-mail без пароля."
+      methodOidcHint: "Провайдеры с обнаружением OIDC."
+      methodOauth2Hint: "Универсальная прослойка OAuth2."
+      methodLdapHint: "Вход через каталог."
+</i18n>

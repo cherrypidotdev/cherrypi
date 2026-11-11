@@ -20,10 +20,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Dialog(:open="open" @update:open="emit('update:open', $event)")
   DialogScrollContent.max-w-4xl
     DialogHeader
-      DialogTitle Prompt history
+      DialogTitle {{ $t("promptHistory.title") }}
       DialogDescription
-        | Every saved version, newest first. Select a version to see its diff
-        | against the one before it.
+        | {{ $t("promptHistory.description") }}
     p.text-destructive.text-sm(v-if="error") {{ error }}
     .grid.gap-4(class="md:grid-cols-[16rem_1fr]")
       .flex.flex-col.gap-1.overflow-y-auto.pr-1(class="max-h-[60vh]")
@@ -36,11 +35,11 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           @click="selected = version"
         )
           .flex.items-center.justify-between.gap-2
-            span.text-sm.font-medium Version {{ version.version }}
+            span.text-sm.font-medium {{ $t("promptHistory.version", { version: version.version }) }}
             Badge(
               v-if="version.version === currentVersion"
               variant="secondary"
-            ) current
+            ) {{ $t("promptHistory.current") }}
           .text-muted-foreground.flex.items-center.text-xs(class="gap-1.5")
             ActorAvatar(
               :name="version.author?.name"
@@ -53,25 +52,25 @@ Dialog(:open="open" @update:open="emit('update:open', $event)")
           .flex.flex-wrap.gap-1(
             v-if="version.approvedBy || version.autoApproved"
           )
-            Badge(v-if="version.autoApproved" variant="outline") auto-approved
-            span.text-muted-foreground.text-xs(v-else-if="version.approvedBy") Approved by {{ actorLabel(version.approvedBy) }}
+            Badge(v-if="version.autoApproved" variant="outline") {{ $t("promptHistory.autoApproved") }}
+            span.text-muted-foreground.text-xs(v-else-if="version.approvedBy") {{ $t("promptHistory.approvedBy", { actor: actorLabel(version.approvedBy) }) }}
       .flex.flex-col.gap-2
         p.text-muted-foreground.text-sm(v-if="!versions.length && !loading")
-          | No versions yet.
+          | {{ $t("templateEditor.noVersions") }}
         template(v-if="selected")
           PromptDiff(
-            :label="`Version ${selected.version} vs ${selected.version > 1n ? selected.version - 1n : 0n}`"
+            :label="$t('promptDiff.versionVs', { version: selected.version, previous: selected.version > 1n ? selected.version - 1n : 0n })"
             :before="olderContent"
             :after="selected.content"
           )
           .text-muted-foreground.flex.flex-wrap.items-center.gap-2.text-xs
-            span By {{ authorLabel(selected) }}
+            span {{ $t("promptHistory.by", { author: authorLabel(selected) }) }}
             span ·
             span {{ formatTimestamp(selected.updatedAt) }}
             template(v-if="selected.approvedBy")
               span ·
-              span Approved by {{ actorLabel(selected.approvedBy) }}
-            span(v-else-if="selected.autoApproved") · Auto-approved
+              span {{ $t("promptHistory.approvedBy", { actor: actorLabel(selected.approvedBy) }) }}
+            span(v-else-if="selected.autoApproved") {{ $t("promptHistory.autoApprovedSuffix") }}
 </template>
 
 <script setup lang="ts">
@@ -154,3 +153,28 @@ watch(
   { immediate: true },
 );
 </script>
+
+<i18n lang="yaml">
+en:
+  promptHistory:
+    title: "Prompt history"
+    description: "Every saved version, newest first. Select a version to see its diff against the one before it."
+    current: "current"
+    autoApprovedSuffix: "· Auto-approved"
+    approvedBy: "Approved by {actor}"
+    by: "By {author}"
+    autoApproved: "auto-approved"
+  promptDiff:
+    versionVs: "Version {version} vs {previous}"
+ru:
+  promptHistory:
+    title: "История промпта"
+    description: "Все сохранённые версии, сначала новые. Выберите версию, чтобы увидеть различия с предыдущей."
+    current: "текущая"
+    autoApprovedSuffix: "· Одобрено автоматически"
+    approvedBy: "Одобрено: {actor}"
+    by: "Автор: {author}"
+    autoApproved: "одобрено автоматически"
+  promptDiff:
+    versionVs: "Версия {version} против {previous}"
+</i18n>

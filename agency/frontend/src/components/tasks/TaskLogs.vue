@@ -19,7 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <template lang="pug">
 .flex.flex-col(class="gap-0.5")
   p.text-muted-foreground.text-xs(v-if="!logs.length")
-    | No activity yet.
+    | {{ $t("domainLog.empty") }}
   .flex.items-start.gap-2.rounded-md.px-1(
     v-for="row in rows"
     :key="String(row.log.id)"
@@ -40,7 +40,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :class="taskStateClass(row.oldState)"
           )
             component.size-3.shrink-0(:is="taskStateIcon(row.oldState)")
-            | {{ taskStateLabel(row.oldState) }}
+            | {{ $t(taskStateKey(row.oldState)) }}
           ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
           span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium(
             v-if="row.newState !== undefined"
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :class="taskStateClass(row.newState)"
           )
             component.size-3.shrink-0(:is="taskStateIcon(row.newState)")
-            | {{ taskStateLabel(row.newState) }}
+            | {{ $t(taskStateKey(row.newState)) }}
         p.text-muted-foreground.text-xs(v-if="row.reason") {{ row.reason }}
 
       .flex.flex-wrap.items-center(
@@ -60,14 +60,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="py-0.5"
           :class="taskPriorityClass(row.oldPriority)"
         )
-          | {{ taskPriorityLabel(row.oldPriority) }}
+          | {{ $t(taskPriorityKey(row.oldPriority)) }}
         ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
         span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
           v-if="row.newPriority !== undefined"
           class="py-0.5"
           :class="taskPriorityClass(row.newPriority)"
         )
-          | {{ taskPriorityLabel(row.newPriority) }}
+          | {{ $t(taskPriorityKey(row.newPriority)) }}
 
       .flex.flex-wrap.items-center(
         v-else-if="row.oldSize !== undefined || row.newSize !== undefined"
@@ -78,14 +78,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="py-0.5"
           :class="taskSizeClass(row.oldSize)"
         )
-          | {{ taskSizeLabel(row.oldSize) }}
+          | {{ $t(taskSizeKey(row.oldSize)) }}
         ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
         span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
           v-if="row.newSize !== undefined"
           class="py-0.5"
           :class="taskSizeClass(row.newSize)"
         )
-          | {{ taskSizeLabel(row.newSize) }}
+          | {{ $t(taskSizeKey(row.newSize)) }}
 
       .flex.flex-wrap.items-center(
         v-else-if="row.oldText !== undefined || row.newText !== undefined"
@@ -130,7 +130,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           | {{ tag.name }}
           LockIcon.size-3.shrink-0.text-amber-500(
             v-if="tag.isRequired"
-            title="Only runs on agents that declare this tag"
+            :title="$t('tasksTable.requiredTagHint')"
           )
         span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.line-through.opacity-60(
           v-for="tag in row.removedTags"
@@ -179,7 +179,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="hover:bg-muted/50 py-0.5"
           :to="`/tasks/${ref.id}`"
           :class="ref.state ? taskStateClass(ref.state) : ''"
-          :title="`Kind changed to ${referenceKindLabel(ref.kind)}`"
+          :title="$t('taskLog.kindChanged', { kind: referenceKindLabel(ref.kind) })"
         )
           component.size-3.shrink-0(
             :class="referenceKindClass(ref.kind)"
@@ -226,7 +226,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :href="badge.url || undefined"
           :target="badge.url ? '_blank' : undefined"
           :rel="badge.url ? 'noopener noreferrer' : undefined"
-          :title="`${row.pluginName || 'Plugin'} — ${badge.label}`"
+          :title="$t('taskLog.pluginBadge', { plugin: row.pluginName || $t('taskBadges.plugin'), badge: badge.label })"
         )
           span.text-muted-foreground.inline-flex.items-center(
             class="bg-muted/60 px-1.5 py-0.5"
@@ -255,17 +255,17 @@ import {
   tagStyle,
   taskBadgeToneClass,
   taskPriorityClass,
-  taskPriorityLabel,
+  taskPriorityKey,
   taskReferenceKindFromLog,
   taskReferenceKindIcon,
-  taskReferenceKindLabel,
+  taskReferenceKindKey,
   taskReferenceKindTextClass,
   taskSizeClass,
-  taskSizeLabel,
+  taskSizeKey,
   taskStateClass,
   taskStateFromStored,
   taskStateIcon,
-  taskStateLabel,
+  taskStateKey,
 } from "@/lib/task";
 import { TaskPriority, TaskSize, TaskState, type TaskLog } from "@cherrypi/sdk";
 import {
@@ -297,6 +297,7 @@ import {
   type LucideIcon,
 } from "@lucide/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 
 const props = defineProps<{ logs: TaskLog[] }>();
@@ -310,7 +311,7 @@ function referenceKindClass(kind: string | undefined): string {
 }
 
 function referenceKindLabel(kind: string | undefined): string {
-  return taskReferenceKindLabel(taskReferenceKindFromLog(kind));
+  return t(taskReferenceKindKey(taskReferenceKindFromLog(kind)));
 }
 
 const { usernameFor } = useAgents();
@@ -341,28 +342,28 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   hold: LockOpenIcon,
 };
 
-const KIND_LABELS: Record<string, string> = {
-  created: "Created",
-  state: "State",
-  name: "Title",
-  prompt: "Prompt",
-  priority: "Priority",
-  size: "Size",
-  assignee: "Assignee",
-  tags: "Tags",
-  references: "References",
-  links: "Links",
-  project: "Project",
-  model: "Model",
-  session: "Session",
-  session_lost: "Session lost",
-  teams: "Owning teams",
-  leads: "Leads",
-  comment: "Comment",
-  parent: "Parent task",
-  hidden: "Visibility",
-  plugin: "Plugin badges",
-  hold: "Plugin hold",
+const KIND_LABEL_KEYS: Record<string, string> = {
+  created: "taskLog.kind.created",
+  state: "taskLog.kind.state",
+  name: "taskLog.kind.name",
+  prompt: "taskLog.kind.prompt",
+  priority: "taskLog.kind.priority",
+  size: "taskLog.kind.size",
+  assignee: "taskLog.kind.assignee",
+  tags: "taskLog.kind.tags",
+  references: "taskLog.kind.references",
+  links: "taskLog.kind.links",
+  project: "taskLog.kind.project",
+  model: "taskLog.kind.model",
+  session: "taskLog.kind.session",
+  session_lost: "taskLog.kind.sessionLost",
+  teams: "taskLog.kind.teams",
+  leads: "taskLog.kind.leads",
+  comment: "taskLog.kind.comment",
+  parent: "taskLog.kind.parent",
+  hidden: "taskLog.kind.hidden",
+  plugin: "taskLog.kind.plugin",
+  hold: "taskLog.kind.hold",
 };
 
 const SIZE_VALUES: Record<string, TaskSize> = {
@@ -463,7 +464,9 @@ function buildRow(log: TaskLog): LogRow {
   const row: LogRow = {
     log,
     icon: KIND_ICONS[log.kind] ?? ActivityIcon,
-    kindLabel: KIND_LABELS[log.kind] ?? log.kind,
+    kindLabel: KIND_LABEL_KEYS[log.kind]
+      ? t(KIND_LABEL_KEYS[log.kind]!)
+      : log.kind,
   };
   const data = parseData(log);
   if (!data) return row;
@@ -547,11 +550,70 @@ function actorLabel(actor: string): string {
     case "user":
       return "User";
     case "agent":
-      return "Agent";
+      return t("admin.agents.columnAgent");
     case "system":
       return "System";
     default:
       return actor;
   }
 }
+
+const { t } = useI18n();
 </script>
+
+<i18n lang="yaml">
+en:
+  taskLog:
+    system: "System"
+    kind:
+      parent: "Parent task"
+      created: "Created"
+      state: "State"
+      name: "Title"
+      prompt: "Prompt"
+      priority: "Priority"
+      size: "Size"
+      assignee: "Assignee"
+      tags: "Tags"
+      references: "References"
+      links: "Links"
+      project: "Project"
+      model: "Model"
+      session: "Session"
+      sessionLost: "Session lost"
+      teams: "Owning teams"
+      leads: "Leads"
+      comment: "Comment"
+      hidden: "Visibility"
+      plugin: "Plugin badges"
+      hold: "Plugin hold"
+    kindChanged: "Kind changed to {kind}"
+    pluginBadge: "{plugin} — {badge}"
+ru:
+  taskLog:
+    system: "Система"
+    kind:
+      parent: "Родительская задача"
+      created: "Создано"
+      state: "Состояние"
+      name: "Название"
+      prompt: "Промпт"
+      priority: "Приоритет"
+      size: "Размер"
+      assignee: "Исполнитель"
+      tags: "Теги"
+      references: "Связи"
+      links: "Ссылки"
+      project: "Проект"
+      model: "Модель"
+      session: "Сеанс"
+      sessionLost: "Сеанс потерян"
+      teams: "Команды-владельцы"
+      leads: "Руководители"
+      comment: "Комментарий"
+      hidden: "Видимость"
+      plugin: "Значки плагинов"
+      hold: "Удержание плагином"
+    kindChanged: "Тип изменён на {kind}"
+    pluginBadge: "{plugin} — {badge}"
+</i18n>

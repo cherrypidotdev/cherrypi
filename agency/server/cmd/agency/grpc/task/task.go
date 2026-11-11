@@ -84,8 +84,23 @@ type TaskServer struct {
 
 	EnrichTimeout time.Duration
 
+	SettleGrace time.Duration
+
 	toolCallMu    sync.Mutex
 	toolCallCache map[string]cachedToolCalls
+
+	toolLoadoutCache map[string]cachedToolLoadout
+}
+
+type cachedToolLoadout struct {
+	tip      string
+	tools    []taskhistory.Tool
+	recorded bool
+}
+
+type pluginToolOwner struct {
+	ID   string
+	Name string
 }
 
 type cachedToolCalls struct {
@@ -1612,6 +1627,206 @@ func (s *TaskServer) ListTaskToolCalls(
 	return out, nil
 }
 
+func (s *TaskServer) GetTaskToolCall(
+	ctx context.Context,
+	req *agencyv1.GetTaskToolCallRequest,
+) (*agencyv1.GetTaskToolCallResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	calls, err := s.taskToolCalls(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	for _, call := range calls {
+		if call.CallID != req.CallId {
+			continue
+		}
+		return &agencyv1.GetTaskToolCallResponse{
+			Call: toolCallDetail(call, req.Full),
+		}, nil
+	}
+	return nil, connect.NewError(
+		connect.CodeNotFound,
+		fmt.Errorf("task %s recorded no tool call %q", t.ID, req.CallId),
+	)
+}
+
+func toolCallDetail(
+	call taskhistory.ToolCall,
+	full bool,
+) *agencyv1.TaskToolCallDetail {
+	limit := taskhistory.ToolCallBodyLimit
+	if full {
+		limit = 0
+	}
+	args, argsTruncated := taskhistory.PreviewBody(call.ArgsJSON, limit)
+	result, resultTruncated := taskhistory.PreviewBody(call.ResultJSON, limit)
+	details, detailsTruncated := taskhistory.PreviewBody(call.DetailsJSON, limit)
+	return &agencyv1.TaskToolCallDetail{
+		CallId:           call.CallID,
+		Name:             call.Name,
+		IsError:          call.IsError,
+		Interrupted:      call.Interrupted(),
+		StartedAt:        call.StartedAt,
+		EndedAt:          call.EndedAt,
+		DurationMs:       call.DurationMs(),
+		ArgsJson:         args,
+		ResultJson:       result,
+		DetailsJson:      details,
+		ArgsBytes:        int64(len(call.ArgsJSON)),
+		ResultBytes:      int64(len(call.ResultJSON)),
+		DetailsBytes:     int64(len(call.DetailsJSON)),
+		ArgsTruncated:    argsTruncated,
+		ResultTruncated:  resultTruncated,
+		DetailsTruncated: detailsTruncated,
+	}
+}
+
+func (s *TaskServer) ListTaskTools(
+	ctx context.Context,
+	req *agencyv1.ListTaskToolsRequest,
+) (*agencyv1.ListTaskToolsResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	tools, recorded, err := s.taskToolLoadout(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	owners := s.pluginToolOwners(ctx, t)
+	counts := map[string]int32{}
+	calls, err := s.taskToolCalls(ctx, t)
+	if err != nil {
+
+		log.Printf("[task %s] tool call counts: %v", t.ID, err)
+	}
+	for _, call := range calls {
+		counts[call.Name]++
+	}
+	out := &agencyv1.ListTaskToolsResponse{
+		Recorded: recorded,
+		Tools:    make([]*agencyv1.TaskTool, 0, len(tools)),
+	}
+	for _, tool := range tools {
+		entry := &agencyv1.TaskTool{
+			Name:           tool.Name,
+			Description:    tool.Description,
+			ParametersJson: tool.ParametersJSON,
+			Origin:         agencyv1.TaskToolOrigin_TASK_TOOL_ORIGIN_BUILTIN,
+			CallCount:      counts[tool.Name],
+		}
+		if owner, ok := owners[tool.Name]; ok {
+			entry.Origin = agencyv1.TaskToolOrigin_TASK_TOOL_ORIGIN_PLUGIN
+			entry.PluginId = owner.ID
+			entry.PluginName = owner.Name
+		}
+		out.Tools = append(out.Tools, entry)
+	}
+	return out, nil
+}
+
+func (s *TaskServer) taskToolLoadout(
+	ctx context.Context,
+	t tasks.Task,
+) ([]taskhistory.Tool, bool, error) {
+	tip, _, err := s.Tasks.SessionHistoryTip(ctx, t.ID)
+	if err != nil {
+		return nil, false, mapError(err)
+	}
+	if tip != "" {
+		if tools, recorded, ok := s.cachedToolLoadout(t.ID, tip); ok {
+			return tools, recorded, nil
+		}
+	}
+	entries, err := s.Tasks.SessionHistory(ctx, t.ID)
+	if err != nil {
+		return nil, false, mapError(err)
+	}
+	tools, recorded := taskhistory.CollectToolLoadout(entries)
+	if len(entries) > 0 {
+		s.storeToolLoadout(t.ID, tip, tools, recorded)
+	}
+	return tools, recorded, nil
+}
+
+func (s *TaskServer) cachedToolLoadout(
+	id, tip string,
+) ([]taskhistory.Tool, bool, bool) {
+	s.toolCallMu.Lock()
+	defer s.toolCallMu.Unlock()
+	entry, ok := s.toolLoadoutCache[id]
+	if !ok || entry.tip != tip {
+		return nil, false, false
+	}
+	return entry.tools, entry.recorded, true
+}
+
+func (s *TaskServer) storeToolLoadout(
+	id, tip string,
+	tools []taskhistory.Tool,
+	recorded bool,
+) {
+	s.toolCallMu.Lock()
+	defer s.toolCallMu.Unlock()
+	if s.toolLoadoutCache == nil || len(s.toolLoadoutCache) >= maxToolCallCache {
+		s.toolLoadoutCache = make(map[string]cachedToolLoadout, maxToolCallCache)
+	}
+	s.toolLoadoutCache[id] = cachedToolLoadout{
+		tip:      tip,
+		tools:    tools,
+		recorded: recorded,
+	}
+}
+
+func (s *TaskServer) pluginToolOwners(
+	ctx context.Context,
+	t tasks.Task,
+) map[string]pluginToolOwner {
+	if s.Plugins == nil {
+		return map[string]pluginToolOwner{}
+	}
+	projectTools := s.Plugins.ProjectTools(ctx, t.ProjectID)
+	row, ok := s.Plugins.TaskPlugin(ctx, t.ID)
+	if !ok {
+		return toolOwners(projectTools, nil, "")
+	}
+	name := row.PluginID
+	if plugin, err := s.Plugins.Get(ctx, row.PluginID); err == nil && plugin.Name != "" {
+		name = plugin.Name
+	}
+	return toolOwners(projectTools, &row, name)
+}
+
+func toolOwners(
+	projectTools []plugins.ProjectTool,
+	attached *plugins.TaskPlugin,
+	attachedName string,
+) map[string]pluginToolOwner {
+	owners := map[string]pluginToolOwner{}
+	for _, tool := range projectTools {
+		if _, taken := owners[tool.Tool.Name]; taken {
+			continue
+		}
+		owners[tool.Tool.Name] = pluginToolOwner{
+			ID:   tool.PluginID,
+			Name: tool.PluginName,
+		}
+	}
+	if attached == nil {
+		return owners
+	}
+	for _, tool := range attached.Tools {
+		if _, taken := owners[tool.Name]; taken {
+			continue
+		}
+		owners[tool.Name] = pluginToolOwner{ID: attached.PluginID, Name: attachedName}
+	}
+	return owners
+}
+
 func (s *TaskServer) taskToolCalls(
 	ctx context.Context,
 	t tasks.Task,
@@ -1784,6 +1999,23 @@ func (s *TaskServer) ClearTaskQueue(
 		return nil, err
 	}
 	return &agencyv1.ClearTaskQueueResponse{}, nil
+}
+
+func (s *TaskServer) RemoveTaskQueuedMessage(
+	ctx context.Context,
+	req *agencyv1.RemoveTaskQueuedMessageRequest,
+) (*agencyv1.RemoveTaskQueuedMessageResponse, error) {
+	t, conn, err := s.sessionTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.Tasks.RemoveQueuedMessage(ctx, &agentv1.RemoveQueuedMessageRequest{
+		Id:      t.SessionID,
+		QueueId: req.QueueId,
+	}); err != nil {
+		return nil, err
+	}
+	return &agencyv1.RemoveTaskQueuedMessageResponse{}, nil
 }
 
 func (s *TaskServer) RestartTaskSession(
@@ -2069,6 +2301,13 @@ func (s *TaskServer) runtime(ctx context.Context, t tasks.Task) (*agentv1.Task, 
 	return nil, false
 }
 
+func (s *TaskServer) settleGrace() time.Duration {
+	if s.SettleGrace != 0 {
+		return s.SettleGrace
+	}
+	return tasks.SettleGrace
+}
+
 func (s *TaskServer) materializeRuntime(
 	ctx context.Context,
 	t tasks.Task,
@@ -2106,6 +2345,10 @@ func (s *TaskServer) materializeRuntime(
 			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false
 		}
 	default:
+
+		if t.RunMayBeStarting(time.Now(), s.settleGrace()) {
+			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false
+		}
 		if _, err := s.Tasks.Settle(ctx, t.ID); err != nil {
 			log.Printf("[task %s] settle: %v", t.ID, err)
 			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false

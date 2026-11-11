@@ -20,11 +20,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 button.w-full.text-left(
   v-if="hasPlan"
   type="button"
-  title="Open the full plan"
+  :title="$t('taskProgress.openFull')"
   @click="$emit('open')"
 )
   .mx-auto.flex.max-w-3xl.items-center.gap-2.px-4.py-2
-    span.text-muted-foreground.text-xs.font-medium Plan
+    span.text-muted-foreground.text-xs.font-medium {{ $t("taskProgress.title") }}
     span.text-xs.font-semibold.tabular-nums {{ count }}
     .bg-muted.w-16.overflow-hidden.rounded-full(
       class="h-1.5"
@@ -32,7 +32,7 @@ button.w-full.text-left(
       :aria-valuemin="0"
       :aria-valuemax="total"
       :aria-valuenow="done"
-      :aria-label="`Plan: ${done} of ${total} steps done`"
+      :aria-label="$t('taskProgress.summary', { done, total })"
     )
       .h-full.rounded-full(
         :class="active ? 'bg-blue-500' : 'bg-emerald-500'"
@@ -44,19 +44,19 @@ button.w-full.text-left(
 button.w-full.text-left(
   v-else-if="missing"
   type="button"
-  title="The agent has not published a plan for this task"
+  :title="$t('tasksTable.noPlanHint')"
   @click="$emit('remind')"
   :disabled="!canRemind"
 )
   .mx-auto.flex.max-w-3xl.items-center.gap-2.px-4.py-2
     CircleAlertIcon.size-3.shrink-0.text-amber-500
-    span.text-xs.font-medium.text-amber-600(class="dark:text-amber-400") Plan missing
+    span.text-xs.font-medium.text-amber-600(class="dark:text-amber-400") {{ $t("taskProgress.missing") }}
     span.text-muted-foreground.min-w-0.flex-1.truncate.text-xs
-      | The agent must publish a plan for this task
+      | {{ $t("taskProgress.missingHint") }}
     span.text-xs.font-medium.text-amber-600(
       v-if="canRemind"
       class="dark:text-amber-400"
-    ) Remind
+    ) {{ $t("taskProgress.remindShort") }}
 </template>
 
 <script setup lang="ts">
@@ -99,3 +99,18 @@ const active = computed(
 );
 const current = computed(() => taskProgressCurrent(props.progress));
 </script>
+
+<i18n lang="yaml">
+en:
+  taskProgress:
+    missing: "Plan missing"
+    missingHint: "The agent must publish a plan for this task"
+    remindShort: "Remind"
+    openFull: "Open the full plan"
+ru:
+  taskProgress:
+    missing: "План отсутствует"
+    missingHint: "Агент должен опубликовать план для этой задачи"
+    remindShort: "Напомнить"
+    openFull: "Открыть полный план"
+</i18n>

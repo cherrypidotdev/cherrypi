@@ -24,6 +24,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { markdownLines } from "./markdown-lines.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pagesRoot = root;
 const publicRoot = path.join(root, "public");
@@ -40,7 +42,13 @@ function walk(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === ".vitepress") continue;
+    if (
+      entry.name === "node_modules" ||
+      entry.name === ".vitepress" ||
+      entry.name === "public"
+    ) {
+      continue;
+    }
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) files.push(...walk(full));
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
@@ -52,6 +60,7 @@ function isExternal(target) {
   return (
     target.startsWith("http://") ||
     target.startsWith("https://") ||
+    target.startsWith("//") ||
     target.startsWith("mailto:") ||
     target.startsWith("tel:")
   );
@@ -132,11 +141,88 @@ for (const page of pages) {
 
 // Check that the configured VitePress base was applied to the built index,
 
-const built = path.join(root, ".vitepress", "dist", "index.html");
+const dist = path.join(root, ".vitepress", "dist");
+const built = path.join(dist, "index.html");
 if (fs.existsSync(built)) {
   const html = fs.readFileSync(built, "utf8");
   if (!html.includes(`${base}assets/`)) {
     problems.push(`built index.html does not reference ${base}assets/`);
+  }
+}
+
+function builtMarkdownFiles(dir) {
+  const files = [];
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...builtMarkdownFiles(full));
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
+  }
+  return files;
+}
+
+function linkTargets(text) {
+  const targets = [];
+  for (const { line, code } of markdownLines(text)) {
+    if (code) continue;
+    const masked = line.replace(/`+[^`]*`+/g, "");
+    for (const match of masked.matchAll(
+      /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    )) {
+      targets.push(match[1]);
+    }
+    const reference = /^\s{0,3}\[[^\]]+\]:\s*(<[^>\s]+>|\S+)/.exec(masked);
+    if (reference) targets.push(reference[1]);
+  }
+  return targets;
+}
+
+function checkBuiltLinks(sourceRel, text) {
+  for (const target of linkTargets(text)) {
+    if (!target || isExternal(target) || target.startsWith("#")) continue;
+    const bare =
+      target.startsWith("<") && target.endsWith(">")
+        ? target.slice(1, -1)
+        : target;
+    const withoutAnchor = bare.split("#")[0].split("?")[0];
+    if (!withoutAnchor) continue;
+
+    let rel;
+    if (withoutAnchor.startsWith("/")) {
+      rel = withoutAnchor.startsWith(base)
+        ? withoutAnchor.slice(base.length)
+        : withoutAnchor.replace(/^\/+/, "");
+    } else {
+      rel = path.posix.normalize(
+        path.posix.join(path.posix.dirname(sourceRel), withoutAnchor),
+      );
+    }
+
+    const candidates = [path.join(dist, rel)];
+    if (rel.endsWith("/")) {
+      candidates.push(path.join(dist, rel, "index.html"));
+    } else if (!path.extname(rel)) {
+      candidates.push(
+        path.join(dist, `${rel}.html`),
+        path.join(dist, rel, "index.html"),
+      );
+    }
+    if (!candidates.some((candidate) => fs.existsSync(candidate))) {
+      problems.push(`${sourceRel}: missing ${target}`);
+    }
+  }
+}
+
+for (const file of builtMarkdownFiles(dist)) {
+  checkBuiltLinks(
+    path.relative(dist, file).split(path.sep).join("/"),
+    fs.readFileSync(file, "utf8"),
+  );
+}
+for (const name of ["llms.txt", "llms-full.txt"]) {
+  const file = path.join(dist, name);
+  if (fs.existsSync(file)) {
+    checkBuiltLinks(name, fs.readFileSync(file, "utf8"));
   }
 }
 

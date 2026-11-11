@@ -21,8 +21,8 @@ Button(
   type="button"
   variant="ghost"
   size="sm"
-  :title="`Back to ${label}`"
-  :aria-label="`Back to ${label}`"
+  :title="$t('backButton.to', { label })"
+  :aria-label="$t('backButton.to', { label })"
   @click="go"
 )
   ArrowLeftIcon(data-icon="inline-start")
@@ -41,3 +41,12 @@ const props = defineProps<{ fallback: BackFallback }>();
 
 const { label, go } = useBackNavigation(() => props.fallback);
 </script>
+
+<i18n lang="yaml">
+en:
+  backButton:
+    to: "Back to {label}"
+ru:
+  backButton:
+    to: "Назад: {label}"
+</i18n>

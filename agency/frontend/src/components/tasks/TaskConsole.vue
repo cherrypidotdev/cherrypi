@@ -18,6 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .relative.flex.min-h-0.flex-1.flex-col
+  //- one-line chat row that keeps its author, avatar, and timestamp.
   .bg-background.flex.shrink-0.items-center.gap-2.border-b.px-4.py-2(
     v-if="pinnedUser"
     data-testid="pinned-prompt"
@@ -25,8 +26,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .mx-auto.flex.w-full.max-w-3xl.min-w-0.items-center.justify-end.gap-2
       button.d-chat-bubble.d-chat-bubble-primary.min-w-0.px-3.text-sm(
         type="button"
-        aria-label="Scroll to this message"
         class="max-w-[80%] py-1.5 before:hidden"
+        :aria-label="$t('taskConsole.scrollToMessage')"
         @click="scrollToUser(pinnedUser.id)"
       )
         span.flex.min-w-0.items-baseline.gap-2
@@ -54,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       p.text-muted-foreground.py-2.text-center.text-xs(
         v-else-if="historyLoaded && !nextBefore && items.length"
-      ) Beginning of conversation
+      ) {{ $t("taskConsole.beginning") }}
 
       template(v-for="group in groups" :key="groupKey(group)")
         template(v-if="group.kind === 'single'")
@@ -64,7 +65,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             data-testid="system-turn"
           )
             ConsoleNotice(
-              label="System"
+              :label="$t('taskLog.system')"
               :icon="SparklesIcon"
               :at="group.item.at"
             )
@@ -85,8 +86,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 button.text-muted-foreground.rounded-md.p-1(
                   type="button"
                   class="hover:bg-muted hover:text-foreground"
-                  :aria-label="copiedId === group.id ? 'Copied' : 'Copy message'"
-                  :title="copiedId === group.id ? 'Copied' : 'Copy message'"
+                  :aria-label="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
+                  :title="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
                   @click="copyResponse(group.item.text, group.id)"
                 )
                   CheckIcon(v-if="copiedId === group.id" class="size-3.5")
@@ -131,8 +132,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               button.text-muted-foreground.rounded-md.p-1(
                 type="button"
                 class="hover:bg-muted hover:text-foreground"
-                :aria-label="copiedId === group.id ? 'Copied' : 'Copy message'"
-                :title="copiedId === group.id ? 'Copied' : 'Copy message'"
+                :aria-label="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
+                :title="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
                 @click="copyResponse(group.item.text, group.id)"
               )
                 CheckIcon(v-if="copiedId === group.id" class="size-3.5")
@@ -169,8 +170,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               button.text-muted-foreground.rounded-md.p-1(
                 type="button"
                 class="hover:bg-muted hover:text-foreground"
-                :aria-label="copiedId === group.id ? 'Copied' : 'Copy response'"
-                :title="copiedId === group.id ? 'Copied' : 'Copy response'"
+                :aria-label="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyResponse')"
+                :title="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyResponse')"
                 @click="copyResponse(group.item.text, group.id)"
               )
                 CheckIcon(v-if="copiedId === group.id" class="size-3.5")
@@ -217,26 +218,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
             .flex.flex-col.gap-2.px-3.pb-3
               template(v-for="child in group.items" :key="child.id")
-                p.text-muted-foreground.text-xs.whitespace-pre-wrap(
+                ThinkingBlock(
                   v-if="child.kind === 'thinking'"
+                  :text="child.text"
+                  :started-at="child.startedAt"
+                  :ended-at="child.endedAt"
+                  :running="isThinkingRunning(child)"
                 )
-                  | {{ child.text }}
-                  span.ml-1(v-if="childDuration(child)") · {{ childDuration(child) }}
 
-                .flex.items-baseline.gap-2.px-2.text-xs(
+                ActivityWait(
                   v-else-if="child.kind === 'wait'"
-                  :class="child.waitKind === ModelWait_Kind.RETRY ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'"
-                  :title="waitHint(child)"
-                  data-testid="activity-wait"
+                  :kind="child.waitKind"
+                  :model="child.model"
+                  :provider="child.provider"
+                  :duration-ms="child.durationMs"
+                  :error="child.error"
+                  :attempt="child.attempt"
+                  :reason="child.reason"
+                  :fallback-provider="modelProvider ?? ''"
+                  :fallback-model="modelName ?? ''"
                 )
-                  component.text-muted-foreground.size-3.shrink-0(
-                    :is="waitIcon(child)"
-                  )
-                  span.shrink-0 {{ waitLabel(child) }}
-                  span.flex-1.-translate-y-1.border-b.border-dotted(
-                    class="border-border/70"
-                  )
-                  span.shrink-0.tabular-nums {{ formatDurationPrecise(child.durationMs) }}
 
                 ToolCall(
                   v-else
@@ -245,6 +246,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :interrupted="isInterrupted(child)"
                   :duration="childDuration(child)"
                 )
+
+              ActivityWait(
+                v-if="group.pending"
+                live
+                :kind="group.pending.kind"
+                :since="group.pending.since"
+                :model="group.pending.model"
+                :provider="group.pending.provider"
+                :error="group.pending.error"
+                :attempt="group.pending.attempt"
+                :max-attempts="group.pending.maxAttempts"
+                :reason="group.pending.reason"
+                :fallback-provider="modelProvider ?? ''"
+                :fallback-model="modelName ?? ''"
+              )
 
               ChangedFiles(:files="changesFor(group)")
 
@@ -292,6 +308,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @model-change="emit('modelChange', $event)"
           )
 
+        //- so it stays collapsed to one line until the reader opens it; the
+
         .d-chat.d-chat-start(v-else :data-item-id="group.id")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
@@ -328,18 +346,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :submitting="false"
               )
 
-      .d-chat.d-chat-start(
-        v-if="showPending"
-        :title="pendingHint"
-        data-test="pending-activity"
-      )
-        ChatAvatar(:sender="agentSender" :picture="agentPicture")
-        .bg-card.flex.w-full.items-center.gap-2.rounded-lg.border.px-3.py-2.text-xs
-          Spinner.text-muted-foreground.size-3.shrink-0
-          span.font-medium {{ pendingTitle }}
-          span.text-muted-foreground(v-if="pendingDetail") · {{ pendingDetail }}
-          span.text-muted-foreground.ml-auto {{ pendingElapsed }}
-
       template(v-if="!showWizard && !questionnaireRetired")
         .d-chat.d-chat-start(v-for="dialog in dialogs" :key="dialog.requestId")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
@@ -352,7 +358,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
 
       .flex.flex-col.items-center.gap-3.py-10(
-        v-if="!items.length && !error && !showPending"
+        v-if="!items.length && !groups.length && !error"
       )
         Spinner.text-muted-foreground.size-5(v-if="busy")
         p.text-muted-foreground.text-sm {{ busy ? "The agent is starting…" : "Waiting for events…" }}
@@ -362,23 +368,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       v-if="openActivities.size"
       variant="outline"
       size="icon-sm"
-      title="Collapse reasoning"
+      :title="$t('taskConsole.collapseReasoning')"
       @click="collapseActivities"
     )
       ChevronsDownUpIcon
     Button(
       variant="outline"
       size="icon-sm"
-      title="Previous item"
+      :title="$t('taskConsole.previousItem')"
       @click="step(-1)"
     )
       ChevronUpIcon
-    Button(variant="outline" size="icon-sm" title="Next item" @click="step(1)")
+    Button(
+      variant="outline"
+      size="icon-sm"
+      :title="$t('taskConsole.nextItem')"
+      @click="step(1)"
+    )
       ChevronDownIcon
     Button(
       variant="outline"
       size="icon-sm"
-      title="Scroll to bottom"
+      :title="$t('taskConsole.scrollToBottom')"
       @click="scrollToBottom"
       :disabled="stickToBottom"
     )
@@ -391,17 +402,20 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
+import ActivityWait from "@/components/tasks/ActivityWait.vue";
 import ChangedFiles from "@/components/tasks/ChangedFiles.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
 import ConsoleNotice from "@/components/tasks/ConsoleNotice.vue";
 import ExtensionUiPrompt from "@/components/tasks/ExtensionUiPrompt.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
 import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
+import ThinkingBlock from "@/components/tasks/ThinkingBlock.vue";
 import ToolCall from "@/components/tasks/ToolCall.vue";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { namedSender } from "@/lib/actors";
 import {
+  absorbsWait,
   activeQuestionnaire,
   findTool,
   groupElapsed,
@@ -424,12 +438,11 @@ import {
   type NewItem,
   type RunUsage,
   type StateChange,
-  type WaitItem,
 } from "@/lib/console";
 import {
   formatClock,
   formatDuration,
-  formatDurationPrecise,
+  formatElapsed,
   formatInstant,
   isoInstant,
 } from "@/lib/format";
@@ -448,7 +461,7 @@ import {
   EMPTY_TASK_MODEL_SELECTION,
   taskStateFromStored,
   taskStateIcon,
-  taskStateLabel,
+  taskStateKey,
   type TaskModelSelection,
 } from "@/lib/task";
 import { groupChangedFiles, type ChangedFile } from "@/lib/toolPresentation";
@@ -467,17 +480,14 @@ import {
 } from "@cherrypi/sdk";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
-  ArchiveIcon,
   ArrowDownIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronUpIcon,
-  ClockIcon,
   CopyIcon,
   InfoIcon,
-  RefreshCwIcon,
   SparklesIcon,
   XIcon,
 } from "@lucide/vue";
@@ -490,7 +500,10 @@ import {
   ref,
   watch,
 } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -616,7 +629,7 @@ function attachmentsFor(ids: string[]): Attachment[] {
 }
 
 const emit = defineEmits<{
-  queue: [steering: string[]];
+  queue: [steering: { id: string; text: string }[]];
 
   openAttachment: [attachment: Attachment];
 
@@ -756,6 +769,19 @@ watch(
 
 interface RenderActivity extends Extract<Group, { kind: "activity" }> {
   running: boolean;
+
+  pending?: PendingState;
+
+  waiting: WaitTotals;
+
+  span: ActivityItem[];
+}
+
+interface WaitTotals {
+  ms: number;
+  requests: number;
+  retries: number;
+  compactions: number;
 }
 
 interface RenderQuestionnaire {
@@ -771,6 +797,11 @@ type RenderGroup =
 
 const QUESTIONNAIRE_SLOT_ID = -1;
 
+function pendingSlotId(): number {
+  reservedId ??= allocateId();
+  return reservedId;
+}
+
 function groupHoldsCall(group: RenderGroup, callId: string): boolean {
   return (
     group.kind === "activity" &&
@@ -783,13 +814,16 @@ const groups = computed<RenderGroup[]>(() => {
   const out: RenderGroup[] = raw.flatMap((group, index): RenderGroup[] => {
     if (group.kind === "activity") {
       const items = group.items.filter(
-        (item) => item.kind !== "wait" || item.durationMs >= WAIT_RENDER_MS,
+        (item, position) =>
+          !absorbsWait(item, group.items[position + 1]) &&
+          (item.kind !== "wait" || item.durationMs >= WAIT_RENDER_MS),
       );
-      if (!items.length) return [];
       return [
         {
           ...group,
           items,
+          span: group.items,
+          waiting: waitTotals(group.items),
           running: isRunning(group, index === raw.length - 1),
         },
       ];
@@ -817,7 +851,30 @@ const groups = computed<RenderGroup[]>(() => {
       out.push(slot);
     }
   }
-  return mergeStateChanges(out, props.stateChanges, items.value);
+
+  const step = pending.value;
+  if (showPending.value && step) {
+    const last = out[out.length - 1];
+    if (last && last.kind === "activity") {
+      out[out.length - 1] = { ...last, pending: step, running: true };
+    } else {
+      out.push({
+        id: pendingSlotId(),
+        kind: "activity",
+        items: [],
+        span: [],
+        waiting: { ms: 0, requests: 0, retries: 0, compactions: 0 },
+        pending: step,
+        running: true,
+      });
+    }
+  }
+
+  const drawn = out.filter(
+    (group) =>
+      group.kind !== "activity" || group.items.length > 0 || group.pending,
+  );
+  return mergeStateChanges(drawn, props.stateChanges, items.value);
 });
 
 // each run reads as one line without duplicating its numbers across the blocks
@@ -879,6 +936,12 @@ function isInFlight(item: ActivityItem): boolean {
   return items.value[items.value.length - 1]?.id === item.id;
 }
 
+function isThinkingRunning(item: ActivityItem): boolean {
+  if (item.kind !== "thinking") return false;
+  if (!live.value || waitingForInput.value || showPending.value) return false;
+  return items.value[items.value.length - 1]?.id === item.id;
+}
+
 function isInterrupted(item: ActivityItem): boolean {
   return (
     item.kind === "tool" &&
@@ -906,16 +969,15 @@ function isRunning(
   isLast: boolean,
 ): boolean {
   return (
-    group.items.some(isInFlight) ||
-    (isLast &&
-      props.busy === true &&
-      props.waitingForInput !== true &&
-      !showPending.value)
+    group.items.some((item) => isInFlight(item) || isThinkingRunning(item)) ||
+    (isLast && props.busy === true && props.waitingForInput !== true)
   );
 }
 
-function elapsedLabel(ms: number | undefined): string {
-  return ms !== undefined && ms >= 1000 ? formatDuration(ms) : "";
+function elapsedLabel(ms: number | undefined, precise = false): string {
+  if (ms === undefined) return "";
+  if (precise) return formatElapsed(ms);
+  return ms >= 1000 ? formatDuration(ms) : "";
 }
 
 const clock = ref(Date.now());
@@ -927,7 +989,22 @@ const clockNow = computed(() => {
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 
 function workedLabel(group: RenderActivity): string {
-  const elapsed = groupElapsed(group.items, clockNow.value);
+  let elapsed = groupElapsed(group.span, clockNow.value);
+
+  if (group.pending && live.value) {
+    const from = group.span.reduce<number | undefined>(
+      (start, item) =>
+        item.startedAt !== undefined &&
+        (start === undefined || item.startedAt < start)
+          ? item.startedAt
+          : start,
+      undefined,
+    );
+    elapsed = Math.max(
+      clock.value - (from ?? group.pending.since),
+      elapsed ?? 0,
+    );
+  }
   const verb = group.running ? "Working" : "Worked";
   if (elapsed === undefined) return verb;
   return `${verb} for ${elapsed >= 1000 ? formatDuration(elapsed) : "<1s"}`;
@@ -940,87 +1017,18 @@ function actionCount(group: RenderActivity): string {
 }
 
 function waitingLabel(group: RenderActivity): string {
-  const total = groupWaitingMs(group.items);
-  return total > 0 ? `${formatDuration(total)} waiting` : "";
+  return group.waiting.ms > 0
+    ? `${formatElapsed(group.waiting.ms)} waiting`
+    : "";
 }
 
 function waitingHint(group: RenderActivity): string {
-  let requests = 0;
-  let retries = 0;
-  let compactions = 0;
-  for (const item of group.items) {
-    if (item.kind !== "wait") continue;
-    if (item.waitKind === ModelWait_Kind.RETRY) retries++;
-    else if (item.waitKind === ModelWait_Kind.COMPACTION) compactions++;
-    else requests++;
-  }
-  const parts = [
+  const { requests, retries, compactions } = group.waiting;
+  return [
     `${requests} model request${requests === 1 ? "" : "s"}`,
     `${retries} retr${retries === 1 ? "y" : "ies"}`,
     `${compactions} compaction${compactions === 1 ? "" : "s"}`,
-  ];
-  return parts.join(" · ");
-}
-
-function waitLabel(item: WaitItem): string {
-  const model = modelLabel(
-    item.provider,
-    item.model,
-    props.modelProvider,
-    props.modelName,
-  );
-  const suffix = model ? ` · ${model}` : "";
-  switch (item.waitKind) {
-    case ModelWait_Kind.RETRY: {
-      const error = truncateError(item.error);
-      return `Retry${suffix}${error ? ` · ${error}` : ""}`;
-    }
-    case ModelWait_Kind.COMPACTION:
-      return `Compacted context${item.reason ? ` · ${compactionReason(item.reason)}` : ""}`;
-    default:
-      return `Model request${suffix}`;
-  }
-}
-
-function modelLabel(
-  provider: string,
-  model: string,
-  fallbackProvider = "",
-  fallbackModel = "",
-): string {
-  const p = provider || fallbackProvider;
-  const m = model || fallbackModel;
-  return p && m ? `${p}/${m}` : m;
-}
-
-function truncateError(error: string): string {
-  const text = error.trim();
-  if (!text) return "";
-  return text.length > 60 ? `${text.slice(0, 59)}…` : text;
-}
-
-function waitHint(item: WaitItem): string {
-  switch (item.waitKind) {
-    case ModelWait_Kind.RETRY: {
-      const attempt = item.attempt ? `attempt ${item.attempt}` : "";
-      return [attempt, item.error].filter(Boolean).join(" · ");
-    }
-    case ModelWait_Kind.COMPACTION:
-      return compactionReason(item.reason);
-    default:
-      return "";
-  }
-}
-
-function waitIcon(item: WaitItem) {
-  switch (item.waitKind) {
-    case ModelWait_Kind.RETRY:
-      return RefreshCwIcon;
-    case ModelWait_Kind.COMPACTION:
-      return ArchiveIcon;
-    default:
-      return ClockIcon;
-  }
+  ].join(" · ");
 }
 
 function changesFor(group: RenderActivity): ChangedFile[] {
@@ -1028,12 +1036,34 @@ function changesFor(group: RenderActivity): ChangedFile[] {
 }
 
 function childDuration(item: ActivityItem): string {
-  return elapsedLabel(itemElapsed(item, clockNow.value));
+  return elapsedLabel(itemElapsed(item, clockNow.value), item.kind === "tool");
+}
+
+function waitTotals(items: ActivityItem[]): WaitTotals {
+  const totals: WaitTotals = {
+    ms: groupWaitingMs(items),
+    requests: 0,
+    retries: 0,
+    compactions: 0,
+  };
+  for (const item of items) {
+    if (item.kind !== "wait" || item.durationMs < WAIT_RENDER_MS) continue;
+    if (item.waitKind === ModelWait_Kind.RETRY) totals.retries++;
+    else if (item.waitKind === ModelWait_Kind.COMPACTION) totals.compactions++;
+    else totals.requests++;
+  }
+  return totals;
 }
 
 const hasRunningTool = computed(() =>
   groups.value.some(
     (group) => group.kind === "activity" && group.items.some(isInFlight),
+  ),
+);
+
+const hasRunningThinking = computed(() =>
+  groups.value.some(
+    (group) => group.kind === "activity" && group.items.some(isThinkingRunning),
   ),
 );
 
@@ -1051,57 +1081,40 @@ interface PendingState {
 
 const pending = ref<PendingState | null>(null);
 
+watch(pending, (step) => {
+  if (step === null) reservedId = undefined;
+});
+
 const pendingFromStream = ref(false);
 
-const PENDING_REVEAL_MS = 1000;
+const PENDING_REVEAL_MS = 100;
 
-const pendingElapsedMs = computed(() =>
-  pending.value ? Math.max(clock.value - pending.value.since, 0) : 0,
-);
-const pendingElapsed = computed(() =>
-  pending.value && pendingElapsedMs.value >= 1000
-    ? formatDuration(pendingElapsedMs.value)
-    : "",
+const pendingRevealed = ref(false);
+let pendingRevealTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+  pending,
+  (step) => {
+    if (pendingRevealTimer !== undefined) {
+      clearTimeout(pendingRevealTimer);
+      pendingRevealTimer = undefined;
+    }
+    pendingRevealed.value = false;
+    if (!step) return;
+    pendingRevealTimer = setTimeout(() => {
+      pendingRevealed.value = true;
+      pendingRevealTimer = undefined;
+    }, PENDING_REVEAL_MS);
+  },
+  { immediate: true },
 );
 
 const showPending = computed(
   () =>
     pending.value !== null &&
+    pendingRevealed.value &&
     props.busy === true &&
-    props.waitingForInput !== true &&
-    pendingElapsedMs.value >= PENDING_REVEAL_MS,
+    props.waitingForInput !== true,
 );
-
-const pendingTitle = computed(() => {
-  switch (pending.value?.kind) {
-    case PendingActivity_Kind.RETRY:
-      return "Retrying the request";
-    case PendingActivity_Kind.COMPACTION:
-      return "Compacting the context";
-    default:
-      return "Waiting for the model";
-  }
-});
-
-const pendingDetail = computed(() => {
-  const state = pending.value;
-  if (!state) return "";
-  switch (state.kind) {
-    case PendingActivity_Kind.RETRY:
-      return state.maxAttempts
-        ? `attempt ${state.attempt} of ${state.maxAttempts}`
-        : "";
-    case PendingActivity_Kind.COMPACTION:
-      return compactionReason(state.reason);
-    default:
-      return modelLabel(
-        state.provider,
-        state.model,
-        props.modelProvider,
-        props.modelName,
-      );
-  }
-});
 
 function groupKey(group: RenderGroup): string | number {
   return group.kind === "state" ? `state:${group.change.key}` : group.id;
@@ -1111,7 +1124,9 @@ function stateChangeLabel(change: StateChange): string {
   const from = taskStateFromStored(change.from);
   const to = taskStateFromStored(change.to);
   const label = (state: typeof from, raw: string) =>
-    state === undefined ? raw || "Unknown" : taskStateLabel(state);
+    state === undefined
+      ? raw || t("taskState.unknown")
+      : t(taskStateKey(state));
   return `${label(from, change.from)} → ${label(to, change.to)}`;
 }
 
@@ -1140,21 +1155,6 @@ function reviewDetail(
   const count = group.questions.length;
   return `· ${count} question${count === 1 ? "" : "s"}`;
 }
-
-function compactionReason(reason: string): string {
-  switch (reason) {
-    case "threshold":
-      return "context full";
-    case "overflow":
-      return "context overflowed";
-    case "manual":
-      return "requested";
-    default:
-      return reason;
-  }
-}
-
-const pendingHint = computed(() => pending.value?.error ?? "");
 
 function clearPending() {
   pending.value = null;
@@ -1191,7 +1191,8 @@ function derivePending() {
 }
 
 const clockNeeded = computed(
-  () => hasRunningTool.value || pending.value !== null,
+  () =>
+    hasRunningTool.value || hasRunningThinking.value || pending.value !== null,
 );
 
 watch(
@@ -1227,6 +1228,34 @@ watch(
 );
 
 const openActivities = reactive(new Set<number>());
+
+const autoOpened = new Set<number>();
+watch(
+  () => groups.value,
+  async (rendered) => {
+    const fresh = rendered.filter(
+      (group): group is RenderActivity =>
+        group.kind === "activity" &&
+        group.pending !== undefined &&
+        group.items.length === 0 &&
+        !autoOpened.has(group.id),
+    );
+    if (!fresh.length) return;
+    await nextTick();
+    const el = scroller.value;
+    if (!el) return;
+    for (const group of fresh) {
+      autoOpened.add(group.id);
+      const node = el.querySelector<HTMLDetailsElement>(
+        `details[data-activity-id="${group.id}"]`,
+      );
+      if (!node) continue;
+      node.open = true;
+      openActivities.add(group.id);
+    }
+  },
+  { immediate: true },
+);
 
 const dialogs = ref<ExtensionUiRequest[]>([]);
 const resolving = reactive<Record<string, boolean>>({});
@@ -1285,6 +1314,17 @@ const liveQueue: TaskEvent[] = [];
 
 let nextId = 0;
 
+let reservedId: number | undefined;
+
+function allocateId(adoptReserved = false): number {
+  if (adoptReserved && reservedId !== undefined) {
+    const id = reservedId;
+    reservedId = undefined;
+    return id;
+  }
+  return nextId++;
+}
+
 let streamController: AbortController | undefined;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectAttempt = 0;
@@ -1338,6 +1378,9 @@ function resync() {
   items.value = [];
   liveQueue.length = 0;
   nextId = 0;
+
+  reservedId = undefined;
+  autoOpened.clear();
   nextBefore.value = "";
   historyLoaded.value = false;
   dialogs.value = [];
@@ -1349,10 +1392,16 @@ function resync() {
 }
 
 function push(item: NewItem) {
-  items.value.push({ ...item, id: nextId++ } as Item);
+  items.value.push({ ...item, id: allocateId(isActivityItem(item)) } as Item);
   if (stickToBottom.value) {
     void scrollToBottom();
   }
+}
+
+function isActivityItem(item: NewItem): boolean {
+  return (
+    item.kind === "thinking" || item.kind === "tool" || item.kind === "wait"
+  );
 }
 
 function pushWait(item: NewItem) {
@@ -1376,7 +1425,7 @@ function pushWait(item: NewItem) {
   ) {
     items.value.splice(items.value.length - 1, 0, {
       ...item,
-      id: nextId++,
+      id: allocateId(),
     } as Item);
     return;
   }
@@ -1441,6 +1490,8 @@ function flushDeltas() {
   for (const delta of pending) {
     appendText(delta.kind, delta.text, delta.startedAt, delta.endedAt);
   }
+
+  clearPending();
 }
 
 function queueDelta(kind: "text" | "thinking", text: string, at?: number) {
@@ -1533,7 +1584,7 @@ function step(direction: 1 | -1) {
 async function loadHistory() {
   try {
     const page = await agent.getTaskHistory(props.id);
-    items.value = prependEvents(items.value, page.events, () => nextId++);
+    items.value = prependEvents(items.value, page.events, () => allocateId());
     nextBefore.value = page.nextBefore;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -1565,7 +1616,7 @@ async function loadOlder() {
     const page = await agent.getTaskHistory(props.id, {
       before: nextBefore.value,
     });
-    items.value = prependEvents(items.value, page.events, () => nextId++);
+    items.value = prependEvents(items.value, page.events, () => allocateId());
     nextBefore.value = page.nextBefore;
     await nextTick();
     el.scrollTop += el.scrollHeight - previousHeight;
@@ -1602,10 +1653,17 @@ function applyEvent(event: TaskEvent) {
       break;
     }
     case "pendingMessages":
-      emit("queue", payload.value.steering);
+      emit(
+        "queue",
+        payload.value.queuedSteering.length
+          ? payload.value.queuedSteering.map((item) => ({
+              id: item.id,
+              text: item.text,
+            }))
+          : payload.value.steering.map((text) => ({ id: "", text })),
+      );
       break;
     case "thinking":
-      clearPending();
       queueDelta("thinking", payload.value.delta, timestampMs(event.at));
       break;
     case "tool": {
@@ -1627,7 +1685,10 @@ function applyEvent(event: TaskEvent) {
     }
     case "modelWait": {
       const item = newItem(event);
-      if (item?.kind === "wait") pushWait(item);
+      if (item?.kind === "wait") {
+        clearPending();
+        pushWait(item);
+      }
       break;
     }
     case "runStarted":
@@ -1976,5 +2037,31 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   clearTimeout(copiedTimer);
   if (clockTimer !== undefined) clearInterval(clockTimer);
+  if (pendingRevealTimer !== undefined) clearTimeout(pendingRevealTimer);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  taskConsole:
+    beginning: "Beginning of conversation"
+    scrollToMessage: "Scroll to this message"
+    collapseReasoning: "Collapse reasoning"
+    previousItem: "Previous item"
+    nextItem: "Next item"
+    scrollToBottom: "Scroll to bottom"
+    copied: "Copied"
+    copyMessage: "Copy message"
+    copyResponse: "Copy response"
+ru:
+  taskConsole:
+    beginning: "Начало переписки"
+    scrollToMessage: "Перейти к этому сообщению"
+    collapseReasoning: "Свернуть рассуждение"
+    previousItem: "Предыдущий элемент"
+    nextItem: "Следующий элемент"
+    scrollToBottom: "Прокрутить вниз"
+    copied: "Скопировано"
+    copyMessage: "Скопировать сообщение"
+    copyResponse: "Скопировать ответ"
+</i18n>

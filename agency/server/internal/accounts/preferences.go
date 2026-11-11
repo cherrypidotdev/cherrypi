@@ -17,22 +17,43 @@
 package accounts
 
 import (
-	"cherrypi.vladfaust.com/agency/internal/store"
 	"context"
+	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/store"
 )
 
 const (
 	PreferenceNotifyFirstArchive = "notify_first_archive"
+
+	PreferenceLocale = "locale"
 )
+
+var SupportedLocales = []string{"en", "ru"}
+
+var ErrInvalidLocale = errors.New("unsupported locale")
 
 type Preferences struct {
 	NotifyFirstArchive bool
+
+	Locale string
 }
 
 func DefaultPreferences() Preferences {
 	return Preferences{NotifyFirstArchive: true}
+}
+
+func ValidateLocale(locale string) error {
+	if locale == "" {
+		return nil
+	}
+	for _, supported := range SupportedLocales {
+		if locale == supported {
+			return nil
+		}
+	}
+	return ErrInvalidLocale
 }
 
 func (s *Service) GetPreferences(ctx context.Context, actorID ids.ActorID) (Preferences, error) {
@@ -45,6 +66,10 @@ func (s *Service) GetPreferences(ctx context.Context, actorID ids.ActorID) (Pref
 		switch row.Key {
 		case PreferenceNotifyFirstArchive:
 			prefs.NotifyFirstArchive = row.Value != "0" && row.Value != "false"
+		case PreferenceLocale:
+			if ValidateLocale(row.Value) == nil {
+				prefs.Locale = row.Value
+			}
 		}
 	}
 	return prefs, nil
@@ -55,9 +80,24 @@ func (s *Service) UpdatePreferences(
 	actorID ids.ActorID,
 	prefs Preferences,
 ) error {
-	return s.store.UpsertActorSetting(ctx, store.UpsertActorSettingParams{
-		ActorID: int64(actorID),
-		Key:     PreferenceNotifyFirstArchive,
-		Value:   boolString(prefs.NotifyFirstArchive),
-	})
+	if err := ValidateLocale(prefs.Locale); err != nil {
+		return err
+	}
+	for _, setting := range []store.UpsertActorSettingParams{
+		{
+			ActorID: int64(actorID),
+			Key:     PreferenceNotifyFirstArchive,
+			Value:   boolString(prefs.NotifyFirstArchive),
+		},
+		{
+			ActorID: int64(actorID),
+			Key:     PreferenceLocale,
+			Value:   prefs.Locale,
+		},
+	} {
+		if err := s.store.UpsertActorSetting(ctx, setting); err != nil {
+			return err
+		}
+	}
+	return nil
 }

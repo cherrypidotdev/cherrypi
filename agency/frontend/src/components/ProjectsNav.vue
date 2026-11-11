@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   p.text-muted-foreground.px-3.py-1.text-xs.font-medium(
     v-if="!items.length && !collapsed"
   )
-    | No projects
+    | {{ $t("team.projects.empty") }}
   RouterLink.flex.min-w-0.items-center.gap-2.rounded-md.text-sm.transition-colors(
     v-for="item in items"
     :key="item.project.id"
@@ -48,7 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.bg-primary.text-primary-foreground.rounded-full.text-xs.font-medium(
         v-if="unreadCount(item.project.id) && !collapsed"
         class="px-1.5"
-        :title="unreadCount(item.project.id) + ' unread'"
+        :title="$t('projectsNav.unread', { count: unreadCount(item.project.id) })"
       ) {{ unreadCount(item.project.id) }}
       component.size-3(
         v-if="item.state && !collapsed"
@@ -62,12 +62,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import { useNotifications } from "@/composables/useNotifications";
 import { useProjectStatuses } from "@/composables/useProjectStatuses";
 import { useProjects } from "@/composables/useProjects";
-import { PROJECT_STATUS_LABEL, PROJECT_STATUS_STATE } from "@/lib/project";
+import { PROJECT_STATUS_KEY, PROJECT_STATUS_STATE } from "@/lib/project";
 import { taskStateIcon, taskStateTextClass } from "@/lib/task";
 import { type Project } from "@cherrypi/sdk";
 import { toSvg } from "jdenticon";
 import { computed, onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
+
+const { t } = useI18n();
 
 const { active, loadProjects } = useProjects();
 const { statuses } = useProjectStatuses();
@@ -96,7 +99,7 @@ const items = computed(() => {
     return {
       project,
       state: status ? PROJECT_STATUS_STATE[status] : undefined,
-      label: status ? PROJECT_STATUS_LABEL[status] : "",
+      label: status ? t(PROJECT_STATUS_KEY[status]) : "",
 
       iconClass:
         status === "running" ? "animate-pulse motion-reduce:animate-none" : "",
@@ -141,3 +144,12 @@ function logo(project: Project): string {
   return toSvg(project.id, 16);
 }
 </script>
+
+<i18n lang="yaml">
+en:
+  projectsNav:
+    unread: "{count} unread"
+ru:
+  projectsNav:
+    unread: "{count} новых"
+</i18n>
