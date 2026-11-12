@@ -135,6 +135,27 @@ func (s *ProjectServer) UpdateProject(
 	return &agencyv1.UpdateProjectResponse{Project: out}, nil
 }
 
+func (s *ProjectServer) SetProjectArchiveAfterDays(
+	ctx context.Context,
+	req *agencyv1.SetProjectArchiveAfterDaysRequest,
+) (*agencyv1.SetProjectArchiveAfterDaysResponse, error) {
+	if err := s.requireOwner(ctx, req.Id); err != nil {
+		return nil, mapError(err)
+	}
+	var days *int
+	if req.ArchiveAfterDays != nil {
+		value := int(req.GetArchiveAfterDays())
+		days = &value
+	}
+	p, err := s.Projects.SetArchiveAfterDays(ctx, req.Id, days)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := toProto(p)
+	s.enrichPicture(ctx, p.ID, out)
+	return &agencyv1.SetProjectArchiveAfterDaysResponse{Project: out}, nil
+}
+
 func (s *ProjectServer) requireOwner(ctx context.Context, projectID string) error {
 	identity, ok := auth.IdentityFrom(ctx)
 	if !ok {
@@ -411,6 +432,10 @@ func toProto(p projects.Project) *agencyv1.Project {
 	if !p.ArchivedAt.IsZero() {
 		out.ArchivedAt = timestamppb.New(p.ArchivedAt)
 	}
+	if p.ArchiveAfterDays != nil {
+		days := int32(*p.ArchiveAfterDays)
+		out.ArchiveAfterDays = &days
+	}
 	return out
 }
 
@@ -418,7 +443,8 @@ func mapError(err error) *connect.Error {
 	switch {
 	case errors.Is(err, projects.ErrProjectMissing):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.Is(err, projects.ErrInvalidName):
+	case errors.Is(err, projects.ErrInvalidName),
+		errors.Is(err, projects.ErrInvalidArchiveAfterDays):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, projects.ErrProjectHasTasks),
 		errors.Is(err, projects.ErrProjectHasChildren),

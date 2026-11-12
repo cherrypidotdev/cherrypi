@@ -34,6 +34,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
 	"cherrypi.vladfaust.com/agency/internal/store"
+	"cherrypi.vladfaust.com/agency/internal/textutil"
 )
 
 type State string
@@ -346,6 +347,8 @@ type Filter struct {
 
 	Archived bool
 
+	IncludeArchived bool
+
 	ParentTaskID string
 
 	ReferenceProjectID string
@@ -542,6 +545,12 @@ type Service struct {
 	OnPendingPromptQueued func(ctx context.Context, taskID string)
 
 	OnHoldReleased func(ctx context.Context, release HoldRelease)
+
+	DeleteAgentSession func(
+		ctx context.Context,
+		agentID ids.AgentID,
+		sessionID string,
+	) error
 }
 
 func New(st store.Store, projectsSvc *projects.Service) *Service {
@@ -1015,6 +1024,7 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 		AgentID:            nullID(f.AgentID),
 		State:              nullString(string(f.State)),
 		Archived:           boolInt(f.Archived),
+		IncludeArchived:    boolInt(f.IncludeArchived),
 		ParentTaskID:       nullString(f.ParentTaskID),
 		TagID:              nullString(f.TagID),
 		Search:             nullString(f.Search),
@@ -1254,6 +1264,34 @@ func (s *Service) ListSessionTasks(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	out := make([]Task, len(rows))
+	for i, row := range rows {
+		out[i] = toTask(row, nil, nil, nil, nil, emptyProgress())
+	}
+	return out, nil
+}
+
+func (s *Service) AutoArchivable(
+	ctx context.Context,
+	orgDays int,
+	now time.Time,
+) ([]Task, error) {
+	var rows []store.Task
+	if orgDays > 0 {
+		inherited, err := s.store.ListInheritedAutoArchivableTasks(
+			ctx,
+			now.AddDate(0, 0, -orgDays).UnixMilli(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		rows = inherited
+	}
+	overridden, err := s.store.ListOverriddenAutoArchivableTasks(ctx, now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, overridden...)
 	out := make([]Task, len(rows))
 	for i, row := range rows {
 		out[i] = toTask(row, nil, nil, nil, nil, emptyProgress())
@@ -2098,6 +2136,15 @@ func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 	before, beforeErr := s.snapshot(ctx, id)
 	now := time.Now().UnixMilli()
 
+	ctx = WithStateReason(ctx, "run finished")
+	if beforeErr == nil && before.AssigneeActorID != 0 {
+		ctx = WithActorID(ctx, before.AssigneeActorID)
+		ctx = WithActor(ctx, ActorAgent)
+	}
+
+	if trigger, ok := s.pendingStop(ctx, id); ok {
+		ctx = WithStopTrigger(ctx, trigger)
+	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     store.TaskSettle,
 		SettledAt: sql.NullInt64{Int64: now, Valid: true},
@@ -2138,6 +2185,41 @@ func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 	}
 	s.childFinished(ctx, id, ChildSettled)
 	return true, nil
+}
+
+func isFailedStop(dataJSON string) bool {
+	if dataJSON == "" {
+		return false
+	}
+	var data struct {
+		Failed bool `json:"failed"`
+	}
+	return json.Unmarshal([]byte(dataJSON), &data) == nil && data.Failed
+}
+
+func (s *Service) pendingStop(ctx context.Context, id string) (StopTrigger, bool) {
+	logs, err := s.Logs(ctx, id)
+	if err != nil {
+		return StopTrigger{}, false
+	}
+	for _, entry := range logs {
+		switch entry.Kind {
+		case LogStop:
+
+			if isFailedStop(entry.DataJSON) {
+				return StopTrigger{}, false
+			}
+			return StopTrigger{
+				Actor:   Actor(entry.Actor),
+				ActorID: entry.ActorID,
+				At:      entry.At.UnixMilli(),
+			}, true
+		case LogState:
+
+			return StopTrigger{}, false
+		}
+	}
+	return StopTrigger{}, false
 }
 
 func (s *Service) requeuePendingPrompt(ctx context.Context, id string) (bool, error) {
@@ -2408,6 +2490,13 @@ func (s *Service) RequeueWithPrompt(
 		return Task{}, err
 	}
 	s.logChanges(ctx, cur, after)
+
+	if cur.Archived {
+		s.recordLog(
+			ctx, actorFrom(ctx), now, id, LogState, "archive",
+			"", "", "Task unarchived by a follow-up", nil,
+		)
+	}
 	if err := s.ReconcileWaiting(ctx, id); err != nil {
 		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
 	}
@@ -2939,10 +3028,91 @@ func (s *Service) SetSession(
 		UpdatedAt:      time.Now().UnixMilli(),
 		ID:             id,
 	})
-	if err == nil {
-		s.changed(ctx, id)
+	if err != nil {
+		return err
 	}
-	return err
+
+	if err := s.store.RecordTaskSession(ctx, store.RecordTaskSessionParams{
+		TaskID:    id,
+		AgentID:   int64(agentID),
+		SessionID: sessionID,
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		log.Printf("[tasks] record session %s for %s: %v", sessionID, id, err)
+	}
+	s.changed(ctx, id)
+	return nil
+}
+
+const CleanupSessionTimeout = 30 * time.Second
+
+func (s *Service) CleanupSession(ctx context.Context, id string) error {
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if s.DeleteAgentSession == nil {
+		return nil
+	}
+	sessions, err := s.store.ListLiveTaskSessions(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if len(sessions) == 0 {
+
+		if t.SessionID != "" && t.SessionDeletedAt.IsZero() {
+			if _, err := s.MarkSessionDeleted(ctx, t.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	var firstErr error
+	cleaned := 0
+	for _, session := range sessions {
+		callCtx, cancel := context.WithTimeout(ctx, CleanupSessionTimeout)
+		err := s.DeleteAgentSession(
+			callCtx,
+			ids.AgentID(session.AgentID),
+			session.SessionID,
+		)
+		cancel()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf(
+					"delete agent session %s on agent %d: %w",
+					session.SessionID, session.AgentID, err,
+				)
+			}
+			continue
+		}
+		if err := s.store.MarkTaskSessionCleaned(
+			ctx,
+			store.MarkTaskSessionCleanedParams{
+				DeletedAt: sql.NullInt64{
+					Int64: time.Now().UnixMilli(),
+					Valid: true,
+				},
+				TaskID:    t.ID,
+				AgentID:   session.AgentID,
+				SessionID: session.SessionID,
+			},
+		); err != nil {
+			return err
+		}
+		cleaned++
+	}
+
+	if firstErr != nil {
+		return firstErr
+	}
+	if cleaned > 0 && t.SessionDeletedAt.IsZero() {
+		if _, err := s.MarkSessionDeleted(ctx, t.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) MarkSessionDeleted(ctx context.Context, id string) (Task, error) {
@@ -4214,8 +4384,8 @@ func toTask(
 		RowID:           row.Rowid,
 		ID:              row.ID,
 		Seq:             row.Seq,
-		Prompt:          row.Prompt,
-		Name:            row.Name,
+		Prompt:          textutil.Clean(row.Prompt),
+		Name:            textutil.Clean(row.Name),
 		ProjectID:       row.ProjectID.String,
 		ParentTaskID:    row.ParentTaskID.String,
 		OriginTaskID:    row.OriginTaskID.String,
@@ -4226,7 +4396,7 @@ func toTask(
 		State:           state,
 		SessionID:       row.SessionID,
 		SessionAgentID:  ids.AgentID(row.SessionAgentID.Int64),
-		Error:           row.Error,
+		Error:           textutil.Clean(row.Error),
 		ModelProvider:   row.ModelProvider,
 		ModelID:         row.ModelID,
 		ThinkingLevel:   row.ThinkingLevel,
@@ -4247,7 +4417,7 @@ func toTask(
 		PendingSteering:      strings.Join(parseWakeState(row.PendingSteering).Lines, "\n"),
 		Blockers:             countBlockers(refs),
 		CreatorActorID:       ids.ActorID(row.CreatorActorID.Int64),
-		PendingPrompt:        row.PendingPrompt,
+		PendingPrompt:        textutil.Clean(row.PendingPrompt),
 		PendingPromptActorID: ids.ActorID(row.PendingPromptActorID.Int64),
 		QueuedAt:             timeOrZero(row.QueuedAt),
 		StartedAt:            timeOrZero(row.StartedAt),

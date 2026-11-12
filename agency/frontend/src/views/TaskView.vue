@@ -305,6 +305,7 @@ import {
   queuedMessageParts,
   timestampMs,
   type StateChange,
+  type StateTrigger,
   type UserMessageParts,
 } from "@/lib/console";
 import { chatDraftKey } from "@/lib/draft";
@@ -471,22 +472,42 @@ const lightboxIndex = ref(0);
 const inlineLightboxItems = ref<LightboxItem[]>([]);
 const taskUsage = ref<TaskUsageWithRuns | undefined>();
 
+function logData(log: {
+  dataJson: string;
+}): Record<string, unknown> | undefined {
+  if (!log.dataJson) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(log.dataJson);
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function stateStopTrigger(
+  data: Record<string, unknown> | undefined,
+): StateTrigger | undefined {
+  const stop = data?.["stop"];
+  if (!stop || typeof stop !== "object") return undefined;
+  const fields = stop as Record<string, unknown>;
+  return {
+    kind: "stop",
+    actor: String(fields["actor"] ?? ""),
+    actorId: String(fields["actorId"] ?? ""),
+  };
+}
+
 const stateChanges = computed<StateChange[]>(() => {
-  const logs = task.value?.logs ?? [];
+  const logs = [...(task.value?.logs ?? [])].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
   const changes: StateChange[] = [];
   for (const log of logs) {
     if (log.kind !== "state") continue;
-    let data: Record<string, unknown> | undefined;
-    if (log.dataJson) {
-      try {
-        const parsed: unknown = JSON.parse(log.dataJson);
-        if (parsed && typeof parsed === "object") {
-          data = parsed as Record<string, unknown>;
-        }
-      } catch {
-        data = undefined;
-      }
-    }
+    const data = logData(log);
     changes.push({
       key: String(log.id),
       at: timestampMs(log.at),
@@ -494,6 +515,8 @@ const stateChanges = computed<StateChange[]>(() => {
       to: String(data?.["new"] ?? ""),
       reason: String(data?.["reason"] ?? ""),
       actor: log.actor,
+      actorId: log.actorId,
+      trigger: stateStopTrigger(data),
     });
   }
   return changes;
@@ -612,11 +635,18 @@ const unattachedTags = computed(() => {
 
 const sessionDeleted = computed(() => Boolean(task.value?.sessionDeletedAt));
 
-const canFollowUp = computed(
-  () => !!task.value && (acceptsPrompt(task.value.state) || isPostponed.value),
+const awaitingAnswers = computed(
+  () => isInput.value || task.value?.runtime?.waitingForInput === true,
 );
 
-const canCompose = computed(() => canFollowUp.value || isInput.value);
+const canFollowUp = computed(
+  () =>
+    !!task.value &&
+    !awaitingAnswers.value &&
+    (acceptsPrompt(task.value.state) || isPostponed.value),
+);
+
+const canCompose = computed(() => canFollowUp.value || awaitingAnswers.value);
 
 const canAnswerInput = computed(() => Boolean(task.value?.canAnswerInput));
 

@@ -146,6 +146,8 @@ export interface ListTasksFilter {
 
   archived?: boolean;
 
+  includeArchived?: boolean;
+
   referenceProjectId?: string;
 
   limit?: number;

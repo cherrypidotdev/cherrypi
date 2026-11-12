@@ -31,6 +31,8 @@ const (
 	keyAgencyName           = "agency_name"
 	keyPrimaryColor         = "primary_color"
 	keyNotificationSoundSet = "notification_sound_set"
+	keyTaskArchiveEnabled   = "task_auto_archive_enabled"
+	keyTaskArchiveDays      = "task_auto_archive_days"
 	keyVoiceInputEnabled    = "voice_input_enabled"
 	keySTTBaseURL           = "stt_base_url"
 	keySTTModel             = "stt_model"
@@ -52,6 +54,16 @@ const sttTranscriptionsPath = "/audio/transcriptions"
 
 const DefaultNotificationSoundSet = "cherry"
 
+const (
+	DefaultTaskArchiveAfterDays = 30
+
+	MaxTaskArchiveAfterDays = 3650
+)
+
+var ErrInvalidTaskArchiveDays = errors.New(
+	"automatic archive delay must be between 1 and 3650 days",
+)
+
 var notificationSoundSets = map[string]bool{
 	"classic": true,
 	"cherry":  true,
@@ -62,11 +74,19 @@ var notificationSoundSets = map[string]bool{
 
 var colorPattern = regexp.MustCompile(`^#[0-9a-f]{6}$`)
 
+type TaskArchivePolicy struct {
+	Enabled bool
+
+	Days int
+}
+
 type Settings struct {
 	AgencyName   string
 	PrimaryColor string
 
 	NotificationSoundSet string
+
+	TaskArchive *TaskArchivePolicy
 
 	VoiceInputEnabled bool
 
@@ -102,7 +122,11 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 
 	out := Settings{
 		NotificationSoundSet: DefaultNotificationSoundSet,
-		STTModel:             DefaultSTTModel,
+		TaskArchive: &TaskArchivePolicy{
+			Enabled: true,
+			Days:    DefaultTaskArchiveAfterDays,
+		},
+		STTModel: DefaultSTTModel,
 	}
 	for _, row := range rows {
 		switch row.Key {
@@ -113,6 +137,13 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 		case keyNotificationSoundSet:
 			if notificationSoundSets[row.Value] {
 				out.NotificationSoundSet = row.Value
+			}
+		case keyTaskArchiveEnabled:
+			out.TaskArchive.Enabled = parseBool(row.Value, true)
+		case keyTaskArchiveDays:
+			if days, err := strconv.Atoi(strings.TrimSpace(row.Value)); err == nil &&
+				days >= 1 && days <= MaxTaskArchiveAfterDays {
+				out.TaskArchive.Days = days
 			}
 		case keyVoiceInputEnabled:
 			out.VoiceInputEnabled = parseBool(row.Value, false)
@@ -188,10 +219,23 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 	if !notificationSoundSets[soundSet] {
 		return Settings{}, ErrInvalidSoundSet
 	}
+	if in.TaskArchive != nil {
+		if in.TaskArchive.Days < 1 || in.TaskArchive.Days > MaxTaskArchiveAfterDays {
+			return Settings{}, ErrInvalidTaskArchiveDays
+		}
+	}
 
 	current, err := s.Get(ctx)
 	if err != nil {
 		return Settings{}, err
+	}
+
+	archive := current.TaskArchive
+	if in.TaskArchive != nil {
+		archive = &TaskArchivePolicy{
+			Enabled: in.TaskArchive.Enabled,
+			Days:    in.TaskArchive.Days,
+		}
 	}
 
 	apiKey := strings.TrimSpace(in.STTAPIKey)
@@ -224,10 +268,12 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 		return Settings{}, err
 	}
 	for key, value := range map[string]string{
-		keyVoiceInputEnabled: strconv.FormatBool(in.VoiceInputEnabled),
-		keySTTBaseURL:        baseURL,
-		keySTTModel:          model,
-		keySTTAPIKey:         apiKey,
+		keyVoiceInputEnabled:  strconv.FormatBool(in.VoiceInputEnabled),
+		keySTTBaseURL:         baseURL,
+		keySTTModel:           model,
+		keySTTAPIKey:          apiKey,
+		keyTaskArchiveEnabled: strconv.FormatBool(archive.Enabled),
+		keyTaskArchiveDays:    strconv.Itoa(archive.Days),
 	} {
 		if err := s.store.UpsertSetting(
 			ctx,
@@ -241,6 +287,7 @@ func (s *Service) Update(ctx context.Context, in Settings) (Settings, error) {
 		AgencyName:           name,
 		PrimaryColor:         color,
 		NotificationSoundSet: soundSet,
+		TaskArchive:          archive,
 		VoiceInputEnabled:    in.VoiceInputEnabled,
 		STTBaseURL:           baseURL,
 		STTModel:             model,

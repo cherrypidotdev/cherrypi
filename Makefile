@@ -73,6 +73,11 @@ build_agency:
 
 
 
+
+
+
+
+
 codegen:
 	@set -e; \
 	  (cd shared && buf generate) & buf_pid=$$!; \

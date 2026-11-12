@@ -115,20 +115,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @live-timing="$emit('live-timing', $event)"
     )
 
-    .shrink-0.px-4.pt-3.pb-3(v-if="showPendingPrompt")
-      .mx-auto.w-full.max-w-3xl
-        TaskPrompt(
-          field="pendingPrompt"
-          compact
-          :hint="pendingPromptHint"
-          :task="task"
-          :editable="canEditPrompt"
-          :text="task.pendingPrompt"
-          @saved="$emit('pending-prompt-saved')"
-        )
-
     Collapsible.shrink-0.border-t.px-4.pt-3(
-      v-if="taskQueue.length"
+      v-if="outgoingCount"
       v-model:open="queueOpen"
       class="group/queue"
       :class="queueOpen ? '' : 'pb-3'"
@@ -144,8 +132,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             p.text-muted-foreground.text-xs(
               data-testid="steering-queue-caption"
             )
-              | {{ $t("taskConsolePage.queuedSteering", { count: taskQueue.length }) }}{{ queueOpen ? queueCaption : "" }}
+              | {{ $t("taskConsolePage.queuedSteering", { count: outgoingCount }) }}{{ queueOpen ? queueCaption : "" }}
           Button.ml-auto(
+            v-if="taskQueue.length"
             variant="outline"
             size="sm"
             @click="$emit('clear-queue')"
@@ -156,6 +145,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             span {{ $t("taskConsolePage.clearQueue") }}
         CollapsibleContent
           .flex.flex-col.gap-1
+            div(v-if="showPendingPrompt" data-testid="stashed-follow-up")
+              TaskPrompt(
+                field="pendingPrompt"
+                compact
+                :hint="pendingPromptHint"
+                :task="task"
+                :editable="canEditPrompt"
+                :text="task.pendingPrompt"
+                @saved="$emit('pending-prompt-saved')"
+              )
+
             .d-chat.d-chat-end(
               v-for="item in queuedMessages"
               :key="item.id"
@@ -238,7 +238,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             | {{ $t("taskConsolePage.sessionGone") }}
 
         p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
-          v-if="isInput"
+          v-if="awaitingAnswers"
           data-testid="composer-input-hint"
         )
           InfoIcon.size-3.shrink-0(class="mt-0.5")
@@ -285,7 +285,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           MarkdownEditor(
             v-if="tab === 'write'"
             ref="promptInput"
-            :placeholder="isInput ? $t('taskConsolePage.draftPlaceholder') : $t('taskConsolePage.sendPlaceholder')"
+            :placeholder="awaitingAnswers ? $t('taskConsolePage.draftPlaceholder') : $t('taskConsolePage.sendPlaceholder')"
             submit-on-enter
             references
             test-id="composer-editor"
@@ -509,7 +509,12 @@ const isPostponed = computed(() => isBacklog.value && hasStarted.value);
 const isEditableBacklog = computed(() => isBacklog.value && !hasStarted.value);
 const canEditPrompt = isEditableBacklog;
 const isStarted = computed(() => Boolean(props.task?.sessionId));
-const isInput = computed(() => props.task?.state === TaskState.INPUT);
+
+const awaitingAnswers = computed(
+  () =>
+    props.task?.state === TaskState.INPUT ||
+    props.task?.runtime?.waitingForInput === true,
+);
 
 const runOver = computed(() => {
   const state = props.task?.state;
@@ -551,6 +556,8 @@ const pendingPromptHint = computed(() => {
   if (isPostponed.value) return "Started · follow up below to queue it again";
   if (isBacklog.value) return "Backlog · not queued yet";
   if (waitingReason.value) return waitingReason.value;
+
+  if (awaitingAnswers.value) return t("taskConsolePage.stashedUntilAnswered");
   if (isResting.value)
     return "Undelivered follow-up · the next run delivers it";
   return "";
@@ -560,7 +567,7 @@ const busy = computed(() => !props.task || props.task.runtime?.runInProgress);
 const steer = computed(() => props.task?.runtime?.runInProgress === true);
 
 const sendTitle = computed(() =>
-  props.task?.state === TaskState.INPUT
+  awaitingAnswers.value
     ? t("taskConsolePage.sendTitleBlocked")
     : steer.value
       ? t("taskConsolePage.sendTitleSteer")
@@ -580,13 +587,53 @@ const queueCaption = computed(() =>
   steer.value ? " — injected between blocks" : " — held until the run resumes",
 );
 
-const queueOpen = ref(true);
+const outgoingCount = computed(
+  () => props.taskQueue.length + (showPendingPrompt.value ? 1 : 0),
+);
+
+const queueOpen = ref(!awaitingAnswers.value);
+
+let shutByQuestionnaire = awaitingAnswers.value;
+let reopenTimer: ReturnType<typeof setTimeout> | undefined;
+const REOPEN_DELAY_MS = 500;
+
+function cancelReopen() {
+  if (reopenTimer !== undefined) {
+    clearTimeout(reopenTimer);
+    reopenTimer = undefined;
+  }
+}
+
 watch(
   () => props.task?.id,
   () => {
-    queueOpen.value = true;
+    cancelReopen();
+    queueOpen.value = !awaitingAnswers.value;
+    shutByQuestionnaire = awaitingAnswers.value;
   },
 );
+
+watch(queueOpen, (open) => {
+  if (open) shutByQuestionnaire = false;
+});
+watch(awaitingAnswers, (waiting) => {
+  cancelReopen();
+  if (waiting) {
+    if (queueOpen.value) {
+      queueOpen.value = false;
+      shutByQuestionnaire = true;
+    }
+    return;
+  }
+  if (!shutByQuestionnaire) return;
+  reopenTimer = setTimeout(() => {
+    reopenTimer = undefined;
+    if (shutByQuestionnaire && !awaitingAnswers.value) {
+      shutByQuestionnaire = false;
+      queueOpen.value = true;
+    }
+  }, REOPEN_DELAY_MS);
+});
 const textareaStyle = computed(() =>
   textareaHeight.value === null
     ? undefined
@@ -625,6 +672,7 @@ function stopResize() {
 
 onBeforeUnmount(() => {
   window.removeEventListener("pointermove", onResizeMove);
+  cancelReopen();
 });
 
 const queuedMessages = computed(() =>
@@ -666,6 +714,7 @@ en:
     sendTitle: "Send prompt"
     sendTitleSteer: "Steer: injected between the run’s blocks"
     sendTitleBlocked: "Answer the questionnaire to send this follow-up"
+    stashedUntilAnswered: "Undelivered follow-up · sent once you answer the questionnaire"
     draftPlaceholder: "You can draft a follow-up while the questionnaire is open…"
     sendPlaceholder: "Send a follow-up prompt…"
     editorHint: "Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+B bold · Ctrl+I italic · Ctrl+E code · Ctrl+K deletes to the end of the line · {'@'} mentions · # tasks"
@@ -687,6 +736,7 @@ ru:
     sendTitle: "Отправить промпт"
     sendTitleSteer: "Указание: вставляется между блоками запуска"
     sendTitleBlocked: "Ответьте на опросник, чтобы отправить уточнение"
+    stashedUntilAnswered: "Неотправленное уточнение · уйдёт после ответа на опросник"
     draftPlaceholder: "Пока опросник открыт, можно написать уточнение…"
     sendPlaceholder: "Отправить уточняющий промпт…"
     editorHint: "Enter — отправить · Shift+Enter — новая строка · Tab — отступ · Ctrl+B — жирный · Ctrl+I — курсив · Ctrl+E — код · Ctrl+K — удалить до конца строки · {'@'} — упоминания · # — задачи"

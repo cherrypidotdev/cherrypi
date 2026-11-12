@@ -25,12 +25,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :style="gridStyle"
   )
     template(v-if="!placed.length")
-      .text-muted-foreground.text-3xs.flex.items-center.justify-center.rounded-lg.border.border-dashed(
-        v-for="slot in emptySlots"
-        :key="`slot-${slot}`"
-        class="border-muted-foreground/30"
-      )
-        template(v-if="slot === 1") {{ $t("kpiGrid.empty") }}
+      template(v-for="slot in emptySlots" :key="`slot-${slot}`")
+        .text-muted-foreground.text-3xs.flex.items-center.justify-center.rounded-lg.border.border-dashed(
+          v-if="!editing || slot > 1"
+          class="border-muted-foreground/30"
+        )
+          template(v-if="slot === 1") {{ $t("kpiGrid.empty") }}
 
     template(v-for="group in groups" :key="group.key")
       KpiUsageScope(
@@ -120,6 +120,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :loading="false"
         )
 
+    DropdownMenu(v-if="editing && addPlacement")
+      DropdownMenuTrigger(as-child)
+        button.text-muted-foreground.flex.items-center.justify-center.rounded-lg.border.border-dashed.transition-colors(
+          type="button"
+          class="border-muted-foreground/30 hover:border-primary/50 hover:text-foreground"
+          :style="addStyle"
+          :aria-label="$t('kpiGrid.addWidget')"
+          :title="$t('kpiGrid.addWidget')"
+          data-kpi-add
+        )
+          PlusIcon.size-4
+      DropdownMenuContent.w-64(align="start")
+        template(v-for="section in KPI_WIDGET_MENU" :key="section.labelKey")
+          DropdownMenuLabel {{ $t(section.labelKey) }}
+          DropdownMenuItem(
+            v-for="definition in section.widgets"
+            :key="definition.kind"
+            @click="add(definition.kind)"
+            :disabled="!canAdd(definition.kind)"
+          )
+            .flex.min-w-0.flex-col
+              span {{ $t(definition.labelKey) }}
+              span.text-muted-foreground.text-3xs {{ $t(definition.hintKey) }}
+          DropdownMenuSeparator
+
   template(v-if="editing && !hideActions")
     p.text-muted-foreground.text-3xs.flex.items-center.gap-1
       MoveIcon.size-3.shrink-0
@@ -127,48 +152,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     p.text-muted-foreground.text-3xs
       | {{ $t("kpiGrid.keyboardHint") }}
 
-    .flex.flex-wrap.items-center.gap-2
-      DropdownMenu
-        DropdownMenuTrigger(as-child)
-          Button(type="button" variant="outline" size="sm")
-            PlusIcon(data-icon="inline-start")
-            span {{ $t("kpiGrid.addWidget") }}
-        DropdownMenuContent.w-64(align="start")
-          template(v-for="section in KPI_WIDGET_MENU" :key="section.labelKey")
-            DropdownMenuLabel {{ $t(section.labelKey) }}
-            DropdownMenuItem(
-              v-for="definition in section.widgets"
-              :key="definition.kind"
-              @click="add(definition.kind)"
-              :disabled="!canAdd(definition.kind)"
-            )
-              .flex.min-w-0.flex-col
-                span {{ $t(definition.labelKey) }}
-                span.text-muted-foreground.text-3xs {{ $t(definition.hintKey) }}
-            DropdownMenuSeparator
-      Button(
-        v-if="!inherited"
-        type="button"
-        variant="outline"
-        size="sm"
-        :title="$t('kpiGrid.resetOrg')"
-        @click="$emit('reset')"
-      )
-        RotateCcwIcon(data-icon="inline-start")
-        span {{ $t("kpiGrid.useDefault") }}
-      .flex-1
-      Button(type="button" variant="ghost" size="sm" @click="$emit('cancel')")
-        | {{ $t("common.cancel") }}
-      Button(
-        type="button"
-        size="sm"
-        :title="fits ? $t('kpiGrid.saveHint') : $t('kpiGrid.noFitHint')"
-        @click="$emit('save')"
-        :disabled="saving || !fits"
-      )
-        Spinner(v-if="saving" data-icon="inline-start")
-        CheckIcon(v-else data-icon="inline-start")
-        span {{ $t("kpiGrid.saveLayout") }}
+    Button(
+      v-if="!inherited"
+      type="button"
+      variant="outline"
+      size="sm"
+      :title="$t('kpiGrid.resetOrg')"
+      @click="$emit('reset')"
+    )
+      RotateCcwIcon(data-icon="inline-start")
+      span {{ $t("kpiGrid.useDefault") }}
 
   Dialog(
     :open="Boolean(selected)"
@@ -251,7 +244,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import {
   addKpiWidget,
   KPI_GRID_COLUMNS,
@@ -259,7 +251,6 @@ import {
   KPI_WIDGET_MENU,
   kpiBoardScope,
   kpiConcurrencyContent,
-  kpiLayoutFits,
   kpiUsageContent,
   kpiUsageScopeKey,
   kpiWidgetDefinition,
@@ -276,7 +267,7 @@ import {
   type KpiWidgetState,
 } from "@/lib/kpiWidgets";
 import { USAGE_RANGE_OPTIONS, type UsageRange } from "@/lib/usage";
-import { CheckIcon, MoveIcon, PlusIcon, RotateCcwIcon } from "@lucide/vue";
+import { MoveIcon, PlusIcon, RotateCcwIcon } from "@lucide/vue";
 import { useMediaQuery } from "@vueuse/core";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -290,7 +281,6 @@ const props = defineProps<{
   range: UsageRange;
 
   editing?: boolean;
-  saving?: boolean;
 
   canEdit?: boolean;
 
@@ -303,7 +293,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:widgets": [widgets: KpiWidgetState[]];
-  save: [];
   cancel: [];
   reset: [];
 }>();
@@ -325,6 +314,32 @@ const gridStyle = computed(() => ({
 }));
 
 const placed = computed(() => placeKpiWidgets(props.widgets));
+
+const addPlacement = computed(() => {
+  if (!props.editing) return undefined;
+  const probe: KpiWidgetState = {
+    id: "__add__",
+    kind: "__add__",
+    width: 1,
+    height: 1,
+    range: "",
+    scope: "",
+  };
+  const packed = placeKpiWidgets([...props.widgets, probe]);
+  if (packed.length !== props.widgets.length + 1) return undefined;
+  return packed.at(-1)!.placement;
+});
+
+const addStyle = computed(() => {
+  const placement = addPlacement.value;
+  if (!placement) return undefined;
+
+  if (narrow.value) return { gridColumn: "1 / -1", gridRow: "auto" };
+  return {
+    gridColumn: `${placement.x + 1} / span 1`,
+    gridRow: `${placement.y + 1} / span 1`,
+  };
+});
 
 const selected = computed(() =>
   placed.value.find((entry) => entry.widget.id === settingsId.value),
@@ -513,8 +528,6 @@ watch(
   },
   { immediate: true },
 );
-
-const fits = computed(() => kpiLayoutFits(props.widgets));
 </script>
 
 <i18n lang="yaml">
@@ -531,13 +544,10 @@ en:
     projectScope: "Project · {name}"
     addWidget: "Add widget"
     useDefault: "Use the default"
-    saveLayout: "Save layout"
-    saveHint: "Save the layout of this page"
-    noFitHint: "The widgets do not fit the grid"
     timeFrame: "Time frame"
     scopeLabel: "Scope"
     size: "Size"
-    title: "KPI widgets"
+    title: "Overview widgets"
     empty: "No widgets yet"
     pickScope: "Pick an agent or project above to see concurrency."
     resetOrg: "Drop this page's own layout and follow the organization default"
@@ -557,13 +567,10 @@ ru:
     projectScope: "Проект · {name}"
     addWidget: "Добавить виджет"
     useDefault: "Использовать значение по умолчанию"
-    saveLayout: "Сохранить макет"
-    saveHint: "Сохранить макет этой страницы"
-    noFitHint: "Виджеты не помещаются в сетку"
     timeFrame: "Период"
     scopeLabel: "Область"
     size: "Размер"
-    title: "Виджеты KPI"
+    title: "Виджеты обзора"
     empty: "Виджетов пока нет"
     pickScope: "Выберите агента или проект выше, чтобы увидеть параллельность."
     resetOrg: "Сбросить собственный макет страницы и следовать значению организации"

@@ -137,6 +137,7 @@ func (s *TaskServer) ListTasks(
 		Size:               sizeFromProto(req.Size),
 		Priority:           priority,
 		Archived:           req.Archived,
+		IncludeArchived:    req.IncludeArchived,
 		ParentTaskID:       req.ParentTaskId,
 		ReferenceProjectID: req.ReferenceProjectId,
 		Limit:              int64(req.Limit),
@@ -913,26 +914,7 @@ func (s *TaskServer) CleanupTaskSession(
 }
 
 func (s *TaskServer) cleanupTaskSession(ctx context.Context, t tasks.Task) error {
-	if t.SessionID == "" || !t.SessionDeletedAt.IsZero() {
-		return nil
-	}
-	if t.AssigneeActorID == 0 {
-		return errors.New("task has no assigned agent")
-	}
-	conn, err := s.connectionForActor(ctx, t.AssigneeActorID)
-	if err != nil {
-		return err
-	}
-	if _, err := conn.Tasks.DeleteTask(
-		ctx,
-		&agentv1.DeleteTaskRequest{Id: t.SessionID},
-	); err != nil && connect.CodeOf(err) != connect.CodeNotFound {
-		return fmt.Errorf("delete agent session: %w", err)
-	}
-	if _, err := s.Tasks.MarkSessionDeleted(ctx, t.ID); err != nil {
-		return err
-	}
-	return nil
+	return s.Tasks.CleanupSession(ctx, t.ID)
 }
 
 func (s *TaskServer) RenameTask(
@@ -1421,7 +1403,17 @@ func (s *TaskServer) StopTask(
 	if err != nil {
 		return nil, err
 	}
+
+	s.Tasks.AppendLog(
+		ctx, t.ID, tasks.LogStop, "", "", "", "Stop requested",
+		map[string]any{"requested": true},
+	)
 	if _, err := conn.Tasks.StopTask(ctx, &agentv1.StopTaskRequest{Id: t.SessionID}); err != nil {
+
+		s.Tasks.AppendLog(
+			ctx, t.ID, tasks.LogStop, "", "", "", "Stop failed",
+			map[string]any{"failed": true, "error": err.Error()},
+		)
 		return nil, err
 	}
 	return &agencyv1.StopTaskResponse{}, nil

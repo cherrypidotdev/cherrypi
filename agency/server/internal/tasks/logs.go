@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/actorid"
+	"cherrypi.vladfaust.com/agency/internal/textutil"
 )
 
 type Actor string
@@ -73,6 +74,8 @@ const (
 	LogPlugin = "plugin"
 
 	LogHold = "hold"
+
+	LogStop = "stop"
 )
 
 type actorContextKey struct{}
@@ -117,6 +120,23 @@ func stateReasonFrom(ctx context.Context) string {
 	return reason
 }
 
+type StopTrigger struct {
+	Actor   Actor
+	ActorID ids.ActorID
+	At      int64
+}
+
+type stopTriggerKey struct{}
+
+func WithStopTrigger(ctx context.Context, trigger StopTrigger) context.Context {
+	return context.WithValue(ctx, stopTriggerKey{}, trigger)
+}
+
+func stopTriggerFrom(ctx context.Context) (StopTrigger, bool) {
+	trigger, ok := ctx.Value(stopTriggerKey{}).(StopTrigger)
+	return trigger, ok
+}
+
 type suppressLogKey struct{}
 
 func withoutLogging(ctx context.Context) context.Context {
@@ -156,10 +176,10 @@ func (s *Service) Logs(ctx context.Context, taskID string) ([]Log, error) {
 			ActorID:  ids.ActorID(row.ActorID.Int64),
 			Kind:     row.Kind,
 			Field:    row.Field,
-			OldValue: row.OldValue,
-			NewValue: row.NewValue,
-			Message:  row.Message,
-			DataJSON: row.DataJson,
+			OldValue: textutil.Clean(row.OldValue),
+			NewValue: textutil.Clean(row.NewValue),
+			Message:  textutil.Clean(row.Message),
+			DataJSON: textutil.Clean(row.DataJson),
 		}
 	}
 	return out, nil
@@ -303,6 +323,13 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 		stateData := enumChange(string(before.State), string(after.State))
 		if reason := stateReasonFrom(ctx); reason != "" {
 			stateData["reason"] = reason
+		}
+		if trigger, ok := stopTriggerFrom(ctx); ok {
+			stateData["stop"] = map[string]any{
+				"actor":   string(trigger.Actor),
+				"actorId": actorid.Format(trigger.ActorID),
+				"at":      trigger.At,
+			}
 		}
 		s.recordLog(
 			ctx, actor, at, id, LogState, "state",

@@ -85,6 +85,7 @@ import {
 import {
   SettingsService,
   type Settings,
+  type TaskAutoArchive,
   type VoiceInput,
 } from "./gen/buf/agency/v1/settings_pb.js";
 import { TerminalService as AgencyTerminalService } from "./gen/buf/agency/v1/terminal_pb.js";
@@ -199,7 +200,7 @@ export { TaskTemplateArgType };
 export type { Site };
 export type { AgentProjectPrompt, Prompt, SystemPromptSection };
 export { PromptScope };
-export type { Settings as AgencySettings, VoiceInput };
+export type { Settings as AgencySettings, TaskAutoArchive, VoiceInput };
 export type { Webhook as AgencyWebhook };
 export type { Notification as AgencyNotification };
 export { WebhookEvent as AgencyWebhookEvent };
@@ -243,12 +244,20 @@ export interface VoiceInputSettingsInput {
   model: string;
 }
 
+export interface TaskAutoArchiveInput {
+  enabled: boolean;
+
+  days: number;
+}
+
 export interface AgencySettingsInput {
   agencyName: string;
 
   primaryColor: string;
 
   notificationSoundSet?: string;
+
+  taskAutoArchive?: TaskAutoArchiveInput;
 
   voiceInput?: VoiceInputSettingsInput;
 
@@ -629,6 +638,18 @@ export class AgencyClient {
         description: input.description,
         prefix: input.prefix ?? "",
       },
+      options,
+    );
+    return res.project!;
+  }
+
+  async setProjectArchiveAfterDays(
+    id: string,
+    days: number | null,
+    options?: CallOptions,
+  ): Promise<Project> {
+    const res = await this.projects.setProjectArchiveAfterDays(
+      { id, archiveAfterDays: days ?? undefined },
       options,
     );
     return res.project!;
@@ -1180,6 +1201,12 @@ export class AgencyClient {
           agencyName: input.agencyName,
           primaryColor: input.primaryColor,
           notificationSoundSet: input.notificationSoundSet ?? "",
+          taskAutoArchive: input.taskAutoArchive
+            ? {
+                enabled: input.taskAutoArchive.enabled,
+                days: input.taskAutoArchive.days,
+              }
+            : undefined,
           voiceInput: input.voiceInput
             ? {
                 enabled: input.voiceInput.enabled,
@@ -1230,6 +1257,7 @@ export class AgencyClient {
         size: filter?.size ?? TaskSize.UNSPECIFIED,
         priority: filter?.priority ?? TaskPriority.UNSPECIFIED,
         archived: filter?.archived ?? false,
+        includeArchived: filter?.includeArchived ?? false,
         parentTaskId: filter?.parentTaskId ?? "",
         referenceProjectId: filter?.referenceProjectId ?? "",
         limit: filter?.limit ?? 0,

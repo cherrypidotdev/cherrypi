@@ -188,13 +188,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
-          details.group.bg-card.w-full.overflow-hidden.rounded-lg.border(
+          details.bg-card.w-full.overflow-hidden.rounded-lg.border(
+            class="group/activity"
             @toggle="onActivityToggle(group.id, $event)"
             :data-activity-id="group.id"
           )
             summary.flex.cursor-pointer.items-center.gap-2.px-3.py-2.text-xs.select-none
               ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
-                class="group-open:rotate-90"
+                class="group-open/activity:rotate-90"
               )
               Spinner.size-3.shrink-0(
                 v-if="group.running"
@@ -223,6 +224,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :text="child.text"
                   :started-at="child.startedAt"
                   :ended-at="child.endedAt"
+                  :duration-ms="child.durationMs"
+                  :estimated="child.estimated === true"
                   :running="isThinkingRunning(child)"
                 )
 
@@ -273,10 +276,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :label="stateChangeLabel(group.change)"
             :icon="stateChangeIcon(group.change)"
             :hint="stateChangeTitle(group.change)"
-            :reason="group.change.reason"
+            :reason="stateChangeReason(group.change)"
             :at="group.change.at"
             data-testid="state-change"
           )
+            template(#actor)
+              MessageSender(
+                v-if="stateChangeActor(group.change)"
+                :sender="stateChangeActor(group.change) ?? SYSTEM_SENDER"
+                :picture="stateChangeActorPicture(group.change)"
+                :avatar="false"
+                data-testid="state-change-actor"
+              )
+              Badge.font-normal(
+                v-else-if="stateChangeKindLabel(group.change)"
+                variant="outline"
+                class="h-4.5 px-1.5 text-[10px]"
+                data-testid="state-change-actor"
+              ) {{ stateChangeKindLabel(group.change) }}
 
         .d-chat.d-chat-start(v-else-if="group.kind === 'questionnaire-live'")
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
@@ -411,12 +428,13 @@ import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
 import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
 import ThinkingBlock from "@/components/tasks/ThinkingBlock.vue";
 import ToolCall from "@/components/tasks/ToolCall.vue";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { namedSender } from "@/lib/actors";
 import {
-  absorbsWait,
   activeQuestionnaire,
+  applyThinkingSpan,
   findTool,
   groupElapsed,
   groupItems,
@@ -429,6 +447,8 @@ import {
   pinnedUserIndex,
   prependEvents,
   runUsageByMessage,
+  SYSTEM_SENDER,
+  thinkingSpan,
   timestampMs,
   WAIT_RENDER_MS,
   type ActivityItem,
@@ -814,9 +834,7 @@ const groups = computed<RenderGroup[]>(() => {
   const out: RenderGroup[] = raw.flatMap((group, index): RenderGroup[] => {
     if (group.kind === "activity") {
       const items = group.items.filter(
-        (item, position) =>
-          !absorbsWait(item, group.items[position + 1]) &&
-          (item.kind !== "wait" || item.durationMs >= WAIT_RENDER_MS),
+        (item) => item.kind !== "wait" || item.durationMs >= WAIT_RENDER_MS,
       );
       return [
         {
@@ -927,18 +945,19 @@ const waitingCutoff = computed(() => {
   return lastItemAt(last) ?? waitStartedAt.value;
 });
 
-function isInFlight(item: ActivityItem): boolean {
+function isInFlight(item: Item): boolean {
   if (item.kind !== "tool") return false;
   if (item.phase === ToolPhase.FINISHED || item.interrupted) return false;
-  if (!live.value || waitingForInput.value || pending.value !== null) {
-    return false;
-  }
+  if (!live.value || waitingForInput.value) return false;
   return items.value[items.value.length - 1]?.id === item.id;
 }
 
 function isThinkingRunning(item: ActivityItem): boolean {
   if (item.kind !== "thinking") return false;
-  if (!live.value || waitingForInput.value || showPending.value) return false;
+
+  if (!live.value || waitingForInput.value || pending.value !== null) {
+    return false;
+  }
   return items.value[items.value.length - 1]?.id === item.id;
 }
 
@@ -961,6 +980,21 @@ function interruptOpenTools(at?: number) {
       item.interrupted = true;
       item.endedAt ??= boundary;
     }
+  }
+}
+
+function retireCallsBefore(stepSince: number) {
+  for (const item of items.value) {
+    if (
+      item.kind !== "tool" ||
+      item.phase === ToolPhase.FINISHED ||
+      item.interrupted === true
+    ) {
+      continue;
+    }
+    if (item.startedAt === undefined || item.startedAt >= stepSince) continue;
+    item.interrupted = true;
+    item.endedAt ??= stepSince;
   }
 }
 
@@ -1055,11 +1089,7 @@ function waitTotals(items: ActivityItem[]): WaitTotals {
   return totals;
 }
 
-const hasRunningTool = computed(() =>
-  groups.value.some(
-    (group) => group.kind === "activity" && group.items.some(isInFlight),
-  ),
-);
+const hasRunningTool = computed(() => items.value.some(isInFlight));
 
 const hasRunningThinking = computed(() =>
   groups.value.some(
@@ -1113,7 +1143,8 @@ const showPending = computed(
     pending.value !== null &&
     pendingRevealed.value &&
     props.busy === true &&
-    props.waitingForInput !== true,
+    props.waitingForInput !== true &&
+    !hasRunningTool.value,
 );
 
 function groupKey(group: RenderGroup): string | number {
@@ -1134,12 +1165,59 @@ function stateChangeIcon(change: StateChange) {
   return taskStateIcon(taskStateFromStored(change.to));
 }
 
+function stateChangeReason(change: StateChange): string {
+  if (change.trigger?.kind === "stop") return t("taskConsole.stoppedBy");
+  return change.reason;
+}
+
+function stateChangeActor(change: StateChange): ChatSender | undefined {
+  const actor = change.trigger?.actor ?? change.actor;
+  const id = change.trigger?.actorId || change.actorId;
+  if (!actor || actor === "system") return undefined;
+
+  const directoryName = id ? props.actorNames.get(id) : undefined;
+  if (!directoryName) return undefined;
+  return {
+    id: id || undefined,
+    username: "",
+    name: directoryName,
+    kind: actor,
+  };
+}
+
+function stateChangeActorPicture(change: StateChange): Attachment | undefined {
+  return pictureForActor(
+    change.trigger?.actorId || change.actorId || undefined,
+  );
+}
+
+function stateChangeKindLabel(change: StateChange): string {
+  const actor = change.trigger?.actor ?? change.actor;
+  switch (actor) {
+    case "user":
+      return t("taskConsole.user");
+    case "agent":
+      return t("admin.agents.columnAgent");
+    case "plugin":
+      return t("taskConsole.plugin");
+    default:
+      return t("taskConsole.system");
+  }
+}
+
 function stateChangeTitle(change: StateChange): string {
   const parts = [stateChangeLabel(change)];
-  if (change.reason) parts.push(change.reason);
-  if (change.actor) parts.push(`by ${change.actor}`);
+  const cause = stateChangeReason(change);
+  const actor = change.trigger?.actor || change.actor;
+  if (change.trigger) {
+    const name = stateChangeActor(change)?.name;
+    parts.push(name ? `${cause} ${name}` : cause);
+  } else {
+    if (cause) parts.push(cause);
+    if (actor) parts.push(`by ${actor}`);
+  }
   if (change.at) parts.push(formatInstant(change.at));
-  return parts.join(" · ");
+  return parts.filter(Boolean).join(" · ");
 }
 
 /** The one-line outcome of an answered questionnaire. */
@@ -1663,9 +1741,17 @@ function applyEvent(event: TaskEvent) {
           : payload.value.steering.map((text) => ({ id: "", text })),
       );
       break;
-    case "thinking":
+    case "thinking": {
+      const span = thinkingSpan(event);
+      if (span) {
+        flushDeltas();
+        applyThinkingSpan(items.value, span);
+        break;
+      }
+
       queueDelta("thinking", payload.value.delta, timestampMs(event.at));
       break;
+    }
     case "tool": {
       clearPending();
       const item = newItem(event);
@@ -1707,10 +1793,13 @@ function applyEvent(event: TaskEvent) {
         break;
       }
 
-      interruptOpenTools(timestampMs(event.at));
+      const since = timestampMs(event.at) ?? Date.now();
+      if (state.kind === PendingActivity_Kind.MODEL_REQUEST) {
+        retireCallsBefore(since);
+      }
       pending.value = {
         kind: state.kind,
-        since: timestampMs(event.at) ?? Date.now(),
+        since,
         model: state.model,
         provider: state.provider,
         error: state.error,
@@ -2044,6 +2133,10 @@ onBeforeUnmount(() => {
 <i18n lang="yaml">
 en:
   taskConsole:
+    stoppedBy: "stopped by"
+    user: "User"
+    plugin: "Plugin"
+    system: "System"
     beginning: "Beginning of conversation"
     scrollToMessage: "Scroll to this message"
     collapseReasoning: "Collapse reasoning"
@@ -2055,6 +2148,10 @@ en:
     copyResponse: "Copy response"
 ru:
   taskConsole:
+    stoppedBy: "остановлено пользователем"
+    user: "Пользователь"
+    plugin: "Плагин"
+    system: "Система"
     beginning: "Начало переписки"
     scrollToMessage: "Перейти к этому сообщению"
     collapseReasoning: "Свернуть рассуждение"

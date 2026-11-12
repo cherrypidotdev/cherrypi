@@ -31,6 +31,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
+	"cherrypi.vladfaust.com/agency/internal/archiver"
 	"cherrypi.vladfaust.com/agency/internal/artifacts"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
@@ -596,7 +597,10 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_TERMINALS)
 	}
 
+	tasksSvc.DeleteAgentSession = deleteAgentSession(hub)
+
 	go sched.Run(context.Background())
+	go archiver.New(tasksSvc, settingsSvc).Run(context.Background())
 
 	return &AppContext{
 		Config:   config,
@@ -657,6 +661,29 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 				}, nil
 			},
 		},
+	}
+}
+
+func deleteAgentSession(
+	hub *tunnel.Hub,
+) func(ctx context.Context, agentID ids.AgentID, sessionID string) error {
+	return func(
+		ctx context.Context,
+		agentID ids.AgentID,
+		sessionID string,
+	) error {
+		conn, err := hub.Connection(agentID)
+		if err != nil {
+			return err
+		}
+		_, err = conn.Tasks.DeleteTask(
+			ctx,
+			&agentv1.DeleteTaskRequest{Id: sessionID},
+		)
+		if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+			return err
+		}
+		return nil
 	}
 }
 

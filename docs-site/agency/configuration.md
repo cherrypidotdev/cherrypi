@@ -129,7 +129,7 @@ the `minio-init` service creates it.
 
 | Section | What you configure |
 | --- | --- |
-| General | Agency name, logo, favicon, primary color, and the default Overview KPI widget layouts. |
+| General | Agency name, logo, favicon, primary color, the default Overview widget layouts, and the automatic task-archive policy. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |
@@ -139,10 +139,24 @@ the `minio-init` service creates it.
 
 See [Authentication and teams](/agency/authentication) for the identity model.
 
-### Overview KPI layouts
+### Automatic archive
 
-The agency Tasks page and every project and agent **Overview** render a KPI
-widget layout instead of a fixed strip. Each page's layout is agency-wide: an
+Completed and cancelled tasks leave the active lists after **30 days** by
+default. **Settings → General → Automatic archive** changes the delay (1–3650
+days) or switches the policy off. Archiving also deletes the task's agent-side
+Pi session and workspace; when the agent is offline, the cleanup stays pending
+and can be retried from the task.
+
+A project owner may override the policy in **Project settings → Tasks**: follow
+the organization's policy, use the project's own delay, or never auto-archive
+that project's tasks. The archive is reversible: an archived task keeps its
+state, can be unarchived, and a follow-up prompt (from the console, a plugin or
+a review wake) brings it back to the active lists and runs it.
+
+### Overview widget layouts
+
+The agency Tasks page and every project and agent **Overview** render a widget
+layout instead of a fixed strip. Each page's layout is agency-wide: an
 administrator arranges the Tasks page, a project owner arranges their project,
 and an agent owner arranges their agent. A layout holds up to eight widgets in a
 four-by-two grid; a widget spans one to four columns and one or two rows, and
@@ -154,11 +168,13 @@ time, time till completion, completed tasks), the same metrics averaged per
 completed task, and the live concurrency figures (slots held, waiting, free
 slots or member agents, full caps).
 
-**Settings → General → Overview KPI layouts** holds the fallback layouts: a
+**Settings → General → Overview widget layouts** holds the fallback layouts: a
 project or agent page without a layout of its own renders its kind's fallback,
-so a new page is arranged the moment it appears. An empty layout renders no
-KPIs, which is also the default. The **Usage** and **Concurrency** tabs keep
-their fixed strips, which cannot be rearranged.
+so a new page is arranged the moment it appears. Until an administrator saves
+the fallbacks, they are the first four catalog widgets (cost, tokens, response
+rounds and thinking time); saving an empty fallback renders no widgets. The
+**Usage** and **Concurrency** tabs keep their fixed strips, which cannot be
+rearranged.
 
 ### Voice input
 

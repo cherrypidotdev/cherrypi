@@ -37,6 +37,10 @@ var (
 
 	ErrInvalidPrefix = errors.New("task prefix must contain letters or digits")
 
+	ErrInvalidArchiveAfterDays = errors.New(
+		"automatic archive override must be 0 (never) or between 1 and 3650 days",
+	)
+
 	ErrProjectHasTasks = errors.New("project still has tasks; delete them first")
 
 	ErrAgentHasTasks = errors.New("agent still has tasks in the project; delete them first")
@@ -63,6 +67,8 @@ type Project struct {
 	ArchivedAt time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+
+	ArchiveAfterDays *int
 }
 
 type TaskRef struct {
@@ -218,6 +224,62 @@ func (s *Service) Update(
 			"Changed the task prefix to "+row.Prefix, nil)
 	}
 	return toProject(row), nil
+}
+
+func (s *Service) SetArchiveAfterDays(
+	ctx context.Context,
+	id string,
+	days *int,
+) (Project, error) {
+	if days != nil && (*days < 0 || *days > MaxArchiveAfterDays) {
+		return Project{}, ErrInvalidArchiveAfterDays
+	}
+	cur, err := s.Get(ctx, id)
+	if err != nil {
+		return Project{}, err
+	}
+	row, err := s.store.SetProjectArchiveAfterDays(
+		ctx,
+		store.SetProjectArchiveAfterDaysParams{
+			ArchiveAfterDays: nullInt64(days),
+			UpdatedAt:        time.Now().UnixMilli(),
+			ID:               cur.ID,
+		},
+	)
+	if err != nil {
+		return Project{}, err
+	}
+	if !sameOptionalInt(cur.ArchiveAfterDays, days) {
+		s.writeLog(
+			ctx, cur.ID, "settings", "archive_after_days",
+			formatOptionalDays(cur.ArchiveAfterDays), formatOptionalDays(days),
+			"Changed the automatic archive override", nil,
+		)
+	}
+	return toProject(row), nil
+}
+
+const MaxArchiveAfterDays = 3650
+
+func nullInt64(days *int) sql.NullInt64 {
+	if days == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*days), Valid: true}
+}
+
+func sameOptionalInt(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func formatOptionalDays(days *int) string {
+	if days == nil {
+		return ""
+	}
+	return strconv.Itoa(*days)
 }
 
 func (s *Service) SetArchived(ctx context.Context, id string, archived bool) (Project, error) {
@@ -424,6 +486,10 @@ func toProject(row store.Project) Project {
 	}
 	if row.ArchivedAt.Valid {
 		p.ArchivedAt = time.UnixMilli(row.ArchivedAt.Int64)
+	}
+	if row.ArchiveAfterDays.Valid {
+		days := int(row.ArchiveAfterDays.Int64)
+		p.ArchiveAfterDays = &days
 	}
 	return p
 }

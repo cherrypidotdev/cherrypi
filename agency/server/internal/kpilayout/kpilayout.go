@@ -206,6 +206,22 @@ func fits(taken *[GridRows][GridColumns]bool, x, y, width, height int) bool {
 	return true
 }
 
+var builtInDefaultWidgets = []Widget{
+	{ID: "default-cost", Kind: "usage.cost.total", Width: 1, Height: 1},
+	{ID: "default-tokens", Kind: "usage.tokens.total", Width: 1, Height: 1},
+	{ID: "default-rounds", Kind: "usage.rounds.total", Width: 1, Height: 1},
+	{ID: "default-thinking", Kind: "usage.thinking.total", Width: 1, Height: 1},
+}
+
+func builtInDefault(kind string) Layout {
+	if kind != KindProject && kind != KindAgent {
+		return Layout{}
+	}
+	widgets := make([]Widget, len(builtInDefaultWidgets))
+	copy(widgets, builtInDefaultWidgets)
+	return Layout{Widgets: widgets}
+}
+
 func (s *Service) Page(ctx context.Context, page Page) (Layout, bool, error) {
 	if err := page.Validate(); err != nil {
 		return Layout{}, false, err
@@ -217,7 +233,7 @@ func (s *Service) Page(ctx context.Context, page Page) (Layout, bool, error) {
 	if page.Kind == KindAgency {
 		return Layout{}, false, nil
 	}
-	fallback, _, err := s.read(ctx, defaultsKey(page.Kind))
+	fallback, err := s.organizationDefault(ctx, page.Kind)
 	if err != nil {
 		return Layout{}, false, err
 	}
@@ -228,8 +244,18 @@ func (s *Service) Fallback(ctx context.Context, kind string) (Layout, error) {
 	if kind != KindProject && kind != KindAgent {
 		return Layout{}, ErrInvalidPage
 	}
-	layout, _, err := s.read(ctx, defaultsKey(kind))
-	return layout, err
+	return s.organizationDefault(ctx, kind)
+}
+
+func (s *Service) organizationDefault(ctx context.Context, kind string) (Layout, error) {
+	layout, found, err := s.read(ctx, defaultsKey(kind))
+	if err != nil {
+		return Layout{}, err
+	}
+	if !found {
+		return builtInDefault(kind), nil
+	}
+	return layout, nil
 }
 
 func (s *Service) SetPage(ctx context.Context, page Page, layout Layout) (Layout, error) {
@@ -261,11 +287,11 @@ func (s *Service) DeletePage(ctx context.Context, page Page) error {
 }
 
 func (s *Service) Defaults(ctx context.Context) (Layout, Layout, error) {
-	project, _, err := s.read(ctx, defaultsKey(KindProject))
+	project, err := s.organizationDefault(ctx, KindProject)
 	if err != nil {
 		return Layout{}, Layout{}, err
 	}
-	agent, _, err := s.read(ctx, defaultsKey(KindAgent))
+	agent, err := s.organizationDefault(ctx, KindAgent)
 	if err != nil {
 		return Layout{}, Layout{}, err
 	}

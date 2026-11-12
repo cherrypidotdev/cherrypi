@@ -38,6 +38,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
 	"cherrypi.vladfaust.com/agency/internal/webhook"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
+	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
 	sharedhealth "cherrypi.vladfaust.com/shared/health"
 )
 
@@ -239,6 +240,7 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 
 	case "agent_state_changed":
 		taskID := c.taskID(ctx, agentID, sessionID)
+		status := agentv1.TaskStatus(int64Value(msg.Payload["status"]))
 		if stringValue(msg.Payload["state"]) == "failed" {
 			errMsg := stringValue(msg.Payload["error"])
 			c.notifyTask(
@@ -262,6 +264,8 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 					}
 				}
 			}
+		} else {
+			c.materializeStatus(ctx, agentID, taskID, status)
 		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
 		c.Realtime.PublishTask(taskID)
@@ -299,6 +303,42 @@ func (c *Consumer) insertHealth(ctx context.Context, agentID ids.AgentID, msg Me
 	}
 	if err := c.Health.Insert(ctx, agentID, sample); err != nil {
 		log.Printf("[events %d] insert health: %v", agentID, err)
+	}
+}
+
+func (c *Consumer) materializeStatus(
+	ctx context.Context,
+	agentID ids.AgentID,
+	taskID string,
+	status agentv1.TaskStatus,
+) {
+	if c.Tasks == nil || taskID == "" {
+		return
+	}
+
+	ctx = tasks.WithActor(ctx, tasks.ActorAgent)
+
+	switch status {
+	case agentv1.TaskStatus_TASK_STATUS_DONE:
+
+		ctx = tasks.WithStateReason(ctx, "run finished")
+		if _, err := c.Tasks.Settle(ctx, taskID); err != nil {
+			log.Printf("[events %d] settle task %s: %v", agentID, taskID, err)
+		}
+	case agentv1.TaskStatus_TASK_STATUS_WAITING_INPUT:
+		ctx = tasks.WithStateReason(ctx, "run waiting for input")
+		if _, err := c.Tasks.MarkInput(ctx, taskID); err != nil {
+			log.Printf("[events %d] mark task %s input: %v", agentID, taskID, err)
+		}
+	case agentv1.TaskStatus_TASK_STATUS_IN_PROGRESS:
+
+		ctx = tasks.WithStateReason(ctx, "run started")
+		if _, err := c.Tasks.Resume(ctx, taskID); err != nil {
+			log.Printf("[events %d] resume task %s: %v", agentID, taskID, err)
+		}
+		if _, err := c.Tasks.ClearInput(ctx, taskID); err != nil {
+			log.Printf("[events %d] clear task %s input: %v", agentID, taskID, err)
+		}
 	}
 }
 

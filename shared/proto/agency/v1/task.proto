@@ -541,6 +541,8 @@ message TaskLog {
   
   
   
+  
+  
   string kind = 4;
   
   
@@ -552,6 +554,11 @@ message TaskLog {
   string new_value = 7;
   
   string message = 8;
+  
+  
+  
+  
+  
   
   
   
@@ -765,6 +772,10 @@ message ListTasksRequest {
   reserved 12; 
   
   string parent_task_id = 13;
+  
+  
+  
+  bool include_archived = 14;
 }
 message ListTasksResponse {
   repeated Task tasks = 1;

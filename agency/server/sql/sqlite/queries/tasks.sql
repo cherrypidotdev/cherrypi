@@ -67,6 +67,7 @@ SELECT * FROM tasks WHERE project_id = ? AND seq = ?;
 
 
 
+
 -- name: ListTasks :many
 WITH reference_scope AS (
   SELECT CAST(sqlc.narg(reference_project_id) AS TEXT) AS id
@@ -104,7 +105,13 @@ WHERE (
   )
   AND (
     (CAST(sqlc.arg(archived) AS INTEGER) = 1 AND t.archived_at IS NOT NULL)
-    OR (CAST(sqlc.arg(archived) AS INTEGER) = 0 AND t.archived_at IS NULL)
+    OR (
+      CAST(sqlc.arg(archived) AS INTEGER) = 0
+      AND (
+        t.archived_at IS NULL
+        OR CAST(sqlc.arg(include_archived) AS INTEGER) = 1
+      )
+    )
   )
   AND (
     CAST(sqlc.narg(parent_task_id) AS TEXT) IS NULL
@@ -371,7 +378,10 @@ UPDATE tasks SET
     WHEN pending_prompt = '' THEN sqlc.narg(pending_prompt_actor_id)
     ELSE COALESCE(pending_prompt_actor_id, sqlc.narg(pending_prompt_actor_id))
   END,
-  queued_at = COALESCE(queued_at, sqlc.arg(queued_at)), updated_at = sqlc.arg(updated_at)
+  queued_at = COALESCE(queued_at, sqlc.arg(queued_at)), updated_at = sqlc.arg(updated_at),
+  
+  
+  archived_at = NULL
 WHERE id = sqlc.arg(id)
   AND state IN ('completed', 'cancelled', 'settled', 'failed', 'backlog');
 
@@ -599,3 +609,51 @@ JOIN tags ON tags.id = tt.tag_id
 WHERE t.project_id = sqlc.arg(project_id)
   AND t.archived_at IS NULL
   AND t.state IN ('running', 'input', 'settled', 'failed');
+
+-- name: ListInheritedAutoArchivableTasks :many
+
+
+
+
+SELECT t.* FROM tasks t
+LEFT JOIN projects p ON p.id = t.project_id
+WHERE t.state IN ('completed', 'cancelled')
+  AND t.archived_at IS NULL
+  AND t.settled_at IS NOT NULL
+  AND t.settled_at <= sqlc.arg(cutoff_ms)
+  AND (p.id IS NULL OR p.archive_after_days IS NULL)
+ORDER BY t.settled_at ASC;
+
+-- name: ListOverriddenAutoArchivableTasks :many
+
+
+
+SELECT t.* FROM tasks t
+JOIN projects p ON p.id = t.project_id
+WHERE t.state IN ('completed', 'cancelled')
+  AND t.archived_at IS NULL
+  AND t.settled_at IS NOT NULL
+  AND p.archive_after_days > 0
+  AND t.settled_at <= sqlc.arg(now_ms) - CAST(p.archive_after_days AS BIGINT) * 86400000
+ORDER BY t.settled_at ASC;
+
+-- name: RecordTaskSession :exec
+
+
+INSERT INTO task_sessions (task_id, agent_id, session_id, created_at)
+VALUES (sqlc.arg(task_id), sqlc.arg(agent_id), sqlc.arg(session_id), sqlc.arg(created_at))
+ON CONFLICT (task_id, agent_id, session_id) DO NOTHING;
+
+-- name: ListLiveTaskSessions :many
+
+SELECT task_id, agent_id, session_id, created_at, deleted_at
+FROM task_sessions
+WHERE task_id = sqlc.arg(task_id) AND deleted_at IS NULL
+ORDER BY created_at ASC;
+
+-- name: MarkTaskSessionCleaned :exec
+
+UPDATE task_sessions SET deleted_at = sqlc.arg(deleted_at)
+WHERE task_id = sqlc.arg(task_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND session_id = sqlc.arg(session_id);

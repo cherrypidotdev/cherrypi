@@ -209,7 +209,7 @@ const label = computed(
     props.content?.label ??
     (kpiWidgetDefinition(props.widget.kind) &&
       t(kpiWidgetDefinition(props.widget.kind)!.labelKey)) ??
-    "KPI",
+    "Widget",
 );
 
 const editLabel = computed(() =>

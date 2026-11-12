@@ -77,6 +77,8 @@ const (
 	EventPending
 
 	EventModelWait
+
+	EventThinkingSpan
 )
 
 type PendingKind int
@@ -112,6 +114,8 @@ type Event struct {
 	Queue     *QueueEvent
 	Pending   *PendingActivityEvent
 	ModelWait *ModelWaitEvent
+
+	ThinkingSpan *ThinkingSpanEvent
 }
 
 type ModelWaitEvent struct {
@@ -122,6 +126,13 @@ type ModelWaitEvent struct {
 	Error      string
 	Attempt    uint32
 	Reason     string
+}
+
+type ThinkingSpanEvent struct {
+	DurationMs int64
+	Chars      int32
+
+	Estimated bool
 }
 
 type QueueEvent struct {

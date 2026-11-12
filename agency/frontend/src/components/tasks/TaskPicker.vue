@@ -17,11 +17,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.bg-popover.text-popover-foreground.overflow-hidden.rounded-md.border.shadow-md(
+.bg-popover.text-popover-foreground.flex.min-h-0.flex-col.overflow-hidden.rounded-md.border.shadow-md(
   :class="embedded ? 'rounded-none border-0 bg-transparent shadow-none' : ''"
   data-testid="task-picker"
 )
-  .border-border.flex.flex-wrap.items-center.gap-x-3.border-b.px-2(
+  .border-border.flex.shrink-0.flex-wrap.items-center.gap-x-3.border-b.px-2(
     class="gap-y-1.5 py-1.5"
   )
     label.flex.items-center.gap-1
@@ -34,7 +34,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         option(value) {{ $t("taskPicker.anyState") }}
         option(v-for="tab in STATE_FILTERS" :key="tab.key" :value="tab.state") {{ $t(tab.labelKey) }}
-    label.flex.items-center.gap-1(v-if="showProjectFilter")
+    label.flex.cursor-pointer.items-center.gap-1(
+      :title="includeArchived ? $t('taskPicker.archivedIncluded') : $t('taskPicker.archivedHidden')"
+    )
+      input.accent-primary.size-3.cursor-pointer(
+        v-model="includeArchived"
+        type="checkbox"
+        data-testid="task-picker-archived-filter"
+      )
+      span.text-muted-foreground.text-xs {{ $t("taskPicker.archived") }}
+    label.flex.items-center.gap-1(
+      v-if="referenceProjectId || showProjectFilter"
+    )
       span.text-muted-foreground.text-xs {{ $t("admin.projects.columnProject") }}
       select.max-w-40.cursor-pointer.rounded-md.border.bg-transparent.px-1.text-xs(
         v-model="projectFilter"
@@ -42,7 +53,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         :aria-label="$t('taskPicker.filterProject')"
         data-testid="task-picker-project-filter"
       )
-        option(value) {{ $t("taskPicker.anyProject") }}
+        option(value) {{ scopedProjectLabel }}
         option(
           v-for="project in projectOptions"
           :key="project.id"
@@ -96,7 +107,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         option(value) {{ $t("taskPicker.anyTag") }}
         option(v-for="tag in tagOptions" :key="tag.id" :value="tag.id") {{ tag.name }}
-  .max-h-56.overflow-y-auto.p-1(
+  .max-h-56.min-h-0.flex-1.overflow-y-auto.p-1(
     ref="list"
     role="listbox"
     @scroll.passive="onScroll"
@@ -111,7 +122,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     template(v-else)
       p.text-muted-foreground.px-2.text-xs(v-if="!search.trim()")
         | {{ $t("taskPicker.recent") }}
-      button.inline-flex.w-full.min-w-0.items-center.gap-1.rounded-full.border.px-2.text-left.text-xs(
+      button.inline-flex.w-full.min-w-0.cursor-pointer.items-center.gap-1.rounded-full.border.px-2.text-left.text-xs(
         v-for="(candidate, index) in candidates"
         :key="candidate.id"
         type="button"
@@ -138,7 +149,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
-import { sortProjectsByName } from "@/lib/project";
+import { referenceProjectIds, sortProjectsByName } from "@/lib/project";
 import { agency } from "@/lib/sdk";
 import {
   TASK_SIZES,
@@ -192,6 +203,8 @@ const props = withDefaults(
 
     excludeIds?: string[];
 
+    includeArchived?: boolean;
+
     embedded?: boolean;
   }>(),
   {
@@ -200,6 +213,7 @@ const props = withDefaults(
     projectFilter: "",
     showProjectFilter: false,
     excludeIds: () => [],
+    includeArchived: true,
     embedded: false,
   },
 );
@@ -218,6 +232,8 @@ const agentFilter = ref("");
 const priorityFilter = ref<TaskPriority | "">("");
 const sizeFilter = ref<TaskSize | "">("");
 const tagFilter = ref("");
+
+const includeArchived = ref(props.includeArchived);
 const tags = ref<Tag[]>([]);
 const candidates = ref<Task[]>([]);
 const loading = ref(false);
@@ -225,7 +241,22 @@ const hasMore = ref(true);
 const offset = ref(0);
 const activeIndex = ref(0);
 
-const projectOptions = computed(() => sortProjectsByName(projects.value));
+const reachableProjectIds = ref<string[]>([]);
+
+const projectOptions = computed(() => {
+  if (!props.referenceProjectId) return sortProjectsByName(projects.value);
+  const byId = new Map(projects.value.map((project) => [project.id, project]));
+  return sortProjectsByName(
+    reachableProjectIds.value
+      .map((id) => byId.get(id))
+      .filter((project): project is NonNullable<typeof project> => !!project),
+  );
+});
+const scopedProjectLabel = computed(() =>
+  props.referenceProjectId
+    ? t("taskPicker.allReachableProjects")
+    : t("taskPicker.anyProject"),
+);
 const agentOptions = computed(() =>
   [...agents.value].sort((a, b) =>
     (a.displayName || a.username).localeCompare(b.displayName || b.username),
@@ -243,8 +274,33 @@ let generation = 0;
 let tagGeneration = 0;
 
 onMounted(() => {
-  void Promise.all([loadProjects(), loadAgents(), loadPage(true)]);
+  void Promise.all([
+    loadProjects(),
+    loadAgents(),
+    loadReachableProjects(),
+    loadPage(true),
+  ]);
 });
+
+async function loadReachableProjects() {
+  const projectId = props.referenceProjectId;
+  if (!projectId) {
+    reachableProjectIds.value = [];
+    return;
+  }
+  const ids = await referenceProjectIds(projectId);
+
+  if (props.referenceProjectId !== projectId) return;
+
+  reachableProjectIds.value = [...new Set([projectId, ...ids])];
+
+  if (
+    projectFilter.value &&
+    !reachableProjectIds.value.includes(projectFilter.value)
+  ) {
+    projectFilter.value = "";
+  }
+}
 
 async function loadTags() {
   const gen = ++tagGeneration;
@@ -304,6 +360,7 @@ async function loadPage(reset: boolean) {
   const priority = priorityFilter.value;
   const size = sizeFilter.value;
   const tag = tagFilter.value;
+  const include = includeArchived.value;
   const referenceProject = props.referenceProjectId;
   if (reset) {
     offset.value = 0;
@@ -320,6 +377,7 @@ async function loadPage(reset: boolean) {
       priority: priority === "" ? undefined : priority,
       size: size === "" ? undefined : size,
       tagId: tag || undefined,
+      includeArchived: include,
       search: query || undefined,
       limit: PAGE_SIZE + 1,
       offset: reset ? 0 : offset.value,
@@ -334,6 +392,7 @@ async function loadPage(reset: boolean) {
       priorityFilter.value !== priority ||
       sizeFilter.value !== size ||
       tagFilter.value !== tag ||
+      includeArchived.value !== include ||
       debouncedSearch.value.trim() !== query
     ) {
       return;
@@ -367,6 +426,7 @@ function resetFilters() {
   priorityFilter.value = "";
   sizeFilter.value = "";
   tagFilter.value = "";
+  includeArchived.value = props.includeArchived;
   projectFilter.value = props.projectFilter;
   restart();
 }
@@ -381,7 +441,10 @@ function onScroll(event: Event) {
 function candidateClass(candidate: Task, index: number) {
   return [
     taskStateClassFor(candidate),
-    index === activeIndex.value ? "bg-muted" : "hover:bg-muted",
+
+    index === activeIndex.value
+      ? "ring-2 ring-primary ring-offset-1 ring-offset-popover"
+      : "hover:bg-muted",
   ];
 }
 
@@ -437,12 +500,14 @@ watch(
     priorityFilter,
     sizeFilter,
     tagFilter,
+    includeArchived,
   ],
   restart,
 );
 watch(
   () => props.referenceProjectId,
   () => {
+    void loadReachableProjects();
     resetFilters();
   },
 );
@@ -473,6 +538,10 @@ en:
   taskPicker:
     anyState: "Any state"
     anyProject: "Any project"
+    allReachableProjects: "All reachable projects"
+    archived: "Archived"
+    archivedIncluded: "Archived tasks are included"
+    archivedHidden: "Archived tasks are hidden"
     anyAgent: "Any agent"
     anyPriority: "Any priority"
     anyTag: "Any tag"
@@ -490,6 +559,10 @@ ru:
   taskPicker:
     anyState: "Любое состояние"
     anyProject: "Любой проект"
+    allReachableProjects: "Все доступные проекты"
+    archived: "Архивные"
+    archivedIncluded: "Архивные задачи включены"
+    archivedHidden: "Архивные задачи скрыты"
     anyAgent: "Любой агент"
     anyPriority: "Любой приоритет"
     anyTag: "Любой тег"

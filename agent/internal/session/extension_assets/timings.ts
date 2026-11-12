@@ -32,6 +32,9 @@ export default function (pi: ExtensionAPI) {
   let compactionStartedAt = 0;
   let compactionReason = "";
 
+  let thinkingStartedAt = 0;
+  let thinkingChars = 0;
+
   function record(
     kind: number,
     startedAt: number,
@@ -73,6 +76,17 @@ export default function (pi: ExtensionAPI) {
     });
     compactionStartedAt = 0;
     compactionReason = "";
+  }
+
+  function closeThinking(content?: string) {
+    if (thinkingStartedAt <= 0) return;
+    const chars = Array.from(content ?? "").length || thinkingChars;
+    pi.appendEntry("cherrypi_thinking_span", {
+      durationMs: Date.now() - thinkingStartedAt,
+      chars,
+    });
+    thinkingStartedAt = 0;
+    thinkingChars = 0;
   }
 
   function resetRun() {
@@ -127,9 +141,24 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("message_update", async (event) => {
-    const type = event.assistantMessageEvent?.type;
+    const update = event.assistantMessageEvent;
+    const type = update?.type;
     if (type === "start" || type === "done" || type === "error") return;
     closeRequest(true);
+
+    switch (type) {
+      case "thinking_start":
+        thinkingStartedAt = Date.now();
+        thinkingChars = 0;
+        break;
+      case "thinking_delta":
+        thinkingStartedAt ||= Date.now();
+        thinkingChars += Array.from(update?.delta ?? "").length;
+        break;
+      case "thinking_end":
+        closeThinking(update?.content);
+        break;
+    }
   });
 
   pi.on("session_before_compact", async (event) => {
@@ -150,6 +179,7 @@ export default function (pi: ExtensionAPI) {
     closeRetry();
     closeRequest(false);
     closeCompaction();
+    closeThinking();
     resetRun();
   });
 }

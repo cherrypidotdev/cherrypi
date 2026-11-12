@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
@@ -331,7 +332,12 @@ func firstLine(prompt string) string {
 		line = strings.TrimSpace(strings.TrimLeft(line, "#"))
 		if line != "" {
 			if len(line) > 80 {
-				line = line[:77] + "…"
+
+				cut := 77
+				for cut > 0 && !utf8.RuneStart(line[cut]) {
+					cut--
+				}
+				line = line[:cut] + "…"
 			}
 			return line
 		}

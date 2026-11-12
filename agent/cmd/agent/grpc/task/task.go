@@ -439,9 +439,22 @@ func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
 	case session.EventText:
 		out.Event = &agentv1.TaskEvent_Text{Text: &agentv1.AgentText{Delta: ev.Delta}}
 	case session.EventThinking:
-		out.Event = &agentv1.TaskEvent_Thinking{
-			Thinking: &agentv1.AgentThinking{Delta: ev.Delta},
+		thinking := &agentv1.AgentThinking{Delta: ev.Delta}
+
+		if ev.ThinkingSpan != nil {
+			thinking.DurationMs = ev.ThinkingSpan.DurationMs
+			thinking.Chars = ev.ThinkingSpan.Chars
+			thinking.Estimated = ev.ThinkingSpan.Estimated
 		}
+		out.Event = &agentv1.TaskEvent_Thinking{Thinking: thinking}
+	case session.EventThinkingSpan:
+
+		thinking := &agentv1.AgentThinking{}
+		if ev.ThinkingSpan != nil {
+			thinking.DurationMs = ev.ThinkingSpan.DurationMs
+			thinking.Chars = ev.ThinkingSpan.Chars
+		}
+		out.Event = &agentv1.TaskEvent_Thinking{Thinking: thinking}
 	case session.EventLog:
 		out.Event = &agentv1.TaskEvent_Log{Log: &agentv1.LogLine{Line: ev.Line}}
 	case session.EventTool:

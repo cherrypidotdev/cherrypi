@@ -32,10 +32,11 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
     )
 
   Teleport(to="body")
-    .fixed.z-50(
+    .fixed.z-50.flex.flex-col(
       v-if="taskPickerState.open"
       ref="taskPickerRoot"
       :style="taskPickerStyle"
+      data-dismissable-layer
     )
       TaskPicker(
         ref="taskPicker"
@@ -179,7 +180,11 @@ interface TaskPickerHandle {
   pickActive: () => boolean;
 }
 const TASK_PICKER_WIDTH = 416;
-const TASK_PICKER_HEIGHT = 300;
+
+const TASK_PICKER_GAP = 4;
+const TASK_PICKER_EDGE = 8;
+
+const TASK_PICKER_FALLBACK_HEIGHT = 300;
 const taskPickerRoot = ref<HTMLElement>();
 const taskPicker = ref<TaskPickerHandle>();
 const taskPickerState = reactive({ open: false, from: 0, search: "" });
@@ -343,30 +348,77 @@ function hashWasTyped(update: ViewUpdate): boolean {
   return false;
 }
 
+function sameStyle(a: Record<string, string>, b: Record<string, string>) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => a[key] === b[key]);
+}
+
+let positionFrame = 0;
+
+function scheduleTaskPickerPosition() {
+  if (positionFrame) return;
+  positionFrame = requestAnimationFrame(() => {
+    positionFrame = 0;
+    if (taskPickerState.open) positionTaskPicker();
+  });
+}
+
 function positionTaskPicker() {
   const editor = view.value;
   if (!editor) return;
   const coords = editor.coordsAtPos(editor.state.selection.main.head);
   if (!coords) return;
-  const width = Math.min(TASK_PICKER_WIDTH, window.innerWidth - 16);
-  const left = Math.max(
-    8,
-    Math.min(coords.left, window.innerWidth - width - 8),
+  const width = Math.min(
+    TASK_PICKER_WIDTH,
+    window.innerWidth - TASK_PICKER_EDGE * 2,
   );
+  const left = Math.max(
+    TASK_PICKER_EDGE,
+    Math.min(coords.left, window.innerWidth - width - TASK_PICKER_EDGE),
+  );
+  const measured = taskPickerRoot.value?.getBoundingClientRect().height ?? 0;
+  const height = measured || TASK_PICKER_FALLBACK_HEIGHT;
+  const spaceBelow =
+    window.innerHeight - coords.bottom - TASK_PICKER_GAP - TASK_PICKER_EDGE;
+  const spaceAbove = coords.top - TASK_PICKER_GAP - TASK_PICKER_EDGE;
+  const dropUp = height > spaceBelow && spaceAbove > spaceBelow;
   const style: Record<string, string> = {
     left: `${left}px`,
     width: `${width}px`,
+    maxHeight: `${Math.max(0, dropUp ? spaceAbove : spaceBelow)}px`,
+
+    pointerEvents: "auto",
   };
-  if (
-    coords.bottom + TASK_PICKER_HEIGHT > window.innerHeight &&
-    coords.top > TASK_PICKER_HEIGHT
-  ) {
-    style.bottom = `${window.innerHeight - coords.top + 4}px`;
+  if (dropUp) {
+    style.bottom = `${window.innerHeight - coords.top + TASK_PICKER_GAP}px`;
   } else {
-    style.top = `${coords.bottom + 4}px`;
+    style.top = `${coords.bottom + TASK_PICKER_GAP}px`;
   }
-  taskPickerStyle.value = style;
+  if (!sameStyle(style, taskPickerStyle.value)) {
+    taskPickerStyle.value = style;
+  }
 }
+
+let taskPickerResizeObserver: ResizeObserver | null = null;
+watch(
+  taskPickerRoot,
+  (element) => {
+    taskPickerResizeObserver?.disconnect();
+    taskPickerResizeObserver = null;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    taskPickerResizeObserver = new ResizeObserver(scheduleTaskPickerPosition);
+    taskPickerResizeObserver.observe(element);
+  },
+  { flush: "post" },
+);
+
+watch(
+  () => taskPickerState.open,
+  (open) => {
+    if (open) scheduleTaskPickerPosition();
+  },
+  { flush: "post" },
+);
 
 function syncTaskPicker(update: ViewUpdate) {
   if (!props.references) {
@@ -648,6 +700,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopResize();
+  if (positionFrame) cancelAnimationFrame(positionFrame);
+  taskPickerResizeObserver?.disconnect();
+  taskPickerResizeObserver = null;
   view.value?.destroy();
   view.value = undefined;
 });

@@ -49,6 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         embedded
         :search="search"
         :reference-project-id="projectId"
+        :include-archived="false"
         @pick="pick"
       )
       .border-border.mt-1.border-t.pt-1(v-if="parent")

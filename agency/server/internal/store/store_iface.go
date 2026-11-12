@@ -49,6 +49,7 @@ type Store interface {
 		ctx context.Context,
 		p AppendTaskSessionEntryParams,
 	) (int64, error)
+	RecordTaskSession(ctx context.Context, p RecordTaskSessionParams) error
 	ClearActorTOTP(ctx context.Context, p ClearActorTOTPParams) error
 	ClearAgentPicture(ctx context.Context, p ClearAgentPictureParams) error
 	ClearProjectPicture(ctx context.Context, p ClearProjectPictureParams) error
@@ -594,7 +595,10 @@ type Store interface {
 	) ([]int64, error)
 	ListProjects(ctx context.Context) ([]Project, error)
 	ListProjectsForActor(ctx context.Context, actorID ids.ActorID) ([]Project, error)
+	ListLiveTaskSessions(ctx context.Context, taskID string) ([]TaskSession, error)
 	ListQueuedTasks(ctx context.Context) ([]Task, error)
+	ListInheritedAutoArchivableTasks(ctx context.Context, cutoffMs int64) ([]Task, error)
+	ListOverriddenAutoArchivableTasks(ctx context.Context, nowMs int64) ([]Task, error)
 	ListRunningTaskTagsByAgent(
 		ctx context.Context,
 		agentID ids.AgentID,
@@ -696,6 +700,7 @@ type Store interface {
 	MarkAllNotificationsRead(ctx context.Context, readAt sql.NullInt64, recipient int64) error
 	MarkNotificationRead(ctx context.Context, p MarkNotificationReadParams) error
 	MarkTaskNotificationsRead(ctx context.Context, p MarkTaskNotificationsReadParams) error
+	MarkTaskSessionCleaned(ctx context.Context, p MarkTaskSessionCleanedParams) error
 	MarkTaskSessionDeleted(
 		ctx context.Context,
 		p MarkTaskSessionDeletedParams,
@@ -760,6 +765,10 @@ type Store interface {
 	SetProjectArchived(
 		ctx context.Context,
 		p SetProjectArchivedParams,
+	) (Project, error)
+	SetProjectArchiveAfterDays(
+		ctx context.Context,
+		p SetProjectArchiveAfterDaysParams,
 	) (Project, error)
 	SetProjectParentTree(
 		ctx context.Context,

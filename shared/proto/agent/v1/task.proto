@@ -434,6 +434,20 @@ message AgentText {
 
 message AgentThinking {
   string delta = 1;
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  int64 duration_ms = 2;
+  int32 chars = 3;
+  bool estimated = 4;
 }
 
 

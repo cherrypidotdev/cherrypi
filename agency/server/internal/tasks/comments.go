@@ -27,6 +27,7 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/store"
+	"cherrypi.vladfaust.com/agency/internal/textutil"
 )
 
 var (
@@ -129,7 +130,7 @@ func (s *Service) AddComment(
 	if actorID == 0 {
 		return Comment{}, ErrActorRequired
 	}
-	body = strings.TrimSpace(body)
+	body = textutil.Clean(strings.TrimSpace(body))
 	if body == "" {
 		return Comment{}, ErrCommentBodyRequired
 	}
@@ -191,7 +192,7 @@ func (s *Service) UpdateComment(
 	if actorID == 0 {
 		return Comment{}, ErrActorRequired
 	}
-	body = strings.TrimSpace(body)
+	body = textutil.Clean(strings.TrimSpace(body))
 	if body == "" {
 		return Comment{}, ErrCommentBodyRequired
 	}
@@ -414,7 +415,7 @@ func toComment(row store.TaskComment, taskID string, attachmentIDs []int64) Comm
 		ID:            row.ID,
 		TaskID:        taskID,
 		AuthorActorID: ids.ActorID(row.AuthorActorID.Int64),
-		Body:          row.Body,
+		Body:          textutil.Clean(row.Body),
 		CreatedAt:     time.UnixMilli(row.CreatedAt),
 		UpdatedAt:     time.UnixMilli(row.UpdatedAt),
 		DeletedByID:   ids.ActorID(row.DeletedByActorID.Int64),

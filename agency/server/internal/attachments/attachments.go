@@ -34,6 +34,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/settings"
 	"cherrypi.vladfaust.com/agency/internal/storage"
 	"cherrypi.vladfaust.com/agency/internal/store"
+	"cherrypi.vladfaust.com/agency/internal/textutil"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -83,12 +84,12 @@ func URLFor(id int64) string {
 func ToProto(a Attachment) *agencyv1.Attachment {
 	return &agencyv1.Attachment{
 		Id:          a.ID,
-		Filename:    a.Filename,
-		ContentType: a.ContentType,
+		Filename:    textutil.Clean(a.Filename),
+		ContentType: textutil.Clean(a.ContentType),
 		Size:        a.Size,
 		Url:         URLFor(a.ID),
 		CreatedAt:   timestamppb.New(a.CreatedAt),
-		CreatedBy:   a.CreatedBy,
+		CreatedBy:   textutil.Clean(a.CreatedBy),
 	}
 }
 
@@ -603,7 +604,7 @@ func (s *Service) TaskMessages(ctx context.Context, taskID string) ([]Message, e
 	for _, row := range rows {
 		out = append(out, Message{
 			ID:          row.ID,
-			Text:        row.Text,
+			Text:        textutil.Clean(row.Text),
 			ActorID:     ids.ActorID(row.ActorID.Int64),
 			CreatedAt:   time.UnixMilli(row.CreatedAt),
 			Attachments: byMessage[row.ID],
@@ -645,7 +646,7 @@ func (s *Service) RecordMessage(
 	if err := s.store.CreateTaskMessage(ctx, store.CreateTaskMessageParams{
 		ID:        messageID,
 		TaskID:    taskID,
-		Text:      text,
+		Text:      textutil.Clean(text),
 		ActorID:   nullActorID(actorID),
 		CreatedAt: now,
 	}); err != nil {

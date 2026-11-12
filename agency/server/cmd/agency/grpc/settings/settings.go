@@ -62,21 +62,30 @@ func (s *SettingsServer) UpdateSettings(
 			NotificationSoundSet: settings.DefaultNotificationSoundSet,
 		}
 	}
+
 	cur, err := s.Settings.Get(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-
 	voice := cur
 	if in.VoiceInput != nil {
 		voice.VoiceInputEnabled = in.VoiceInput.Enabled
 		voice.STTBaseURL = in.VoiceInput.BaseUrl
 		voice.STTModel = in.VoiceInput.Model
 	}
+
+	var archive *settings.TaskArchivePolicy
+	if in.TaskAutoArchive != nil {
+		archive = &settings.TaskArchivePolicy{
+			Enabled: in.TaskAutoArchive.Enabled,
+			Days:    int(in.TaskAutoArchive.Days),
+		}
+	}
 	updated, err := s.Settings.Update(ctx, settings.Settings{
 		AgencyName:           in.AgencyName,
 		PrimaryColor:         in.PrimaryColor,
 		NotificationSoundSet: in.NotificationSoundSet,
+		TaskArchive:          archive,
 		VoiceInputEnabled:    voice.VoiceInputEnabled,
 		STTBaseURL:           voice.STTBaseURL,
 		STTModel:             voice.STTModel,
@@ -86,6 +95,7 @@ func (s *SettingsServer) UpdateSettings(
 	if err != nil {
 		if errors.Is(err, settings.ErrInvalidColor) ||
 			errors.Is(err, settings.ErrInvalidSoundSet) ||
+			errors.Is(err, settings.ErrInvalidTaskArchiveDays) ||
 			errors.Is(err, settings.ErrInvalidSTTBaseURL) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -102,8 +112,12 @@ func (s *SettingsServer) toProto(
 		AgencyName:           in.AgencyName,
 		PrimaryColor:         in.PrimaryColor,
 		NotificationSoundSet: in.NotificationSoundSet,
-		Logo:                 s.attachment(ctx, in.LogoAttachmentID),
-		Favicon:              s.attachment(ctx, in.FaviconAttachmentID),
+		TaskAutoArchive: &agencyv1.TaskAutoArchive{
+			Enabled: in.TaskArchive.Enabled,
+			Days:    int32(in.TaskArchive.Days),
+		},
+		Logo:    s.attachment(ctx, in.LogoAttachmentID),
+		Favicon: s.attachment(ctx, in.FaviconAttachmentID),
 		VoiceInput: &agencyv1.VoiceInput{
 			Enabled:          in.VoiceInputEnabled,
 			BaseUrl:          in.STTBaseURL,

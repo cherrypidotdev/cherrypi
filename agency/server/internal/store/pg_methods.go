@@ -1087,6 +1087,17 @@ func (s *PgStore) SetProjectArchived(
 	return fromPgProject(row), nil
 }
 
+func (s *PgStore) SetProjectArchiveAfterDays(
+	ctx context.Context,
+	p SetProjectArchiveAfterDaysParams,
+) (Project, error) {
+	row, err := s.q.SetProjectArchiveAfterDays(ctx, pgdb.SetProjectArchiveAfterDaysParams(p))
+	if err != nil {
+		return Project{}, err
+	}
+	return fromPgProject(row), nil
+}
+
 func (s *PgStore) AllocateTaskNumber(ctx context.Context, projectID string) (int64, error) {
 	return s.q.AllocateTaskNumber(ctx, projectID)
 }
@@ -1187,8 +1198,51 @@ func (s *PgStore) ListTasks(
 	return fromPgTaskSlice(rows), nil
 }
 
+func (s *PgStore) ListLiveTaskSessions(
+	ctx context.Context,
+	taskID string,
+) ([]TaskSession, error) {
+	rows, err := s.q.ListLiveTaskSessions(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TaskSession, len(rows))
+	for i, row := range rows {
+		out[i] = fromPgTaskSession(row)
+	}
+	return out, nil
+}
+
 func (s *PgStore) ListQueuedTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.q.ListQueuedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
+}
+
+func (s *PgStore) ListInheritedAutoArchivableTasks(
+	ctx context.Context,
+	cutoffMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListInheritedAutoArchivableTasks(ctx, sql.NullInt64{
+		Int64: cutoffMs,
+		Valid: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
+}
+
+func (s *PgStore) ListOverriddenAutoArchivableTasks(
+	ctx context.Context,
+	nowMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListOverriddenAutoArchivableTasks(ctx, sql.NullInt64{
+		Int64: nowMs,
+		Valid: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1445,6 +1499,20 @@ func (s *PgStore) SetTaskAssignee(
 		return Task{}, err
 	}
 	return fromPgTask(row), nil
+}
+
+func (s *PgStore) RecordTaskSession(
+	ctx context.Context,
+	p RecordTaskSessionParams,
+) error {
+	return s.q.RecordTaskSession(ctx, pgdb.RecordTaskSessionParams(p))
+}
+
+func (s *PgStore) MarkTaskSessionCleaned(
+	ctx context.Context,
+	p MarkTaskSessionCleanedParams,
+) error {
+	return s.q.MarkTaskSessionCleaned(ctx, pgdb.MarkTaskSessionCleanedParams(p))
 }
 
 func (s *PgStore) MarkTaskSessionDeleted(

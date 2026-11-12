@@ -290,6 +290,7 @@ import {
   PlusIcon,
   RulerIcon,
   SettingsIcon,
+  SquareIcon,
   TagIcon,
   UnplugIcon,
   UserIcon,
@@ -340,6 +341,7 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   hidden: EyeOffIcon,
   plugin: PlugIcon,
   hold: LockOpenIcon,
+  stop: SquareIcon,
 };
 
 const KIND_LABEL_KEYS: Record<string, string> = {
@@ -364,6 +366,7 @@ const KIND_LABEL_KEYS: Record<string, string> = {
   hidden: "taskLog.kind.hidden",
   plugin: "taskLog.kind.plugin",
   hold: "taskLog.kind.hold",
+  stop: "taskLog.kind.stop",
 };
 
 const SIZE_VALUES: Record<string, TaskSize> = {
@@ -587,6 +590,7 @@ en:
       hidden: "Visibility"
       plugin: "Plugin badges"
       hold: "Plugin hold"
+      stop: "Stop requested"
     kindChanged: "Kind changed to {kind}"
     pluginBadge: "{plugin} — {badge}"
 ru:
@@ -614,6 +618,7 @@ ru:
       hidden: "Видимость"
       plugin: "Значки плагинов"
       hold: "Удержание плагином"
+      stop: "Запрошена остановка"
     kindChanged: "Тип изменён на {kind}"
     pluginBadge: "{plugin} — {badge}"
 </i18n>

@@ -108,6 +108,32 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 Separator
                 .flex.flex-col.gap-3
                   .flex.flex-col
+                    span.text-sm.font-medium {{ $t("settings.archive.title") }}
+                    span.text-muted-foreground.text-xs
+                      | {{ $t("settings.archive.description") }}
+                  .flex.items-center.justify-between.gap-3
+                    .flex.flex-col
+                      span.text-sm.font-medium {{ $t("settings.archive.enabled") }}
+                      span.text-muted-foreground.text-xs
+                        | {{ $t("settings.archive.enabledHint") }}
+                    Switch(
+                      :model-value="taskArchiveEnabled"
+                      @update:model-value="taskArchiveEnabled = Boolean($event)"
+                    )
+                  Field.max-w-xl
+                    FieldLabel(for="task-archive-days") {{ $t("settings.archive.days") }}
+                    Input#task-archive-days.max-w-32(
+                      v-model.number="taskArchiveDays"
+                      type="number"
+                      min="1"
+                      :max="MAX_TASK_ARCHIVE_DAYS"
+                      :disabled="!taskArchiveEnabled"
+                    )
+                    FieldDescription
+                      | {{ $t("settings.archive.daysHint") }}
+                Separator
+                .flex.flex-col.gap-3
+                  .flex.flex-col
                     span.text-sm.font-medium {{ $t("settings.sounds.title") }}
                     span.text-muted-foreground.text-xs
                       | {{ $t("settings.sounds.description") }}
@@ -136,7 +162,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       span {{ previewing ? "Stop" : "Preview" }}
                 p.text-destructive.text-sm(v-if="error") {{ error }}
                 .flex.justify-end
-                  Button(type="submit" :disabled="saving")
+                  Button(
+                    type="submit"
+                    :disabled="saving || !taskArchiveDaysValid"
+                  )
                     Spinner(v-if="saving" data-icon="inline-start")
                     CheckIcon(v-else data-icon="inline-start")
                     span {{ $t("common.save") }}
@@ -218,6 +247,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withProgress } from "@/composables/useProgress";
 import { useSettings } from "@/composables/useSettings";
@@ -252,7 +282,15 @@ const name = ref("");
 const primary = ref("");
 const hexDraft = ref("");
 const notificationSoundSet = ref("cherry");
+const taskArchiveEnabled = ref(true);
+const taskArchiveDays = ref(30);
 const saving = ref(false);
+
+const MAX_TASK_ARCHIVE_DAYS = 3650;
+const taskArchiveDaysValid = computed(() => {
+  const days = Number(taskArchiveDays.value);
+  return Number.isInteger(days) && days >= 1 && days <= MAX_TASK_ARCHIVE_DAYS;
+});
 
 const { soundVolume } = useSoundPreferences();
 const previewing = ref(false);
@@ -287,6 +325,8 @@ onMounted(async () => {
   name.value = settings.value?.agencyName ?? "";
   primary.value = settings.value?.primaryColor ?? "";
   notificationSoundSet.value = settings.value?.notificationSoundSet || "cherry";
+  taskArchiveEnabled.value = settings.value?.taskAutoArchive?.enabled ?? true;
+  taskArchiveDays.value = settings.value?.taskAutoArchive?.days || 30;
 });
 
 onUnmounted(() => {
@@ -338,6 +378,10 @@ async function save() {
         agencyName: name.value.trim(),
         primaryColor: primary.value,
         notificationSoundSet: notificationSoundSet.value,
+        taskAutoArchive: {
+          enabled: taskArchiveEnabled.value,
+          days: Number(taskArchiveDays.value),
+        },
       }),
     );
     toast.success("Settings saved");
@@ -385,10 +429,17 @@ en:
       title: "Organization prompt"
       description: "Injected into every new task's system prompt, before the agent, project, and agent-project prompts. Edits affect future tasks only."
       placeholder: "Organization-wide instructions…"
+    archive:
+      title: "Automatic archive"
+      description: "Completed and cancelled tasks leave the active lists after a while. Their agent-side sessions and workspaces are cleaned up when the archive lands."
+      enabled: "Archive closed tasks automatically"
+      enabledHint: "A project may override this policy for its own tasks."
+      days: "Days after close-out"
+      daysHint: "Between 1 and 3650 days. A project owner may set a shorter or longer delay, or keep its tasks forever."
     kpi:
       layouts:
-        title: "Overview KPI layouts"
-        description: "The agency Tasks page and every project and agent Overview render a KPI widget layout. Administrators arrange the Tasks page; a project or agent owner arranges that page. A page nobody has arranged shows no KPIs, and the Usage and Concurrency tabs keep their fixed strips."
+        title: "Overview widget layouts"
+        description: "The agency Tasks page and every project and agent Overview render a widget layout. Administrators arrange the Tasks page; a project or agent owner arranges that page. Project and agent pages without their own layout follow the organization default, while the Tasks page starts empty. The Usage and Concurrency tabs keep their fixed strips."
 ru:
   settings:
     tabs:
@@ -424,8 +475,15 @@ ru:
       title: "Общий промпт"
       description: "Добавляется в системный промпт каждой новой задачи, перед промптами агента, проекта и агента в проекте. Изменения влияют только на будущие задачи."
       placeholder: "Инструкции для всего агентства…"
+    archive:
+      title: "Автоматический архив"
+      description: "Завершённые и отменённые задачи со временем покидают активные списки. Их сессии и рабочие пространства на агентах очищаются при архивации."
+      enabled: "Автоматически архивировать закрытые задачи"
+      enabledHint: "Проект может переопределить это правило для своих задач."
+      days: "Дней после закрытия"
+      daysHint: "От 1 до 3650 дней. Владелец проекта может задать другой срок или хранить задачи бессрочно."
     kpi:
       layouts:
-        title: "Макеты KPI в обзоре"
-        description: "На странице задач агентства и в каждом обзоре проекта и агента показывается макет виджетов KPI. Страницу задач настраивают администраторы; страницу проекта или агента — её владелец. Страница без настроенного макета не показывает KPI, а вкладки «Использование» и «Параллельность» сохраняют свои фиксированные сводки."
+        title: "Макеты виджетов обзора"
+        description: "На странице задач агентства и в каждом обзоре проекта и агента показывается макет виджетов. Страницу задач настраивают администраторы; страницу проекта или агента — её владелец. Страницы проекта и агента без собственного макета следуют значению организации по умолчанию, а страница задач начинается пустой. Вкладки «Использование» и «Параллельность» сохраняют свои фиксированные сводки."
 </i18n>

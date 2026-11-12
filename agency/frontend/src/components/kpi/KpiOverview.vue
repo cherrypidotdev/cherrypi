@@ -70,20 +70,29 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           | {{ $t("kpiOverview.editMode") }}
         span.text-muted-foreground.text-3xs {{ $t("kpiOverview.unsavedBanner") }}
-      Button(type="button" variant="ghost" size="sm" @click="cancelEdit")
-        | {{ $t("common.done") }}
+      .flex.items-center.gap-2
+        Button(type="button" variant="ghost" size="sm" @click="cancelEdit")
+          | {{ $t("common.cancel") }}
+        Button(
+          type="button"
+          size="sm"
+          :title="fits ? $t('kpiOverview.saveHint') : $t('kpiOverview.noFitHint')"
+          @click="saveDraft"
+          :disabled="saving || !fits"
+        )
+          Spinner(v-if="saving" data-icon="inline-start")
+          CheckIcon(v-else data-icon="inline-start")
+          span {{ $t("kpiOverview.saveLayout") }}
     KpiGrid(
       editing
       :widgets="draft"
       :page="pageContext"
       :range="range"
-      :saving="saving"
       :can-edit="canEdit"
       :inherited="inherited"
       :agent-options="agentOptions"
       :project-options="projectOptions"
       @update:widgets="draft = $event"
-      @save="saveDraft"
       @cancel="cancelEdit"
       @reset="resetLayout"
     )
@@ -115,14 +124,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import { useAgents } from "@/composables/useAgents";
 import { useKpiLayout } from "@/composables/useKpiLayout";
 import { useProjects } from "@/composables/useProjects";
-import type { KpiPageContext, KpiWidgetState } from "@/lib/kpiWidgets";
+import {
+  kpiLayoutFits,
+  type KpiPageContext,
+  type KpiWidgetState,
+} from "@/lib/kpiWidgets";
 import { sortProjectsByName } from "@/lib/project";
 import type { UsageRange } from "@/lib/usage";
 import type { KpiPage } from "@cherrypi/sdk";
-import { PencilIcon, PlusIcon } from "@lucide/vue";
+import { CheckIcon, PencilIcon, PlusIcon } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
@@ -167,6 +181,8 @@ const dirty = computed(
     editing.value &&
     JSON.stringify(draft.value) !== JSON.stringify(widgets.value),
 );
+
+const fits = computed(() => kpiLayoutFits(draft.value));
 
 watch(widgets, (value) => {
   if (!editing.value) draft.value = value.map((widget) => ({ ...widget }));
@@ -263,13 +279,14 @@ en:
     keepEditing: "Keep editing"
     discard: "Discard changes"
     enableEdit: "Enable edit mode"
-    empty: "No KPIs on this page yet"
+    empty: "No widgets on this page yet"
     emptyHint: "Pick usage and concurrency widgets to watch here."
     emptyInherited: " This page follows the organization default, which is empty."
     addWidgets: "Add widgets"
     unsavedBanner: "Unsaved changes stay on this page until you save."
-  common:
-    done: "Done"
+    saveLayout: "Save layout"
+    saveHint: "Save the layout of this page"
+    noFitHint: "The widgets do not fit the grid"
 ru:
   kpiOverview:
     followingDefault: "Используется значение организации по умолчанию."
@@ -279,11 +296,12 @@ ru:
     keepEditing: "Продолжить редактирование"
     discard: "Отменить изменения"
     enableEdit: "Включить режим редактирования"
-    empty: "На этой странице пока нет KPI"
+    empty: "На этой странице пока нет виджетов"
     emptyHint: "Выберите виджеты использования и параллельности, чтобы следить за ними здесь."
     emptyInherited: " Эта страница следует значению организации по умолчанию, а оно пустое."
     addWidgets: "Добавить виджеты"
     unsavedBanner: "Несохранённые изменения остаются на этой странице до сохранения."
-  common:
-    done: "Готово"
+    saveLayout: "Сохранить макет"
+    saveHint: "Сохранить макет этой страницы"
+    noFitHint: "Виджеты не помещаются в сетку"
 </i18n>

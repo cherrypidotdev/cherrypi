@@ -47,6 +47,22 @@ message Settings {
   string notification_sound_set = 7;
   
   VoiceInput voice_input = 8;
+  
+  
+  
+  TaskAutoArchive task_auto_archive = 9;
+  reserved 10;
+}
+
+
+
+
+message TaskAutoArchive {
+  
+  bool enabled = 1;
+  
+  
+  int32 days = 2;
 }
 
 

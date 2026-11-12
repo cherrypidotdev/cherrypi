@@ -424,12 +424,47 @@ export const studioComponents: StudioComponent[] = [
         id: "streaming",
         name: "Streaming",
         description:
-          "The same block while it streams: the spinner shows, and the numbers keep moving.",
+          "The same block while it streams: it stays open on the newest words, the spinner shows, and the numbers keep moving.",
         props: {
           text: reasoning,
           startedAt: startedAgo(3_000),
           running: true,
         },
+        width: 480,
+      },
+      {
+        id: "replayed",
+        name: "Replayed from a session",
+        description:
+          "Pi stores one stamp per message, so a block read back from the session carries the span the timings extension measured.",
+        props: {
+          text: reasoning,
+          startedAt: 1_000,
+          endedAt: 1_000,
+          durationMs: 9_200,
+        },
+        width: 480,
+      },
+      {
+        id: "estimated",
+        name: "Estimated from the message",
+        description:
+          "A transcript written before the timing entries names no span of its own: the history parser estimates one from the assistant message, and the tilde mark and tooltip say so.",
+        props: {
+          text: reasoning,
+          startedAt: 1_000,
+          endedAt: 1_000,
+          durationMs: 9_200,
+          estimated: true,
+        },
+        width: 480,
+      },
+      {
+        id: "unmeasured",
+        name: "A block with no measured span",
+        description:
+          "A block neither measured nor estimable (no message timing either) reports the characters and invents nothing.",
+        props: { text: reasoning, startedAt: 1_000, endedAt: 1_000 },
         width: 480,
       },
       {

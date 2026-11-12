@@ -1248,6 +1248,8 @@ func (s *Session) handleRecord(b []byte) {
 			return
 		}
 		s.emit(Event{Kind: EventRunSettled})
+
+		s.emitPending(nil)
 		go s.settle("")
 
 	case "message_update":
@@ -1263,6 +1265,8 @@ func (s *Session) handleRecord(b []byte) {
 		case "text_start", "text_delta", "thinking_start", "thinking_delta",
 			"toolcall_start", "toolcall_delta":
 			s.firstToken(time.Now())
+
+			s.clearPending(PendingModelRequest)
 		}
 		if ev.Delta == "" {
 			return
@@ -1284,6 +1288,8 @@ func (s *Session) handleRecord(b []byte) {
 		s.setQueue(rec.Steering)
 
 	case "tool_execution_start":
+
+		s.clearPending(PendingModelRequest)
 		s.startTool(rec.ToolCallID, time.Now())
 		s.emit(toolEvent(rec, ToolStarted))
 	case "tool_execution_update":
@@ -1370,6 +1376,8 @@ func (s *Session) handleEntryAppended(b []byte) {
 		s.handleTaskProgressEntry(rec.Entry.Data)
 	case modelWaitCustomType:
 		s.handleModelWaitEntry(rec.Entry.Data)
+	case thinkingSpanCustomType:
+		s.handleThinkingSpanEntry(rec.Entry.Data)
 	}
 }
 
@@ -1379,6 +1387,14 @@ func (s *Session) handleModelWaitEntry(raw json.RawMessage) {
 		return
 	}
 	s.emit(Event{Kind: EventModelWait, ModelWait: wait})
+}
+
+func (s *Session) handleThinkingSpanEntry(raw json.RawMessage) {
+	span, ok := parseThinkingSpan(raw)
+	if !ok {
+		return
+	}
+	s.emit(Event{Kind: EventThinkingSpan, ThinkingSpan: span})
 }
 
 func (s *Session) handleTaskURLsEntry(raw json.RawMessage) {
@@ -2344,6 +2360,19 @@ func (s *Session) emitPending(pending *PendingActivityEvent) {
 	s.mu.Unlock()
 
 	s.emit(ev)
+}
+
+func (s *Session) clearPending(kind PendingKind) {
+	s.mu.Lock()
+	if s.pendingActivity == nil || s.pendingActivity.Pending == nil ||
+		s.pendingActivity.Pending.Kind != kind {
+		s.mu.Unlock()
+		return
+	}
+	s.pendingActivity = nil
+	s.mu.Unlock()
+
+	s.emit(Event{Kind: EventPending, At: time.Now()})
 }
 
 func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func()) {

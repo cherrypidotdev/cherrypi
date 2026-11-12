@@ -42,6 +42,8 @@ type historyEntry struct {
 
 const modelWaitCustomType = "cherrypi_model_wait"
 
+const thinkingSpanCustomType = "cherrypi_thinking_span"
+
 type modelWaitData struct {
 	Kind       int32  `json:"kind"`
 	Model      string `json:"model"`
@@ -59,6 +61,9 @@ type historyMessage struct {
 	ToolName   string          `json:"toolName"`
 	Details    json.RawMessage `json:"details"`
 	IsError    bool            `json:"isError"`
+
+	Timestamp  int64 `json:"timestamp"`
+	DurationMs int64 `json:"durationMs"`
 }
 
 type historyBlock struct {
@@ -124,8 +129,9 @@ func userMessage(text string) *agentv1.UserMessage {
 
 func Events(taskID string, entries []tasks.SessionHistoryEntry) []*agentv1.TaskEvent {
 	var events []*agentv1.TaskEvent
+	parser := &historyParser{}
 	for _, entry := range entries {
-		for _, event := range parseLine(entry.Raw) {
+		for _, event := range parser.parseLine(entry.Raw) {
 			event.TaskId = taskID
 			events = append(events, event)
 		}
@@ -165,8 +171,9 @@ func Page(
 	}
 
 	var events []*agentv1.TaskEvent
+	parser := &historyParser{}
 	for _, e := range older {
-		for _, event := range parseLine(e.Raw) {
+		for _, event := range parser.parseLine(e.Raw) {
 			event.TaskId = taskID
 			events = append(events, event)
 		}
@@ -209,21 +216,27 @@ func PageBounded(
 	type pageEntry struct {
 		seq    int64
 		events []*agentv1.TaskEvent
+		size   int
 	}
-	page := make([]pageEntry, 0, len(window))
+
+	parsed := make([]pageEntry, len(window))
+	parser := &historyParser{}
+	for i, e := range window {
+		events := parser.parseLine(e.Raw)
+		truncateMessage(events, maxMessageBytes)
+		parsed[i] = pageEntry{seq: e.Seq, events: events, size: messageBytes(events)}
+	}
+	page := make([]pageEntry, 0, len(parsed))
 	totalBytes := 0
 	stopped := false
-	for i := len(window) - 1; i >= 0; i-- {
-		e := window[i]
-		events := parseLine(e.Raw)
-		truncateMessage(events, maxMessageBytes)
-		size := messageBytes(events)
-		if maxPageBytes > 0 && len(page) > 0 && totalBytes+size > maxPageBytes {
+	for i := len(parsed) - 1; i >= 0; i-- {
+		entry := parsed[i]
+		if maxPageBytes > 0 && len(page) > 0 && totalBytes+entry.size > maxPageBytes {
 			stopped = true
 			break
 		}
-		page = append(page, pageEntry{seq: e.Seq, events: events})
-		totalBytes += size
+		page = append(page, entry)
+		totalBytes += entry.size
 	}
 
 	var nextBefore int64
@@ -330,11 +343,21 @@ func parseCustomLine(
 	entry historyEntry,
 	at *timestamppb.Timestamp,
 ) []*agentv1.TaskEvent {
-	if entry.CustomType != modelWaitCustomType {
-		return nil
+	switch entry.CustomType {
+	case modelWaitCustomType:
+		return parseModelWaitLine(entry.Data, at)
+	case thinkingSpanCustomType:
+		return parseThinkingSpanLine(entry.Data, at)
 	}
+	return nil
+}
+
+func parseModelWaitLine(
+	raw json.RawMessage,
+	at *timestamppb.Timestamp,
+) []*agentv1.TaskEvent {
 	var data modelWaitData
-	if json.Unmarshal(entry.Data, &data) != nil || data.DurationMs <= 0 {
+	if json.Unmarshal(raw, &data) != nil || data.DurationMs <= 0 {
 		return nil
 	}
 	kind := agentv1.ModelWait_Kind(data.Kind)
@@ -359,9 +382,80 @@ func parseCustomLine(
 	}}
 }
 
+type thinkingSpanData struct {
+	DurationMs int64 `json:"durationMs"`
+	Chars      int32 `json:"chars"`
+}
+
+func parseThinkingSpanLine(
+	raw json.RawMessage,
+	at *timestamppb.Timestamp,
+) []*agentv1.TaskEvent {
+	var data thinkingSpanData
+	if json.Unmarshal(raw, &data) != nil || data.DurationMs <= 0 {
+		return nil
+	}
+	return []*agentv1.TaskEvent{{
+		At: at,
+		Event: &agentv1.TaskEvent_Thinking{Thinking: &agentv1.AgentThinking{
+			DurationMs: data.DurationMs,
+			Chars:      data.Chars,
+		}},
+	}}
+}
+
+// parseLine decodes one stored line on its own, without the timing context a
+
+// start. It is the form single-line callers and tests use.
+func parseLine(line string) []*agentv1.TaskEvent {
+	return new(historyParser).parseLine(line)
+}
+
+type historyParser struct {
+	lastWaitEnd time.Time
+}
+
+func (p *historyParser) legacyThinkingSpan(
+	chars int32,
+	msg historyMessage,
+	at *timestamppb.Timestamp,
+) *agentv1.AgentThinking {
+	end := int64(0)
+	if at != nil {
+		end = at.AsTime().UnixMilli()
+	} else if msg.Timestamp > 0 && msg.DurationMs > 0 {
+		end = msg.Timestamp + msg.DurationMs
+	}
+	if end <= 0 {
+		return nil
+	}
+	start := msg.Timestamp
+	if start <= 0 && msg.DurationMs > 0 {
+		start = end - msg.DurationMs
+	}
+	if start <= 0 {
+		return nil
+	}
+	if !p.lastWaitEnd.IsZero() {
+		waitEnd := p.lastWaitEnd.UnixMilli()
+		if waitEnd > start && waitEnd <= end {
+			start = waitEnd
+		}
+	}
+	duration := end - start
+	if duration <= 0 || chars <= 0 {
+		return nil
+	}
+	return &agentv1.AgentThinking{
+		DurationMs: duration,
+		Chars:      chars,
+		Estimated:  true,
+	}
+}
+
 // parseLine decodes one JSONL line into zero or more console events. It is the
 
-func parseLine(line string) []*agentv1.TaskEvent {
+func (p *historyParser) parseLine(line string) []*agentv1.TaskEvent {
 	if line == "" {
 		return nil
 	}
@@ -371,7 +465,11 @@ func parseLine(line string) []*agentv1.TaskEvent {
 	}
 	at := parseTime(entry.Timestamp)
 	if entry.Type == "custom" {
-		return parseCustomLine(entry, at)
+		events := parseCustomLine(entry, at)
+		if entry.CustomType == modelWaitCustomType && len(events) > 0 && at != nil {
+			p.lastWaitEnd = at.AsTime()
+		}
+		return events
 	}
 	if entry.Type != "message" {
 		return nil
@@ -410,10 +508,19 @@ func parseLine(line string) []*agentv1.TaskEvent {
 				}
 			case "thinking":
 				if block.Thinking != "" {
+					thinking := &agentv1.AgentThinking{Delta: block.Thinking}
+					span := p.legacyThinkingSpan(
+						int32(utf8.RuneCountInString(block.Thinking)), msg, at,
+					)
+					if span != nil {
+						thinking.DurationMs = span.DurationMs
+						thinking.Chars = span.Chars
+						thinking.Estimated = true
+					}
 					events = append(events, &agentv1.TaskEvent{
 						At: at,
 						Event: &agentv1.TaskEvent_Thinking{
-							Thinking: &agentv1.AgentThinking{Delta: block.Thinking},
+							Thinking: thinking,
 						},
 					})
 				}

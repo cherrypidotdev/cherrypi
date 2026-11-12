@@ -26,6 +26,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     component.text-muted-foreground.shrink-0(class="size-3.5" :is="icon")
     span.font-medium {{ label }}
     span.text-muted-foreground(v-if="reason") · {{ reason }}
+    //- Who or what set the line off: a task state change names its actor, so a
+
+    slot(name="actor")
     time.text-muted-foreground.ml-auto.tabular-nums(
       v-if="at"
       :datetime="isoInstant(at)"

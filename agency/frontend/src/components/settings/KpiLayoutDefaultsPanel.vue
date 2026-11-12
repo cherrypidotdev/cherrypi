@@ -133,8 +133,8 @@ en:
     projectHint: "Every project page that has no layout of its own renders this. Saving a project's own layout detaches it, and the default never changes it."
     agentHint: "Every agent page that has no layout of its own renders this. An agent's owner may replace it on the agent's own Overview."
     save: "Save default layouts"
-    emptyHint: "An empty layout means new project and agent pages start with no KPIs."
-    saved: "Default KPI layouts saved"
+    emptyHint: "An empty saved layout means new project and agent pages start with no widgets. Until you save, they use the four starter widgets."
+    saved: "Default widget layouts saved"
     projectLayout: "Default Project layout"
     agentLayout: "Default Agent layout"
 ru:
@@ -142,8 +142,8 @@ ru:
     projectHint: "Этот макет показывается на каждой странице проекта без собственного макета. Сохранение макета проекта отвязывает его, и значение по умолчанию его больше не меняет."
     agentHint: "Этот макет показывается на каждой странице агента без собственного макета. Владелец агента может заменить его в обзоре агента."
     save: "Сохранить макеты по умолчанию"
-    emptyHint: "Пустой макет означает, что новые страницы проектов и агентов начинаются без KPI."
-    saved: "Макеты KPI по умолчанию сохранены"
+    emptyHint: "Пустой сохранённый макет означает, что новые страницы проектов и агентов начинаются без виджетов. До сохранения они используют четыре стартовых виджета."
+    saved: "Макеты виджетов по умолчанию сохранены"
     projectLayout: "Макет проекта по умолчанию"
     agentLayout: "Макет агента по умолчанию"
 </i18n>

@@ -1100,6 +1100,20 @@ func (s *SqliteStore) SetProjectArchived(
 	return fromSqliteProject(row), nil
 }
 
+func (s *SqliteStore) SetProjectArchiveAfterDays(
+	ctx context.Context,
+	p SetProjectArchiveAfterDaysParams,
+) (Project, error) {
+	row, err := s.q.SetProjectArchiveAfterDays(
+		ctx,
+		sqlitedb.SetProjectArchiveAfterDaysParams(p),
+	)
+	if err != nil {
+		return Project{}, err
+	}
+	return fromSqliteProject(row), nil
+}
+
 func (s *SqliteStore) AllocateTaskNumber(ctx context.Context, projectID string) (int64, error) {
 	return s.q.AllocateTaskNumber(ctx, projectID)
 }
@@ -1200,8 +1214,51 @@ func (s *SqliteStore) ListTasks(
 	return fromSqliteTaskSlice(rows), nil
 }
 
+func (s *SqliteStore) ListLiveTaskSessions(
+	ctx context.Context,
+	taskID string,
+) ([]TaskSession, error) {
+	rows, err := s.q.ListLiveTaskSessions(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TaskSession, len(rows))
+	for i, row := range rows {
+		out[i] = fromSqliteTaskSession(row)
+	}
+	return out, nil
+}
+
 func (s *SqliteStore) ListQueuedTasks(ctx context.Context) ([]Task, error) {
 	rows, err := s.q.ListQueuedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
+}
+
+func (s *SqliteStore) ListInheritedAutoArchivableTasks(
+	ctx context.Context,
+	cutoffMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListInheritedAutoArchivableTasks(ctx, sql.NullInt64{
+		Int64: cutoffMs,
+		Valid: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
+}
+
+func (s *SqliteStore) ListOverriddenAutoArchivableTasks(
+	ctx context.Context,
+	nowMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListOverriddenAutoArchivableTasks(ctx, sql.NullInt64{
+		Int64: nowMs,
+		Valid: true,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1458,6 +1515,20 @@ func (s *SqliteStore) SetTaskAssignee(
 		return Task{}, err
 	}
 	return fromSqliteTask(row), nil
+}
+
+func (s *SqliteStore) RecordTaskSession(
+	ctx context.Context,
+	p RecordTaskSessionParams,
+) error {
+	return s.q.RecordTaskSession(ctx, sqlitedb.RecordTaskSessionParams(p))
+}
+
+func (s *SqliteStore) MarkTaskSessionCleaned(
+	ctx context.Context,
+	p MarkTaskSessionCleanedParams,
+) error {
+	return s.q.MarkTaskSessionCleaned(ctx, sqlitedb.MarkTaskSessionCleanedParams(p))
 }
 
 func (s *SqliteStore) MarkTaskSessionDeleted(

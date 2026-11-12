@@ -41,6 +41,10 @@ service ProjectService {
   
   
   rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  
+  
+  rpc SetProjectArchiveAfterDays(SetProjectArchiveAfterDaysRequest)
+      returns (SetProjectArchiveAfterDaysResponse);
 
   
   
@@ -128,6 +132,10 @@ message Project {
   
   
   
+  optional int32 archive_after_days = 11;
+  
+  
+  
   
   string parent_project_id = 10;
 }
@@ -198,6 +206,18 @@ message DeleteProjectRequest {
 }
 
 message DeleteProjectResponse {}
+
+message SetProjectArchiveAfterDaysRequest {
+  string id = 1;
+  
+  
+  
+  optional int32 archive_after_days = 2;
+}
+
+message SetProjectArchiveAfterDaysResponse {
+  Project project = 1;
+}
 
 
 message ProjectAgent {

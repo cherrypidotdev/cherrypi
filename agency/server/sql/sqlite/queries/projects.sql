@@ -71,3 +71,13 @@ SELECT COUNT(*) FROM projects WHERE parent_project_id = sqlc.arg(parent_project_
 
 -- name: DeleteProject :exec
 DELETE FROM projects WHERE id = ?;
+
+-- name: SetProjectArchiveAfterDays :one
+
+
+
+
+UPDATE projects
+SET archive_after_days = sqlc.narg(archive_after_days), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;

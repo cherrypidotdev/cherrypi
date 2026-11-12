@@ -64,7 +64,15 @@ export type Item =
       at?: number;
     }
   | { id: number; kind: "text"; text: string; at?: number }
-  | ({ id: number; kind: "thinking"; text: string } & ActivityTiming)
+  | ({
+      id: number;
+      kind: "thinking";
+      text: string;
+
+      durationMs?: number;
+
+      estimated?: boolean;
+    } & ActivityTiming)
   | ({
       id: number;
       kind: "wait";
@@ -246,6 +254,37 @@ export function isBlankDelta(delta: string): boolean {
   return delta.trim() === "";
 }
 
+export interface ThinkingSpan {
+  durationMs: number;
+  chars: number;
+}
+
+export function thinkingSpan(event: TaskEvent): ThinkingSpan | null {
+  const payload = event.event;
+  if (payload.case !== "thinking") return null;
+  const value = payload.value;
+  if (value.delta !== "" || value.durationMs <= 0) return null;
+  return {
+    durationMs: Number(value.durationMs),
+    chars: Number(value.chars),
+  };
+}
+
+export function applyThinkingSpan(items: Item[], span: ThinkingSpan): boolean {
+  if (span.chars <= 0) return false;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.kind !== "thinking") continue;
+
+    if (item.durationMs !== undefined && item.estimated !== true) continue;
+    if (Array.from(item.text).length !== span.chars) continue;
+    item.durationMs = span.durationMs;
+    item.estimated = false;
+    return true;
+  }
+  return false;
+}
+
 export function newItem(event: TaskEvent): NewItem | null {
   const payload = event.event;
   const at = timestampMs(event.at);
@@ -253,14 +292,19 @@ export function newItem(event: TaskEvent): NewItem | null {
     case "text":
       if (isBlankDelta(payload.value.delta)) return null;
       return { kind: "text", text: payload.value.delta, at };
-    case "thinking":
+    case "thinking": {
       if (isBlankDelta(payload.value.delta)) return null;
+      const value = payload.value;
+      const durationMs = Number(value.durationMs);
       return {
         kind: "thinking",
-        text: payload.value.delta,
+        text: value.delta,
         startedAt: at,
         endedAt: at,
+
+        ...(durationMs > 0 ? { durationMs, estimated: value.estimated } : {}),
       };
+    }
     case "userMessage": {
       const parts = userMessageParts(payload.value);
       return {
@@ -339,6 +383,14 @@ export function questionnaireReview(item: Item): QuestionnaireReview | null {
   return { ...review, answeredAt: item.endedAt };
 }
 
+export interface StateTrigger {
+  kind: "stop";
+
+  actor: string;
+
+  actorId: string;
+}
+
 export interface StateChange {
   key: string;
 
@@ -350,6 +402,10 @@ export interface StateChange {
   reason: string;
 
   actor: string;
+
+  actorId?: string;
+
+  trigger?: StateTrigger;
 }
 
 export type Group =
@@ -595,14 +651,6 @@ export function groupWaitingMs(items: ActivityItem[]): number {
 
 export const WAIT_RENDER_MS = 100;
 
-export function absorbsWait(item: Item, next: Item | undefined): boolean {
-  return (
-    item.kind === "wait" &&
-    item.waitKind === ModelWait_Kind.MODEL_REQUEST &&
-    next?.kind === "thinking"
-  );
-}
-
 export function groupElapsed(
   items: ActivityItem[],
   now?: number,
@@ -637,7 +685,15 @@ export function prependEvents(
   allocateId: () => number,
 ): Item[] {
   const fresh: Item[] = [];
+
+  // ends, ahead of the message line that stores its reasoning.
+  const spans: ThinkingSpan[] = [];
   for (const event of events) {
+    const span = thinkingSpan(event);
+    if (span) {
+      spans.push(span);
+      continue;
+    }
     const item = newItem(event);
     if (!item) continue;
 
@@ -649,7 +705,25 @@ export function prependEvents(
         continue;
       }
     }
-    fresh.push({ ...item, id: allocateId() } as Item);
+    const created = { ...item, id: allocateId() } as Item;
+    if (created.kind === "thinking") {
+      const index = spans.findIndex(
+        (candidate) =>
+          candidate.chars > 0 &&
+          Array.from(created.text).length === candidate.chars,
+      );
+      const match = index >= 0 ? spans.splice(index, 1)[0] : undefined;
+      if (match) {
+        created.durationMs = match.durationMs;
+
+        created.estimated = false;
+      }
+    }
+    fresh.push(created);
+  }
+
+  for (const span of spans) {
+    if (!applyThinkingSpan(fresh, span)) applyThinkingSpan(items, span);
   }
   return fresh.length ? [...fresh, ...items] : items;
 }

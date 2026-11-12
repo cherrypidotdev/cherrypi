@@ -42,6 +42,9 @@ type historyMessage struct {
 	ToolName   string          `json:"toolName"`
 	Details    json.RawMessage `json:"details"`
 	IsError    bool            `json:"isError"`
+
+	Timestamp  int64 `json:"timestamp"`
+	DurationMs int64 `json:"durationMs"`
 }
 
 // historyEntry is one line of Pi's session JSONL.
@@ -107,6 +110,7 @@ func (s *Session) readHistory() []historyEvent {
 	}
 
 	var out []historyEvent
+	parser := &historyParser{}
 	for offset := int64(0); offset < int64(len(data)); {
 		rest := data[offset:]
 		next := bytes.IndexByte(rest, '\n')
@@ -119,7 +123,7 @@ func (s *Session) readHistory() []historyEvent {
 			line = rest[:next]
 			size = int64(next) + 1
 		}
-		for _, ev := range parseHistoryLine(line) {
+		for _, ev := range parser.parseLine(line) {
 			out = append(out, historyEvent{event: ev, offset: offset})
 		}
 		offset += size
@@ -127,8 +131,52 @@ func (s *Session) readHistory() []historyEvent {
 	return out
 }
 
-// parseHistoryLine decodes one JSONL line into zero or more events.
+type historyParser struct {
+	lastWaitEnd time.Time
+}
+
+// parseHistoryLine decodes one JSONL line on its own, without the timing
+
 func parseHistoryLine(line []byte) []Event {
+	return new(historyParser).parseLine(line)
+}
+
+func (p *historyParser) legacyThinkingSpan(
+	chars int32,
+	msg historyMessage,
+	at time.Time,
+) *ThinkingSpanEvent {
+	end := int64(0)
+	if !at.IsZero() {
+		end = at.UnixMilli()
+	} else if msg.Timestamp > 0 && msg.DurationMs > 0 {
+		end = msg.Timestamp + msg.DurationMs
+	}
+	if end <= 0 {
+		return nil
+	}
+	start := msg.Timestamp
+	if start <= 0 && msg.DurationMs > 0 {
+		start = end - msg.DurationMs
+	}
+	if start <= 0 {
+		return nil
+	}
+	if !p.lastWaitEnd.IsZero() {
+		waitEnd := p.lastWaitEnd.UnixMilli()
+		if waitEnd > start && waitEnd <= end {
+			start = waitEnd
+		}
+	}
+	duration := end - start
+	if duration <= 0 || chars <= 0 {
+		return nil
+	}
+	return &ThinkingSpanEvent{DurationMs: duration, Chars: chars, Estimated: true}
+}
+
+// parseLine decodes one JSONL line into zero or more events.
+func (p *historyParser) parseLine(line []byte) []Event {
 	if len(line) == 0 {
 		return nil
 	}
@@ -139,7 +187,11 @@ func parseHistoryLine(line []byte) []Event {
 	}
 	at := parseHistoryTime(entry.Timestamp)
 	if entry.Type == "custom" {
-		return parseCustomHistoryEntry(entry, at)
+		events := parseCustomHistoryEntry(entry, at)
+		if entry.CustomType == modelWaitCustomType && len(events) > 0 {
+			p.lastWaitEnd = at
+		}
+		return events
 	}
 	if entry.Type != "message" {
 		return nil
@@ -168,10 +220,11 @@ func parseHistoryLine(line []byte) []Event {
 				}
 			case "thinking":
 				if block.Thinking != "" {
-					events = append(
-						events,
-						Event{Kind: EventThinking, Delta: block.Thinking, At: at},
+					ev := Event{Kind: EventThinking, Delta: block.Thinking, At: at}
+					ev.ThinkingSpan = p.legacyThinkingSpan(
+						int32(len([]rune(block.Thinking))), msg, at,
 					)
+					events = append(events, ev)
 				}
 			case "toolCall":
 				events = append(events, Event{Kind: EventTool, At: at, Tool: &ToolEvent{
@@ -198,14 +251,21 @@ func parseHistoryLine(line []byte) []Event {
 }
 
 func parseCustomHistoryEntry(entry historyEntry, at time.Time) []Event {
-	if entry.CustomType != modelWaitCustomType {
-		return nil
+	switch entry.CustomType {
+	case modelWaitCustomType:
+		wait, ok := parseModelWait(entry.Data)
+		if !ok {
+			return nil
+		}
+		return []Event{{Kind: EventModelWait, At: at, ModelWait: wait}}
+	case thinkingSpanCustomType:
+		span, ok := parseThinkingSpan(entry.Data)
+		if !ok {
+			return nil
+		}
+		return []Event{{Kind: EventThinkingSpan, At: at, ThinkingSpan: span}}
 	}
-	wait, ok := parseModelWait(entry.Data)
-	if !ok {
-		return nil
-	}
-	return []Event{{Kind: EventModelWait, At: at, ModelWait: wait}}
+	return nil
 }
 
 func (s *Session) sessionFilePath() string {
