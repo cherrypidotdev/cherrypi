@@ -30,14 +30,22 @@ export const QUESTIONNAIRE_NOTE_HEIGHT_KEY =
 export const QUESTIONNAIRE_FINAL_NOTE_HEIGHT_KEY =
   "cherrypi:questionnaire-final-note-height";
 
-export function clampEditorHeight(height: number): number {
+export function clampEditorHeightInRange(
+  height: number,
+  min: number,
+  max: number,
+): number {
   const viewportMax =
     typeof window === "undefined" || !Number.isFinite(window.innerHeight)
-      ? EDITOR_MAX_HEIGHT
-      : Math.max(EDITOR_MIN_HEIGHT, window.innerHeight - VIEWPORT_MARGIN);
-  const max = Math.min(EDITOR_MAX_HEIGHT, viewportMax);
-  if (!Number.isFinite(height)) return EDITOR_MIN_HEIGHT;
-  return Math.round(Math.min(max, Math.max(EDITOR_MIN_HEIGHT, height)));
+      ? max
+      : Math.max(min, window.innerHeight - VIEWPORT_MARGIN);
+  const upper = Math.max(min, Math.min(max, viewportMax));
+  if (!Number.isFinite(height)) return min;
+  return Math.round(Math.min(upper, Math.max(min, height)));
+}
+
+export function clampEditorHeight(height: number): number {
+  return clampEditorHeightInRange(height, EDITOR_MIN_HEIGHT, EDITOR_MAX_HEIGHT);
 }
 
 export function loadEditorHeight(key: string): number | null {

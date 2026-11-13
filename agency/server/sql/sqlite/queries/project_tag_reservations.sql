@@ -37,16 +37,9 @@ WITH agent_actor AS (
   SELECT a.actor_id FROM agents a WHERE a.id = sqlc.arg(agent_id)
 ),
 roots AS (
-  SELECT m.project_id,
-    CASE m.role WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight
-  FROM project_actor_memberships m
-  JOIN agent_actor ON agent_actor.actor_id = m.actor_id
-  UNION ALL
-  SELECT ptm.project_id,
-    CASE ptm.role WHEN 'owner' THEN 3 WHEN 'member' THEN 2 ELSE 1 END AS weight
-  FROM project_team_memberships ptm
-  JOIN team_members tm ON tm.team_id = ptm.team_id
-  JOIN agent_actor ON agent_actor.actor_id = tm.actor_id
+  SELECT g.project_id, g.weight
+  FROM effective_project_grants g
+  JOIN agent_actor ON agent_actor.actor_id = g.actor_id
 ),
 readable AS (
   SELECT project_id, weight FROM roots

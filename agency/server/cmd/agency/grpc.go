@@ -23,6 +23,7 @@ import (
 	"net/http"
 
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
+	agentgroupsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agentgroups"
 	agentsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agents"
 	dashboardgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/desktop"
@@ -128,6 +129,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	settingsService := &settingsgrpc.SettingsServer{
 		Settings:    appCtx.Settings,
 		Attachments: appCtx.Attachments,
+		PublicURL:   appCtx.Config.PublicURL,
 	}
 	path, handler = agencyv1connect.NewSettingsServiceHandler(settingsService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
@@ -169,9 +171,19 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Tasks:    appCtx.Tasks,
 		Settings: appCtx.Settings,
 		Teams:    appCtx.Teams,
+		Groups:   appCtx.Groups,
 		Accounts: appCtx.Accounts,
 	}
 	path, handler = agencyv1connect.NewPromptServiceHandler(promptService, handlerOptions()...)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
+	groupService := &agentgroupsgrpc.Server{
+		Groups: appCtx.Groups,
+		Agents: appCtx.Agents,
+	}
+	path, handler = agencyv1connect.NewAgentGroupServiceHandler(
+		groupService,
+		handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	templateService := &tasktemplatesgrpc.Server{Templates: appCtx.Templates}

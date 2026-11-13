@@ -15,6 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import AppShell from "@/components/AppShell.vue";
+import GroupAccessPanel from "@/components/groups/GroupAccessPanel.vue";
+import GroupMembersPanel from "@/components/groups/GroupMembersPanel.vue";
+import GroupOverviewPanel from "@/components/groups/GroupOverviewPanel.vue";
+import GroupPromptsPanel from "@/components/groups/GroupPromptsPanel.vue";
+import GroupSettingsPanel from "@/components/groups/GroupSettingsPanel.vue";
 import { useAgents } from "@/composables/useAgents";
 import { loadLocalePreference } from "@/composables/useLocale";
 import { setPageTitle } from "@/composables/usePageTitle";
@@ -26,6 +31,8 @@ import AgencyTasksView from "@/views/AgencyTasksView.vue";
 import AgencyUsageView from "@/views/AgencyUsageView.vue";
 import AgentView from "@/views/AgentView.vue";
 import AgentsView from "@/views/AgentsView.vue";
+import GroupView from "@/views/GroupView.vue";
+import GroupsView from "@/views/GroupsView.vue";
 import InboxView from "@/views/InboxView.vue";
 import InviteView from "@/views/InviteView.vue";
 import LoginView from "@/views/LoginView.vue";
@@ -151,6 +158,48 @@ const router = createRouter({
           name: "projects",
           component: ProjectsView,
           meta: { titleKey: "pageTitle.projects" },
+        },
+        {
+          path: "groups",
+          name: "groups",
+          component: GroupsView,
+          meta: { titleKey: "pageTitle.groups" },
+        },
+        {
+          path: "groups/:slug",
+          component: GroupView,
+          children: [
+            {
+              path: "",
+              name: "group-overview",
+              component: GroupOverviewPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+            {
+              path: "members",
+              name: "group-members",
+              component: GroupMembersPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+            {
+              path: "prompts",
+              name: "group-prompts",
+              component: GroupPromptsPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+            {
+              path: "access",
+              name: "group-access",
+              component: GroupAccessPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+            {
+              path: "settings",
+              name: "group-settings",
+              component: GroupSettingsPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+          ],
         },
         {
           path: "teams",

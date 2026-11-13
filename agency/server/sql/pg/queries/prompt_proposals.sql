@@ -22,13 +22,14 @@ SELECT * FROM prompt_proposals WHERE id = sqlc.arg(id);
 
 -- name: InsertPromptProposal :one
 INSERT INTO prompt_proposals (
-  scope, agent_id, team_id, project_id, content, base_version,
+  scope, agent_id, team_id, group_id, project_id, content, base_version,
   author_actor_id, note, status, auto_approved, created_at
 )
 VALUES (
   sqlc.arg(scope),
   NULLIF(sqlc.arg(agent_id), 0),
   NULLIF(sqlc.arg(team_id), 0),
+  NULLIF(sqlc.arg(group_id), 0),
   NULLIF(sqlc.arg(project_id), ''),
   sqlc.arg(content),
   sqlc.arg(base_version),
@@ -45,6 +46,7 @@ SELECT * FROM prompt_proposals
 WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, 0) = sqlc.arg(agent_id)
   AND coalesce(team_id, 0) = sqlc.arg(team_id)
+  AND coalesce(group_id, 0) = sqlc.arg(group_id)
   AND coalesce(project_id, '') = sqlc.arg(project_id)
   AND (CAST(sqlc.narg(status) AS TEXT) IS NULL OR status = CAST(sqlc.narg(status) AS TEXT))
   AND (sqlc.arg(before_id) = 0 OR id < sqlc.arg(before_id))

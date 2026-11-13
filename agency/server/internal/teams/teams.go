@@ -195,7 +195,7 @@ func (s *Service) List(ctx context.Context, actorID ids.ActorID, isAdmin bool) (
 				UpdatedAt:        time.UnixMilli(row.UpdatedAt),
 			}
 
-			member, err := s.store.GetTeamMember(ctx, store.GetTeamMemberParams{
+			member, err := s.store.GetEffectiveTeamMember(ctx, store.GetTeamMemberParams{
 				TeamID:  row.ID,
 				ActorID: int64(actorID),
 			})
@@ -355,7 +355,7 @@ func (s *Service) IsOwner(ctx context.Context, teamID int64, actorID ids.ActorID
 	if actorID == 0 {
 		return false, nil
 	}
-	row, err := s.store.GetTeamMember(ctx, store.GetTeamMemberParams{
+	row, err := s.store.GetEffectiveTeamMember(ctx, store.GetTeamMemberParams{
 		TeamID:  teamID,
 		ActorID: int64(actorID),
 	})
@@ -494,7 +494,7 @@ func (s *Service) Invite(
 	if invitee.Kind == actorKindPlugin {
 		return Invitation{}, ErrPluginInvitee
 	}
-	if _, err := s.store.GetTeamMember(ctx, store.GetTeamMemberParams{
+	if _, err := s.store.GetEffectiveTeamMember(ctx, store.GetTeamMemberParams{
 		TeamID:  teamID,
 		ActorID: int64(inviteeID),
 	}); err == nil {
@@ -872,16 +872,16 @@ func (s *Service) member(
 	ctx context.Context,
 	teamID int64,
 	actorID ids.ActorID,
-) (store.TeamMember, bool) {
+) (store.EffectiveTeamMember, bool) {
 	if actorID == 0 {
-		return store.TeamMember{}, false
+		return store.EffectiveTeamMember{}, false
 	}
-	row, err := s.store.GetTeamMember(ctx, store.GetTeamMemberParams{
+	row, err := s.store.GetEffectiveTeamMember(ctx, store.GetTeamMemberParams{
 		TeamID:  teamID,
 		ActorID: int64(actorID),
 	})
 	if err != nil {
-		return store.TeamMember{}, false
+		return store.EffectiveTeamMember{}, false
 	}
 	return row, true
 }
@@ -891,14 +891,14 @@ func (s *Service) requireMember(
 	teamID int64,
 	actorID ids.ActorID,
 	isAdmin bool,
-) (store.TeamMember, error) {
+) (store.EffectiveTeamMember, error) {
 	if row, ok := s.member(ctx, teamID, actorID); ok {
 		return row, nil
 	}
 	if isAdmin {
-		return store.TeamMember{}, nil
+		return store.EffectiveTeamMember{}, nil
 	}
-	return store.TeamMember{}, ErrNotMember
+	return store.EffectiveTeamMember{}, ErrNotMember
 }
 
 func (s *Service) requireOwner(
@@ -906,14 +906,14 @@ func (s *Service) requireOwner(
 	teamID int64,
 	actorID ids.ActorID,
 	isAdmin bool,
-) (store.TeamMember, error) {
+) (store.EffectiveTeamMember, error) {
 	if row, ok := s.member(ctx, teamID, actorID); ok && row.Role == RoleOwner {
 		return row, nil
 	}
 	if isAdmin {
-		return store.TeamMember{}, nil
+		return store.EffectiveTeamMember{}, nil
 	}
-	return store.TeamMember{}, ErrForbidden
+	return store.EffectiveTeamMember{}, ErrForbidden
 }
 
 func (s *Service) ensureNameFree(ctx context.Context, name string, selfID int64) error {

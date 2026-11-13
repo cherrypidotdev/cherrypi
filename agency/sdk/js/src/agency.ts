@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { fromJson } from "@bufbuild/protobuf";
+import { create, fromJson } from "@bufbuild/protobuf";
 import {
   createClient,
   type Client,
@@ -58,6 +58,22 @@ import {
   type ProjectAgent,
   type ProjectTagReservation,
 } from "./gen/buf/agency/v1/projects_pb.js";
+import {
+  AgentGroupService,
+  AgentGroupAccessSchema,
+  type AgentGroup,
+  type AgentGroupLog,
+  type AgentGroupMember,
+  type AgentGroupMemberRequest,
+  type AgentGroupMembershipResult,
+  type AgentGroupOwner,
+  type AgentGroupProject,
+  type AgentGroupTeam,
+  type AgentGroupAccess,
+  type AgentGroupAccessInvitation,
+  type AgentGroupProjectGroup,
+  type AgentGroupTeamGroup,
+} from "./gen/buf/agency/v1/agent_groups_pb.js";
 import {
   PromptProposalStatus,
   PromptScope,
@@ -314,6 +330,8 @@ export interface PromptTarget {
   agentId?: string;
   teamId?: string | number;
   projectId?: string;
+
+  groupId?: string | number;
 }
 
 export interface PromptAccess {
@@ -359,6 +377,22 @@ export interface PromptProposalDecision {
 
 export type { PromptActor, PromptProposal };
 export { PromptProposalStatus };
+export type {
+  AgentGroup,
+  AgentGroupLog,
+  AgentGroupMember,
+  AgentGroupMemberRequest,
+  AgentGroupMembershipResult,
+  AgentGroupOwner,
+  AgentGroupProject,
+  AgentGroupTeam,
+  AgentGroupAccess,
+  AgentGroupAccessInvitation,
+  AgentGroupProjectAccess,
+  AgentGroupTeamAccess,
+  AgentGroupProjectGroup,
+  AgentGroupTeamGroup,
+} from "./gen/buf/agency/v1/agent_groups_pb.js";
 
 export interface ProjectAgentPermissionsInput {
   canListTasks: boolean;
@@ -417,6 +451,7 @@ export class AgencyClient {
   private readonly tags: Client<typeof TagService>;
   private readonly projects: Client<typeof ProjectService>;
   private readonly prompts: Client<typeof PromptService>;
+  private readonly agentGroups: Client<typeof AgentGroupService>;
   private readonly taskTemplates: Client<typeof TaskTemplateService>;
   private readonly dashboard: Client<typeof AgencyDashboardService>;
   private readonly terminals: Client<typeof AgencyTerminalService>;
@@ -451,6 +486,7 @@ export class AgencyClient {
     this.tags = createClient(TagService, transport);
     this.projects = createClient(ProjectService, transport);
     this.prompts = createClient(PromptService, transport);
+    this.agentGroups = createClient(AgentGroupService, transport);
     this.taskTemplates = createClient(TaskTemplateService, transport);
     this.dashboard = createClient(AgencyDashboardService, transport);
     this.terminals = createClient(AgencyTerminalService, transport);
@@ -776,6 +812,344 @@ export class AgencyClient {
     await this.projects.removeProjectAgent({ projectId, agentId }, options);
   }
 
+  async listAgentGroups(options?: CallOptions): Promise<AgentGroup[]> {
+    const res = await this.agentGroups.listAgentGroups({}, options);
+    return res.groups;
+  }
+
+  async getAgentGroup(
+    id: bigint | number,
+    options?: CallOptions,
+  ): Promise<AgentGroup> {
+    const res = await this.agentGroups.getAgentGroup(
+      { id: BigInt(id) },
+      options,
+    );
+    return res.group!;
+  }
+
+  async resolveAgentGroupBySlug(
+    slug: string,
+    options?: CallOptions,
+  ): Promise<AgentGroup> {
+    const res = await this.agentGroups.resolveAgentGroupBySlug(
+      { slug },
+      options,
+    );
+    return res.group!;
+  }
+
+  async createAgentGroup(
+    input: { name: string; slug?: string; description?: string },
+    options?: CallOptions,
+  ): Promise<AgentGroup> {
+    const res = await this.agentGroups.createAgentGroup(
+      {
+        name: input.name,
+        slug: input.slug ?? "",
+        description: input.description ?? "",
+      },
+      options,
+    );
+    return res.group!;
+  }
+
+  async updateAgentGroup(
+    id: bigint | number,
+    input: { name: string; slug?: string; description?: string },
+    options?: CallOptions,
+  ): Promise<AgentGroup> {
+    const res = await this.agentGroups.updateAgentGroup(
+      {
+        id: BigInt(id),
+        name: input.name,
+        slug: input.slug ?? "",
+        description: input.description ?? "",
+      },
+      options,
+    );
+    return res.group!;
+  }
+
+  async setAgentGroupArchived(
+    id: bigint | number,
+    archived: boolean,
+    options?: CallOptions,
+  ): Promise<AgentGroup> {
+    const res = await this.agentGroups.setAgentGroupArchived(
+      { id: BigInt(id), archived },
+      options,
+    );
+    return res.group!;
+  }
+
+  async listAgentGroupMembers(
+    groupId: bigint | number,
+    options?: CallOptions,
+  ): Promise<AgentGroupMember[]> {
+    const res = await this.agentGroups.listAgentGroupMembers(
+      { groupId: BigInt(groupId) },
+      options,
+    );
+    return res.members;
+  }
+
+  async listAgentGroupsForAgent(
+    agentId: string,
+    options?: CallOptions,
+  ): Promise<AgentGroup[]> {
+    const res = await this.agentGroups.listAgentGroupsForAgent(
+      { agentId },
+      options,
+    );
+    return res.groups;
+  }
+
+  async addAgentGroupMember(
+    groupId: bigint | number,
+    agentId: string,
+    note = "",
+    options?: CallOptions,
+  ): Promise<AgentGroupMembershipResult> {
+    const res = await this.agentGroups.addAgentGroupMember(
+      { groupId: BigInt(groupId), agentId, note },
+      options,
+    );
+    return res.result!;
+  }
+
+  async removeAgentGroupMember(
+    groupId: bigint | number,
+    agentId: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.agentGroups.removeAgentGroupMember(
+      { groupId: BigInt(groupId), agentId },
+      options,
+    );
+  }
+
+  async listAgentGroupMemberRequests(
+    groupId: bigint | number,
+    status = "pending",
+    options?: CallOptions,
+  ): Promise<AgentGroupMemberRequest[]> {
+    const res = await this.agentGroups.listAgentGroupMemberRequests(
+      { groupId: BigInt(groupId), status },
+      options,
+    );
+    return res.requests;
+  }
+
+  async decideAgentGroupMember(
+    id: bigint | number,
+    approve: boolean,
+    note = "",
+    options?: CallOptions,
+  ): Promise<AgentGroupMemberRequest> {
+    const res = await this.agentGroups.decideAgentGroupMember(
+      { id: BigInt(id), approve, note },
+      options,
+    );
+    return res.request!;
+  }
+
+  async listAgentGroupOwners(
+    groupId: bigint | number,
+    options?: CallOptions,
+  ): Promise<AgentGroupOwner[]> {
+    const res = await this.agentGroups.listAgentGroupOwners(
+      { groupId: BigInt(groupId) },
+      options,
+    );
+    return res.owners;
+  }
+
+  async addAgentGroupOwner(
+    groupId: bigint | number,
+    actorId: string,
+    options?: CallOptions,
+  ): Promise<AgentGroupOwner> {
+    const res = await this.agentGroups.addAgentGroupOwner(
+      { groupId: BigInt(groupId), actorId },
+      options,
+    );
+    return res.owner!;
+  }
+
+  async removeAgentGroupOwner(
+    groupId: bigint | number,
+    actorId: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.agentGroups.removeAgentGroupOwner(
+      { groupId: BigInt(groupId), actorId },
+      options,
+    );
+  }
+
+  async listAgentGroupProjects(
+    groupId: bigint | number,
+    options?: CallOptions,
+  ): Promise<AgentGroupProject[]> {
+    const res = await this.agentGroups.listAgentGroupProjects(
+      { groupId: BigInt(groupId) },
+      options,
+    );
+    return res.projects;
+  }
+
+  async listAgentGroupTeams(
+    groupId: bigint | number,
+    options?: CallOptions,
+  ): Promise<AgentGroupTeam[]> {
+    const res = await this.agentGroups.listAgentGroupTeams(
+      { groupId: BigInt(groupId) },
+      options,
+    );
+    return res.teams;
+  }
+
+  async listAgentGroupLogs(
+    groupId: bigint | number,
+    options?: { beforeId?: bigint | number; limit?: number } & CallOptions,
+  ): Promise<AgentGroupLog[]> {
+    const res = await this.agentGroups.listAgentGroupLogs(
+      {
+        groupId: BigInt(groupId),
+        beforeId: BigInt(options?.beforeId ?? 0),
+        limit: options?.limit ?? 50,
+      },
+      options,
+    );
+    return res.logs;
+  }
+
+  async listAgentGroupAccess(
+    groupId: bigint | number | string,
+    options?: CallOptions,
+  ): Promise<AgentGroupAccess> {
+    const res = await this.agentGroups.listAgentGroupAccess(
+      { groupId: BigInt(groupId) },
+      options,
+    );
+    return res.access ?? create(AgentGroupAccessSchema);
+  }
+
+  /** A project owner invites a group; a group owner accepts in the inbox. */
+  async inviteAgentGroupToProject(
+    groupId: bigint | number | string,
+    projectId: string,
+    role: string,
+    note = "",
+    options?: CallOptions,
+  ): Promise<{ attached: boolean; invitation?: AgentGroupAccessInvitation }> {
+    const res = await this.agentGroups.inviteAgentGroupToProject(
+      { groupId: BigInt(groupId), projectId, role, note },
+      options,
+    );
+    return { attached: res.attached, invitation: res.invitation };
+  }
+
+  /** Any team member invites a group; a group owner accepts in the inbox. */
+  async inviteAgentGroupToTeam(
+    groupId: bigint | number | string,
+    teamId: bigint | number | string,
+    note = "",
+    options?: CallOptions,
+  ): Promise<{ attached: boolean; invitation?: AgentGroupAccessInvitation }> {
+    const res = await this.agentGroups.inviteAgentGroupToTeam(
+      { groupId: BigInt(groupId), teamId: BigInt(teamId), note },
+      options,
+    );
+    return { attached: res.attached, invitation: res.invitation };
+  }
+
+  async decideAgentGroupAccess(
+    targetKind: "project" | "team",
+    invitationId: bigint | number,
+    approve: boolean,
+    note = "",
+    options?: CallOptions,
+  ): Promise<AgentGroupAccessInvitation | undefined> {
+    const res = await this.agentGroups.decideAgentGroupAccess(
+      {
+        targetKind,
+        invitationId: BigInt(invitationId),
+        approve,
+        note,
+      },
+      options,
+    );
+    return res.invitation;
+  }
+
+  async revokeAgentGroupAccess(
+    targetKind: "project" | "team",
+    invitationId: bigint | number,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.agentGroups.revokeAgentGroupAccess(
+      { targetKind, invitationId: BigInt(invitationId) },
+      options,
+    );
+  }
+
+  async removeAgentGroupFromProject(
+    groupId: bigint | number | string,
+    projectId: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.agentGroups.removeAgentGroupFromProject(
+      { groupId: BigInt(groupId), projectId },
+      options,
+    );
+  }
+
+  async removeAgentGroupFromTeam(
+    groupId: bigint | number | string,
+    teamId: bigint | number | string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.agentGroups.removeAgentGroupFromTeam(
+      { groupId: BigInt(groupId), teamId: BigInt(teamId) },
+      options,
+    );
+  }
+
+  async listProjectAgentGroups(
+    projectId: string,
+    options?: CallOptions,
+  ): Promise<{
+    links: AgentGroupProjectGroup[];
+    inherited: AgentGroupProjectGroup[];
+    invitations: AgentGroupAccessInvitation[];
+  }> {
+    const res = await this.agentGroups.listProjectAgentGroups(
+      { projectId },
+      options,
+    );
+    return {
+      links: res.links,
+      inherited: res.inherited,
+      invitations: res.invitations,
+    };
+  }
+
+  async listTeamAgentGroups(
+    teamId: bigint | number | string,
+    options?: CallOptions,
+  ): Promise<{
+    links: AgentGroupTeamGroup[];
+    invitations: AgentGroupAccessInvitation[];
+  }> {
+    const res = await this.agentGroups.listTeamAgentGroups(
+      { teamId: BigInt(teamId) },
+      options,
+    );
+    return { links: res.links, invitations: res.invitations };
+  }
+
   async listTaskTemplates(
     projectId: string,
     includeArchived = false,
@@ -949,6 +1323,7 @@ export class AgencyClient {
         agentId: target?.agentId ?? "",
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
+        groupId: BigInt(target?.groupId ?? 0),
       },
       options,
     );
@@ -966,6 +1341,7 @@ export class AgencyClient {
         agentId: target?.agentId ?? "",
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
+        groupId: BigInt(target?.groupId ?? 0),
       },
       options,
     );
@@ -990,6 +1366,7 @@ export class AgencyClient {
         agentId: target?.agentId ?? "",
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
+        groupId: BigInt(target?.groupId ?? 0),
         content,
         note: note ?? "",
       },
@@ -1010,6 +1387,7 @@ export class AgencyClient {
         agentId: target?.agentId ?? "",
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
+        groupId: BigInt(target?.groupId ?? 0),
         limit: options?.limit ?? 50,
         beforeVersion: BigInt(options?.beforeVersion ?? 0),
       },
@@ -1028,6 +1406,7 @@ export class AgencyClient {
         agentId: input.target?.agentId ?? "",
         teamId: BigInt(input.target?.teamId ?? 0),
         projectId: input.target?.projectId ?? "",
+        groupId: BigInt(input.target?.groupId ?? 0),
         content: input.content,
         note: input.note ?? "",
       },
@@ -1049,6 +1428,7 @@ export class AgencyClient {
         agentId: target?.agentId ?? "",
         teamId: BigInt(target?.teamId ?? 0),
         projectId: target?.projectId ?? "",
+        groupId: BigInt(target?.groupId ?? 0),
         status: filter?.status ?? PromptProposalStatus.UNSPECIFIED,
         mine,
         limit: filter?.limit ?? 50,

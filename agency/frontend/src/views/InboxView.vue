@@ -132,6 +132,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   <template v-else-if="item.kind.startsWith('prompt_proposal')">
                     {{ $t("attention.event.promptProposal") }}
                   </template>
+                  <template v-else-if="isGroupMembership(item)">
+                    {{ $t("inbox.groupMembership") }}
+                  </template>
                   <template v-else>{{ item.agentId.slice(0, 8) }}</template>
                   · {{ formatTimestamp(item.createdAt) }}
                 </span>
@@ -202,7 +205,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useNotifications } from "@/composables/useNotifications";
 import { formatTimestamp } from "@/lib/format";
-import { loadPromptRouteTargets, promptRoute } from "@/lib/notificationLink";
+import {
+  groupRoute,
+  loadPromptRouteTargets,
+  promptRoute,
+} from "@/lib/notificationLink";
 import { plainNotificationText } from "@/lib/notificationText";
 import type { AgencyNotification } from "@cherrypi/sdk";
 import { CheckCheckIcon, CheckIcon, Trash2Icon } from "@lucide/vue";
@@ -264,11 +271,21 @@ function openNotification(item: AgencyNotification) {
   if (isLinked(item) && !item.readAt) void markRead(Number(item.id));
 }
 
+function isGroupMembership(item: AgencyNotification): boolean {
+  return item.kind.startsWith("agent_group_member");
+}
+
+function isGroupAccess(item: AgencyNotification): boolean {
+  return item.kind.startsWith("agent_group_access");
+}
+
 function isLinked(item: AgencyNotification): boolean {
   return (
     Boolean(item.taskId) ||
     item.kind === "team_invitation" ||
-    promptRoute(item) !== null
+    promptRoute(item) !== null ||
+    isGroupMembership(item) ||
+    isGroupAccess(item)
   );
 }
 
@@ -284,6 +301,12 @@ function linkFor(item: AgencyNotification): RouteLocationRaw {
     return { name: "task", params: { id: item.taskId } };
   }
   if (item.kind === "team_invitation") return { name: "teams" };
+  if (isGroupMembership(item)) {
+    return groupRoute(item, "members") ?? { name: "inbox" };
+  }
+  if (isGroupAccess(item)) {
+    return groupRoute(item, "access") ?? { name: "inbox" };
+  }
   return promptRoute(item) ?? { name: "inbox" };
 }
 
@@ -291,6 +314,9 @@ function linkLabel(item: AgencyNotification): string {
   if (item.taskId) return t("inbox.openTaskFor", { title: item.title });
   if (item.kind === "team_invitation") {
     return t("inbox.openTeamsFor", { title: item.title });
+  }
+  if (isGroupMembership(item) || isGroupAccess(item)) {
+    return t("inbox.openGroupFor", { title: item.title });
   }
   return t("inbox.openPromptFor", { title: item.title });
 }
@@ -326,7 +352,9 @@ en:
     empty: "No notifications."
     openTaskFor: "Open task for: {title}"
     openTeamsFor: "Open teams for: {title}"
+    openGroupFor: "Open group for: {title}"
     openPromptFor: "Open prompt for: {title}"
+    groupMembership: "Group membership"
     openTask: "Open task {id}"
 ru:
   inbox:
@@ -346,6 +374,8 @@ ru:
     empty: "Уведомлений нет."
     openTaskFor: "Открыть задачу: {title}"
     openTeamsFor: "Открыть команды: {title}"
+    openGroupFor: "Открыть группу: {title}"
     openPromptFor: "Открыть промпт: {title}"
+    groupMembership: "Участие в группе"
     openTask: "Открыть задачу {id}"
 </i18n>

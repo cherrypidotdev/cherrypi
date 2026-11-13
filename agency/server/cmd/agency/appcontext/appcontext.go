@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/archiver"
@@ -89,6 +90,7 @@ type AppContext struct {
 	AgentLogs     *agentlogs.Service
 	Health        *health.Service
 	Teams         *teams.Service
+	Groups        *agentgroups.Service
 	Templates     *templates.Service
 	Audit         *audit.Service
 
@@ -364,6 +366,11 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	projectsSvc := projects.New(st)
 	projectsSvc.TeamOwners = teamsSvc
+
+	groupsSvc := agentgroups.New(st)
+	groupsSvc.Agents = agentRegistry
+	groupsSvc.Projects = projectsSvc
+	groupsSvc.Teams = teamsSvc
 	templatesSvc := templates.New(st, projectsSvc)
 
 	go func() {
@@ -373,6 +380,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 			ctx := context.Background()
 			_ = accountsSvc.Cleanup(ctx)
 			_, _ = teamsSvc.PruneInvitations(ctx, time.Now())
+			_, _ = groupsSvc.PruneRequests(ctx, time.Now())
+			_, _ = groupsSvc.PruneAccessInvitations(ctx, time.Now())
 			_, _ = projectsSvc.PruneInvitations(ctx, time.Now())
 			_, _ = auditSvc.Prune(ctx, time.Now())
 		}
@@ -387,6 +396,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	notificationsSvc := notifications.New(st)
 	teamsSvc.Notifier = notificationsSvc
+	groupsSvc.Notifications = notificationsSvc
 	notifier := webhook.NewNotifier(st)
 	agentLogsSvc := agentlogs.New(st)
 	healthSvc := health.New(st)
@@ -602,6 +612,34 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	go sched.Run(context.Background())
 	go archiver.New(tasksSvc, settingsSvc).Run(context.Background())
 
+	inputSvc := &taskinput.Service{
+		Tasks:  tasksSvc,
+		Agents: agentRegistry,
+		Hub:    hub,
+		Actors: func(ctx context.Context, id ids.ActorID) (taskinput.ActorInfo, error) {
+			actor, err := accountsSvc.GetActor(ctx, id)
+			if err != nil {
+				return taskinput.ActorInfo{}, err
+			}
+			return taskinput.ActorInfo{
+				Username: actor.Username,
+				Name:     actor.Name,
+				Kind:     actor.Kind,
+			}, nil
+		},
+	}
+	inputSvc.OnAnswered = func(ctx context.Context, answered taskinput.Answered) {
+		pluginsSvc.DispatchEvent(ctx, pluginhost.TaskInputAnsweredEvent(
+			answered.Task,
+			answered.Dialog.RequestID,
+			answered.Dialog.Method,
+			answered.Dialog.Title,
+			answered.Dialog.Message,
+			answered.Summary(),
+			answered.AnsweredBy(),
+		))
+	}
+
 	return &AppContext{
 		Config:   config,
 		Store:    st,
@@ -618,11 +656,13 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 				Agents:   agentRegistry,
 				Projects: projectsSvc,
 				Teams:    teamsSvc,
+				Groups:   groupsSvc,
 			},
 			Notifications: notificationsSvc,
 			Audit:         auditSvc,
 			Projects:      projectsSvc,
 			Teams:         teamsSvc,
+			Groups:        groupsSvc,
 			Agents:        agentRegistry,
 			Accounts:      accountsSvc,
 		},
@@ -639,28 +679,14 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		AgentLogs:     agentLogsSvc,
 		Health:        healthSvc,
 		Teams:         teamsSvc,
+		Groups:        groupsSvc,
 		Templates:     templatesSvc,
 		Audit:         auditSvc,
 		Realtime:      realtimeBus,
 		ProcessLogs:   processLog,
 		Plugins:       pluginsSvc,
 		KpiLayouts:    kpilayout.New(st),
-		Input: &taskinput.Service{
-			Tasks:  tasksSvc,
-			Agents: agentRegistry,
-			Hub:    hub,
-			Actors: func(ctx context.Context, id ids.ActorID) (taskinput.ActorInfo, error) {
-				actor, err := accountsSvc.GetActor(ctx, id)
-				if err != nil {
-					return taskinput.ActorInfo{}, err
-				}
-				return taskinput.ActorInfo{
-					Username: actor.Username,
-					Name:     actor.Name,
-					Kind:     actor.Kind,
-				}, nil
-			},
-		},
+		Input:         inputSvc,
 	}
 }
 

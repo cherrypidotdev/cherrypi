@@ -51,6 +51,130 @@ type Service struct {
 	Agents *agents.Registry
 	Hub    Connector
 	Actors ActorResolver
+
+	OnAnswered func(ctx context.Context, answered Answered)
+}
+
+type Answered struct {
+	Task    tasks.Task
+	Dialog  Dialog
+	Answer  Answer
+	Actor   ActorInfo
+	ActorID ids.ActorID
+}
+
+func (a Answered) Summary() AnswerSummary {
+	return Summarize(a.Dialog, a.Answer)
+}
+
+func (a Answered) AnsweredBy() map[string]any {
+	out := map[string]any{
+		"id":       "",
+		"username": "",
+		"name":     "",
+		"kind":     "",
+	}
+	if a.ActorID != 0 {
+		out["id"] = actorid.Format(a.ActorID)
+	}
+	if a.Actor.Username != "" {
+		out["username"] = a.Actor.Username
+	}
+	if a.Actor.Name != "" {
+		out["name"] = a.Actor.Name
+	}
+	if a.Actor.Kind != "" {
+		out["kind"] = a.Actor.Kind
+	}
+	return out
+}
+
+type AnswerSummary struct {
+	Text          string                `json:"text"`
+	Value         string                `json:"value,omitempty"`
+	Confirmed     *bool                 `json:"confirmed,omitempty"`
+	Cancelled     bool                  `json:"cancelled,omitempty"`
+	Questionnaire []QuestionnaireAnswer `json:"questionnaire,omitempty"`
+}
+
+func Summarize(dialog Dialog, in Answer) AnswerSummary {
+	out := AnswerSummary{Value: in.Value}
+	switch {
+	case in.Cancelled:
+		out.Cancelled = true
+		out.Text = "Cancelled"
+	case in.Confirmed != nil:
+		out.Confirmed = in.Confirmed
+		if *in.Confirmed {
+			out.Text = "Yes"
+		} else {
+			out.Text = "No"
+		}
+	default:
+		pairs := in.Questionnaire
+		if len(pairs) == 0 {
+			pairs = questionnaireAnswersFromValue(dialog.Questionnaire, in.Value)
+		}
+		out.Questionnaire = pairs
+		if len(pairs) > 0 {
+			out.Text = summarizePairs(pairs)
+		} else {
+			out.Text = in.Value
+		}
+	}
+	return out
+}
+
+func questionnaireAnswersFromValue(
+	q *Questionnaire,
+	value string,
+) []QuestionnaireAnswer {
+	if q == nil || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	var payload struct {
+		Answers []struct {
+			Index   int     `json:"index"`
+			Options []int   `json:"options"`
+			Custom  *string `json:"custom"`
+		} `json:"answers"`
+	}
+	if err := json.Unmarshal([]byte(value), &payload); err != nil {
+		return nil
+	}
+	out := make([]QuestionnaireAnswer, 0, len(payload.Answers))
+	for _, item := range payload.Answers {
+		if item.Index < 0 || item.Index >= len(q.Questions) {
+			continue
+		}
+		question := q.Questions[item.Index]
+		label := strings.TrimSpace(question.Header)
+		if label == "" {
+			label = strings.TrimSpace(question.Question)
+		}
+		answer := ""
+		if item.Custom != nil {
+			answer = *item.Custom
+		} else {
+			labels := make([]string, 0, len(item.Options))
+			for _, index := range item.Options {
+				if index >= 0 && index < len(question.Options) {
+					labels = append(labels, question.Options[index].Label)
+				}
+			}
+			answer = strings.Join(labels, ", ")
+		}
+		out = append(out, QuestionnaireAnswer{Question: label, Answer: answer})
+	}
+	return out
+}
+
+func summarizePairs(pairs []QuestionnaireAnswer) string {
+	parts := make([]string, 0, len(pairs))
+	for _, pair := range pairs {
+		parts = append(parts, strings.TrimSpace(pair.Question)+": "+pair.Answer)
+	}
+	return strings.Join(parts, "; ")
 }
 
 type Dialog struct {
@@ -92,12 +216,20 @@ func (s *Service) Pending(
 	if err != nil {
 		return Dialog{}, false, err
 	}
+	return s.pendingFor(ctx, conn, t.SessionID)
+}
+
+func (s *Service) pendingFor(
+	ctx context.Context,
+	conn *tunnel.Connection,
+	sessionID string,
+) (Dialog, bool, error) {
 	res, err := conn.Tasks.ListTasks(ctx, &agentv1.ListTasksRequest{})
 	if err != nil {
 		return Dialog{}, false, err
 	}
 	for _, at := range res.GetTasks() {
-		if at.GetId() != t.SessionID {
+		if at.GetId() != sessionID {
 			continue
 		}
 		if !at.GetWaitingForInput() {
@@ -144,8 +276,8 @@ type Answer struct {
 }
 
 type QuestionnaireAnswer struct {
-	Question string
-	Answer   string
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
 }
 
 type answeredBy struct {
@@ -168,6 +300,14 @@ func (s *Service) Answer(
 	conn, err := s.connection(ctx, t.AssigneeActorID)
 	if err != nil {
 		return err
+	}
+
+	dialog, pending, pendingErr := s.pendingFor(ctx, conn, t.SessionID)
+	if pendingErr != nil {
+		log.Printf("[task %s] read pending dialog: %v", t.ID, pendingErr)
+	}
+	if pending && dialog.RequestID == "" {
+		dialog.RequestID = in.RequestID
 	}
 	inner := &agentv1.RespondToExtensionUiRequest{
 		Id:        t.SessionID,
@@ -202,7 +342,9 @@ func (s *Service) Answer(
 		}
 	}
 
-	stamped := s.stamp(ctx, inner)
+	answerer := s.resolveAnswerer(ctx)
+
+	stamped := s.stamp(inner, answerer.stamp)
 	if _, err := conn.Tasks.RespondToExtensionUi(ctx, inner); err != nil {
 		return err
 	}
@@ -213,19 +355,50 @@ func (s *Service) Answer(
 	if _, err := s.Tasks.ClearInput(ctx, t.ID); err != nil {
 		log.Printf("[task %s] clear input: %v", t.ID, err)
 	}
+	if pending && s.OnAnswered != nil {
+		s.OnAnswered(ctx, Answered{
+			Task:    t,
+			Dialog:  dialog,
+			Answer:  in,
+			Actor:   answerer.info,
+			ActorID: answerer.id,
+		})
+	}
 	return nil
 }
 
+type answerer struct {
+	id    ids.ActorID
+	info  ActorInfo
+	stamp *answeredBy
+}
+
+func (s *Service) resolveAnswerer(ctx context.Context) answerer {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return answerer{}
+	}
+	out := answerer{
+		id:    actorID,
+		stamp: &answeredBy{ID: actorid.Format(actorID)},
+	}
+	if s.Actors != nil {
+		if info, err := s.Actors(ctx, actorID); err == nil {
+			out.info = info
+			out.stamp.Username = info.Username
+			out.stamp.Name = info.Name
+			out.stamp.Kind = info.Kind
+		}
+	}
+	return out
+}
+
 func (s *Service) stamp(
-	ctx context.Context,
 	inner *agentv1.RespondToExtensionUiRequest,
+	by *answeredBy,
 ) int {
 	value, ok := inner.Response.(*agentv1.RespondToExtensionUiRequest_Value)
-	if !ok {
-		return 0
-	}
-	by := s.answeringActor(ctx)
-	if by == nil {
+	if !ok || by == nil {
 		return 0
 	}
 	stamped, ok := stampAnsweredBy(value.Value, by)
@@ -234,22 +407,6 @@ func (s *Service) stamp(
 	}
 	value.Value = stamped
 	return answerCount(stamped)
-}
-
-func (s *Service) answeringActor(ctx context.Context) *answeredBy {
-	actorID, ok := auth.ActorID(ctx)
-	if !ok || actorID == 0 {
-		return nil
-	}
-	by := &answeredBy{ID: actorid.Format(actorID)}
-	if s.Actors != nil {
-		if info, err := s.Actors(ctx, actorID); err == nil {
-			by.Username = info.Username
-			by.Name = info.Name
-			by.Kind = info.Kind
-		}
-	}
-	return by
 }
 
 func (s *Service) record(

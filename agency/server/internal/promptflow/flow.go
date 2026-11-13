@@ -23,6 +23,7 @@ import (
 	"log"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/auth"
@@ -62,6 +63,7 @@ type Service struct {
 	Audit         *audit.Service
 	Projects      *projects.Service
 	Teams         *teams.Service
+	Groups        *agentgroups.Service
 	Agents        *agents.Registry
 	Accounts      *accounts.Service
 }
@@ -100,6 +102,7 @@ func (s *Service) Set(
 		Scope:         target.Scope,
 		AgentID:       target.AgentID,
 		TeamID:        target.TeamID,
+		GroupID:       target.GroupID,
 		ProjectID:     target.ProjectID,
 		Content:       content,
 		AuthorActorID: identity.ActorID,
@@ -125,6 +128,7 @@ func (s *Service) ListVersions(
 		target.Scope,
 		target.AgentID,
 		target.TeamID,
+		target.GroupID,
 		target.ProjectID,
 		limit,
 		beforeVersion,
@@ -148,6 +152,7 @@ func (s *Service) CreateProposal(
 		Scope:         target.Scope,
 		AgentID:       target.AgentID,
 		TeamID:        target.TeamID,
+		GroupID:       target.GroupID,
 		ProjectID:     target.ProjectID,
 		Content:       content,
 		AuthorActorID: identity.ActorID,
@@ -207,6 +212,7 @@ func (s *Service) ListProposals(
 			Scope:     query.Target.Scope,
 			AgentID:   query.Target.AgentID,
 			TeamID:    query.Target.TeamID,
+			GroupID:   query.Target.GroupID,
 			ProjectID: query.Target.ProjectID,
 			Status:    query.Status,
 			Limit:     query.Limit,
@@ -334,6 +340,7 @@ func (s *Service) latest(
 		target.Scope,
 		target.AgentID,
 		target.TeamID,
+		target.GroupID,
 		target.ProjectID,
 	)
 }
@@ -391,6 +398,11 @@ func (s *Service) auditPrompt(
 	case prompts.ScopeTeam, prompts.ScopeTeamProject:
 		if s.Teams != nil && target.TeamID != 0 {
 			s.Teams.LogPrompt(ctx, target.TeamID, kind, "content",
+				truncate(oldValue), truncate(prompt.Content), message, data)
+		}
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		if s.Groups != nil && target.GroupID != 0 {
+			s.Groups.LogPrompt(ctx, target.GroupID, kind, "content",
 				truncate(oldValue), truncate(prompt.Content), message, data)
 		}
 	default:
@@ -453,6 +465,11 @@ func (s *Service) auditProposal(
 	case prompts.ScopeTeam, prompts.ScopeTeamProject:
 		if s.Teams != nil && target.TeamID != 0 {
 			s.Teams.LogPrompt(ctx, target.TeamID, kind, "content", "",
+				truncate(proposal.Content), message, data)
+		}
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		if s.Groups != nil && target.GroupID != 0 {
+			s.Groups.LogPrompt(ctx, target.GroupID, kind, "content", "",
 				truncate(proposal.Content), message, data)
 		}
 	default:
@@ -563,6 +580,7 @@ func (s *Service) notify(
 		PromptScope:      string(target.Scope),
 		PromptProjectID:  target.ProjectID,
 		PromptTeamID:     target.TeamID,
+		PromptGroupID:    target.GroupID,
 	})
 	if err != nil {
 		log.Printf("prompt proposal notification: %v", err)
@@ -619,6 +637,13 @@ func (s *Service) targetLabel(ctx context.Context, target promptaccess.Target) s
 			}
 		}
 		return "a team prompt"
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		if s.Groups != nil {
+			if name, err := s.Groups.Name(ctx, target.GroupID); err == nil && name != "" {
+				return name + " group prompt"
+			}
+		}
+		return "a group prompt"
 	default:
 		return "the organization prompt"
 	}
@@ -629,6 +654,7 @@ func targetOf(p prompts.Proposal) promptaccess.Target {
 		Scope:     p.Scope,
 		AgentID:   p.AgentID,
 		TeamID:    p.TeamID,
+		GroupID:   p.GroupID,
 		ProjectID: p.ProjectID,
 	}
 }
@@ -637,6 +663,7 @@ func sameTarget(p prompts.Proposal, target promptaccess.Target) bool {
 	return p.Scope == target.Scope &&
 		p.AgentID == target.AgentID &&
 		p.TeamID == target.TeamID &&
+		p.GroupID == target.GroupID &&
 		p.ProjectID == target.ProjectID
 }
 

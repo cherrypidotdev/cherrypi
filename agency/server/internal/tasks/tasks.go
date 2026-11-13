@@ -287,12 +287,10 @@ type Task struct {
 	Workspace      string
 	AutoTitle      bool
 	PromptIDs      prompts.VersionIDs
-
-	TeamPromptIDs []prompts.TeamVersionIDs
-	Tags          []Tag
-	Links         []Link
-	Progress      Progress
-	References    []Reference
+	Tags           []Tag
+	Links          []Link
+	Progress       Progress
+	References     []Reference
 
 	ReferencedBy []Reference
 
@@ -880,12 +878,40 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+
 	for _, pin := range teamPrompts {
-		t.TeamPromptIDs = append(t.TeamPromptIDs, prompts.TeamVersionIDs{
+		t.PromptIDs.Teams = append(t.PromptIDs.Teams, prompts.TeamVersionIDs{
 			TeamID:        pin.TeamID,
 			Prompt:        pin.PromptID.Int64,
 			ProjectPrompt: pin.ProjectPromptID.Int64,
 		})
+	}
+	groupPrompts, err := s.store.ListTaskGroupPromptsByTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	groupTeamPrompts, err := s.store.ListTaskGroupTeamPromptsByTask(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	for _, pin := range groupPrompts {
+		t.PromptIDs.Groups = append(t.PromptIDs.Groups, prompts.GroupVersionIDs{
+			GroupID:       pin.GroupID,
+			Prompt:        pin.PromptID.Int64,
+			ProjectPrompt: pin.ProjectPromptID.Int64,
+		})
+	}
+	for _, pin := range groupTeamPrompts {
+		for i := range t.PromptIDs.Groups {
+			if t.PromptIDs.Groups[i].GroupID != pin.GroupID {
+				continue
+			}
+			t.PromptIDs.Groups[i].Teams = append(t.PromptIDs.Groups[i].Teams,
+				prompts.GroupTeamVersionIDs{
+					TeamID: pin.TeamID,
+					Prompt: pin.PromptID.Int64,
+				})
+		}
 	}
 	leads, err := s.store.ListTaskLeadsByTask(ctx, id)
 	if err != nil {
@@ -3007,6 +3033,9 @@ func (s *Service) Claim(
 			if err := s.setTeamPromptPins(ctx, task.ID, pins.Teams); err != nil {
 				return false, err
 			}
+			if err := s.setGroupPromptPins(ctx, task.ID, pins.Groups); err != nil {
+				return false, err
+			}
 		}
 		s.transitioned(ctx, task.ID, StateRunning)
 		if after, err := s.Get(ctx, task.ID); err == nil {
@@ -4472,6 +4501,43 @@ func (s *Service) setTeamPromptPins(
 			ProjectPromptID: nullID(pin.ProjectPrompt),
 		}); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) setGroupPromptPins(
+	ctx context.Context,
+	id string,
+	pins []prompts.GroupVersionIDs,
+) error {
+	if err := s.store.DeleteTaskGroupPrompts(ctx, id); err != nil {
+		return err
+	}
+	if err := s.store.DeleteTaskGroupTeamPrompts(ctx, id); err != nil {
+		return err
+	}
+	for _, pin := range pins {
+		if err := s.store.AddTaskGroupPrompt(ctx, store.AddTaskGroupPromptParams{
+			TaskID:          id,
+			GroupID:         pin.GroupID,
+			PromptID:        nullID(pin.Prompt),
+			ProjectPromptID: nullID(pin.ProjectPrompt),
+		}); err != nil {
+			return err
+		}
+		for _, team := range pin.Teams {
+			if err := s.store.AddTaskGroupTeamPrompt(
+				ctx,
+				store.AddTaskGroupTeamPromptParams{
+					TaskID:   id,
+					GroupID:  pin.GroupID,
+					TeamID:   team.TeamID,
+					PromptID: nullID(team.Prompt),
+				},
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

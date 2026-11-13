@@ -22,6 +22,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"cherrypi.vladfaust.com/agency/internal/tasks"
 )
 
 type Event struct {
@@ -33,6 +35,26 @@ type Event struct {
 	Extra map[string]any
 
 	IncludeDisabled string
+}
+
+func TaskInputAnsweredEvent(
+	task tasks.Task,
+	requestID, method, title, message string,
+	answer, answeredBy any,
+) Event {
+
+	return Event{
+		Name:   "task_input_answered",
+		TaskID: task.ID,
+		Extra: map[string]any{
+			"request_id":  requestID,
+			"method":      method,
+			"title":       title,
+			"message":     message,
+			"answer":      answer,
+			"answered_by": answeredBy,
+		},
+	}
 }
 
 var ErrEventQueueFull = errors.New("event queue full; dropped")

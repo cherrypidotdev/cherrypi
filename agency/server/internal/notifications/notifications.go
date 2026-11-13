@@ -45,8 +45,10 @@ type Notification struct {
 	PromptScope     string
 	PromptProjectID string
 	PromptTeamID    int64
-	CreatedAt       time.Time
-	ReadAt          time.Time
+
+	PromptGroupID int64
+	CreatedAt     time.Time
+	ReadAt        time.Time
 }
 
 type Service struct {
@@ -117,6 +119,7 @@ func (s *Service) Create(ctx context.Context, n Notification) error {
 		PromptScope:      n.PromptScope,
 		PromptProjectID:  nullString(n.PromptProjectID),
 		PromptTeamID:     sql.NullInt64{Int64: n.PromptTeamID, Valid: n.PromptTeamID != 0},
+		PromptGroupID:    sql.NullInt64{Int64: n.PromptGroupID, Valid: n.PromptGroupID != 0},
 	})
 	if err != nil {
 		return err
@@ -240,6 +243,9 @@ func (s *Service) List(
 		}
 		if row.PromptTeamID.Valid {
 			n.PromptTeamID = row.PromptTeamID.Int64
+		}
+		if row.PromptGroupID.Valid {
+			n.PromptGroupID = row.PromptGroupID.Int64
 		}
 		if row.ReadAt.Valid {
 			n.ReadAt = time.UnixMilli(row.ReadAt.Int64)

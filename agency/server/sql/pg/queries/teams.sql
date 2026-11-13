@@ -47,7 +47,7 @@ SELECT
   m.role AS member_role,
   (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS member_count
 FROM teams t
-JOIN team_members m ON m.team_id = t.id
+JOIN effective_team_members m ON m.team_id = t.id
 WHERE m.actor_id = sqlc.arg(actor_id)
 ORDER BY lower(t.name);
 
@@ -91,6 +91,12 @@ DELETE FROM team_members WHERE team_id = sqlc.arg(team_id);
 SELECT * FROM team_members
 WHERE team_id = sqlc.arg(team_id) AND actor_id = sqlc.arg(actor_id);
 
+-- name: GetEffectiveTeamMember :one
+
+
+SELECT * FROM effective_team_members
+WHERE team_id = sqlc.arg(team_id) AND actor_id = sqlc.arg(actor_id);
+
 -- name: ListTeamMembers :many
 SELECT
   m.id, m.team_id, m.actor_id, m.role, m.joined_at,
@@ -102,6 +108,11 @@ FROM team_members m
 JOIN actors a ON a.id = m.actor_id
 WHERE m.team_id = sqlc.arg(team_id)
 ORDER BY m.role DESC, lower(a.username);
+
+-- name: ListEffectiveTeamMemberActorIDs :many
+SELECT DISTINCT actor_id FROM effective_team_members
+WHERE team_id = sqlc.arg(team_id)
+ORDER BY actor_id;
 
 -- name: CountTeamMembers :one
 SELECT COUNT(*) FROM team_members WHERE team_id = sqlc.arg(team_id);

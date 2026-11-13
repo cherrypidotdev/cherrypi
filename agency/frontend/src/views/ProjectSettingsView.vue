@@ -503,6 +503,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                           :to="{ name: 'project', params: { slug: link.inherited_from_project_slug }, query: { tab: 'settings', section: 'access' } }"
                         ) {{ link.inherited_from_project_name }}
 
+            template(v-if="project")
+              Separator
+
+              ProjectGroupsPanel(
+                :project-id="project.id"
+                :can-manage="access?.can_manage_access === true"
+              )
+
             Separator
 
             .flex.flex-col.gap-3
@@ -565,6 +573,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
+import ProjectGroupsPanel from "@/components/settings/ProjectGroupsPanel.vue";
 import ProjectPluginsPanel from "@/components/settings/ProjectPluginsPanel.vue";
 import TagsPanel from "@/components/settings/TagsPanel.vue";
 import TaskTemplatesPanel from "@/components/templates/TaskTemplatesPanel.vue";

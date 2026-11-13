@@ -172,7 +172,8 @@ const savingRetention = ref(false);
 const settingsError = ref("");
 
 function scopeLabel(value: AuditScope): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  const label = value.replace(/_/g, " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function currentFilter() {

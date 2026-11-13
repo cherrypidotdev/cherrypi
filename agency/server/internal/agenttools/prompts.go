@@ -69,6 +69,7 @@ type proposalJSON struct {
 	AgentID       string           `json:"agent_id,omitempty"`
 	ProjectID     string           `json:"project_id,omitempty"`
 	TeamID        int64            `json:"team_id,omitempty"`
+	GroupID       int64            `json:"group_id,omitempty"`
 	Content       string           `json:"content"`
 	BaseVersion   int64            `json:"base_version"`
 	Author        *promptActorJSON `json:"author,omitempty"`
@@ -144,7 +145,8 @@ func (h *Handler) listPromptProposals(w http.ResponseWriter, r *http.Request) {
 	query.Before, _ = strconv.ParseInt(r.URL.Query().Get("before_id"), 10, 64)
 	if scope := strings.TrimSpace(r.URL.Query().Get("scope")); scope != "" {
 		target, err := h.agentPromptTarget(r.Context(), identity, scope,
-			strings.TrimSpace(r.URL.Query().Get("project_id")))
+			strings.TrimSpace(r.URL.Query().Get("project_id")),
+			groupIDQuery(r), teamIDQuery(r))
 		if err != nil {
 			writePromptError(w, err)
 			return
@@ -169,6 +171,8 @@ func (h *Handler) listPromptProposals(w http.ResponseWriter, r *http.Request) {
 type createProposalInput struct {
 	Scope     string `json:"scope"`
 	ProjectID string `json:"project_id"`
+	GroupID   int64  `json:"group_id"`
+	TeamID    int64  `json:"team_id"`
 	Content   string `json:"content"`
 	Note      string `json:"note"`
 }
@@ -193,6 +197,8 @@ func (h *Handler) createPromptProposal(w http.ResponseWriter, r *http.Request) {
 		identity,
 		strings.TrimSpace(input.Scope),
 		strings.TrimSpace(input.ProjectID),
+		input.GroupID,
+		input.TeamID,
 	)
 	if err != nil {
 		writePromptError(w, err)
@@ -269,6 +275,8 @@ func (h *Handler) promptTarget(
 		identity,
 		strings.TrimSpace(r.URL.Query().Get("scope")),
 		strings.TrimSpace(r.URL.Query().Get("project_id")),
+		groupIDQuery(r),
+		teamIDQuery(r),
 	)
 	if err != nil {
 		writePromptError(w, err)
@@ -285,6 +293,7 @@ func (h *Handler) agentPromptTarget(
 	ctx context.Context,
 	identity auth.Identity,
 	rawScope, projectID string,
+	groupID, teamID int64,
 ) (promptaccess.Target, error) {
 	agent, err := h.PromptFlow.Access.AgentForActor(ctx, identity.ActorID)
 	if err != nil {
@@ -321,9 +330,56 @@ func (h *Handler) agentPromptTarget(
 			Scope:     prompts.ScopeProject,
 			ProjectID: resolved,
 		}, nil
+	case "group":
+		if groupID == 0 {
+			return promptaccess.Target{}, errGroupRequired
+		}
+
+		return promptaccess.Target{
+			Scope:   prompts.ScopeGroup,
+			GroupID: groupID,
+		}, nil
+	case "group_project", "group-project":
+		if groupID == 0 {
+			return promptaccess.Target{}, errGroupRequired
+		}
+		if projectID == "" {
+			return promptaccess.Target{}, errProjectRequired
+		}
+		resolved, err := h.resolvePromptProject(ctx, projectID)
+		if err != nil {
+			return promptaccess.Target{}, err
+		}
+		return promptaccess.Target{
+			Scope:     prompts.ScopeGroupProject,
+			GroupID:   groupID,
+			ProjectID: resolved,
+		}, nil
+	case "group_team", "group-team":
+		if groupID == 0 {
+			return promptaccess.Target{}, errGroupRequired
+		}
+		if teamID == 0 {
+			return promptaccess.Target{}, errTeamRequired
+		}
+		return promptaccess.Target{
+			Scope:   prompts.ScopeGroupTeam,
+			GroupID: groupID,
+			TeamID:  teamID,
+		}, nil
 	default:
 		return promptaccess.Target{}, errInvalidPromptScope
 	}
+}
+
+func groupIDQuery(r *http.Request) int64 {
+	id, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("group_id")), 10, 64)
+	return id
+}
+
+func teamIDQuery(r *http.Request) int64 {
+	id, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("team_id")), 10, 64)
+	return id
 }
 
 func (h *Handler) resolvePromptProject(
@@ -339,7 +395,11 @@ func (h *Handler) resolvePromptProject(
 
 var (
 	errProjectRequired    = errors.New("project_id is required for this scope")
-	errInvalidPromptScope = errors.New("scope must be agent, agent_project, or project")
+	errGroupRequired      = errors.New("group_id is required for this scope")
+	errTeamRequired       = errors.New("team_id is required for this scope")
+	errInvalidPromptScope = errors.New(
+		"scope must be agent, agent_project, project, group, group_project, or group_team",
+	)
 )
 
 func (h *Handler) toPromptJSON(
@@ -373,6 +433,7 @@ func (h *Handler) toProposalJSON(ctx context.Context, p prompts.Proposal) propos
 		AgentID:       actorid.Format(p.AgentID),
 		ProjectID:     p.ProjectID,
 		TeamID:        p.TeamID,
+		GroupID:       p.GroupID,
 		Content:       p.Content,
 		BaseVersion:   p.BaseVersion,
 		Author:        h.promptActor(ctx, p.AuthorActorID),

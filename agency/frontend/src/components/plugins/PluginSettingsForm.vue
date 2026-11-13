@@ -67,29 +67,30 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
           span {{ $t("pluginSettings.sampleData") }}
     FieldGroup
       template(v-for="row in rows" :key="row.key")
-        .flex.flex-col.gap-1.rounded-md.border.px-3.py-2(
-          v-if="row.type === 'group'"
-          class="bg-muted/30"
-        )
-          button.flex.w-full.items-center.gap-2.text-left(
+        template(v-if="row.type === 'group'")
+          button.flex.w-full.items-center.gap-2.border.px-3.py-3.text-left(
             type="button"
+            class="bg-muted/30"
+            :class="groupHeaderClass(row)"
+            :aria-expanded="groupOpen[row.id]"
             @click="toggleGroup(row.id)"
           )
             ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
               :class="groupOpen[row.id] ? 'rotate-90' : ''"
             )
-            span.text-sm.font-medium {{ row.title }}
-            span.text-muted-foreground.text-xs {{ $t("pluginSettings.settingsCount", { count: row.count }) }}
-            Badge.ml-auto.text-amber-700(
-              v-if="row.customized"
-              variant="outline"
-              class="border-amber-500/40 bg-amber-500/10 dark:text-amber-300"
-            ) {{ $t("pluginSettings.customizedCount", { count: row.customized }) }}
-          p.text-muted-foreground.text-xs(v-if="row.description") {{ row.description }}
-        Field(v-else-if="row.type === 'field' && isRowVisible(row)")
+            .min-w-0.flex-1
+              .flex.flex-wrap.items-center.gap-2
+                span.text-sm.font-medium {{ row.title }}
+                span.text-muted-foreground.text-xs {{ $t("pluginSettings.settingsCount", { count: row.count }) }}
+              p.text-muted-foreground.text-xs(v-if="row.description") {{ row.description }}
+        Field(
+          v-else-if="row.type === 'field' && isRowVisible(row)"
+          :class="fieldRowClass(row)"
+        )
           PluginTemplateField(
             v-if="fieldOf(row).kind === 'template'"
             :hint="fieldOf(row).templateHint"
+            :embedded="row.groupId !== null"
             :field-key="fieldOf(row).key"
             :title="fieldOf(row).title"
             :description="fieldOf(row).description"
@@ -124,15 +125,15 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
                 )
               SelectContent
                 SelectItem(
-                  v-for="option in fieldOf(row).options"
+                  v-for="(option, index) in fieldOf(row).options"
                   :key="String(option)"
                   :value="String(option)"
-                ) {{ option }}
+                ) {{ fieldOf(row).optionLabels[index] }}
             .flex.flex-wrap.gap-3(
               v-else-if="fieldOf(row).kind === 'enum-array'"
             )
               label.flex.items-center.gap-2.rounded-md.border.px-3.py-2.text-sm(
-                v-for="option in fieldOf(row).itemOptions"
+                v-for="(option, index) in fieldOf(row).itemOptions"
                 :key="String(option)"
               )
                 input.accent-primary(
@@ -141,7 +142,7 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
                   :id="`plugin-setting-${fieldOf(row).key}-${String(option)}`"
                   @change="toggleEnumItem(fieldOf(row), option)"
                 )
-                span {{ option }}
+                span {{ fieldOf(row).itemOptionLabels[index] }}
             .flex.flex-col.gap-2(v-else-if="fieldOf(row).kind === 'array'")
               .flex.items-center.gap-2(
                 v-for="(item, index) in arrayValue(fieldOf(row))"
@@ -161,10 +162,10 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
                     SelectValue(:placeholder="$t('pluginSettings.choose')")
                   SelectContent
                     SelectItem(
-                      v-for="option in fieldOf(row).itemOptions"
+                      v-for="(option, index) in fieldOf(row).itemOptions"
                       :key="String(option)"
                       :value="String(option)"
-                    ) {{ option }}
+                    ) {{ fieldOf(row).itemOptionLabels[index] }}
                 Textarea.font-mono.text-xs(
                   v-else-if="fieldOf(row).itemKind === 'json'"
                   :placeholder="$t('pluginSettings.jsonValue')"
@@ -290,7 +291,6 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
 import MarkdownText from "@/components/MarkdownText.vue";
 import PluginTemplateField from "@/components/plugins/PluginTemplateField.vue";
 import PluginTemplateSamplesDialog from "@/components/plugins/PluginTemplateSamplesDialog.vue";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -349,6 +349,8 @@ interface SchemaProperty {
 
   setup?: string | SettingsSetup;
   enum?: unknown[];
+
+  enumNames?: unknown[];
   format?: string;
   secret?: boolean;
   required?: string[];
@@ -430,6 +432,8 @@ interface FieldSpec {
   itemKind?: ItemKind;
   options: unknown[];
   itemOptions: unknown[];
+  optionLabels: string[];
+  itemOptionLabels: string[];
   secret: boolean;
   multiline: boolean;
   required: boolean;
@@ -438,8 +442,19 @@ interface FieldSpec {
   templateHint?: string;
 }
 
+function enumLabels(options: unknown, names: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  const labels = Array.isArray(names) ? names : [];
+  return options.map((option, index) => {
+    const label = labels[index];
+    return typeof label === "string" && label.trim()
+      ? label.trim()
+      : String(option);
+  });
+}
+
 function itemKindOf(property: SchemaProperty | undefined): ItemKind {
-  if (property?.enum?.length) return "enum";
+  if (Array.isArray(property?.enum) && property.enum.length) return "enum";
   switch (property?.type) {
     case "boolean":
       return "boolean";
@@ -460,6 +475,10 @@ const fields = computed<FieldSpec[]>(() => {
   const secrets = new Set(props.secretKeys ?? []);
   return Object.entries(properties).map(([key, property]) => {
     const type = property.type ?? "string";
+
+    const options = Array.isArray(property.enum) ? property.enum : [];
+    const itemEnum = property.items?.enum;
+    const itemOptions = Array.isArray(itemEnum) ? itemEnum : [];
     const template = pluginTemplateMeta(property as Record<string, unknown>);
     const kind: FieldSpec["kind"] = template
       ? "template"
@@ -468,7 +487,7 @@ const fields = computed<FieldSpec[]>(() => {
         : type === "number" || type === "integer"
           ? "number"
           : type === "array"
-            ? property.items?.enum?.length
+            ? Array.isArray(property.items?.enum) && property.items.enum.length
               ? "enum-array"
               : "array"
             : type === "object"
@@ -483,8 +502,10 @@ const fields = computed<FieldSpec[]>(() => {
       placeholder: property.description,
       kind,
       itemKind: type === "array" ? itemKindOf(property.items) : undefined,
-      options: property.enum ?? [],
-      itemOptions: property.items?.enum ?? [],
+      options,
+      itemOptions,
+      optionLabels: enumLabels(options, property.enumNames),
+      itemOptionLabels: enumLabels(itemOptions, property.items?.enumNames),
       secret:
         secrets.has(key) ||
         property.secret === true ||
@@ -509,19 +530,24 @@ const templateVariables = computed<Record<string, PluginTemplateVariable>>(() =>
 const samplesOpen = ref(false);
 const sampleOverrides = reactive<Record<string, unknown>>({});
 const groupOpen = reactive<Record<string, boolean>>({});
+let groupSignature = "";
 
-function syncGroupOpen() {
-  const known = new Set(settingsGroups.value.map((group) => group.id));
-  for (const id of Object.keys(groupOpen)) {
-    if (!known.has(id)) delete groupOpen[id];
-  }
-  for (const group of settingsGroups.value) {
-    if (groupOpen[group.id] === undefined) {
-      groupOpen[group.id] = !group.collapsed;
+watch(
+  settingsGroups,
+  (groups) => {
+    const signature = groups
+      .map((group) => `${group.id}:${group.title}:${group.fields.join(",")}`)
+      .join("|");
+    if (signature !== groupSignature) {
+      groupSignature = signature;
+      for (const id of Object.keys(groupOpen)) delete groupOpen[id];
     }
-  }
-}
-watch(settingsGroups, syncGroupOpen, { immediate: true, deep: true });
+    for (const group of groups) {
+      if (groupOpen[group.id] === undefined) groupOpen[group.id] = false;
+    }
+  },
+  { immediate: true, deep: true },
+);
 
 function toggleGroup(id: string) {
   groupOpen[id] = !groupOpen[id];
@@ -538,9 +564,9 @@ interface SettingsRow {
   title: string;
   description?: string;
   count: number;
-  customized: number;
   field: FieldSpec | null;
   groupId: string | null;
+  lastInGroup: boolean;
 }
 
 function fieldOf(row: SettingsRow): FieldSpec {
@@ -551,20 +577,12 @@ function fieldOf(row: SettingsRow): FieldSpec {
       kind: "string",
       options: [],
       itemOptions: [],
+      optionLabels: [],
+      itemOptionLabels: [],
       secret: false,
       multiline: false,
       required: false,
     }
-  );
-}
-
-function isCustomized(field: FieldSpec): boolean {
-  if (field.kind !== "template") return false;
-  const value = values[field.key];
-  return (
-    typeof value === "string" &&
-    value.trim() !== "" &&
-    value !== field.defaultValue
   );
 }
 
@@ -577,9 +595,9 @@ const rows = computed<SettingsRow[]>(() => {
     id: "",
     title: "",
     count: 0,
-    customized: 0,
     field,
     groupId,
+    lastInGroup: false,
   });
   if (!groups.length) {
     return fields.value.map((field) => fieldRow(field, null));
@@ -603,11 +621,12 @@ const rows = computed<SettingsRow[]>(() => {
       title,
       description,
       count: groupFields.length,
-      customized: groupFields.filter(isCustomized).length,
       field: null,
       groupId: id,
+      lastInGroup: false,
     });
     for (const field of groupFields) out.push(fieldRow(field, id));
+    out[out.length - 1]!.lastInGroup = true;
   };
   for (const group of groups) {
     pushGroup(group.id, group.title, group.description, group.fields);
@@ -622,6 +641,18 @@ const rows = computed<SettingsRow[]>(() => {
 function isRowVisible(row: SettingsRow): boolean {
   if (row.type !== "field") return false;
   return row.groupId === null || groupOpen[row.groupId] !== false;
+}
+
+function groupHeaderClass(row: SettingsRow): string {
+  return groupOpen[row.id] ? "rounded-t-md border-b" : "rounded-md";
+}
+
+function fieldRowClass(row: SettingsRow): string {
+  if (row.groupId === null) {
+    return "rounded-md border bg-card px-3 py-3";
+  }
+  const base = "border-x border-b bg-card px-4 py-3 pl-7";
+  return row.lastInGroup ? `${base} rounded-b-md` : base;
 }
 
 function setSampleOverrides(value: Record<string, unknown>) {
@@ -899,7 +930,6 @@ en:
     hideValue: "Hide value"
     revealValue: "Reveal value"
     settingsCount: "{count} setting | {count} settings"
-    customizedCount: "{count} customized"
 ru:
   pluginSettings:
     emptyValue: "Значение не сохранено. Оставьте пустым, чтобы не задавать его."
@@ -918,5 +948,4 @@ ru:
     hideValue: "Скрыть значение"
     revealValue: "Показать значение"
     settingsCount: "{count} настройка | {count} настройки | {count} настроек"
-    customizedCount: "{count} изменено"
 </i18n>

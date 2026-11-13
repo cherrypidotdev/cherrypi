@@ -17,21 +17,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.bg-card.overflow-hidden.rounded-lg.border
-  .flex.items-start.gap-3.p-3
+div(:class="embedded ? '' : 'bg-card overflow-hidden rounded-lg border'")
+  .flex.items-start.gap-3(:class="embedded ? 'pb-2' : 'p-3'")
     .min-w-0.flex-1
       .flex.flex-wrap.items-center(class="gap-1.5")
         span.text-sm.font-medium {{ title }}
         Badge(variant="secondary") Jinja
-        Badge.text-amber-700(
-          v-if="customized"
-          variant="outline"
-          class="border-amber-500/40 bg-amber-500/10 dark:text-amber-300"
-        ) {{ $t("pluginTemplate.customized") }}
       p.text-muted-foreground.mt-1.text-xs(v-if="description") {{ description }}
     .flex.items-center.gap-1
       Button(
-        v-if="customized"
+        v-if="!matchesDefault"
         type="button"
         variant="ghost"
         size="sm"
@@ -40,51 +35,46 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Button(type="button" variant="ghost" size="sm" @click="expanded = true")
         MaximizeIcon(data-icon="inline-start")
         span {{ $t("pluginTemplate.expand") }}
-  .flex.flex-wrap.items-center.px-3.pb-2(class="gap-1.5")
-    span.text-muted-foreground.text-xs.font-semibold.tracking-wide.uppercase
-      | {{ $t("pluginTemplate.insert") }}
-    Button.h-6.rounded.px-2.font-mono.text-xs(
-      v-for="name in quickVariables"
-      :key="name"
-      type="button"
-      variant="outline"
-      size="sm"
-      :title="variables[name]?.description"
-      @click="insertVariable(name)"
-    ) {{ name }}
-    details.relative.ml-auto
-      summary.text-muted-foreground.cursor-pointer.list-none.rounded.px-2.py-1.text-xs(
-        class="hover:bg-muted"
-      ) {{ $t("pluginTemplate.allVariables") }}
-      .bg-popover.absolute.right-0.z-30.mt-1.max-h-72.w-80.overflow-auto.rounded-md.border.p-1.shadow-md
-        template(v-for="name in variableNames" :key="name")
-          button.w-full.rounded.px-2.py-1.text-left.text-xs(
-            type="button"
-            class="hover:bg-muted"
-            @click="insertVariable(name)"
+  PluginTemplateVariablePicker.px-3.pb-2(
+    :variables="variables"
+    @insert="insertInto(inlineEditor, $event)"
+  )
+  .border-t
+    .grid.grid-cols-1.grid-rows-2.overflow-hidden(
+      ref="panes"
+      class="md:grid-cols-2 md:grid-rows-1"
+      :style="{ height: `${paneHeight}px` }"
+      data-testid="plugin-template-panes"
+    )
+      .flex.min-h-0.flex-col.overflow-hidden
+        .text-muted-foreground.flex.h-8.shrink-0.items-center.justify-between.border-b.px-2.text-xs.font-medium
+          span {{ $t("pluginTemplate.editor") }}
+          span.font-mono Jinja
+        .min-h-0.flex-1(
+          :class="hasErrors ? 'ring-1 ring-inset ring-destructive/40' : ''"
+        )
+          JinjaTemplateEditor(
+            ref="inlineEditor"
+            :label="$t('pluginTemplate.editorAria', { title })"
+            :model-value="modelValue"
+            :invalid="hasErrors"
+            @update:model-value="onInput"
           )
-            code.font-mono.text-xs.text-violet-700 {{ variableLabel(name) }}
-            span.text-muted-foreground.block.text-xs {{ variables[name]?.description }}
-  .grid.grid-cols-1.border-t(class="md:grid-cols-2")
-    .min-w-0
-      .text-muted-foreground.flex.h-8.items-center.justify-between.border-b.px-2.text-xs.font-medium
-        span {{ $t("pluginTemplate.editor") }}
-        span.font-mono Jinja
-      textarea.min-h-40.w-full.resize-y.p-2.font-mono.text-xs.leading-relaxed.outline-none(
-        ref="editor"
-        :value="modelValue"
-        spellcheck="false"
-        :aria-label="$t('pluginTemplate.editorAria', { title })"
-        :aria-invalid="hasErrors"
-        @input="onInput"
-      )
-    .min-w-0(class="md:border-l")
-      .text-muted-foreground.flex.h-8.items-center.justify-between.border-b.px-2.text-xs.font-medium
-        span {{ $t("pluginTemplate.preview") }}
-        span {{ $t("pluginTemplate.withSampleData") }}
-      pre.max-h-64.min-h-40.overflow-auto.p-2.text-xs.leading-relaxed.break-words.whitespace-pre-wrap(
-        :class="hasErrors ? 'bg-destructive/5 text-destructive' : ''"
-      ) {{ previewText }}
+      .flex.min-h-0.flex-col.overflow-hidden(class="md:border-l")
+        .text-muted-foreground.flex.h-8.shrink-0.items-center.justify-between.border-b.px-2.text-xs.font-medium
+          span {{ $t("pluginTemplate.preview") }}
+          span {{ $t("pluginTemplate.withSampleData") }}
+        pre.min-h-0.flex-1.overflow-auto.p-2.text-xs.leading-relaxed.break-words.whitespace-pre-wrap(
+          :class="hasErrors ? 'bg-destructive/5 text-destructive' : ''"
+        ) {{ previewText }}
+  .flex.h-2.cursor-row-resize.items-center.justify-center.border-t(
+    :title="$t('pluginTemplate.resizeHint')"
+    @pointerdown="startResize"
+    data-testid="plugin-template-resize"
+  )
+    .bg-border.h-1.w-10.rounded-full.transition-opacity(
+      :class="dragging ? 'opacity-100' : 'opacity-40 hover:opacity-100'"
+    )
   .flex.flex-wrap.items-center.gap-2.border-t.px-3.py-1.text-xs
     span.flex.items-center.gap-1.text-emerald-600(v-if="!hasErrors")
       CheckIcon.size-3
@@ -100,17 +90,26 @@ Dialog(v-model:open="expanded")
     DialogHeader
       DialogTitle {{ title }}
       DialogDescription {{ $t("pluginTemplate.largerEditor") }}
-    .grid.gap-3(class="md:grid-cols-2")
-      .flex.flex-col.gap-1
+    PluginTemplateVariablePicker.pb-2(
+      :variables="variables"
+      @insert="insertInto(dialogEditor, $event)"
+    )
+    .grid.h-96.gap-3(class="md:grid-cols-2")
+      .flex.min-h-0.flex-col.gap-1
         span.text-xs.font-medium {{ $t("pluginTemplate.editor") }}
-        textarea.min-h-96.w-full.resize-y.rounded-md.border.p-2.font-mono.text-xs.leading-relaxed(
-          :value="modelValue"
-          spellcheck="false"
-          @input="onInput"
+        .min-h-0.flex-1.overflow-hidden.rounded-md.border(
+          :class="hasErrors ? 'border-destructive' : ''"
         )
-      .flex.flex-col.gap-1
+          JinjaTemplateEditor(
+            ref="dialogEditor"
+            :label="$t('pluginTemplate.editorAria', { title })"
+            :model-value="modelValue"
+            :invalid="hasErrors"
+            @update:model-value="onInput"
+          )
+      .flex.min-h-0.flex-col.gap-1
         span.text-xs.font-medium {{ $t("pluginTemplate.preview") }}
-        pre.max-h-96.min-h-96.overflow-auto.rounded-md.border.p-2.text-xs.leading-relaxed.break-words.whitespace-pre-wrap(
+        pre.h-full.min-h-0.overflow-auto.rounded-md.border.p-2.text-xs.leading-relaxed.break-words.whitespace-pre-wrap(
           class="bg-muted/20"
           :class="hasErrors ? 'text-destructive' : ''"
         ) {{ previewText }}
@@ -121,6 +120,8 @@ Dialog(v-model:open="expanded")
 </template>
 
 <script setup lang="ts">
+import JinjaTemplateEditor from "@/components/plugins/JinjaTemplateEditor.vue";
+import PluginTemplateVariablePicker from "@/components/plugins/PluginTemplateVariablePicker.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -131,6 +132,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  EDITOR_MAX_HEIGHT,
+  clampEditorHeightInRange,
+} from "@/lib/editorHeight";
 import {
   pluginTemplateSamples,
   type PluginTemplateMeta,
@@ -157,24 +162,44 @@ const props = defineProps<{
   scope?: string;
   targetId?: string;
   sampleOverrides?: Record<string, unknown>;
+
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: string];
 }>();
 
-const editor = ref<HTMLTextAreaElement | null>(null);
+interface TemplateEditorHandle {
+  insert: (snippet: string) => void;
+}
+
+const inlineEditor = ref<TemplateEditorHandle | null>(null);
+const dialogEditor = ref<TemplateEditorHandle | null>(null);
 const expanded = ref(false);
 const preview = ref<PreviewPluginTemplateResponse | null>(null);
 const previewFailure = ref("");
 let timer: number | undefined;
 let previewRequest = 0;
 
+const TEMPLATE_PANE_MIN_HEIGHT = 160;
+const TEMPLATE_PANE_DEFAULT_HEIGHT = 256;
+const paneHeight = ref(TEMPLATE_PANE_DEFAULT_HEIGHT);
+const dragging = ref(false);
+let dragStartY = 0;
+let dragStartHeight = 0;
+
+function clampPaneHeight(height: number): number {
+  return clampEditorHeightInRange(
+    height,
+    TEMPLATE_PANE_MIN_HEIGHT,
+    EDITOR_MAX_HEIGHT,
+  );
+}
+
 const variables = computed<Record<string, PluginTemplateVariable>>(
   () => props.template?.variables ?? {},
 );
-const variableNames = computed(() => Object.keys(variables.value));
-const quickVariables = computed(() => variableNames.value.slice(0, 6));
 const matchesDefault = computed(() => props.modelValue === props.defaultValue);
 const explicitEmpty = computed(
   () => !matchesDefault.value && props.modelValue.trim() === "",
@@ -184,7 +209,6 @@ const statusLabel = computed(() => {
   if (explicitEmpty.value) return t("pluginTemplate.explicitEmpty");
   return t("pluginTemplate.validJinja");
 });
-const customized = computed(() => !matchesDefault.value);
 const hasErrors = computed(
   () =>
     !!props.error ||
@@ -208,12 +232,8 @@ const previewText = computed(() => {
 });
 const usedCount = computed(() => preview.value?.variables.length ?? 0);
 
-function variableLabel(name: string): string {
-  return `{{ ${name} }}`;
-}
-
-function onInput(event: Event) {
-  emit("update:modelValue", (event.target as HTMLTextAreaElement).value);
+function onInput(value: string) {
+  emit("update:modelValue", value);
 }
 
 function resetToDefault() {
@@ -233,19 +253,33 @@ function variableSnippet(name: string): string {
   return `{% for ${itemName} in ${name} %}\n{{ ${itemName} }}\n{% endfor %}`;
 }
 
-function insertVariable(name: string) {
-  const element = editor.value;
-  if (!element) return;
-  const snippet = variableSnippet(name);
-  const start = element.selectionStart ?? element.value.length;
-  const end = element.selectionEnd ?? start;
-  const next =
-    element.value.slice(0, start) + snippet + element.value.slice(end);
-  emit("update:modelValue", next);
-  requestAnimationFrame(() => {
-    element.focus();
-    element.selectionStart = element.selectionEnd = start + snippet.length;
-  });
+function insertInto(editor: TemplateEditorHandle | null, name: string) {
+  editor?.insert(variableSnippet(name));
+}
+
+function startResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  dragging.value = true;
+  dragStartY = event.clientY;
+  dragStartHeight = paneHeight.value;
+  document.body.style.cursor = "row-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize, { once: true });
+}
+
+function onResizeMove(event: PointerEvent) {
+  paneHeight.value = clampPaneHeight(
+    dragStartHeight + event.clientY - dragStartY,
+  );
+}
+
+function stopResize() {
+  dragging.value = false;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  window.removeEventListener("pointermove", onResizeMove);
 }
 
 function schedulePreview() {
@@ -285,6 +319,7 @@ async function refreshPreview() {
 
 onBeforeUnmount(() => {
   window.clearTimeout(timer);
+  window.removeEventListener("pointermove", onResizeMove);
   previewRequest += 1;
 });
 
@@ -306,34 +341,30 @@ watch(
 <i18n lang="yaml">
 en:
   pluginTemplate:
-    customized: "Customized"
     resetToDefault: "Reset to default"
     expand: "Expand"
-    allVariables: "All variables"
     editor: "Editor"
     editorAria: "{title} template"
     preview: "Preview"
-    insert: "Insert"
     withSampleData: "with sample data"
     variablesUsed: "{count} variable | {count} variables"
     largerEditor: "A larger editor for the same field. Changes apply immediately."
     usingDefault: "Using manifest default"
     explicitEmpty: "Explicit empty override"
     validJinja: "Valid Jinja"
+    resizeHint: "Drag to resize both panes"
 ru:
   pluginTemplate:
-    customized: "Изменено"
     resetToDefault: "Сбросить к значению по умолчанию"
     expand: "Развернуть"
-    allVariables: "Все переменные"
     editor: "Редактор"
     editorAria: "Шаблон {title}"
     preview: "Просмотр"
-    insert: "Вставить"
     withSampleData: "с примером данных"
     variablesUsed: "{count} переменная | {count} переменные | {count} переменных"
     largerEditor: "Большой редактор того же поля. Изменения применяются сразу."
     usingDefault: "Используется значение манифеста"
     explicitEmpty: "Явно заданное пустое значение"
     validJinja: "Корректный Jinja"
+    resizeHint: "Потяните, чтобы изменить высоту обеих панелей"
 </i18n>

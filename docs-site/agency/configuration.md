@@ -129,7 +129,7 @@ the `minio-init` service creates it.
 
 | Section | What you configure |
 | --- | --- |
-| General | Agency name, logo, favicon, primary color, the default Overview widget layouts, and the automatic task-archive policy. |
+| General | The read-only public URL (from `CHERRYPI_PUBLIC_URL`), agency name, logo, favicon, primary color, the default Overview widget layouts, and the automatic task-archive policy. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |

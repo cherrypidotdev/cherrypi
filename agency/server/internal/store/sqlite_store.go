@@ -157,6 +157,15 @@ func (s *SqliteStore) deleteActorChildren(
 	if err := q.DeleteTeamInvitationsByActor(ctx, actorID); err != nil {
 		return err
 	}
+	if err := q.DeleteAgentGroupMembershipsByActor(ctx, actorID); err != nil {
+		return err
+	}
+	if err := q.DeleteAgentGroupMemberRequestsByActor(ctx, actorID); err != nil {
+		return err
+	}
+	if err := q.DeleteAgentGroupOwnerEdgesByActor(ctx, actorID); err != nil {
+		return err
+	}
 	if err := q.DeleteProjectActorGrantsByActor(ctx, actorID); err != nil {
 		return err
 	}
@@ -186,6 +195,12 @@ func (s *SqliteStore) deleteProjectChildren(
 	if err := q.DeleteProjectTeamMembershipsByProject(ctx, projectID); err != nil {
 		return err
 	}
+	if err := q.DeleteProjectGroupInvitationsByProject(ctx, projectID); err != nil {
+		return err
+	}
+	if err := q.DeleteProjectGroupMembershipsByProject(ctx, projectID); err != nil {
+		return err
+	}
 	if err := q.DeleteProjectActorGrantsByProject(ctx, projectID); err != nil {
 		return err
 	}
@@ -207,6 +222,12 @@ func (s *SqliteStore) deleteTeamChildren(
 		return err
 	}
 	if err := q.DeleteTaskTeamsByTeam(ctx, teamID); err != nil {
+		return err
+	}
+	if err := q.DeleteTeamGroupInvitationsByTeam(ctx, teamID); err != nil {
+		return err
+	}
+	if err := q.DeleteTeamGroupMembershipsByTeam(ctx, teamID); err != nil {
 		return err
 	}
 	return q.DeleteProjectTeamMembershipsByTeam(ctx, teamID)
@@ -382,6 +403,9 @@ func (s *SqliteStore) PruneDomainLogs(ctx context.Context, beforeAt int64) error
 		return err
 	}
 	if err := s.q.PruneTeamLogs(ctx, beforeAt); err != nil {
+		return err
+	}
+	if err := s.q.PruneAgentGroupLogs(ctx, beforeAt); err != nil {
 		return err
 	}
 	if err := s.q.PruneAgentDomainLogs(ctx, beforeAt); err != nil {
@@ -630,6 +654,13 @@ func (s *SqliteStore) DeleteAgent(ctx context.Context, id ids.AgentID) error {
 		return err
 	}
 	return s.tx(ctx, func(q *sqlitedb.Queries) error {
+
+		if err := q.DeleteAgentGroupMembershipsByAgent(ctx, int64(id)); err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMemberRequestsByAgent(ctx, int64(id)); err != nil {
+			return err
+		}
 		if err := q.DeleteAgent(ctx, int64(id)); err != nil {
 			return err
 		}
@@ -1259,6 +1290,7 @@ func (s *SqliteStore) ApprovePromptProposal(
 			Scope:     proposal.Scope,
 			AgentID:   sql.NullInt64{Int64: proposal.AgentID.Int64, Valid: true},
 			TeamID:    sql.NullInt64{Int64: proposal.TeamID.Int64, Valid: true},
+			GroupID:   sql.NullInt64{Int64: proposal.GroupID.Int64, Valid: true},
 			ProjectID: sql.NullString{String: proposal.ProjectID.String, Valid: true},
 		})
 		if err != nil {
@@ -1279,6 +1311,7 @@ func (s *SqliteStore) ApprovePromptProposal(
 			Scope:             proposal.Scope,
 			AgentID:           proposal.AgentID,
 			TeamID:            proposal.TeamID,
+			GroupID:           proposal.GroupID,
 			ProjectID:         proposal.ProjectID,
 			Content:           proposal.Content,
 			Version:           latest + 1,

@@ -610,7 +610,10 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           span.text-muted-foreground.text-xs {{ $t("taskDetails.systemPrompt") }}
         DisclosurePanel.mt-2.flex.flex-col.gap-1
           p.text-muted-foreground.text-xs(v-if="!systemPrompt.length") —
-          template(v-for="section in systemPrompt" :key="section.scope")
+          template(
+            v-for="section in systemPrompt"
+            :key="`${section.scope}:${section.groupId ?? ''}:${section.teamId ?? ''}`"
+          )
             Disclosure.overflow-hidden.rounded-md.border(
               as="div"
               v-slot="{ open: sectionOpen }"
@@ -629,6 +632,8 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 span.text-muted-foreground.text-xs.italic(v-else) {{ $t("taskDetails.noPrompt") }}
           p.text-muted-foreground.text-xs.italic(v-if="systemPromptPreview")
             | {{ $t("taskDetails.promptPinnedHint") }}
+          p.text-muted-foreground.text-xs.italic(v-if="!task.assigneeActorId")
+            | {{ $t("taskDetails.groupPromptUnassigned") }}
 
     .bg-border.h-px(v-if="detailsTab === 'general'")
     .flex.flex-col.gap-2(v-if="detailsTab === 'general'")
@@ -1227,6 +1232,9 @@ const PROMPT_SCOPE_LABELS: Record<number, string> = {
   [PromptScope.AGENT_PROJECT]: "Agent-Project prompt",
   [PromptScope.TEAM]: "Team Prompt",
   [PromptScope.TEAM_PROJECT]: "Team-Project prompt",
+  [PromptScope.GROUP]: "Group Prompt",
+  [PromptScope.GROUP_PROJECT]: "Group-Project prompt",
+  [PromptScope.GROUP_TEAM]: "Group-Team prompt",
   [PromptScope.BUILTIN]: "Built-in guidance",
 };
 
@@ -1296,6 +1304,7 @@ en:
     systemPrompt: "System Prompt"
     noPrompt: "No prompt set."
     promptPinnedHint: "Showing the latest versions; the task pins them when it starts."
+    groupPromptUnassigned: "Group prompts resolve when an agent is assigned."
     queue: "Queue task"
     stop: "Stop run"
     restartSession: "Restart Pi session"
@@ -1384,6 +1393,7 @@ ru:
     systemPrompt: "Системный промпт"
     noPrompt: "Промпт не задан."
     promptPinnedHint: "Показаны последние версии; задача фиксирует их при запуске."
+    groupPromptUnassigned: "Промпты групп определяются при назначении агента."
     queue: "Поставить в очередь"
     stop: "Остановить запуск"
     restartSession: "Перезапустить сеанс Pi"

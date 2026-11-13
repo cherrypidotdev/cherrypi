@@ -56,7 +56,7 @@ export function usePrompt(
   watch(
     () => {
       const target = getTarget();
-      return `${target.agentId ?? ""}\u0000${target.teamId ?? ""}\u0000${target.projectId ?? ""}`;
+      return `${target.agentId ?? ""}\u0000${target.teamId ?? ""}\u0000${target.groupId ?? ""}\u0000${target.projectId ?? ""}`;
     },
     () => void load(),
     { immediate: true },

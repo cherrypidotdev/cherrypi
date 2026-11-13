@@ -31,6 +31,8 @@ type SettingsServer struct {
 	Settings *settings.Service
 
 	Attachments *attachments.Service
+
+	PublicURL string
 }
 
 func (s *SettingsServer) GetSettings(
@@ -110,6 +112,7 @@ func (s *SettingsServer) toProto(
 ) *agencyv1.Settings {
 	return &agencyv1.Settings{
 		AgencyName:           in.AgencyName,
+		PublicUrl:            s.PublicURL,
 		PrimaryColor:         in.PrimaryColor,
 		NotificationSoundSet: in.NotificationSoundSet,
 		TaskAutoArchive: &agencyv1.TaskAutoArchive{

@@ -3199,6 +3199,7 @@ func (s *PgStore) ListPromptProposalsByTarget(
 			Scope:     p.Scope,
 			AgentID:   p.AgentID,
 			TeamID:    p.TeamID,
+			GroupID:   p.GroupID,
 			ProjectID: p.ProjectID,
 			Status:    p.Status,
 			BeforeID:  p.BeforeID,
@@ -3238,6 +3239,7 @@ func (s *PgStore) ListPromptVersions(
 		Scope:         p.Scope,
 		AgentID:       p.AgentID,
 		TeamID:        p.TeamID,
+		GroupID:       p.GroupID,
 		ProjectID:     p.ProjectID,
 		BeforeVersion: p.BeforeVersion,
 		MaxCount:      int32(p.MaxCount),
@@ -3289,4 +3291,459 @@ func (s *PgStore) SetPromptAutoApprove(
 		ctx,
 		pgdb.UpdateAgentPromptAutoApproveParams{PromptAutoApprove: value, ID: int64(id)},
 	)
+}
+
+func (s *PgStore) AddAgentGroupMember(ctx context.Context, p AddAgentGroupMemberParams) error {
+	return s.q.AddAgentGroupMember(ctx, pgdb.AddAgentGroupMemberParams(p))
+}
+
+func (s *PgStore) AddAgentGroupOwner(ctx context.Context, p AddAgentGroupOwnerParams) error {
+	return s.q.AddAgentGroupOwner(ctx, pgdb.AddAgentGroupOwnerParams(p))
+}
+
+func (s *PgStore) AddTaskGroupPrompt(ctx context.Context, p AddTaskGroupPromptParams) error {
+	return s.q.AddTaskGroupPrompt(ctx, pgdb.AddTaskGroupPromptParams(p))
+}
+
+func (s *PgStore) AddTaskGroupTeamPrompt(
+	ctx context.Context,
+	p AddTaskGroupTeamPromptParams,
+) error {
+	return s.q.AddTaskGroupTeamPrompt(ctx, pgdb.AddTaskGroupTeamPromptParams(p))
+}
+
+func (s *PgStore) ClearAgentGroupPicture(
+	ctx context.Context,
+	p ClearAgentGroupPictureParams,
+) error {
+	return s.q.ClearAgentGroupPicture(ctx, pgdb.ClearAgentGroupPictureParams(p))
+}
+
+func (s *PgStore) CountAgentGroupMembers(ctx context.Context, groupID int64) (int64, error) {
+	return s.q.CountAgentGroupMembers(ctx, groupID)
+}
+
+func (s *PgStore) CountAgentGroupOwners(ctx context.Context, groupID int64) (int64, error) {
+	return s.q.CountAgentGroupOwners(ctx, groupID)
+}
+
+func (s *PgStore) CreateAgentGroupMemberRequest(
+	ctx context.Context,
+	p CreateAgentGroupMemberRequestParams,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.CreateAgentGroupMemberRequest(ctx, pgdb.CreateAgentGroupMemberRequestParams(p))
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromPgAgentGroupMemberRequest(row), nil
+}
+
+func (s *PgStore) DeleteAgentGroupMemberRequestsByAgent(ctx context.Context, agentID int64) error {
+	return s.q.DeleteAgentGroupMemberRequestsByAgent(ctx, agentID)
+}
+
+func (s *PgStore) DeleteAgentGroupMemberRequestsByGroup(ctx context.Context, groupID int64) error {
+	return s.q.DeleteAgentGroupMemberRequestsByGroup(ctx, groupID)
+}
+
+func (s *PgStore) DeleteAgentGroupMembers(ctx context.Context, groupID int64) error {
+	return s.q.DeleteAgentGroupMembers(ctx, groupID)
+}
+
+func (s *PgStore) DeleteAgentGroupMembershipsByAgent(ctx context.Context, agentID int64) error {
+	return s.q.DeleteAgentGroupMembershipsByAgent(ctx, agentID)
+}
+
+func (s *PgStore) DeleteAgentGroupOwnerEdgesByActor(ctx context.Context, actorID int64) error {
+	return s.q.DeleteAgentGroupOwnerEdgesByActor(ctx, actorID)
+}
+
+func (s *PgStore) DeleteTaskGroupPrompts(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskGroupPrompts(ctx, taskID)
+}
+
+func (s *PgStore) DeleteTaskGroupTeamPrompts(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskGroupTeamPrompts(ctx, taskID)
+}
+
+func (s *PgStore) ExpireAgentGroupMemberRequests(
+	ctx context.Context,
+	p ExpireAgentGroupMemberRequestsParams,
+) (int64, error) {
+	return s.q.ExpireAgentGroupMemberRequests(ctx, pgdb.ExpireAgentGroupMemberRequestsParams(p))
+}
+
+func (s *PgStore) GetAgentGroup(ctx context.Context, id int64) (AgentGroup, error) {
+	row, err := s.q.GetAgentGroup(ctx, id)
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromPgAgentGroup(row), nil
+}
+
+func (s *PgStore) GetAgentGroupBySlug(ctx context.Context, slug string) (AgentGroup, error) {
+	row, err := s.q.GetAgentGroupBySlug(ctx, slug)
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromPgAgentGroup(row), nil
+}
+
+func (s *PgStore) GetAgentGroupMember(
+	ctx context.Context,
+	p GetAgentGroupMemberParams,
+) (AgentGroupMember, error) {
+	row, err := s.q.GetAgentGroupMember(ctx, pgdb.GetAgentGroupMemberParams(p))
+	if err != nil {
+		return AgentGroupMember{}, err
+	}
+	return fromPgAgentGroupMember(row), nil
+}
+
+func (s *PgStore) GetAgentGroupMemberRequest(
+	ctx context.Context,
+	id int64,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.GetAgentGroupMemberRequest(ctx, id)
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromPgAgentGroupMemberRequest(row), nil
+}
+
+func (s *PgStore) GetPendingAgentGroupMemberRequest(
+	ctx context.Context,
+	p GetPendingAgentGroupMemberRequestParams,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.GetPendingAgentGroupMemberRequest(
+		ctx,
+		pgdb.GetPendingAgentGroupMemberRequestParams(p),
+	)
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromPgAgentGroupMemberRequest(row), nil
+}
+
+func (s *PgStore) InsertAgentGroupLog(ctx context.Context, p InsertAgentGroupLogParams) error {
+	return s.q.InsertAgentGroupLog(ctx, pgdb.InsertAgentGroupLogParams(p))
+}
+
+func (s *PgStore) IsAgentGroupMember(
+	ctx context.Context,
+	p IsAgentGroupMemberParams,
+) (bool, error) {
+	n, err := s.q.IsAgentGroupMember(ctx, pgdb.IsAgentGroupMemberParams(p))
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *PgStore) IsAgentGroupOwner(ctx context.Context, p IsAgentGroupOwnerParams) (bool, error) {
+	n, err := s.q.IsAgentGroupOwner(ctx, pgdb.IsAgentGroupOwnerParams(p))
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *PgStore) ListAgentGroupIDsOwnedBy(ctx context.Context, actorID int64) ([]int64, error) {
+	return s.q.ListAgentGroupIDsOwnedBy(ctx, actorID)
+}
+
+func (s *PgStore) ListAgentGroupLogs(
+	ctx context.Context,
+	p ListAgentGroupLogsParams,
+) ([]ListAgentGroupLogsRow, error) {
+	rows, err := s.q.ListAgentGroupLogs(ctx, pgdb.ListAgentGroupLogsParams(p))
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupLogsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupMemberProjects(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMemberProjectsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberProjects(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupMemberProjectsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupMemberRequests(
+	ctx context.Context,
+	p ListAgentGroupMemberRequestsParams,
+) ([]ListAgentGroupMemberRequestsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberRequests(ctx, pgdb.ListAgentGroupMemberRequestsParams(p))
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupMemberRequestsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupMemberTeams(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMemberTeamsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberTeams(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupMemberTeamsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupMembers(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMembersRow, error) {
+	rows, err := s.q.ListAgentGroupMembers(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupMembersRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupMembersForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListAgentGroupMembersForAgentRow, error) {
+	rows, err := s.q.ListAgentGroupMembersForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupMembersForAgentRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupOwners(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupOwnersRow, error) {
+	rows, err := s.q.ListAgentGroupOwners(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupOwnersRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroups(ctx context.Context) ([]ListAgentGroupsRow, error) {
+	rows, err := s.q.ListAgentGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupsRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAgentGroupsForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListAgentGroupsForAgentRow, error) {
+	rows, err := s.q.ListAgentGroupsForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAgentGroupsForAgentRowSlice(rows), nil
+}
+
+func (s *PgStore) ListAllAgentGroupMembers(
+	ctx context.Context,
+) ([]ListAllAgentGroupMembersRow, error) {
+	rows, err := s.q.ListAllAgentGroupMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListAllAgentGroupMembersRowSlice(rows), nil
+}
+
+func (s *PgStore) ListLatestGroupPrompts(ctx context.Context, groupID int64) ([]Prompt, error) {
+	rows, err := s.q.ListLatestGroupPrompts(ctx, sql.NullInt64{Int64: groupID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	return fromPgPromptSlice(rows), nil
+}
+
+func (s *PgStore) ListPendingAgentGroupMemberRequestsForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListPendingAgentGroupMemberRequestsForAgentRow, error) {
+	rows, err := s.q.ListPendingAgentGroupMemberRequestsForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListPendingAgentGroupMemberRequestsForAgentRowSlice(rows), nil
+}
+
+func (s *PgStore) ListTaskGroupPromptsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]TaskGroupPrompt, error) {
+	rows, err := s.q.ListTaskGroupPromptsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskGroupPromptSlice(rows), nil
+}
+
+func (s *PgStore) ListTaskGroupTeamPromptsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]TaskGroupTeamPrompt, error) {
+	rows, err := s.q.ListTaskGroupTeamPromptsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskGroupTeamPromptSlice(rows), nil
+}
+
+func (s *PgStore) RemoveAgentGroupMember(
+	ctx context.Context,
+	p RemoveAgentGroupMemberParams,
+) (int64, error) {
+	return s.q.RemoveAgentGroupMember(ctx, pgdb.RemoveAgentGroupMemberParams(p))
+}
+
+func (s *PgStore) RemoveAgentGroupOwner(
+	ctx context.Context,
+	p RemoveAgentGroupOwnerParams,
+) (int64, error) {
+	return s.q.RemoveAgentGroupOwner(ctx, pgdb.RemoveAgentGroupOwnerParams(p))
+}
+
+func (s *PgStore) RespondAgentGroupMemberRequest(
+	ctx context.Context,
+	p RespondAgentGroupMemberRequestParams,
+) (int64, error) {
+	return s.q.RespondAgentGroupMemberRequest(ctx, pgdb.RespondAgentGroupMemberRequestParams(p))
+}
+
+func (s *PgStore) SetAgentGroupPicture(ctx context.Context, p SetAgentGroupPictureParams) error {
+	return s.q.SetAgentGroupPicture(ctx, pgdb.SetAgentGroupPictureParams(p))
+}
+
+func (s *PgStore) UpdateAgentGroup(
+	ctx context.Context,
+	p UpdateAgentGroupParams,
+) (AgentGroup, error) {
+	row, err := s.q.UpdateAgentGroup(ctx, pgdb.UpdateAgentGroupParams(p))
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromPgAgentGroup(row), nil
+}
+
+func (s *PgStore) CreateAgentGroupWithOwner(
+	ctx context.Context,
+	p CreateAgentGroupParams,
+	ownerActorID ids.ActorID,
+) (AgentGroup, error) {
+	var out AgentGroup
+	err := s.tx(ctx, func(q *pgdb.Queries) error {
+		group, err := q.CreateAgentGroup(ctx, pgdb.CreateAgentGroupParams(p))
+		if err != nil {
+			return err
+		}
+		if err := q.AddAgentGroupOwner(ctx, pgdb.AddAgentGroupOwnerParams{
+			GroupID:   group.ID,
+			ActorID:   int64(ownerActorID),
+			CreatedAt: p.CreatedAt,
+		}); err != nil {
+			return err
+		}
+		out = fromPgAgentGroup(group)
+		return nil
+	})
+	return out, err
+}
+
+func (s *PgStore) ArchiveAgentGroup(
+	ctx context.Context,
+	groupID int64,
+	archivedAt int64,
+	updatedAt int64,
+) (AgentGroup, error) {
+	var out AgentGroup
+	err := s.tx(ctx, func(q *pgdb.Queries) error {
+		group, err := q.SetAgentGroupArchived(ctx, pgdb.SetAgentGroupArchivedParams{
+			ArchivedAt: sql.NullInt64{Int64: archivedAt, Valid: true},
+			UpdatedAt:  updatedAt,
+			ID:         groupID,
+		})
+		if err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMembers(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMemberRequestsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupMembershipsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupMembershipsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupInvitationsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupInvitationsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		out = fromPgAgentGroup(group)
+		return nil
+	})
+	return out, err
+}
+
+func (s *PgStore) DeleteAgentGroup(ctx context.Context, id int64) error {
+	return s.tx(ctx, func(q *pgdb.Queries) error {
+		if err := q.DeleteAgentGroupMembers(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMemberRequestsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupMembershipsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupMembershipsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupInvitationsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupInvitationsByGroup(ctx, id); err != nil {
+			return err
+		}
+		return q.DeleteAgentGroup(ctx, id)
+	})
+}
+
+func (s *PgStore) SetAgentGroupArchived(
+	ctx context.Context,
+	p SetAgentGroupArchivedParams,
+) (AgentGroup, error) {
+	row, err := s.q.SetAgentGroupArchived(ctx, pgdb.SetAgentGroupArchivedParams(p))
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromPgAgentGroup(row), nil
+}
+
+func (s *PgStore) DeleteAgentGroupMembershipsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteAgentGroupMembershipsByActor(ctx, int64(actorID))
+}
+
+func (s *PgStore) DeleteAgentGroupMemberRequestsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteAgentGroupMemberRequestsByActor(ctx, int64(actorID))
 }

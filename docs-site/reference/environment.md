@@ -14,7 +14,7 @@ startup; restart the agency after changing them.
 | --- | --- | --- |
 | `CHERRYPI_AGENCY_DIR` | `~/.cherrypi-agency` | Data directory for the SQLite database and process logs. |
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP listen port. |
-| `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin without a trailing slash. Used for links, cookies and OIDC callbacks. |
+| `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin without a trailing slash. Used for links, cookies and OIDC callbacks. Shown read-only in **Org → General**. |
 | `CHERRYPI_H2C` | off | Enable cleartext HTTP/2 on the listener. Diagnostic/direct-agent use only; do not force it through a proxy. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Number of timestamped process-log files to keep. |
 

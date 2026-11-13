@@ -37,6 +37,9 @@ const (
 	ScopeAgentProject Scope = "agent_project"
 	ScopeTeam         Scope = "team"
 	ScopeTeamProject  Scope = "team_project"
+	ScopeGroup        Scope = "group"
+	ScopeGroupProject Scope = "group_project"
+	ScopeGroupTeam    Scope = "group_team"
 )
 
 var (
@@ -54,9 +57,11 @@ var (
 )
 
 type Prompt struct {
-	ID        int64
-	Content   string
-	Version   int64
+	ID      int64
+	Content string
+	Version int64
+
+	GroupID   int64
 	UpdatedAt time.Time
 
 	AuthorActorID ids.ActorID
@@ -84,6 +89,7 @@ type Proposal struct {
 	Scope            Scope
 	AgentID          ids.AgentID
 	TeamID           int64
+	GroupID          int64
 	ProjectID        string
 	Content          string
 	BaseVersion      int64
@@ -105,6 +111,7 @@ type SetParams struct {
 	Scope     Scope
 	AgentID   ids.AgentID
 	TeamID    int64
+	GroupID   int64
 	ProjectID string
 	Content   string
 
@@ -123,6 +130,7 @@ type CreateProposalParams struct {
 	Scope         Scope
 	AgentID       ids.AgentID
 	TeamID        int64
+	GroupID       int64
 	ProjectID     string
 	Content       string
 	AuthorActorID ids.ActorID
@@ -133,6 +141,7 @@ type ProposalFilter struct {
 	Scope     Scope
 	AgentID   ids.AgentID
 	TeamID    int64
+	GroupID   int64
 	ProjectID string
 	Status    ProposalStatus
 
@@ -147,12 +156,25 @@ type TeamVersionIDs struct {
 	ProjectPrompt int64
 }
 
+type GroupTeamVersionIDs struct {
+	TeamID int64
+	Prompt int64
+}
+
+type GroupVersionIDs struct {
+	GroupID       int64
+	Prompt        int64
+	ProjectPrompt int64
+	Teams         []GroupTeamVersionIDs
+}
+
 type VersionIDs struct {
 	Org          int64
 	Agent        int64
 	Project      int64
 	AgentProject int64
 	Teams        []TeamVersionIDs
+	Groups       []GroupVersionIDs
 }
 
 type Resolved struct {
@@ -184,15 +206,15 @@ func (s *Service) Get(
 	scope Scope,
 	agentID ids.AgentID, projectID string,
 ) (Prompt, error) {
-	return s.get(ctx, scope, agentID, 0, projectID)
+	return s.get(ctx, scope, agentID, 0, 0, projectID)
 }
 
 func (s *Service) GetAt(
 	ctx context.Context,
 	scope Scope,
-	agentID ids.AgentID, teamID int64, projectID string,
+	agentID ids.AgentID, teamID, groupID int64, projectID string,
 ) (Prompt, error) {
-	return s.get(ctx, scope, agentID, teamID, projectID)
+	return s.get(ctx, scope, agentID, teamID, groupID, projectID)
 }
 
 func (s *Service) GetForTeam(
@@ -200,21 +222,30 @@ func (s *Service) GetForTeam(
 	scope Scope,
 	teamID int64, projectID string,
 ) (Prompt, error) {
-	return s.get(ctx, scope, 0, teamID, projectID)
+	return s.get(ctx, scope, 0, teamID, 0, projectID)
+}
+
+func (s *Service) GetForGroup(
+	ctx context.Context,
+	scope Scope,
+	groupID, teamID int64, projectID string,
+) (Prompt, error) {
+	return s.get(ctx, scope, 0, teamID, groupID, projectID)
 }
 
 func (s *Service) get(
 	ctx context.Context,
 	scope Scope,
-	agentID ids.AgentID, teamID int64, projectID string,
+	agentID ids.AgentID, teamID, groupID int64, projectID string,
 ) (Prompt, error) {
-	if err := scope.validate(agentID, teamID, projectID); err != nil {
+	if err := scope.validate(agentID, teamID, groupID, projectID); err != nil {
 		return Prompt{}, err
 	}
 	row, err := s.store.LatestPrompt(ctx, store.LatestPromptParams{
 		Scope:     string(scope),
 		AgentID:   sql.NullInt64{Int64: int64(agentID), Valid: true},
 		TeamID:    sql.NullInt64{Int64: teamID, Valid: true},
+		GroupID:   sql.NullInt64{Int64: groupID, Valid: true},
 		ProjectID: sql.NullString{String: projectID, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -267,10 +298,10 @@ func (s *Service) SetForTeam(
 }
 
 func (s *Service) SetVersion(ctx context.Context, p SetParams) (Prompt, error) {
-	if err := p.Scope.validate(p.AgentID, p.TeamID, p.ProjectID); err != nil {
+	if err := p.Scope.validate(p.AgentID, p.TeamID, p.GroupID, p.ProjectID); err != nil {
 		return Prompt{}, err
 	}
-	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.ProjectID)
+	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.GroupID, p.ProjectID)
 	if err != nil {
 		return Prompt{}, err
 	}
@@ -282,6 +313,7 @@ func (s *Service) SetVersion(ctx context.Context, p SetParams) (Prompt, error) {
 		Scope:     string(p.Scope),
 		AgentID:   sql.NullInt64{Int64: int64(p.AgentID), Valid: true},
 		TeamID:    sql.NullInt64{Int64: p.TeamID, Valid: true},
+		GroupID:   sql.NullInt64{Int64: p.GroupID, Valid: true},
 		ProjectID: sql.NullString{String: p.ProjectID, Valid: true},
 	})
 	if err != nil {
@@ -295,6 +327,7 @@ func (s *Service) SetVersion(ctx context.Context, p SetParams) (Prompt, error) {
 		Scope:             string(p.Scope),
 		AgentID:           p.AgentID,
 		TeamID:            p.TeamID,
+		GroupID:           p.GroupID,
 		ProjectID:         p.ProjectID,
 		Content:           p.Content,
 		Version:           version + 1,
@@ -361,9 +394,15 @@ func (s *Service) Resolve(
 		teamPins = append(teamPins, pin)
 	}
 
-	parts := make([]string, 0, 6+len(teamParts))
+	groupPins, groupParts, err := s.resolveGroups(ctx, agentID, projectID, teamIDs)
+	if err != nil {
+		return Resolved{}, err
+	}
+
+	parts := make([]string, 0, 6+len(teamParts)+len(groupParts))
 	parts = append(parts, org.Content, project.Content)
 	parts = append(parts, teamParts...)
+	parts = append(parts, groupParts...)
 	parts = append(parts,
 		agent.Content,
 		agentProject.Content,
@@ -376,9 +415,62 @@ func (s *Service) Resolve(
 			Project:      project.ID,
 			AgentProject: agentProject.ID,
 			Teams:        teamPins,
+			Groups:       groupPins,
 		},
 		Text: joinNonEmpty(parts...),
 	}, nil
+}
+
+func (s *Service) resolveGroups(
+	ctx context.Context,
+	agentID ids.AgentID,
+	projectID string,
+	teamIDs []int64,
+) ([]GroupVersionIDs, []string, error) {
+	if agentID == 0 {
+		return nil, nil, nil
+	}
+	rows, err := s.store.ListAgentGroupsForAgent(ctx, int64(agentID))
+	if err != nil {
+		return nil, nil, err
+	}
+	pins := make([]GroupVersionIDs, 0, len(rows))
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.ArchivedAt.Valid {
+			continue
+		}
+		general, err := s.GetForGroup(ctx, ScopeGroup, row.ID, 0, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		pin := GroupVersionIDs{GroupID: row.ID, Prompt: general.ID}
+		parts = append(parts, general.Content)
+		if projectID != "" {
+			perProject, err := s.GetForGroup(ctx, ScopeGroupProject, row.ID, 0, projectID)
+			if err != nil {
+				return nil, nil, err
+			}
+			pin.ProjectPrompt = perProject.ID
+			parts = append(parts, perProject.Content)
+		}
+		for _, teamID := range teamIDs {
+			if teamID == 0 {
+				continue
+			}
+			perTeam, err := s.GetForGroup(ctx, ScopeGroupTeam, row.ID, teamID, "")
+			if err != nil {
+				return nil, nil, err
+			}
+			pin.Teams = append(pin.Teams, GroupTeamVersionIDs{
+				TeamID: teamID,
+				Prompt: perTeam.ID,
+			})
+			parts = append(parts, perTeam.Content)
+		}
+		pins = append(pins, pin)
+	}
+	return pins, parts, nil
 }
 
 func dedupeSorted(values []int64) []int64 {
@@ -401,10 +493,10 @@ func dedupeSorted(values []int64) []int64 {
 func (s *Service) ListVersions(
 	ctx context.Context,
 	scope Scope,
-	agentID ids.AgentID, teamID int64, projectID string,
+	agentID ids.AgentID, teamID, groupID int64, projectID string,
 	limit int, beforeVersion int64,
 ) ([]Prompt, error) {
-	if err := scope.validate(agentID, teamID, projectID); err != nil {
+	if err := scope.validate(agentID, teamID, groupID, projectID); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
@@ -417,6 +509,7 @@ func (s *Service) ListVersions(
 		Scope:         string(scope),
 		AgentID:       sql.NullInt64{Int64: int64(agentID), Valid: true},
 		TeamID:        sql.NullInt64{Int64: teamID, Valid: true},
+		GroupID:       sql.NullInt64{Int64: groupID, Valid: true},
 		ProjectID:     sql.NullString{String: projectID, Valid: true},
 		BeforeVersion: beforeVersion,
 		MaxCount:      int64(limit),
@@ -435,10 +528,10 @@ func (s *Service) CreateProposal(
 	ctx context.Context,
 	p CreateProposalParams,
 ) (Proposal, error) {
-	if err := p.Scope.validate(p.AgentID, p.TeamID, p.ProjectID); err != nil {
+	if err := p.Scope.validate(p.AgentID, p.TeamID, p.GroupID, p.ProjectID); err != nil {
 		return Proposal{}, err
 	}
-	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.ProjectID)
+	cur, err := s.get(ctx, p.Scope, p.AgentID, p.TeamID, p.GroupID, p.ProjectID)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -451,6 +544,7 @@ func (s *Service) CreateProposal(
 			Scope:         string(p.Scope),
 			AgentID:       p.AgentID,
 			TeamID:        p.TeamID,
+			GroupID:       p.GroupID,
 			ProjectID:     p.ProjectID,
 			Content:       p.Content,
 			BaseVersion:   cur.Version,
@@ -509,7 +603,7 @@ func (s *Service) ListProposals(
 			},
 		)
 	} else {
-		if err := f.Scope.validate(f.AgentID, f.TeamID, f.ProjectID); err != nil {
+		if err := f.Scope.validate(f.AgentID, f.TeamID, f.GroupID, f.ProjectID); err != nil {
 			return nil, err
 		}
 		rows, err = s.store.ListPromptProposalsByTarget(
@@ -518,6 +612,7 @@ func (s *Service) ListProposals(
 				Scope:     string(f.Scope),
 				AgentID:   sql.NullInt64{Int64: int64(f.AgentID), Valid: true},
 				TeamID:    sql.NullInt64{Int64: f.TeamID, Valid: true},
+				GroupID:   sql.NullInt64{Int64: f.GroupID, Valid: true},
 				ProjectID: sql.NullString{String: f.ProjectID, Valid: true},
 				Status:    status,
 				BeforeID:  f.BeforeID,
@@ -632,6 +727,7 @@ func (s *Service) fillProposalState(ctx context.Context, p *Proposal) error {
 		Scope:     string(p.Scope),
 		AgentID:   sql.NullInt64{Int64: int64(p.AgentID), Valid: true},
 		TeamID:    sql.NullInt64{Int64: p.TeamID, Valid: true},
+		GroupID:   sql.NullInt64{Int64: p.GroupID, Valid: true},
 		ProjectID: sql.NullString{String: p.ProjectID, Valid: true},
 	})
 	if err != nil {
@@ -646,26 +742,35 @@ func (sc Scope) TeamScoped() bool {
 	return sc == ScopeTeam || sc == ScopeTeamProject
 }
 
+func (sc Scope) GroupScoped() bool {
+	return sc == ScopeGroup || sc == ScopeGroupProject || sc == ScopeGroupTeam
+}
+
 func (sc Scope) valid() bool {
 	switch sc {
 	case ScopeOrg, ScopeAgent, ScopeProject, ScopeAgentProject,
-		ScopeTeam, ScopeTeamProject:
+		ScopeTeam, ScopeTeamProject,
+		ScopeGroup, ScopeGroupProject, ScopeGroupTeam:
 		return true
 	default:
 		return false
 	}
 }
 
-func (sc Scope) validate(agentID ids.AgentID, teamID int64, projectID string) error {
+func (sc Scope) validate(agentID ids.AgentID, teamID, groupID int64, projectID string) error {
 	if !sc.valid() {
 		return ErrInvalidScope
 	}
 	needAgent := sc == ScopeAgent || sc == ScopeAgentProject
-	needTeam := sc == ScopeTeam || sc == ScopeTeamProject
+	needTeam := sc == ScopeTeam || sc == ScopeTeamProject ||
+		sc == ScopeGroupTeam
+	needGroup := sc == ScopeGroup || sc == ScopeGroupProject ||
+		sc == ScopeGroupTeam
 	needProject := sc == ScopeProject || sc == ScopeAgentProject ||
-		sc == ScopeTeamProject
+		sc == ScopeTeamProject || sc == ScopeGroupProject
 	if needAgent != (agentID != 0) ||
 		needTeam != (teamID != 0) ||
+		needGroup != (groupID != 0) ||
 		needProject != (projectID != "") {
 		return ErrInvalidTarget
 	}
@@ -686,6 +791,7 @@ func toPrompt(row store.Prompt) Prompt {
 		ID:                row.ID,
 		Content:           row.Content,
 		Version:           row.Version,
+		GroupID:           row.GroupID.Int64,
 		UpdatedAt:         time.UnixMilli(row.CreatedAt),
 		AuthorActorID:     ids.ActorID(row.AuthorActorID.Int64),
 		ApprovedByActorID: ids.ActorID(row.ApprovedByActorID.Int64),
@@ -701,6 +807,7 @@ func toProposal(row store.PromptProposal) Proposal {
 		Scope:            Scope(row.Scope),
 		AgentID:          ids.AgentID(row.AgentID.Int64),
 		TeamID:           row.TeamID.Int64,
+		GroupID:          row.GroupID.Int64,
 		ProjectID:        row.ProjectID.String,
 		Content:          row.Content,
 		BaseVersion:      row.BaseVersion,

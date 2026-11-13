@@ -60,6 +60,12 @@ WITH entries AS (
     l.at, l.actor_id, l.kind, l.field, l.old_value, l.new_value, l.message, l.data_json
   FROM user_logs l
   LEFT JOIN actors au ON au.id = l.user_actor_id
+  UNION ALL
+  SELECT
+    'agent_group', l.id, CAST(l.group_id AS TEXT), CAST(COALESCE(ag.name, '') AS TEXT),
+    l.at, l.actor_id, l.kind, l.field, l.old_value, l.new_value, l.message, l.data_json
+  FROM agent_group_logs l
+  LEFT JOIN agent_groups ag ON ag.id = l.group_id
 )
 SELECT
   e.scope, e.entry_id, e.scope_id, e.scope_label, e.at, e.actor_id, e.kind,
@@ -101,3 +107,6 @@ DELETE FROM project_logs WHERE at < sqlc.arg(before_at);
 
 -- name: PruneTeamLogs :exec
 DELETE FROM team_logs WHERE at < sqlc.arg(before_at);
+
+-- name: PruneAgentGroupLogs :exec
+DELETE FROM agent_group_logs WHERE at < sqlc.arg(before_at);

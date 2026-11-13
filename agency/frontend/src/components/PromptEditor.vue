@@ -89,6 +89,7 @@ const props = defineProps<{
   scope: PromptScope;
   agentId?: string;
   teamId?: string;
+  groupId?: string;
   projectId?: string;
   placeholder?: string;
 }>();
@@ -96,6 +97,7 @@ const props = defineProps<{
 const target = computed<PromptTarget>(() => ({
   agentId: props.agentId ?? "",
   teamId: props.teamId ?? "",
+  groupId: props.groupId ?? "",
   projectId: props.projectId ?? "",
 }));
 
@@ -115,9 +117,14 @@ const {
 const note = ref("");
 const historyOpen = ref(false);
 const supportsProposals = computed(() =>
-  [PromptScope.AGENT, PromptScope.AGENT_PROJECT, PromptScope.PROJECT].includes(
-    props.scope,
-  ),
+  [
+    PromptScope.AGENT,
+    PromptScope.AGENT_PROJECT,
+    PromptScope.PROJECT,
+    PromptScope.GROUP,
+    PromptScope.GROUP_PROJECT,
+    PromptScope.GROUP_TEAM,
+  ].includes(props.scope),
 );
 
 async function saveClick() {

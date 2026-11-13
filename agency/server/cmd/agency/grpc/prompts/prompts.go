@@ -23,6 +23,7 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/actorid"
+	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -46,6 +47,7 @@ type PromptServer struct {
 	Tasks    *tasks.Service
 	Settings *settings.Service
 	Teams    *teams.Service
+	Groups   *agentgroups.Service
 	Accounts *accounts.Service
 }
 
@@ -57,7 +59,7 @@ func (s *PromptServer) GetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +87,7 @@ func (s *PromptServer) SetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +106,7 @@ func (s *PromptServer) ListPromptVersions(
 	ctx context.Context,
 	req *agencyv1.ListPromptVersionsRequest,
 ) (*agencyv1.ListPromptVersionsResponse, error) {
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +166,7 @@ func (s *PromptServer) CreatePromptProposal(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +204,13 @@ func (s *PromptServer) ListPromptProposals(
 		Before: req.BeforeId,
 	}
 	if !req.Mine {
-		target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.ProjectId)
+		target, err := targetFromProto(
+			req.Scope,
+			req.AgentId,
+			req.TeamId,
+			req.GroupId,
+			req.ProjectId,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -281,9 +289,13 @@ func (s *PromptServer) GetTaskSystemPrompt(
 
 	pinned := !task.StartedAt.IsZero()
 	pinnedIDs := task.PromptIDs
-	agent, agentErr := s.Agents.GetByActor(ctx, task.AssigneeActorID)
-	if agentErr != nil {
-		return nil, connect.NewError(connect.CodeInternal, agentErr)
+	var agent agents.Agent
+	if task.AssigneeActorID != 0 {
+		var agentErr error
+		agent, agentErr = s.Agents.GetByActor(ctx, task.AssigneeActorID)
+		if agentErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, agentErr)
+		}
 	}
 	if !pinned {
 		resolved, err := s.Prompts.Resolve(
@@ -306,32 +318,58 @@ func (s *PromptServer) GetTaskSystemPrompt(
 	projectName := s.projectName(ctx, task.ProjectID)
 
 	sections := make([]*agencyv1.SystemPromptSection, 0, 6+2*len(pinnedIDs.Teams))
-	appendSection := func(scope prompts.Scope, id int64, owner string) error {
+	appendSection := func(
+		scope prompts.Scope,
+		id int64,
+		owner string,
+		groupID int64,
+		groupName string,
+		teamID int64,
+	) error {
 		p, err := s.Prompts.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
 		sections = append(sections, &agencyv1.SystemPromptSection{
-			Scope:   scopeToProto(scope),
-			Owner:   owner,
-			Version: p.Version,
-			Content: p.Content,
-			Pinned:  pinned,
+			Scope:     scopeToProto(scope),
+			Owner:     owner,
+			Version:   p.Version,
+			Content:   p.Content,
+			Pinned:    pinned,
+			GroupId:   groupID,
+			GroupName: groupName,
+			TeamId:    teamID,
+
+			Preview: !pinned && task.AssigneeActorID != 0,
 		})
 		return nil
 	}
 
-	if err := appendSection(prompts.ScopeOrg, pinnedIDs.Org, agencyName); err != nil {
+	if err := appendSection(prompts.ScopeOrg, pinnedIDs.Org, agencyName, 0, "", 0); err != nil {
 		return nil, promptError(err)
 	}
 	if task.ProjectID != "" {
-		if err := appendSection(prompts.ScopeProject, pinnedIDs.Project, projectName); err != nil {
+		if err := appendSection(
+			prompts.ScopeProject,
+			pinnedIDs.Project,
+			projectName,
+			0,
+			"",
+			0,
+		); err != nil {
 			return nil, promptError(err)
 		}
 	}
 	for _, pin := range pinnedIDs.Teams {
 		teamName := s.teamName(ctx, pin.TeamID)
-		if err := appendSection(prompts.ScopeTeam, pin.Prompt, teamName); err != nil {
+		if err := appendSection(
+			prompts.ScopeTeam,
+			pin.Prompt,
+			teamName,
+			0,
+			"",
+			pin.TeamID,
+		); err != nil {
 			return nil, promptError(err)
 		}
 		if task.ProjectID == "" {
@@ -341,12 +379,67 @@ func (s *PromptServer) GetTaskSystemPrompt(
 			prompts.ScopeTeamProject,
 			pin.ProjectPrompt,
 			teamName+" × "+projectName,
+			0,
+			"",
+			pin.TeamID,
 		); err != nil {
 			return nil, promptError(err)
 		}
 	}
+
+	for _, pin := range pinnedIDs.Groups {
+		groupName := s.groupName(ctx, pin.GroupID)
+
+		if pin.Prompt != 0 {
+			if err := appendSection(
+				prompts.ScopeGroup,
+				pin.Prompt,
+				groupName,
+				pin.GroupID,
+				groupName,
+				0,
+			); err != nil {
+				return nil, promptError(err)
+			}
+		}
+		if task.ProjectID != "" && pin.ProjectPrompt != 0 {
+			if err := appendSection(
+				prompts.ScopeGroupProject,
+				pin.ProjectPrompt,
+				groupName+" × "+projectName,
+				pin.GroupID,
+				groupName,
+				0,
+			); err != nil {
+				return nil, promptError(err)
+			}
+		}
+		for _, teamPin := range pin.Teams {
+			if teamPin.Prompt == 0 {
+				continue
+			}
+			teamName := s.teamName(ctx, teamPin.TeamID)
+			if err := appendSection(
+				prompts.ScopeGroupTeam,
+				teamPin.Prompt,
+				groupName+" × "+teamName,
+				pin.GroupID,
+				groupName,
+				teamPin.TeamID,
+			); err != nil {
+				return nil, promptError(err)
+			}
+		}
+	}
 	if task.AssigneeActorID != 0 {
-		if err := appendSection(prompts.ScopeAgent, pinnedIDs.Agent, agentName); err != nil {
+		if err := appendSection(
+			prompts.ScopeAgent,
+			pinnedIDs.Agent,
+			agentName,
+			0,
+			"",
+			0,
+		); err != nil {
 			return nil, promptError(err)
 		}
 	}
@@ -356,6 +449,9 @@ func (s *PromptServer) GetTaskSystemPrompt(
 			prompts.ScopeAgentProject,
 			pinnedIDs.AgentProject,
 			owner,
+			0,
+			"",
+			0,
 		); err != nil {
 			return nil, promptError(err)
 		}
@@ -409,6 +505,16 @@ func (s *PromptServer) teamName(ctx context.Context, id int64) string {
 	return fmt.Sprintf("Team %d", id)
 }
 
+func (s *PromptServer) groupName(ctx context.Context, id int64) string {
+	if id == 0 || s.Groups == nil {
+		return ""
+	}
+	if name, err := s.Groups.Name(ctx, id); err == nil && name != "" {
+		return name
+	}
+	return fmt.Sprintf("Group %d", id)
+}
+
 func (s *PromptServer) projectName(ctx context.Context, id string) string {
 	if id == "" || s.Projects == nil {
 		return ""
@@ -434,7 +540,8 @@ func (s *PromptServer) validateTargets(
 	}
 	if target.Scope == prompts.ScopeProject ||
 		target.Scope == prompts.ScopeAgentProject ||
-		target.Scope == prompts.ScopeTeamProject {
+		target.Scope == prompts.ScopeTeamProject ||
+		target.Scope == prompts.ScopeGroupProject {
 		project, err := s.Projects.Get(ctx, target.ProjectID)
 		if errors.Is(err, projects.ErrProjectMissing) {
 			return target, connect.NewError(connect.CodeNotFound, err)
@@ -444,7 +551,21 @@ func (s *PromptServer) validateTargets(
 		}
 		target.ProjectID = project.ID
 	}
-	if target.Scope.TeamScoped() {
+	if target.Scope.GroupScoped() {
+		if s.Groups == nil {
+			return target, connect.NewError(
+				connect.CodeUnavailable,
+				errors.New("agent groups unavailable"),
+			)
+		}
+		if _, err := s.Groups.Get(ctx, target.GroupID); err != nil {
+			if errors.Is(err, agentgroups.ErrNotFound) {
+				return target, connect.NewError(connect.CodeNotFound, err)
+			}
+			return target, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	if target.Scope.TeamScoped() || target.Scope == prompts.ScopeGroupTeam {
 		if s.Teams == nil {
 			return target, connect.NewError(
 				connect.CodeUnavailable,
@@ -474,7 +595,7 @@ func requireIdentity(ctx context.Context) (auth.Identity, error) {
 
 func targetFromProto(
 	scope agencyv1.PromptScope,
-	agentID string, teamID int64, projectID string,
+	agentID string, teamID, groupID int64, projectID string,
 ) (promptaccess.Target, error) {
 	s, err := fromProtoScope(scope)
 	if err != nil {
@@ -484,6 +605,7 @@ func targetFromProto(
 		Scope:     s,
 		AgentID:   actorid.ParseAgent(agentID),
 		TeamID:    teamID,
+		GroupID:   groupID,
 		ProjectID: projectID,
 	}, nil
 }
@@ -515,6 +637,7 @@ func (s *PromptServer) proposalToProto(
 		AgentId:       actorid.Format(p.AgentID),
 		ProjectId:     p.ProjectID,
 		TeamId:        p.TeamID,
+		GroupId:       p.GroupID,
 		Content:       p.Content,
 		BaseVersion:   p.BaseVersion,
 		Author:        s.actorToProto(ctx, p.AuthorActorID),
@@ -576,6 +699,12 @@ func scopeToProto(scope prompts.Scope) agencyv1.PromptScope {
 		return agencyv1.PromptScope_PROMPT_SCOPE_TEAM
 	case prompts.ScopeTeamProject:
 		return agencyv1.PromptScope_PROMPT_SCOPE_TEAM_PROJECT
+	case prompts.ScopeGroup:
+		return agencyv1.PromptScope_PROMPT_SCOPE_GROUP
+	case prompts.ScopeGroupProject:
+		return agencyv1.PromptScope_PROMPT_SCOPE_GROUP_PROJECT
+	case prompts.ScopeGroupTeam:
+		return agencyv1.PromptScope_PROMPT_SCOPE_GROUP_TEAM
 	default:
 		return agencyv1.PromptScope_PROMPT_SCOPE_UNSPECIFIED
 	}
@@ -595,6 +724,12 @@ func fromProtoScope(scope agencyv1.PromptScope) (prompts.Scope, error) {
 		return prompts.ScopeTeam, nil
 	case agencyv1.PromptScope_PROMPT_SCOPE_TEAM_PROJECT:
 		return prompts.ScopeTeamProject, nil
+	case agencyv1.PromptScope_PROMPT_SCOPE_GROUP:
+		return prompts.ScopeGroup, nil
+	case agencyv1.PromptScope_PROMPT_SCOPE_GROUP_PROJECT:
+		return prompts.ScopeGroupProject, nil
+	case agencyv1.PromptScope_PROMPT_SCOPE_GROUP_TEAM:
+		return prompts.ScopeGroupTeam, nil
 	default:
 		return "", prompts.ErrInvalidScope
 	}

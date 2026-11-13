@@ -64,7 +64,7 @@ ON CONFLICT DO NOTHING;
 SELECT EXISTS (
   SELECT 1
   FROM task_teams tt
-  JOIN team_members tm ON tm.team_id = tt.team_id
+  JOIN effective_team_members tm ON tm.team_id = tt.team_id
   WHERE tt.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id))
     AND tm.actor_id = sqlc.arg(actor_id)
 );
@@ -73,7 +73,7 @@ SELECT EXISTS (
 
 SELECT DISTINCT tm.actor_id
 FROM task_teams tt
-JOIN team_members tm ON tm.team_id = tt.team_id
+JOIN effective_team_members tm ON tm.team_id = tt.team_id
 WHERE tt.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id));
 
 -- name: CountTasksOwnedByTeam :one
@@ -85,7 +85,7 @@ SELECT CAST(COUNT(*) AS BIGINT) FROM task_teams WHERE team_id = sqlc.arg(team_id
 
 SELECT DISTINCT ptm.team_id
 FROM project_team_memberships ptm
-JOIN team_members tm ON tm.team_id = ptm.team_id
+JOIN effective_team_members tm ON tm.team_id = ptm.team_id
 WHERE tm.actor_id = sqlc.arg(actor_id)
   AND (
     ptm.project_id = sqlc.arg(project_id)

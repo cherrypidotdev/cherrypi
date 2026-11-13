@@ -95,12 +95,12 @@ func (s *Service) MentionedActors(
 			if err != nil {
 				continue
 			}
-			members, err := s.store.ListTeamMembers(ctx, teamID)
+			members, err := s.store.ListEffectiveTeamMemberActorIDs(ctx, teamID)
 			if err != nil {
 				continue
 			}
 			for _, member := range members {
-				add(ids.ActorID(member.ActorID))
+				add(ids.ActorID(member))
 			}
 		}
 	}

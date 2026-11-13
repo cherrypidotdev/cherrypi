@@ -25,6 +25,7 @@ SELECT * FROM prompts
 WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, 0) = sqlc.arg(agent_id)
   AND coalesce(team_id, 0) = sqlc.arg(team_id)
+  AND coalesce(group_id, 0) = sqlc.arg(group_id)
   AND coalesce(project_id, '') = sqlc.arg(project_id)
 ORDER BY version DESC
 LIMIT 1;
@@ -34,6 +35,7 @@ SELECT CAST(coalesce(max(version), 0) AS INTEGER) FROM prompts
 WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, 0) = sqlc.arg(agent_id)
   AND coalesce(team_id, 0) = sqlc.arg(team_id)
+  AND coalesce(group_id, 0) = sqlc.arg(group_id)
   AND coalesce(project_id, '') = sqlc.arg(project_id);
 
 -- name: ListPromptVersions :many
@@ -41,6 +43,7 @@ SELECT * FROM prompts
 WHERE scope = sqlc.arg(scope)
   AND coalesce(agent_id, 0) = sqlc.arg(agent_id)
   AND coalesce(team_id, 0) = sqlc.arg(team_id)
+  AND coalesce(group_id, 0) = sqlc.arg(group_id)
   AND coalesce(project_id, '') = sqlc.arg(project_id)
   AND (sqlc.arg(before_version) = 0 OR version < sqlc.arg(before_version))
 ORDER BY version DESC
@@ -48,13 +51,14 @@ LIMIT sqlc.arg(max_count);
 
 -- name: InsertPrompt :one
 INSERT INTO prompts (
-  scope, agent_id, team_id, project_id, content, version, created_at,
+  scope, agent_id, team_id, group_id, project_id, content, version, created_at,
   author_actor_id, approved_by_actor_id, note, proposal_id, auto_approved
 )
 VALUES (
   sqlc.arg(scope),
   NULLIF(sqlc.arg(agent_id), 0),
   NULLIF(sqlc.arg(team_id), 0),
+  NULLIF(sqlc.arg(group_id), 0),
   NULLIF(sqlc.arg(project_id), ''),
   sqlc.arg(content),
   sqlc.arg(version),

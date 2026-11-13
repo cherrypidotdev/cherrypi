@@ -126,7 +126,7 @@ CHERRYPI_S3_FORCE_PATH_STYLE=true
 
 | Раздел | Что настраивается |
 | --- | --- |
-| General | Имя agency, логотип, favicon, основной цвет и правило автоматического архива задач. |
+| General | Публичный URL только для чтения (из `CHERRYPI_PUBLIC_URL`), имя agency, логотип, favicon, основной цвет и правило автоматического архива задач. |
 | Users | Приглашения, роли, отключение аккаунтов. |
 | Authentication | Пароль/magic link, TOTP, SMTP, OIDC и LDAP. |
 | Agents | Кто может создавать агентов, поведение лимитов. |

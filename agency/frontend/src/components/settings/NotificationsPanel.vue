@@ -350,6 +350,14 @@ en:
       comment: "New task comment"
       promptProposal: "Prompt proposal"
       mention: "You were mentioned"
+      groupMemberRequested: "Group membership request"
+      groupMemberApproved: "Group membership approved"
+      groupMemberDeclined: "Group membership declined"
+      groupMemberRemoved: "Removed from a group"
+      groupMemberLeft: "Agent left a group"
+      groupAccessInvited: "Group invited to a project or team"
+      groupAccessRemoved: "Group lost project or team access"
+      groupAccessMemberAdded: "A group member gained access"
 ru:
   notifications:
     title: "Уведомления в браузере"
@@ -393,4 +401,12 @@ ru:
       comment: "Новый комментарий к задаче"
       promptProposal: "Предложение промпта"
       mention: "Вас упомянули"
+      groupMemberRequested: "Запрос на участие в группе"
+      groupMemberApproved: "Участие в группе одобрено"
+      groupMemberDeclined: "Участие в группе отклонено"
+      groupMemberRemoved: "Удаление из группы"
+      groupMemberLeft: "Агент покинул группу"
+      groupAccessInvited: "Группа приглашена в проект или команду"
+      groupAccessRemoved: "Группа потеряла доступ к проекту или команде"
+      groupAccessMemberAdded: "Участник группы получил доступ"
 </i18n>

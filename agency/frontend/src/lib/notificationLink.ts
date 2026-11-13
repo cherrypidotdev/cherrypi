@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { useAgentGroups } from "@/composables/useAgentGroups";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
 import type { RouteLocationRaw } from "vue-router";
@@ -25,6 +26,9 @@ const PROMPT_SCOPES = [
   "agent_project",
   "team",
   "team_project",
+  "group",
+  "group_project",
+  "group_team",
 ] as const;
 
 export type PromptScope = (typeof PROMPT_SCOPES)[number];
@@ -34,6 +38,7 @@ export interface PromptTarget {
   promptScope?: string;
   promptProjectId?: string;
   promptTeamId?: string | number | bigint;
+  promptGroupId?: string | number | bigint;
 }
 
 export function isPromptTarget(target: PromptTarget): boolean {
@@ -76,13 +81,28 @@ export function promptRoute(target: PromptTarget): RouteLocationRaw | null {
 
       return { name: "team", params: { id }, query: { tab: "projects" } };
     }
+    case "group":
+    case "group_project":
+    case "group_team": {
+      const slug = agentGroupSlug(String(target.promptGroupId ?? ""));
+      if (!slug) return null;
+
+      return {
+        name: "group-prompts",
+        params: { slug },
+      };
+    }
     default:
       return null;
   }
 }
 
 export async function loadPromptRouteTargets(): Promise<void> {
-  await Promise.all([useAgents().loadAgents(), useProjects().loadProjects()]);
+  await Promise.all([
+    useAgents().loadAgents(),
+    useProjects().loadProjects(),
+    useAgentGroups().loadAgentGroups(),
+  ]);
 }
 
 function agentUsername(agentID: string): string {
@@ -90,6 +110,29 @@ function agentUsername(agentID: string): string {
   return (
     useAgents().agents.value.find((agent) => agent.id === agentID)?.username ??
     ""
+  );
+}
+
+export function groupRoute(
+  target: PromptTarget,
+  tab: "members" | "prompts" | "access",
+): RouteLocationRaw | null {
+  const slug = agentGroupSlug(String(target.promptGroupId ?? ""));
+  if (!slug) return null;
+  const name =
+    tab === "members"
+      ? "group-members"
+      : tab === "access"
+        ? "group-access"
+        : "group-prompts";
+  return { name, params: { slug } };
+}
+
+function agentGroupSlug(groupID: string): string {
+  if (!groupID || groupID === "0") return "";
+  return (
+    useAgentGroups().groups.value.find((group) => String(group.id) === groupID)
+      ?.slug ?? ""
   );
 }
 

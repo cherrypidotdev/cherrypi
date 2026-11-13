@@ -48,6 +48,7 @@ type Entry struct {
 	PromptScope     string      `json:"promptScope"`
 	PromptProjectID string      `json:"promptProjectId"`
 	PromptTeamID    int64       `json:"promptTeamId"`
+	PromptGroupID   int64       `json:"promptGroupId"`
 	CreatedAt       string      `json:"createdAt"`
 	ReadAt          *time.Time  `json:"readAt,omitempty"`
 }
@@ -125,6 +126,7 @@ func browserEntry(n Notification) *Entry {
 		PromptScope:     n.PromptScope,
 		PromptProjectID: n.PromptProjectID,
 		PromptTeamID:    n.PromptTeamID,
+		PromptGroupID:   n.PromptGroupID,
 		CreatedAt:       n.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if !n.ReadAt.IsZero() {

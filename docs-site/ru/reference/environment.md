@@ -14,7 +14,7 @@ description: Полный справочник переменных окруже
 | --- | --- | --- |
 | `CHERRYPI_AGENCY_DIR` | `~/.cherrypi-agency` | Каталог данных для SQLite и process-логов. |
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP-порт. |
-| `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | Внешний origin без слэша на конце. Для ссылок, cookie и OIDC callback. |
+| `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | Внешний origin без слэша на конце. Для ссылок, cookie и OIDC callback. Показывается только для чтения в **Org → General**. |
 | `CHERRYPI_H2C` | выкл. | Cleartext HTTP/2 на слушателе. Только диагностика/прямой агент; не форсируйте через прокси. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Сколько process-логов хранить. |
 

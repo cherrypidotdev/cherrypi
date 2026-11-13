@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 
+	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -32,6 +33,7 @@ type Target struct {
 	Scope     prompts.Scope
 	AgentID   ids.AgentID
 	TeamID    int64
+	GroupID   int64
 	ProjectID string
 }
 
@@ -39,6 +41,7 @@ type Authorizer struct {
 	Agents   *agents.Registry
 	Projects *projects.Service
 	Teams    *teams.Service
+	Groups   *agentgroups.Service
 }
 
 func (a *Authorizer) CanEdit(
@@ -64,6 +67,11 @@ func (a *Authorizer) CanEdit(
 			return false, nil
 		}
 		return a.Teams.IsOwner(ctx, target.TeamID, identity.ActorID)
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		if a.Groups == nil || target.GroupID == 0 {
+			return false, nil
+		}
+		return a.Groups.IsOwner(ctx, target.GroupID, identity.ActorID)
 	default:
 		return false, nil
 	}
@@ -85,6 +93,8 @@ func (a *Authorizer) CanPropose(
 		return a.projectMember(ctx, target.ProjectID, identity)
 	case prompts.ScopeProject:
 		return a.projectMember(ctx, target.ProjectID, identity)
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		return a.groupMemberAgent(ctx, target.GroupID, identity)
 	default:
 		return false, nil
 	}
@@ -128,6 +138,11 @@ func (a *Authorizer) Owners(
 			return nil, nil
 		}
 		return a.Projects.OwnerActorIDs(ctx, target.ProjectID)
+	case prompts.ScopeGroup, prompts.ScopeGroupProject, prompts.ScopeGroupTeam:
+		if a.Groups == nil || target.GroupID == 0 {
+			return nil, nil
+		}
+		return a.Groups.OwnerActorIDs(ctx, target.GroupID)
 	default:
 		return nil, nil
 	}
@@ -159,6 +174,24 @@ func (a *Authorizer) isSelfAgent(
 		return false, err
 	}
 	return agent.ID == agentID, nil
+}
+
+func (a *Authorizer) groupMemberAgent(
+	ctx context.Context,
+	groupID int64,
+	identity auth.Identity,
+) (bool, error) {
+	if identity.Kind != "agent" || groupID == 0 || a.Groups == nil {
+		return false, nil
+	}
+	agent, err := a.AgentForActor(ctx, identity.ActorID)
+	if errors.Is(err, agents.ErrAgentMissing) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return a.Groups.IsMemberAgent(ctx, groupID, agent.ID)
 }
 
 func (a *Authorizer) projectMember(

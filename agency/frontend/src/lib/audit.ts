@@ -16,13 +16,20 @@
 
 import { request } from "@/lib/account";
 
-export type AuditScope = "task" | "agent" | "project" | "team" | "user";
+export type AuditScope =
+  | "task"
+  | "agent"
+  | "project"
+  | "team"
+  | "agent_group"
+  | "user";
 
 export const AUDIT_SCOPES: AuditScope[] = [
   "task",
   "agent",
   "project",
   "team",
+  "agent_group",
   "user",
 ];
 

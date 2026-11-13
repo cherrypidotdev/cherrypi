@@ -22,7 +22,7 @@
 -- name: CreateNotification :one
 INSERT INTO notifications (
   agent_id, task_rowid, kind, severity, title, body, created_at, recipient_actor_id,
-  prompt_scope, prompt_project_id, prompt_team_id
+  prompt_scope, prompt_project_id, prompt_team_id, prompt_group_id
 )
 VALUES (
   sqlc.arg(agent_id),
@@ -35,7 +35,8 @@ VALUES (
   sqlc.narg(recipient_actor_id),
   sqlc.arg(prompt_scope),
   sqlc.narg(prompt_project_id),
-  sqlc.narg(prompt_team_id)
+  sqlc.narg(prompt_team_id),
+  sqlc.narg(prompt_group_id)
 )
 RETURNING *;
 

@@ -26,6 +26,7 @@ import "google/protobuf/timestamp.proto";
 
 
 
+
 enum PromptScope {
   PROMPT_SCOPE_UNSPECIFIED = 0;
   
@@ -46,6 +47,18 @@ enum PromptScope {
   
   
   PROMPT_SCOPE_TEAM_PROJECT = 7;
+  
+  
+  
+  PROMPT_SCOPE_GROUP = 8;
+  
+  
+  
+  PROMPT_SCOPE_GROUP_PROJECT = 9;
+  
+  
+  
+  PROMPT_SCOPE_GROUP_TEAM = 10;
 }
 
 
@@ -135,6 +148,8 @@ message GetPromptRequest {
   string project_id = 3;
   
   int64 team_id = 4;
+  
+  int64 group_id = 5;
 }
 
 message GetPromptResponse {
@@ -156,6 +171,8 @@ message SetPromptRequest {
   int64 team_id = 5;
   
   string note = 6;
+  
+  int64 group_id = 7;
 }
 
 message SetPromptResponse {
@@ -171,6 +188,8 @@ message ListPromptVersionsRequest {
   uint32 limit = 5;
   
   int64 before_version = 6;
+  
+  int64 group_id = 7;
 }
 
 message ListPromptVersionsResponse {
@@ -217,6 +236,8 @@ message PromptProposal {
   int64 latest_version = 17;
   
   bool is_mine = 18;
+  
+  int64 group_id = 19;
 }
 
 message CreatePromptProposalRequest {
@@ -226,6 +247,8 @@ message CreatePromptProposalRequest {
   int64 team_id = 4;
   string content = 5;
   string note = 6;
+  
+  int64 group_id = 7;
 }
 
 message CreatePromptProposalResponse {
@@ -245,6 +268,8 @@ message ListPromptProposalsRequest {
   bool mine = 6;
   uint32 limit = 7;
   int64 before_id = 8;
+  
+  int64 group_id = 9;
 }
 
 message ListPromptProposalsResponse {
@@ -289,6 +314,17 @@ message SystemPromptSection {
   
   
   bool pinned = 5;
+  
+  
+  int64 group_id = 6;
+  
+  string group_name = 7;
+  
+  
+  int64 team_id = 8;
+  
+  
+  bool preview = 9;
 }
 
 message GetTaskSystemPromptRequest {

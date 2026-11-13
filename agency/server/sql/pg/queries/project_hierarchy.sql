@@ -56,7 +56,7 @@ FROM project_team_memberships parent_link
 JOIN project_team_memberships child_link
   ON child_link.team_id = parent_link.team_id
 JOIN teams t ON t.id = parent_link.team_id
-JOIN team_members tm ON tm.team_id = parent_link.team_id
+JOIN effective_team_members tm ON tm.team_id = parent_link.team_id
 WHERE parent_link.project_id = sqlc.arg(parent_project_id)
   AND parent_link.role = 'owner'
   AND child_link.project_id = sqlc.arg(child_project_id)

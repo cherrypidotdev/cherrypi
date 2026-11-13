@@ -189,7 +189,7 @@ Fields can be folded into collapsible groups with `x-groups`:
 ```
 
 A field may appear in at most one group; an unknown field is an install error.
-Ungrouped fields fall into an **Other** group.
+Ungrouped fields fall into an **Other** group. Groups always start collapsed.
 
 ## Write a plugin
 
@@ -259,13 +259,15 @@ Ungrouped fields fall into an **Other** group.
 | `limits` | Lower the timeout, response size, request size, or concurrency. |
 
 `requires_agency` is the plugin API range the bundle supports. The current API
-is `0.2.6`, which added `cherrypi.respond_task_input` and the dialog fields on
-`task_requested_input`, on top of `0.2.5`'s templated settings, `x-groups`, and
+is `0.2.7`, which added the `task_input_answered` event, on top of `0.2.6`'s
+`cherrypi.respond_task_input` and the dialog fields on `task_requested_input`,
+`0.2.5`'s templated settings, `x-groups`, and
 `cherrypi.template.render(source, vars)`, `0.2.4`'s optional `setup` block and
 `get_org().url`, `0.2.3`'s `task_tools` handler, `0.2.2`'s `schedule` field and
 `handle_tick`, and `0.2.1`'s `task_hold_released` event. A bundle that uses
 templated settings or `x-groups` declares `>=0.2.5 <0.3.0`; one that answers a
-dialog declares `>=0.2.6 <0.3.0`. Because these are patch bumps, bundles that
+dialog declares `>=0.2.6 <0.3.0`; one that subscribes to `task_input_answered`
+declares `>=0.2.7 <0.3.0`. Because these are patch bumps, bundles that
 already accept the `0.2.x` line keep working.
 
 ### Network allowlist
@@ -330,7 +332,10 @@ end
 
 `handle_http_request` returns `(status, headers, body)`. A body string is sent
 verbatim; a table is JSON-encoded. `handle_tool_call` returns text (a table is
-JSON-encoded). `handle_event` returns nothing.
+JSON-encoded). `handle_event` returns nothing. Besides the task lifecycle
+events, `handle_event` receives `task_input_answered` after a pending dialog is
+answered, with `request_id`, `method`, `title`, `message`, a readable `answer`,
+and the `answered_by` attribution. An answer that fails emits nothing.
 
 ### Scheduled ticks
 

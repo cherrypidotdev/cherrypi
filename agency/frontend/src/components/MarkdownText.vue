@@ -28,6 +28,7 @@ component(
 </template>
 
 <script setup lang="ts">
+import { renderJinjaHtml } from "@/lib/jinja";
 import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import { mermaidTheme } from "@/lib/mermaid";
 import { attachMermaidTools } from "@/lib/mermaidViewer";
@@ -52,8 +53,15 @@ function createMarkdown(html: boolean) {
   const fence = md.renderer.rules.fence!;
   md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     const token = tokens[idx]!;
-    if (token.info.trim().toLowerCase().startsWith("mermaid")) {
+    const language = token.info.trim().toLowerCase().split(/\s+/)[0] ?? "";
+    if (language.startsWith("mermaid")) {
       return `<pre class="mermaid">${md.utils.escapeHtml(token.content)}</pre>\n`;
+    }
+    if (language === "jinja" || language === "jinja2") {
+      return (
+        `<pre class="jinja-code"><code class="language-${language}">` +
+        `${renderJinjaHtml(token.content)}</code></pre>\n`
+      );
     }
     return fence(tokens, idx, options, env, self);
   };

@@ -116,11 +116,52 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           @toggle="toggleSection('agents')"
         )
           p.text-muted-foreground.px-3.py-1.text-xs(
-            v-if="!sidebarAgents.length && !collapsed"
+            v-if="!sidebarAgents.length && !sidebarGroups.length && !collapsed"
           )
             | {{ $t("nav.noAgents") }}
+          template(v-for="group in sidebarGroups" :key="group.id")
+            .flex.items-center.gap-1.rounded-md.px-1.py-1.transition-colors(
+              :class="[isGroupActive(group.slug) ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : '']"
+            )
+              button.rounded.p-1(
+                v-if="!collapsed"
+                type="button"
+                :aria-expanded="expandedGroups.has(String(group.id))"
+                :aria-label="$t('nav.toggleGroup', { group: group.name })"
+                @click="toggleGroup(group.id)"
+              )
+                ChevronRightIcon.size-3.transition-transform(
+                  :class="expandedGroups.has(String(group.id)) ? 'rotate-90' : ''"
+                )
+              RouterLink.flex.min-w-0.flex-1.items-center.gap-2.py-1.text-sm.font-medium(
+                :to="{ name: 'group-overview', params: { slug: group.slug } }"
+                :title="collapsed ? group.name : undefined"
+              )
+                span.size-5.shrink-0(:innerHTML="groupLogo(group)")
+                span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ group.name }}
+              span.shrink-0.text-xs(v-if="!collapsed") {{ group.memberCount }}
+            template(v-if="expandedGroups.has(String(group.id))")
+              RouterLink.flex.items-center.gap-2.rounded-md.text-sm.transition-colors(
+                v-for="member in groupMembers[String(group.id)] || []"
+                :key="member.agentId"
+                class="py-1.5"
+                :to="{ name: 'agent', params: { username: member.agent?.username } }"
+                :class="[isAgentActive(member.agent?.username || '') ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : 'pl-8 pr-3']"
+              )
+                span.relative.shrink-0
+                  ActorAvatar(
+                    :src="member.agent?.picture?.url"
+                    :name="member.agent?.name"
+                    :username="member.agent?.username"
+                    :size="20"
+                  )
+                  span.border-sidebar.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
+                    :class="agentOnline(member.agentId) ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
+                    :title="agentOnline(member.agentId) ? $t('nav.online') : $t('nav.offline')"
+                  )
+                span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ member.agent?.name || member.agent?.username }}
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
-            v-for="item in sidebarAgents"
+            v-for="item in ungroupedAgents"
             :key="item.id"
             :to="{ name: 'agent', params: { username: item.username } }"
             :title="collapsed ? item.displayName || item.username : undefined"
@@ -161,6 +202,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :to="{ name: 'agents' }"
           )
             span {{ $t("nav.manageAgents") }}
+          RouterLink.text-muted-foreground.flex.items-center.gap-2.rounded-md.px-3.py-2.text-xs.font-medium(
+            v-if="!collapsed"
+            :to="{ name: 'groups' }"
+          )
+            span {{ $t("nav.manageGroups") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="UsersIcon"
@@ -316,12 +362,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import LanguageSwitcher from "@/components/LanguageSwitcher.vue";
 import ProjectsNav from "@/components/ProjectsNav.vue";
 import SidebarSection from "@/components/SidebarSection.vue";
 import TaskComposerDialog from "@/components/tasks/TaskComposerDialog.vue";
 import { Button } from "@/components/ui/button";
+import { useAgentGroups } from "@/composables/useAgentGroups";
 import { useAgents } from "@/composables/useAgents";
 import { attentionPreference } from "@/composables/useAttentionPreferences";
 import { useDirectory } from "@/composables/useDirectory";
@@ -349,10 +397,11 @@ import { ATTENTION_EVENTS } from "@/lib/attentionEvents";
 import { bindAttentionNavigation } from "@/lib/attentionToast";
 import type { Team } from "@/lib/team";
 import { currentUser } from "@/lib/user";
-import { AgentStatus, type Agent } from "@cherrypi/sdk";
+import { AgentStatus, type Agent, type AgentGroupMember } from "@cherrypi/sdk";
 import {
   BookOpenIcon,
   BotIcon,
+  ChevronRightIcon,
   FolderIcon,
   GlobeIcon,
   InboxIcon,
@@ -400,6 +449,50 @@ function openNewTask() {
   newTaskOpen.value = true;
 }
 const { agents, loadAgents } = useAgents();
+const {
+  activeGroups: sidebarGroups,
+  loadAgentGroups,
+  loadMembers: loadGroupMembers,
+  loadAllMembers,
+} = useAgentGroups();
+const expandedGroups = ref<Set<string>>(new Set());
+const groupMembers = ref<Record<string, AgentGroupMember[]>>({});
+
+function toggleGroup(id: bigint) {
+  const key = String(id);
+  const next = new Set(expandedGroups.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+    void ensureGroupMembers(id);
+  }
+  expandedGroups.value = next;
+}
+
+async function ensureGroupMembers(id: bigint) {
+  const key = String(id);
+  if (groupMembers.value[key]) return;
+  groupMembers.value[key] = await loadGroupMembers(id);
+}
+
+function agentOnline(agentId: string): boolean {
+  return (
+    agents.value.find((agent) => agent.id === agentId)?.status ===
+    AgentStatus.ONLINE
+  );
+}
+
+function groupLogo(group: { name: string }): string {
+  return toSvg(group.name || "group", 20);
+}
+
+function isGroupActive(slug: string): boolean {
+  return (
+    String(route.params.slug ?? "") === slug &&
+    String(route.name ?? "").startsWith("group-")
+  );
+}
 const { users, loadUsers } = useUsers();
 
 const { sites: sidebarSites, load: loadSites } = useSites();
@@ -497,6 +590,24 @@ const sidebarAgents = computed(() => {
 
 const sidebarTeams = computed(() => teams.value);
 
+const groupedAgentIds = computed(() => {
+  const ids = new Set<string>();
+  for (const members of Object.values(groupMembers.value)) {
+    for (const member of members) ids.add(member.agentId);
+  }
+  return ids;
+});
+
+const ungroupedAgents = computed(() =>
+  sidebarAgents.value.filter((agent) => !groupedAgentIds.value.has(agent.id)),
+);
+
+watch(sidebarGroups, () => {
+  void loadAllMembers().then((members) => {
+    groupMembers.value = members;
+  });
+});
+
 const { stats: fleetStats } = useFleetConcurrency(() => sidebarAgents.value);
 
 function fleetStat(agentId: string) {
@@ -527,6 +638,11 @@ watchEffect(() => {
 onMounted(async () => {
   void loadSettings();
   void loadAgents();
+  void loadAgentGroups()
+    .then(async () => {
+      groupMembers.value = await loadAllMembers();
+    })
+    .catch(() => {});
   void loadSites({ agencyWideOnly: true });
   void loadDirectory();
   startNotifications();
@@ -688,6 +804,9 @@ en:
     agents: "Agents"
     noAgents: "No agents yet"
     manageAgents: "Manage agents"
+    manageGroups: "Manage groups"
+    groups: "Agent groups"
+    toggleGroup: "Toggle {group} members"
     teams: "Teams"
     notInTeam: "Not in a team yet"
     allTeams: "All teams"
@@ -801,6 +920,7 @@ en:
   attentionToast:
     openTask: "Open task"
     openTeams: "Open teams"
+    openGroup: "Open group"
     openPrompt: "Open prompt"
   concurrency:
     agentNotFound: "Agent not found"
@@ -918,6 +1038,8 @@ en:
     projects: "Projects"
     teams: "Teams"
     team: "Team"
+    groups: "Agent groups"
+    group: "Agent group"
     project: "Project"
     account: "Account"
     agent: "Agent"
@@ -996,6 +1118,9 @@ ru:
     agents: "Агенты"
     noAgents: "Агентов пока нет"
     manageAgents: "Управление агентами"
+    manageGroups: "Управление группами"
+    groups: "Группы агентов"
+    toggleGroup: "Показать участников {group}"
     teams: "Команды"
     notInTeam: "Пока нет команды"
     allTeams: "Все команды"
@@ -1109,6 +1234,7 @@ ru:
   attentionToast:
     openTask: "Открыть задачу"
     openTeams: "Открыть команды"
+    openGroup: "Открыть группу"
     openPrompt: "Открыть промпт"
   concurrency:
     agentNotFound: "Агент не найден"
@@ -1226,6 +1352,8 @@ ru:
     projects: "Проекты"
     teams: "Команды"
     team: "Команда"
+    groups: "Группы агентов"
+    group: "Группа агентов"
     project: "Проект"
     account: "Аккаунт"
     agent: "Агент"

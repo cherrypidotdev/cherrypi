@@ -3311,3 +3311,479 @@ func (s *SqliteStore) SetPromptAutoApprove(
 		sqlitedb.UpdateAgentPromptAutoApproveParams{PromptAutoApprove: value, ID: int64(id)},
 	)
 }
+
+func (s *SqliteStore) AddAgentGroupMember(ctx context.Context, p AddAgentGroupMemberParams) error {
+	return s.q.AddAgentGroupMember(ctx, sqlitedb.AddAgentGroupMemberParams(p))
+}
+
+func (s *SqliteStore) AddAgentGroupOwner(ctx context.Context, p AddAgentGroupOwnerParams) error {
+	return s.q.AddAgentGroupOwner(ctx, sqlitedb.AddAgentGroupOwnerParams(p))
+}
+
+func (s *SqliteStore) AddTaskGroupPrompt(ctx context.Context, p AddTaskGroupPromptParams) error {
+	return s.q.AddTaskGroupPrompt(ctx, sqlitedb.AddTaskGroupPromptParams(p))
+}
+
+func (s *SqliteStore) AddTaskGroupTeamPrompt(
+	ctx context.Context,
+	p AddTaskGroupTeamPromptParams,
+) error {
+	return s.q.AddTaskGroupTeamPrompt(ctx, sqlitedb.AddTaskGroupTeamPromptParams(p))
+}
+
+func (s *SqliteStore) ClearAgentGroupPicture(
+	ctx context.Context,
+	p ClearAgentGroupPictureParams,
+) error {
+	return s.q.ClearAgentGroupPicture(ctx, sqlitedb.ClearAgentGroupPictureParams(p))
+}
+
+func (s *SqliteStore) CountAgentGroupMembers(ctx context.Context, groupID int64) (int64, error) {
+	return s.q.CountAgentGroupMembers(ctx, groupID)
+}
+
+func (s *SqliteStore) CountAgentGroupOwners(ctx context.Context, groupID int64) (int64, error) {
+	return s.q.CountAgentGroupOwners(ctx, groupID)
+}
+
+func (s *SqliteStore) CreateAgentGroupMemberRequest(
+	ctx context.Context,
+	p CreateAgentGroupMemberRequestParams,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.CreateAgentGroupMemberRequest(
+		ctx,
+		sqlitedb.CreateAgentGroupMemberRequestParams(p),
+	)
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromSqliteAgentGroupMemberRequest(row), nil
+}
+
+func (s *SqliteStore) DeleteAgentGroupMemberRequestsByAgent(
+	ctx context.Context,
+	agentID int64,
+) error {
+	return s.q.DeleteAgentGroupMemberRequestsByAgent(ctx, agentID)
+}
+
+func (s *SqliteStore) DeleteAgentGroupMemberRequestsByGroup(
+	ctx context.Context,
+	groupID int64,
+) error {
+	return s.q.DeleteAgentGroupMemberRequestsByGroup(ctx, groupID)
+}
+
+func (s *SqliteStore) DeleteAgentGroupMembers(ctx context.Context, groupID int64) error {
+	return s.q.DeleteAgentGroupMembers(ctx, groupID)
+}
+
+func (s *SqliteStore) DeleteAgentGroupMembershipsByAgent(ctx context.Context, agentID int64) error {
+	return s.q.DeleteAgentGroupMembershipsByAgent(ctx, agentID)
+}
+
+func (s *SqliteStore) DeleteAgentGroupOwnerEdgesByActor(ctx context.Context, actorID int64) error {
+	return s.q.DeleteAgentGroupOwnerEdgesByActor(ctx, actorID)
+}
+
+func (s *SqliteStore) DeleteTaskGroupPrompts(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskGroupPrompts(ctx, taskID)
+}
+
+func (s *SqliteStore) DeleteTaskGroupTeamPrompts(ctx context.Context, taskID string) error {
+	return s.q.DeleteTaskGroupTeamPrompts(ctx, taskID)
+}
+
+func (s *SqliteStore) ExpireAgentGroupMemberRequests(
+	ctx context.Context,
+	p ExpireAgentGroupMemberRequestsParams,
+) (int64, error) {
+	return s.q.ExpireAgentGroupMemberRequests(ctx, sqlitedb.ExpireAgentGroupMemberRequestsParams(p))
+}
+
+func (s *SqliteStore) GetAgentGroup(ctx context.Context, id int64) (AgentGroup, error) {
+	row, err := s.q.GetAgentGroup(ctx, id)
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromSqliteAgentGroup(row), nil
+}
+
+func (s *SqliteStore) GetAgentGroupBySlug(ctx context.Context, slug string) (AgentGroup, error) {
+	row, err := s.q.GetAgentGroupBySlug(ctx, slug)
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromSqliteAgentGroup(row), nil
+}
+
+func (s *SqliteStore) GetAgentGroupMember(
+	ctx context.Context,
+	p GetAgentGroupMemberParams,
+) (AgentGroupMember, error) {
+	row, err := s.q.GetAgentGroupMember(ctx, sqlitedb.GetAgentGroupMemberParams(p))
+	if err != nil {
+		return AgentGroupMember{}, err
+	}
+	return fromSqliteAgentGroupMember(row), nil
+}
+
+func (s *SqliteStore) GetAgentGroupMemberRequest(
+	ctx context.Context,
+	id int64,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.GetAgentGroupMemberRequest(ctx, id)
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromSqliteAgentGroupMemberRequest(row), nil
+}
+
+func (s *SqliteStore) GetPendingAgentGroupMemberRequest(
+	ctx context.Context,
+	p GetPendingAgentGroupMemberRequestParams,
+) (AgentGroupMemberRequest, error) {
+	row, err := s.q.GetPendingAgentGroupMemberRequest(
+		ctx,
+		sqlitedb.GetPendingAgentGroupMemberRequestParams(p),
+	)
+	if err != nil {
+		return AgentGroupMemberRequest{}, err
+	}
+	return fromSqliteAgentGroupMemberRequest(row), nil
+}
+
+func (s *SqliteStore) InsertAgentGroupLog(ctx context.Context, p InsertAgentGroupLogParams) error {
+	return s.q.InsertAgentGroupLog(ctx, sqlitedb.InsertAgentGroupLogParams(p))
+}
+
+func (s *SqliteStore) IsAgentGroupMember(
+	ctx context.Context,
+	p IsAgentGroupMemberParams,
+) (bool, error) {
+	n, err := s.q.IsAgentGroupMember(ctx, sqlitedb.IsAgentGroupMemberParams(p))
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *SqliteStore) IsAgentGroupOwner(
+	ctx context.Context,
+	p IsAgentGroupOwnerParams,
+) (bool, error) {
+	n, err := s.q.IsAgentGroupOwner(ctx, sqlitedb.IsAgentGroupOwnerParams(p))
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *SqliteStore) ListAgentGroupIDsOwnedBy(
+	ctx context.Context,
+	actorID int64,
+) ([]int64, error) {
+	return s.q.ListAgentGroupIDsOwnedBy(ctx, actorID)
+}
+
+func (s *SqliteStore) ListAgentGroupLogs(
+	ctx context.Context,
+	p ListAgentGroupLogsParams,
+) ([]ListAgentGroupLogsRow, error) {
+	rows, err := s.q.ListAgentGroupLogs(ctx, sqlitedb.ListAgentGroupLogsParams(p))
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupLogsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupMemberProjects(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMemberProjectsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberProjects(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupMemberProjectsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupMemberRequests(
+	ctx context.Context,
+	p ListAgentGroupMemberRequestsParams,
+) ([]ListAgentGroupMemberRequestsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberRequests(
+		ctx,
+		sqlitedb.ListAgentGroupMemberRequestsParams(p),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupMemberRequestsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupMemberTeams(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMemberTeamsRow, error) {
+	rows, err := s.q.ListAgentGroupMemberTeams(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupMemberTeamsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupMembers(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupMembersRow, error) {
+	rows, err := s.q.ListAgentGroupMembers(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupMembersRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupMembersForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListAgentGroupMembersForAgentRow, error) {
+	rows, err := s.q.ListAgentGroupMembersForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupMembersForAgentRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupOwners(
+	ctx context.Context,
+	groupID int64,
+) ([]ListAgentGroupOwnersRow, error) {
+	rows, err := s.q.ListAgentGroupOwners(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupOwnersRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroups(ctx context.Context) ([]ListAgentGroupsRow, error) {
+	rows, err := s.q.ListAgentGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupsRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAgentGroupsForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListAgentGroupsForAgentRow, error) {
+	rows, err := s.q.ListAgentGroupsForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAgentGroupsForAgentRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListAllAgentGroupMembers(
+	ctx context.Context,
+) ([]ListAllAgentGroupMembersRow, error) {
+	rows, err := s.q.ListAllAgentGroupMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListAllAgentGroupMembersRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListLatestGroupPrompts(ctx context.Context, groupID int64) ([]Prompt, error) {
+	rows, err := s.q.ListLatestGroupPrompts(ctx, sql.NullInt64{Int64: groupID, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	return fromSqlitePromptSlice(rows), nil
+}
+
+func (s *SqliteStore) ListPendingAgentGroupMemberRequestsForAgent(
+	ctx context.Context,
+	agentID int64,
+) ([]ListPendingAgentGroupMemberRequestsForAgentRow, error) {
+	rows, err := s.q.ListPendingAgentGroupMemberRequestsForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListPendingAgentGroupMemberRequestsForAgentRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListTaskGroupPromptsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]TaskGroupPrompt, error) {
+	rows, err := s.q.ListTaskGroupPromptsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskGroupPromptSlice(rows), nil
+}
+
+func (s *SqliteStore) ListTaskGroupTeamPromptsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]TaskGroupTeamPrompt, error) {
+	rows, err := s.q.ListTaskGroupTeamPromptsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskGroupTeamPromptSlice(rows), nil
+}
+
+func (s *SqliteStore) RemoveAgentGroupMember(
+	ctx context.Context,
+	p RemoveAgentGroupMemberParams,
+) (int64, error) {
+	return s.q.RemoveAgentGroupMember(ctx, sqlitedb.RemoveAgentGroupMemberParams(p))
+}
+
+func (s *SqliteStore) RemoveAgentGroupOwner(
+	ctx context.Context,
+	p RemoveAgentGroupOwnerParams,
+) (int64, error) {
+	return s.q.RemoveAgentGroupOwner(ctx, sqlitedb.RemoveAgentGroupOwnerParams(p))
+}
+
+func (s *SqliteStore) RespondAgentGroupMemberRequest(
+	ctx context.Context,
+	p RespondAgentGroupMemberRequestParams,
+) (int64, error) {
+	return s.q.RespondAgentGroupMemberRequest(ctx, sqlitedb.RespondAgentGroupMemberRequestParams(p))
+}
+
+func (s *SqliteStore) SetAgentGroupPicture(
+	ctx context.Context,
+	p SetAgentGroupPictureParams,
+) error {
+	return s.q.SetAgentGroupPicture(ctx, sqlitedb.SetAgentGroupPictureParams(p))
+}
+
+func (s *SqliteStore) UpdateAgentGroup(
+	ctx context.Context,
+	p UpdateAgentGroupParams,
+) (AgentGroup, error) {
+	row, err := s.q.UpdateAgentGroup(ctx, sqlitedb.UpdateAgentGroupParams(p))
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromSqliteAgentGroup(row), nil
+}
+
+func (s *SqliteStore) CreateAgentGroupWithOwner(
+	ctx context.Context,
+	p CreateAgentGroupParams,
+	ownerActorID ids.ActorID,
+) (AgentGroup, error) {
+	var out AgentGroup
+	err := s.tx(ctx, func(q *sqlitedb.Queries) error {
+		group, err := q.CreateAgentGroup(ctx, sqlitedb.CreateAgentGroupParams(p))
+		if err != nil {
+			return err
+		}
+		if err := q.AddAgentGroupOwner(ctx, sqlitedb.AddAgentGroupOwnerParams{
+			GroupID:   group.ID,
+			ActorID:   int64(ownerActorID),
+			CreatedAt: p.CreatedAt,
+		}); err != nil {
+			return err
+		}
+		out = fromSqliteAgentGroup(group)
+		return nil
+	})
+	return out, err
+}
+
+func (s *SqliteStore) ArchiveAgentGroup(
+	ctx context.Context,
+	groupID int64,
+	archivedAt int64,
+	updatedAt int64,
+) (AgentGroup, error) {
+	var out AgentGroup
+	err := s.tx(ctx, func(q *sqlitedb.Queries) error {
+		group, err := q.SetAgentGroupArchived(ctx, sqlitedb.SetAgentGroupArchivedParams{
+			ArchivedAt: sql.NullInt64{Int64: archivedAt, Valid: true},
+			UpdatedAt:  updatedAt,
+			ID:         groupID,
+		})
+		if err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMembers(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMemberRequestsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupMembershipsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupMembershipsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupInvitationsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupInvitationsByGroup(ctx, groupID); err != nil {
+			return err
+		}
+		out = fromSqliteAgentGroup(group)
+		return nil
+	})
+	return out, err
+}
+
+func (s *SqliteStore) DeleteAgentGroup(ctx context.Context, id int64) error {
+	return s.tx(ctx, func(q *sqlitedb.Queries) error {
+		if err := q.DeleteAgentGroupMembers(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteAgentGroupMemberRequestsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupMembershipsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupMembershipsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteProjectGroupInvitationsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteTeamGroupInvitationsByGroup(ctx, id); err != nil {
+			return err
+		}
+		return q.DeleteAgentGroup(ctx, id)
+	})
+}
+
+func (s *SqliteStore) SetAgentGroupArchived(
+	ctx context.Context,
+	p SetAgentGroupArchivedParams,
+) (AgentGroup, error) {
+	row, err := s.q.SetAgentGroupArchived(ctx, sqlitedb.SetAgentGroupArchivedParams(p))
+	if err != nil {
+		return AgentGroup{}, err
+	}
+	return fromSqliteAgentGroup(row), nil
+}
+
+func (s *SqliteStore) DeleteAgentGroupMembershipsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteAgentGroupMembershipsByActor(ctx, int64(actorID))
+}
+
+func (s *SqliteStore) DeleteAgentGroupMemberRequestsByActor(
+	ctx context.Context,
+	actorID ids.ActorID,
+) error {
+	return s.q.DeleteAgentGroupMemberRequestsByActor(ctx, int64(actorID))
+}

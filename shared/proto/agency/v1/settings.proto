@@ -52,6 +52,11 @@ message Settings {
   
   TaskAutoArchive task_auto_archive = 9;
   reserved 10;
+  
+  
+  
+  
+  string public_url = 11;
 }
 
 

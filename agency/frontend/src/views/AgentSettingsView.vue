@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsTrigger(value="projects") {{ $t("nav.projects") }}
       TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
       TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
+      TabsTrigger(value="groups") {{ $t("agentGroups.title") }}
       TabsTrigger(value="security") {{ $t("account.tabs.security") }}
 
     TabsContent(value="general")
@@ -287,6 +288,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             p.text-muted-foreground.text-xs(v-if="!modelOptions.length")
               | {{ $t("agentSettings.models.offline") }}
 
+    TabsContent(value="groups")
+      AgentGroupsPanel(:agent-id="id")
+
     TabsContent(value="security")
       .flex.flex-col.gap-6
         AgentOwnersPanel(:agent-id="id")
@@ -389,6 +393,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AgentActivityPanel from "@/components/settings/AgentActivityPanel.vue";
+import AgentGroupsPanel from "@/components/settings/AgentGroupsPanel.vue";
 import AgentOwnersPanel from "@/components/settings/AgentOwnersPanel.vue";
 import AgentPluginsPanel from "@/components/settings/AgentPluginsPanel.vue";
 import AgentProjectLimits from "@/components/settings/AgentProjectLimits.vue";

@@ -646,3 +646,30 @@ body > .mermaidTooltip:empty {
     font-size: 23px;
   }
 }
+
+.jinja-expression,
+.jinja-tag {
+  color: var(--syntax-link);
+  font-weight: 600;
+}
+.jinja-keyword {
+  color: var(--syntax-heading);
+  font-weight: 600;
+}
+.jinja-variable {
+  color: var(--syntax-code);
+}
+.jinja-string {
+  color: var(--syntax-code);
+  font-style: italic;
+}
+.jinja-number {
+  color: var(--syntax-quote);
+}
+.jinja-operator {
+  color: var(--syntax-mark);
+}
+.jinja-comment {
+  color: var(--syntax-mark);
+  font-style: italic;
+}

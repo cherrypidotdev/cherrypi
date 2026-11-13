@@ -61,6 +61,7 @@ func (s *NotificationServer) ListNotifications(
 			PromptScope:     n.PromptScope,
 			PromptProjectId: n.PromptProjectID,
 			PromptTeamId:    n.PromptTeamID,
+			PromptGroupId:   n.PromptGroupID,
 			CreatedAt:       timestamppb.New(n.CreatedAt),
 			ReadAt:          timestampOrNil(n.ReadAt),
 		}

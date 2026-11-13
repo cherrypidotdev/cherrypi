@@ -54,6 +54,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       maxlength="100"
                     )
                   Field
+                    FieldLabel(for="agency-public-url") {{ $t("settings.general.publicUrl") }}
+                    Input#agency-public-url.font-mono.text-sm(
+                      readonly
+                      :model-value="settings?.publicUrl"
+                    )
+                    FieldDescription
+                      | {{ $t("settings.general.publicUrlHint") }}
+                  Field
                     FieldLabel(for="primary-color") {{ $t("settings.general.primaryColor") }}
                     .flex.items-center.gap-2
                       input#primary-color.border-input.h-8.w-12.cursor-pointer.rounded-md.border.bg-transparent(
@@ -419,6 +427,8 @@ en:
     general:
       description: "The agency's identity, task columns, and organization prompt."
       agencyName: "Agency name"
+      publicUrl: "Public URL"
+      publicUrlHint: "The external origin from CHERRYPI_PUBLIC_URL. It is used for links, cookies, OIDC callbacks, and plugin templates; change it in the environment and restart the agency."
       primaryColor: "Primary color"
       colorHint: "Empty uses the built-in default; text contrast adapts automatically."
       logo: "Logo"
@@ -465,6 +475,8 @@ ru:
     general:
       description: "Идентичность агентства, колонки задач и общий промпт."
       agencyName: "Название агентства"
+      publicUrl: "Публичный URL"
+      publicUrlHint: "Внешний origin из CHERRYPI_PUBLIC_URL. Он используется в ссылках, cookie, OIDC callback и шаблонах плагинов; измените его в окружении и перезапустите агентство."
       primaryColor: "Основной цвет"
       colorHint: "Пустое значение использует встроенный цвет по умолчанию; контраст текста подстраивается автоматически."
       logo: "Логотип"

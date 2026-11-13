@@ -347,6 +347,7 @@ type Store interface {
 	GetTaskCommentRead(ctx context.Context, p GetTaskCommentReadParams) (int64, error)
 	GetTeam(ctx context.Context, id int64) (Team, error)
 	GetTeamByName(ctx context.Context, name string) (Team, error)
+	GetEffectiveTeamMember(ctx context.Context, p GetTeamMemberParams) (EffectiveTeamMember, error)
 	GetTeamInvitation(ctx context.Context, id int64) (TeamInvitation, error)
 	GetTeamMember(ctx context.Context, p GetTeamMemberParams) (TeamMember, error)
 	GetTokenByHash(ctx context.Context, tokenHash []byte) (Token, error)
@@ -865,4 +866,197 @@ type Store interface {
 	UpdateSite(ctx context.Context, p UpdateSiteParams) (Site, error)
 	DeleteSite(ctx context.Context, id string) error
 	SiteIDByAttachment(ctx context.Context, attachmentID int64) (string, error)
+
+	AddAgentGroupMember(ctx context.Context, p AddAgentGroupMemberParams) error
+	AddAgentGroupOwner(ctx context.Context, p AddAgentGroupOwnerParams) error
+	AddTaskGroupPrompt(ctx context.Context, p AddTaskGroupPromptParams) error
+	AddTaskGroupTeamPrompt(ctx context.Context, p AddTaskGroupTeamPromptParams) error
+	ArchiveAgentGroup(
+		ctx context.Context,
+		groupID int64,
+		archivedAt int64,
+		updatedAt int64,
+	) (AgentGroup, error)
+	UpsertProjectGroupMembership(ctx context.Context, p UpsertProjectGroupMembershipParams) error
+	GetProjectGroupMembership(
+		ctx context.Context,
+		p GetProjectGroupMembershipParams,
+	) (ProjectGroupMembership, error)
+	DeleteProjectGroupMembership(
+		ctx context.Context,
+		p DeleteProjectGroupMembershipParams,
+	) (int64, error)
+	DeleteProjectGroupMembershipsByGroup(ctx context.Context, groupID int64) error
+	DeleteProjectGroupMembershipsByProject(ctx context.Context, projectID string) error
+	GetEffectiveProjectGroupRole(
+		ctx context.Context,
+		p GetEffectiveProjectGroupRoleParams,
+	) (int64, error)
+	ListProjectGroupLinks(ctx context.Context, projectID string) ([]ListProjectGroupLinksRow, error)
+	ListInheritedProjectGroupLinks(
+		ctx context.Context,
+		projectID string,
+	) ([]ListInheritedProjectGroupLinksRow, error)
+	ListProjectGroupInvitations(
+		ctx context.Context,
+		projectID string,
+	) ([]ListProjectGroupInvitationsRow, error)
+	GetProjectGroupInvitation(ctx context.Context, id int64) (ProjectGroupInvitation, error)
+	GetPendingProjectGroupInvitation(
+		ctx context.Context,
+		p GetPendingProjectGroupInvitationParams,
+	) (ProjectGroupInvitation, error)
+	CreateProjectGroupInvitation(
+		ctx context.Context,
+		p CreateProjectGroupInvitationParams,
+	) (ProjectGroupInvitation, error)
+	RespondProjectGroupInvitation(
+		ctx context.Context,
+		p RespondProjectGroupInvitationParams,
+	) (int64, error)
+	RevokeProjectGroupInvitation(
+		ctx context.Context,
+		p RevokeProjectGroupInvitationParams,
+	) (int64, error)
+	ExpireProjectGroupInvitations(
+		ctx context.Context,
+		p ExpireProjectGroupInvitationsParams,
+	) (int64, error)
+	DeleteProjectGroupInvitationsByGroup(ctx context.Context, groupID int64) error
+	DeleteProjectGroupInvitationsByProject(ctx context.Context, projectID string) error
+	ListAgentGroupProjectAccess(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupProjectAccessRow, error)
+	ListAgentGroupProjectInvitations(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupProjectInvitationsRow, error)
+	UpsertTeamGroupMembership(ctx context.Context, p UpsertTeamGroupMembershipParams) error
+	GetTeamGroupMembership(
+		ctx context.Context,
+		p GetTeamGroupMembershipParams,
+	) (TeamGroupMembership, error)
+	DeleteTeamGroupMembership(ctx context.Context, p DeleteTeamGroupMembershipParams) (int64, error)
+	DeleteTeamGroupMembershipsByGroup(ctx context.Context, groupID int64) error
+	DeleteTeamGroupMembershipsByTeam(ctx context.Context, teamID int64) error
+	ListTeamGroupLinks(ctx context.Context, teamID int64) ([]ListTeamGroupLinksRow, error)
+	ListTeamGroupInvitations(
+		ctx context.Context,
+		teamID int64,
+	) ([]ListTeamGroupInvitationsRow, error)
+	GetTeamGroupInvitation(ctx context.Context, id int64) (TeamGroupInvitation, error)
+	GetPendingTeamGroupInvitation(
+		ctx context.Context,
+		p GetPendingTeamGroupInvitationParams,
+	) (TeamGroupInvitation, error)
+	CreateTeamGroupInvitation(
+		ctx context.Context,
+		p CreateTeamGroupInvitationParams,
+	) (TeamGroupInvitation, error)
+	RespondTeamGroupInvitation(
+		ctx context.Context,
+		p RespondTeamGroupInvitationParams,
+	) (int64, error)
+	RevokeTeamGroupInvitation(ctx context.Context, p RevokeTeamGroupInvitationParams) (int64, error)
+	ExpireTeamGroupInvitations(
+		ctx context.Context,
+		p ExpireTeamGroupInvitationsParams,
+	) (int64, error)
+	DeleteTeamGroupInvitationsByGroup(ctx context.Context, groupID int64) error
+	DeleteTeamGroupInvitationsByTeam(ctx context.Context, teamID int64) error
+	ListAgentGroupTeamAccess(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupTeamAccessRow, error)
+	ListAgentGroupTeamInvitations(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupTeamInvitationsRow, error)
+	ListProjectOwnerActorIDs(ctx context.Context, projectID string) ([]int64, error)
+	ListTeamOwnerActorIDs(ctx context.Context, teamID int64) ([]int64, error)
+	ClearAgentGroupPicture(ctx context.Context, p ClearAgentGroupPictureParams) error
+	CountAgentGroupMembers(ctx context.Context, groupID int64) (int64, error)
+	CountAgentGroupOwners(ctx context.Context, groupID int64) (int64, error)
+	CreateAgentGroupMemberRequest(
+		ctx context.Context,
+		p CreateAgentGroupMemberRequestParams,
+	) (AgentGroupMemberRequest, error)
+	CreateAgentGroupWithOwner(
+		ctx context.Context,
+		p CreateAgentGroupParams,
+		ownerActorID ids.ActorID,
+	) (AgentGroup, error)
+	DeleteAgentGroup(ctx context.Context, id int64) error
+	DeleteAgentGroupMemberRequestsByAgent(ctx context.Context, agentID int64) error
+	DeleteAgentGroupMemberRequestsByGroup(ctx context.Context, groupID int64) error
+	DeleteAgentGroupMembers(ctx context.Context, groupID int64) error
+	DeleteAgentGroupMembershipsByAgent(ctx context.Context, agentID int64) error
+	DeleteAgentGroupOwnerEdgesByActor(ctx context.Context, actorID int64) error
+	DeleteTaskGroupPrompts(ctx context.Context, taskID string) error
+	DeleteTaskGroupTeamPrompts(ctx context.Context, taskID string) error
+	ExpireAgentGroupMemberRequests(
+		ctx context.Context,
+		p ExpireAgentGroupMemberRequestsParams,
+	) (int64, error)
+	GetAgentGroup(ctx context.Context, id int64) (AgentGroup, error)
+	GetAgentGroupBySlug(ctx context.Context, slug string) (AgentGroup, error)
+	GetAgentGroupMember(ctx context.Context, p GetAgentGroupMemberParams) (AgentGroupMember, error)
+	GetAgentGroupMemberRequest(ctx context.Context, id int64) (AgentGroupMemberRequest, error)
+	GetPendingAgentGroupMemberRequest(
+		ctx context.Context,
+		p GetPendingAgentGroupMemberRequestParams,
+	) (AgentGroupMemberRequest, error)
+	InsertAgentGroupLog(ctx context.Context, p InsertAgentGroupLogParams) error
+	IsAgentGroupMember(ctx context.Context, p IsAgentGroupMemberParams) (bool, error)
+	IsAgentGroupOwner(ctx context.Context, p IsAgentGroupOwnerParams) (bool, error)
+	ListAgentGroupIDsOwnedBy(ctx context.Context, actorID int64) ([]int64, error)
+	ListAgentGroupLogs(
+		ctx context.Context,
+		p ListAgentGroupLogsParams,
+	) ([]ListAgentGroupLogsRow, error)
+	ListAgentGroupMemberProjects(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupMemberProjectsRow, error)
+	ListAgentGroupMemberRequests(
+		ctx context.Context,
+		p ListAgentGroupMemberRequestsParams,
+	) ([]ListAgentGroupMemberRequestsRow, error)
+	ListAgentGroupMemberTeams(
+		ctx context.Context,
+		groupID int64,
+	) ([]ListAgentGroupMemberTeamsRow, error)
+	ListAgentGroupMembers(ctx context.Context, groupID int64) ([]ListAgentGroupMembersRow, error)
+	ListAgentGroupMembersForAgent(
+		ctx context.Context,
+		agentID int64,
+	) ([]ListAgentGroupMembersForAgentRow, error)
+	ListAgentGroupOwners(ctx context.Context, groupID int64) ([]ListAgentGroupOwnersRow, error)
+	ListAgentGroups(ctx context.Context) ([]ListAgentGroupsRow, error)
+	ListAgentGroupsForAgent(
+		ctx context.Context,
+		agentID int64,
+	) ([]ListAgentGroupsForAgentRow, error)
+	ListAllAgentGroupMembers(ctx context.Context) ([]ListAllAgentGroupMembersRow, error)
+	ListLatestGroupPrompts(ctx context.Context, groupID int64) ([]Prompt, error)
+	ListPendingAgentGroupMemberRequestsForAgent(
+		ctx context.Context,
+		agentID int64,
+	) ([]ListPendingAgentGroupMemberRequestsForAgentRow, error)
+	ListEffectiveTeamMemberActorIDs(ctx context.Context, teamID int64) ([]int64, error)
+	ListTaskGroupPromptsByTask(ctx context.Context, taskID string) ([]TaskGroupPrompt, error)
+	ListTaskGroupTeamPromptsByTask(
+		ctx context.Context,
+		taskID string,
+	) ([]TaskGroupTeamPrompt, error)
+	RemoveAgentGroupMember(ctx context.Context, p RemoveAgentGroupMemberParams) (int64, error)
+	RemoveAgentGroupOwner(ctx context.Context, p RemoveAgentGroupOwnerParams) (int64, error)
+	RespondAgentGroupMemberRequest(
+		ctx context.Context,
+		p RespondAgentGroupMemberRequestParams,
+	) (int64, error)
+	SetAgentGroupArchived(ctx context.Context, p SetAgentGroupArchivedParams) (AgentGroup, error)
+	SetAgentGroupPicture(ctx context.Context, p SetAgentGroupPictureParams) error
+	UpdateAgentGroup(ctx context.Context, p UpdateAgentGroupParams) (AgentGroup, error)
 }

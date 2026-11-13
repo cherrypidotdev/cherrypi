@@ -86,6 +86,9 @@ function toastType(severity: string): ToastType {
 function toastHint(n: AttentionNotification): string {
   if (n.taskId) return t("attentionToast.openTask");
   if (n.kind === "team_invitation") return t("attentionToast.openTeams");
+  if (n.kind.startsWith("agent_group_member")) {
+    return t("attentionToast.openGroup");
+  }
   if (isPromptTarget(n)) return t("attentionToast.openPrompt");
   return "";
 }

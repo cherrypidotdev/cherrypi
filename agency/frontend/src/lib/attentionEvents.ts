@@ -35,6 +35,38 @@ export const ATTENTION_EVENTS: AttentionEventOption[] = [
     labelKey: "attention.event.promptProposal",
   },
   { kind: "task_mention", labelKey: "attention.event.mention" },
+  {
+    kind: "agent_group_member_requested",
+    labelKey: "attention.event.groupMemberRequested",
+  },
+  {
+    kind: "agent_group_member_approved",
+    labelKey: "attention.event.groupMemberApproved",
+  },
+  {
+    kind: "agent_group_member_declined",
+    labelKey: "attention.event.groupMemberDeclined",
+  },
+  {
+    kind: "agent_group_member_removed",
+    labelKey: "attention.event.groupMemberRemoved",
+  },
+  {
+    kind: "agent_group_member_left",
+    labelKey: "attention.event.groupMemberLeft",
+  },
+  {
+    kind: "agent_group_access_invited",
+    labelKey: "attention.event.groupAccessInvited",
+  },
+  {
+    kind: "agent_group_access_removed",
+    labelKey: "attention.event.groupAccessRemoved",
+  },
+  {
+    kind: "agent_group_access_member_added",
+    labelKey: "attention.event.groupAccessMemberAdded",
+  },
 ];
 
 export type AttentionChannel = "sound" | "browser" | "toast";

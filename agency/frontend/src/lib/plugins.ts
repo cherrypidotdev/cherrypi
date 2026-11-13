@@ -313,7 +313,6 @@ export interface PluginSettingsGroup {
   title: string;
   description?: string;
   fields: string[];
-  collapsed?: boolean;
 }
 
 export interface PluginTemplateVariable {
@@ -350,7 +349,6 @@ export function pluginSettingsGroups(
             (field): field is string => typeof field === "string",
           )
         : [],
-      collapsed: group.collapsed === true,
     }))
     .filter((group) => group.id && group.title);
 }

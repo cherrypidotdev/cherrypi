@@ -1,0 +1,537 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/attachments.proto";
+import "agency/v1/projects.proto";
+import "agency/v1/prompts.proto";
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+
+
+
+
+
+
+service AgentGroupService {
+  rpc ListAgentGroups(ListAgentGroupsRequest) returns (ListAgentGroupsResponse);
+  rpc GetAgentGroup(GetAgentGroupRequest) returns (GetAgentGroupResponse);
+  
+  rpc ResolveAgentGroupBySlug(ResolveAgentGroupBySlugRequest)
+      returns (ResolveAgentGroupBySlugResponse);
+  
+  rpc CreateAgentGroup(CreateAgentGroupRequest) returns (CreateAgentGroupResponse);
+  
+  
+  rpc UpdateAgentGroup(UpdateAgentGroupRequest) returns (UpdateAgentGroupResponse);
+  
+  
+  rpc SetAgentGroupArchived(SetAgentGroupArchivedRequest)
+      returns (SetAgentGroupArchivedResponse);
+
+  rpc ListAgentGroupMembers(ListAgentGroupMembersRequest)
+      returns (ListAgentGroupMembersResponse);
+  
+  
+  rpc ListAgentGroupsForAgent(ListAgentGroupsForAgentRequest)
+      returns (ListAgentGroupsForAgentResponse);
+
+  
+  
+  
+  rpc AddAgentGroupMember(AddAgentGroupMemberRequest)
+      returns (AddAgentGroupMemberResponse);
+  
+  
+  rpc RemoveAgentGroupMember(RemoveAgentGroupMemberRequest)
+      returns (RemoveAgentGroupMemberResponse);
+  rpc ListAgentGroupMemberRequests(ListAgentGroupMemberRequestsRequest)
+      returns (ListAgentGroupMemberRequestsResponse);
+  rpc DecideAgentGroupMember(DecideAgentGroupMemberRequest)
+      returns (DecideAgentGroupMemberResponse);
+
+  rpc ListAgentGroupOwners(ListAgentGroupOwnersRequest)
+      returns (ListAgentGroupOwnersResponse);
+  rpc AddAgentGroupOwner(AddAgentGroupOwnerRequest) returns (AddAgentGroupOwnerResponse);
+  rpc RemoveAgentGroupOwner(RemoveAgentGroupOwnerRequest)
+      returns (RemoveAgentGroupOwnerResponse);
+
+  
+  
+  
+  rpc ListAgentGroupProjects(ListAgentGroupProjectsRequest)
+      returns (ListAgentGroupProjectsResponse);
+  rpc ListAgentGroupTeams(ListAgentGroupTeamsRequest)
+      returns (ListAgentGroupTeamsResponse);
+
+  
+  
+  rpc ListAgentGroupAccess(ListAgentGroupAccessRequest) returns (ListAgentGroupAccessResponse);
+  // A project owner invites a group; a group owner accepts. The group attaches
+  
+  
+  rpc InviteAgentGroupToProject(InviteAgentGroupToProjectRequest)
+      returns (InviteAgentGroupToProjectResponse);
+  // Any team member invites a group; a group owner accepts.
+  rpc InviteAgentGroupToTeam(InviteAgentGroupToTeamRequest)
+      returns (InviteAgentGroupToTeamResponse);
+  
+  
+  rpc DecideAgentGroupAccess(DecideAgentGroupAccessRequest)
+      returns (DecideAgentGroupAccessResponse);
+  
+  
+  rpc RevokeAgentGroupAccess(RevokeAgentGroupAccessRequest)
+      returns (RevokeAgentGroupAccessResponse);
+  
+  rpc RemoveAgentGroupFromProject(RemoveAgentGroupFromProjectRequest)
+      returns (RemoveAgentGroupFromProjectResponse);
+  
+  rpc RemoveAgentGroupFromTeam(RemoveAgentGroupFromTeamRequest)
+      returns (RemoveAgentGroupFromTeamResponse);
+  
+  
+  rpc ListProjectAgentGroups(ListProjectAgentGroupsRequest)
+      returns (ListProjectAgentGroupsResponse);
+  rpc ListTeamAgentGroups(ListTeamAgentGroupsRequest) returns (ListTeamAgentGroupsResponse);
+
+  
+  rpc ListAgentGroupLogs(ListAgentGroupLogsRequest) returns (ListAgentGroupLogsResponse);
+}
+
+
+
+message AgentGroupActor {
+  string actor_id = 1;
+  string username = 2;
+  string name = 3;
+  string kind = 4;
+  Attachment picture = 5;
+}
+
+
+message AgentGroup {
+  int64 id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+  Attachment picture = 5;
+  google.protobuf.Timestamp archived_at = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  int32 member_count = 9;
+  
+  bool can_edit = 10;
+  bool is_owner = 11;
+}
+
+message AgentGroupMember {
+  int64 group_id = 1;
+  string agent_id = 2;
+  AgentGroupActor agent = 3;
+  google.protobuf.Timestamp last_seen_at = 4;
+  AgentGroupActor added_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message AgentGroupMemberRequest {
+  int64 id = 1;
+  int64 group_id = 2;
+  string group_name = 3;
+  string group_slug = 4;
+  string agent_id = 5;
+  AgentGroupActor agent = 6;
+  AgentGroupActor requested_by = 7;
+  string status = 8;
+  string note = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp expires_at = 11;
+  AgentGroupActor responded_by = 12;
+  google.protobuf.Timestamp responded_at = 13;
+  
+  bool can_respond = 14;
+}
+
+
+
+message AgentGroupMembershipResult {
+  bool added = 1;
+  
+  AgentGroupMemberRequest request = 2;
+}
+
+message AgentGroupOwner {
+  int64 group_id = 1;
+  AgentGroupActor actor = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message AgentGroupProject {
+  Project project = 1;
+  
+  
+  int32 member_count = 2;
+  
+  Prompt prompt = 3;
+  
+  bool disabled = 4;
+  
+  string disabled_reason = 5;
+}
+
+message AgentGroupTeam {
+  int64 team_id = 1;
+  string name = 2;
+  
+  repeated string project_ids = 3;
+  
+  Prompt prompt = 4;
+}
+
+message AgentGroupProjectAccess {
+  string project_id = 1;
+  string name = 2;
+  string slug = 3;
+  string role = 4;
+  AgentGroupActor granted_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message AgentGroupTeamAccess {
+  int64 team_id = 1;
+  string name = 2;
+  string description = 3;
+  
+  string role = 4;
+  int32 member_count = 5;
+  AgentGroupActor granted_by = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message AgentGroupAccessInvitation {
+  int64 id = 1;
+  
+  string target_kind = 2;
+  string project_id = 3;
+  string project_name = 4;
+  string project_slug = 5;
+  int64 team_id = 6;
+  string team_name = 7;
+  int64 group_id = 8;
+  string group_name = 9;
+  string group_slug = 10;
+  string role = 11;
+  string status = 12;
+  string note = 13;
+  AgentGroupActor invited_by = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp expires_at = 16;
+  AgentGroupActor responded_by = 17;
+  google.protobuf.Timestamp responded_at = 18;
+  bool can_respond = 19;
+}
+
+message AgentGroupAccess {
+  repeated AgentGroupProjectAccess projects = 1;
+  repeated AgentGroupTeamAccess teams = 2;
+  repeated AgentGroupAccessInvitation invitations = 3;
+}
+
+message AgentGroupProjectGroup {
+  int64 group_id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+  string role = 5;
+  int32 member_count = 6;
+  bool inherited = 7;
+  string inherited_from_project_id = 8;
+  string inherited_from_project_name = 9;
+  string inherited_from_project_slug = 10;
+  AgentGroupActor granted_by = 11;
+  google.protobuf.Timestamp created_at = 12;
+}
+
+message AgentGroupTeamGroup {
+  int64 group_id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+  int32 member_count = 5;
+  AgentGroupActor granted_by = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message AgentGroupLog {
+  int64 id = 1;
+  int64 group_id = 2;
+  google.protobuf.Timestamp at = 3;
+  AgentGroupActor actor = 4;
+  string kind = 5;
+  string field = 6;
+  string old_value = 7;
+  string new_value = 8;
+  string message = 9;
+  string data_json = 10;
+}
+
+message ListAgentGroupsRequest {}
+
+message ListAgentGroupsResponse {
+  repeated AgentGroup groups = 1;
+}
+
+message GetAgentGroupRequest {
+  int64 id = 1;
+}
+
+message GetAgentGroupResponse {
+  AgentGroup group = 1;
+}
+
+message ResolveAgentGroupBySlugRequest {
+  string slug = 1;
+}
+
+message ResolveAgentGroupBySlugResponse {
+  AgentGroup group = 1;
+}
+
+message CreateAgentGroupRequest {
+  string name = 1;
+  
+  string slug = 2;
+  string description = 3;
+}
+
+message CreateAgentGroupResponse {
+  AgentGroup group = 1;
+}
+
+message UpdateAgentGroupRequest {
+  int64 id = 1;
+  string name = 2;
+  
+  string slug = 3;
+  string description = 4;
+}
+
+message UpdateAgentGroupResponse {
+  AgentGroup group = 1;
+}
+
+message SetAgentGroupArchivedRequest {
+  int64 id = 1;
+  bool archived = 2;
+}
+
+message SetAgentGroupArchivedResponse {
+  AgentGroup group = 1;
+}
+
+message ListAgentGroupMembersRequest {
+  int64 group_id = 1;
+}
+
+message ListAgentGroupMembersResponse {
+  repeated AgentGroupMember members = 1;
+}
+
+message ListAgentGroupsForAgentRequest {
+  string agent_id = 1;
+}
+
+message ListAgentGroupsForAgentResponse {
+  repeated AgentGroup groups = 1;
+}
+
+message AddAgentGroupMemberRequest {
+  int64 group_id = 1;
+  string agent_id = 2;
+  string note = 3;
+}
+
+message AddAgentGroupMemberResponse {
+  AgentGroupMembershipResult result = 1;
+}
+
+message RemoveAgentGroupMemberRequest {
+  int64 group_id = 1;
+  string agent_id = 2;
+}
+
+message RemoveAgentGroupMemberResponse {}
+
+message ListAgentGroupMemberRequestsRequest {
+  int64 group_id = 1;
+  
+  string status = 2;
+}
+
+message ListAgentGroupMemberRequestsResponse {
+  repeated AgentGroupMemberRequest requests = 1;
+}
+
+message DecideAgentGroupMemberRequest {
+  int64 id = 1;
+  bool approve = 2;
+  string note = 3;
+}
+
+message DecideAgentGroupMemberResponse {
+  AgentGroupMemberRequest request = 1;
+}
+
+message ListAgentGroupOwnersRequest {
+  int64 group_id = 1;
+}
+
+message ListAgentGroupOwnersResponse {
+  repeated AgentGroupOwner owners = 1;
+}
+
+message AddAgentGroupOwnerRequest {
+  int64 group_id = 1;
+  string actor_id = 2;
+}
+
+message AddAgentGroupOwnerResponse {
+  AgentGroupOwner owner = 1;
+}
+
+message RemoveAgentGroupOwnerRequest {
+  int64 group_id = 1;
+  string actor_id = 2;
+}
+
+message RemoveAgentGroupOwnerResponse {}
+
+message ListAgentGroupProjectsRequest {
+  int64 group_id = 1;
+}
+
+message ListAgentGroupProjectsResponse {
+  repeated AgentGroupProject projects = 1;
+}
+
+message ListAgentGroupTeamsRequest {
+  int64 group_id = 1;
+}
+
+message ListAgentGroupTeamsResponse {
+  repeated AgentGroupTeam teams = 1;
+}
+
+message ListAgentGroupAccessRequest {
+  int64 group_id = 1;
+}
+
+message ListAgentGroupAccessResponse {
+  AgentGroupAccess access = 1;
+}
+
+message InviteAgentGroupToProjectRequest {
+  int64 group_id = 1;
+  string project_id = 2;
+  
+  string role = 3;
+  string note = 4;
+}
+
+message InviteAgentGroupToProjectResponse {
+  bool attached = 1;
+  AgentGroupAccessInvitation invitation = 2;
+}
+
+message InviteAgentGroupToTeamRequest {
+  int64 group_id = 1;
+  int64 team_id = 2;
+  string note = 3;
+}
+
+message InviteAgentGroupToTeamResponse {
+  bool attached = 1;
+  AgentGroupAccessInvitation invitation = 2;
+}
+
+message DecideAgentGroupAccessRequest {
+  string target_kind = 1;
+  int64 invitation_id = 2;
+  bool approve = 3;
+  string note = 4;
+}
+
+message DecideAgentGroupAccessResponse {
+  AgentGroupAccessInvitation invitation = 1;
+}
+
+message RevokeAgentGroupAccessRequest {
+  string target_kind = 1;
+  int64 invitation_id = 2;
+}
+
+message RevokeAgentGroupAccessResponse {}
+
+message RemoveAgentGroupFromProjectRequest {
+  int64 group_id = 1;
+  string project_id = 2;
+}
+
+message RemoveAgentGroupFromProjectResponse {}
+
+message RemoveAgentGroupFromTeamRequest {
+  int64 group_id = 1;
+  int64 team_id = 2;
+}
+
+message RemoveAgentGroupFromTeamResponse {}
+
+message ListProjectAgentGroupsRequest {
+  string project_id = 1;
+}
+
+message ListProjectAgentGroupsResponse {
+  repeated AgentGroupProjectGroup links = 1;
+  repeated AgentGroupProjectGroup inherited = 2;
+  repeated AgentGroupAccessInvitation invitations = 3;
+}
+
+message ListTeamAgentGroupsRequest {
+  int64 team_id = 1;
+}
+
+message ListTeamAgentGroupsResponse {
+  repeated AgentGroupTeamGroup links = 1;
+  repeated AgentGroupAccessInvitation invitations = 2;
+}
+
+message ListAgentGroupLogsRequest {
+  int64 group_id = 1;
+  
+  int64 before_id = 2;
+  uint32 limit = 3;
+}
+
+message ListAgentGroupLogsResponse {
+  repeated AgentGroupLog logs = 1;
+}

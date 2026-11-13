@@ -618,25 +618,44 @@ export default function (pi: ExtensionAPI) {
     name: "getPrompt",
     label: "Get Prompt",
     description:
-      "Read a versioned CherryPi prompt and whether this agent may propose a change. `scope` is `agent` (your own global prompt), `agent_project` (your prompt for one project), or `project` (a project's shared prompt). Pass `projectId` for the latter two. The response includes the content, version, author, and the caller's can_edit/can_propose/can_approve flags.",
+      "Read a versioned CherryPi prompt and whether this agent may propose a change. `scope` is `agent` (your own global prompt), `agent_project` (your prompt for one project), `project` (a project's shared prompt), `group` (an agent group's prompt), `group_project` (a group × project prompt), or `group_team` (a group × team prompt). Pass `projectId`, `groupId` and/or `teamId` as the scope requires. Group prompts are readable by any agent; only a member may propose. The response includes the content, version, author, and the caller's can_edit/can_propose/can_approve flags.",
     parameters: Type.Object({
       scope: Type.Union(
         [
           Type.Literal("agent"),
           Type.Literal("agent_project"),
           Type.Literal("project"),
+          Type.Literal("group"),
+          Type.Literal("group_project"),
+          Type.Literal("group_team"),
         ],
         { description: "Which prompt to read." },
       ),
       projectId: Type.Optional(
         Type.String({
           description:
-            "Project id or slug; required for agent_project and project.",
+            "Project id or slug; required for agent_project, project and group_project.",
+        }),
+      ),
+      groupId: Type.Optional(
+        Type.Number({
+          description:
+            "Agent group id; required for group, group_project and group_team.",
+        }),
+      ),
+      teamId: Type.Optional(
+        Type.Number({
+          description: "Team id; required for group_team.",
         }),
       ),
     }),
     execute: async (_toolCallId, params) => {
-      const query = promptQuery(params.scope, params.projectId);
+      const query = promptQuery(
+        params.scope,
+        params.projectId,
+        params.groupId,
+        params.teamId,
+      );
       return request("GET", `/prompts?${query.toString()}`);
     },
   });
@@ -645,20 +664,34 @@ export default function (pi: ExtensionAPI) {
     name: "listPromptVersions",
     label: "List Prompt Versions",
     description:
-      "Read a CherryPi prompt's version history, newest first, with each version's author, approver, note, and content. Use it to understand how the prompt evolved before proposing a change. Pass the same scope/projectId as getPrompt.",
+      "Read a CherryPi prompt's version history, newest first, with each version's author, approver, note, and content. Use it to understand how the prompt evolved before proposing a change. Pass the same scope/projectId/groupId/teamId as getPrompt.",
     parameters: Type.Object({
       scope: Type.Union(
         [
           Type.Literal("agent"),
           Type.Literal("agent_project"),
           Type.Literal("project"),
+          Type.Literal("group"),
+          Type.Literal("group_project"),
+          Type.Literal("group_team"),
         ],
         { description: "Which prompt's history to read." },
       ),
       projectId: Type.Optional(
         Type.String({
           description:
-            "Project id or slug; required for agent_project and project.",
+            "Project id or slug; required for agent_project, project and group_project.",
+        }),
+      ),
+      groupId: Type.Optional(
+        Type.Number({
+          description:
+            "Agent group id; required for group, group_project and group_team.",
+        }),
+      ),
+      teamId: Type.Optional(
+        Type.Number({
+          description: "Team id; required for group_team.",
         }),
       ),
       limit: Type.Optional(
@@ -673,7 +706,12 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     execute: async (_toolCallId, params) => {
-      const query = promptQuery(params.scope, params.projectId);
+      const query = promptQuery(
+        params.scope,
+        params.projectId,
+        params.groupId,
+        params.teamId,
+      );
       query.set("limit", String(params.limit ?? 50));
       if (params.beforeVersion !== undefined) {
         query.set("before_version", String(params.beforeVersion));
@@ -686,13 +724,16 @@ export default function (pi: ExtensionAPI) {
     name: "proposePromptChange",
     label: "Propose Prompt Change",
     description:
-      "Propose a complete replacement for a CherryPi prompt. Use `scope=agent` for your own global prompt, `agent_project` for your prompt in one project, or `project` for a project's shared prompt (project members only). The change becomes a pending proposal that an owner approves, unless your agent has self-prompt auto-approve enabled (agent scopes only). Include a short `note` explaining why.",
+      "Propose a complete replacement for a CherryPi prompt. Use `scope=agent` for your own global prompt, `agent_project` for your prompt in one project, `project` for a project's shared prompt (project members only), or `group`/`group_project`/`group_team` for a group you belong to (group owners approve; the agent auto-approve setting does not apply to groups). The change becomes a pending proposal that an owner approves. Include a short `note` explaining why.",
     parameters: Type.Object({
       scope: Type.Union(
         [
           Type.Literal("agent"),
           Type.Literal("agent_project"),
           Type.Literal("project"),
+          Type.Literal("group"),
+          Type.Literal("group_project"),
+          Type.Literal("group_team"),
         ],
         { description: "Which prompt to propose a change to." },
       ),
@@ -705,7 +746,18 @@ export default function (pi: ExtensionAPI) {
       projectId: Type.Optional(
         Type.String({
           description:
-            "Project id or slug; required for agent_project and project.",
+            "Project id or slug; required for agent_project, project and group_project.",
+        }),
+      ),
+      groupId: Type.Optional(
+        Type.Number({
+          description:
+            "Agent group id; required for group, group_project and group_team.",
+        }),
+      ),
+      teamId: Type.Optional(
+        Type.Number({
+          description: "Team id; required for group_team.",
         }),
       ),
     }),
@@ -716,6 +768,8 @@ export default function (pi: ExtensionAPI) {
         note: params.note ? String(params.note) : "",
       };
       if (params.projectId) body.project_id = String(params.projectId);
+      if (params.groupId) body.group_id = Number(params.groupId);
+      if (params.teamId) body.team_id = Number(params.teamId);
       return request("POST", "/prompts/proposals", body);
     },
   });
@@ -724,7 +778,7 @@ export default function (pi: ExtensionAPI) {
     name: "listPromptProposals",
     label: "List Prompt Proposals",
     description:
-      "List prompt change proposals. By default returns your own proposals across scopes, newest first. Pass `mine=false` with a scope/projectId to list a target's proposals when you are allowed to approve them.",
+      "List prompt change proposals. By default returns your own proposals across scopes, newest first. Pass `mine=false` with a scope and its ids to list a target's proposals when you are allowed to approve them.",
     parameters: Type.Object({
       scope: Type.Optional(
         Type.Union(
@@ -732,6 +786,9 @@ export default function (pi: ExtensionAPI) {
             Type.Literal("agent"),
             Type.Literal("agent_project"),
             Type.Literal("project"),
+            Type.Literal("group"),
+            Type.Literal("group_project"),
+            Type.Literal("group_team"),
           ],
           { description: "Optional target scope filter." },
         ),
@@ -739,7 +796,18 @@ export default function (pi: ExtensionAPI) {
       projectId: Type.Optional(
         Type.String({
           description:
-            "Project id or slug; used with agent_project and project scopes.",
+            "Project id or slug; used with agent_project, project and group_project scopes.",
+        }),
+      ),
+      groupId: Type.Optional(
+        Type.Number({
+          description:
+            "Agent group id; used with group, group_project and group_team scopes.",
+        }),
+      ),
+      teamId: Type.Optional(
+        Type.Number({
+          description: "Team id; used with the group_team scope.",
         }),
       ),
       status: Type.Optional(
@@ -776,6 +844,8 @@ export default function (pi: ExtensionAPI) {
       query.set("mine", String(mine));
       if (params.scope) query.set("scope", String(params.scope));
       if (params.projectId) query.set("project_id", String(params.projectId));
+      if (params.groupId) query.set("group_id", String(params.groupId));
+      if (params.teamId) query.set("team_id", String(params.teamId));
       if (params.status) query.set("status", String(params.status));
       query.set("limit", String(params.limit ?? 50));
       if (params.beforeId !== undefined) {
@@ -795,10 +865,17 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-function promptQuery(scope: unknown, projectId: unknown): URLSearchParams {
+function promptQuery(
+  scope: unknown,
+  projectId: unknown,
+  groupId?: unknown,
+  teamId?: unknown,
+): URLSearchParams {
   const query = new URLSearchParams();
   query.set("scope", String(scope ?? ""));
   if (projectId) query.set("project_id", String(projectId));
+  if (groupId) query.set("group_id", String(groupId));
+  if (teamId) query.set("team_id", String(teamId));
   return query;
 }
 

@@ -36,6 +36,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         TabsList
           TabsTrigger(value="profile") {{ $t("account.tabs.profile") }}
           TabsTrigger(value="members") {{ $t("admin.teams.columnMembers") }}
+          TabsTrigger(value="groups") {{ $t("nav.groups") }}
           TabsTrigger(value="projects") {{ $t("nav.projects") }}
           TabsTrigger(value="settings") {{ $t("common.settings") }}
 
@@ -204,6 +205,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                             @click="revoke(invitation)"
                             :disabled="busy === 'i' + invitation.id"
                           ) {{ $t("common.revoke") }}
+
+        TabsContent.flex.flex-col.gap-6(value="groups")
+          TeamGroupsPanel(
+            :team-id="id"
+            :can-invite="canInvite"
+            :can-manage="canManage"
+          )
 
         TabsContent.flex.flex-col.gap-6(value="projects")
           Card
@@ -380,6 +388,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import BackButton from "@/components/BackButton.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
+import TeamGroupsPanel from "@/components/settings/TeamGroupsPanel.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
@@ -452,7 +461,7 @@ const route = useRoute();
 const router = useRouter();
 const id = Number(route.params.id);
 
-const TABS = ["profile", "members", "projects", "settings"];
+const TABS = ["profile", "members", "groups", "projects", "settings"];
 const tab = ref(
   typeof route.query.tab === "string" && TABS.includes(route.query.tab)
     ? route.query.tab
