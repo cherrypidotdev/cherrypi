@@ -214,9 +214,11 @@ type Session struct {
 	progressTouchedRun   bool
 	progressSettleNudges int
 
-	progressPlanOnly     bool
-	progressPlanCovers   bool
-	progressCoveredBlock *ai.AssistantMessage
+	progressBlockID         int
+	progressBlockCovered    bool
+	progressBlockMessage    *ai.AssistantMessage
+	progressBlockBreak      bool
+	progressForceToolChoice bool
 
 	requiredTools        []string
 	requiredSatisfied    bool

@@ -148,9 +148,8 @@ func (s *Session) setProgress(progress Progress) {
 	s.mu.Lock()
 	s.progress = progress
 	s.progressTouchedRun = true
-
-	s.progressPlanCovers = s.progressPlanOnly
-	s.progressCoveredBlock = nil
+	s.progressBlockCovered = true
+	s.progressForceToolChoice = false
 	s.mu.Unlock()
 	s.notify("task_progress", map[string]any{
 		"summary": progress.Summary,
@@ -167,71 +166,118 @@ func (s *Session) beforeToolCall(
 		return blocked
 	}
 
-	if c.ToolCall.Name == "reportTaskProgress" {
-		s.notePlanBlock(c.AssistantMessage)
+	s.mu.Lock()
+	s.enterPlanBlockLocked(c.AssistantMessage)
+
+	if c.ToolCall.Name == planToolName {
+		s.progressForceToolChoice = false
+		s.mu.Unlock()
 		return nil
 	}
-	if blockStartsWithPlan(c.AssistantMessage) {
-		s.notePlanBlock(c.AssistantMessage)
-		return nil
+	covered := s.progressBlockCovered
+	if !covered {
+
+		s.progressForceToolChoice = true
 	}
-	if s.consumePlanCover(c.AssistantMessage) {
+	s.mu.Unlock()
+	if covered {
 		return nil
 	}
 	return planGateBlock()
 }
 
-func (s *Session) notePlanBlock(message *ai.AssistantMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.progressPlanOnly = planOnlyBlock(message)
+func (s *Session) enterPlanBlockLocked(message *ai.AssistantMessage) {
+	if message != nil && message == s.progressBlockMessage {
+		return
+	}
+	start := s.progressBlockID == 0 || s.progressBlockBreak
+	if !start && messageHasTextBeforeFirstTool(message) {
+		start = true
+	}
+	if start {
+		s.progressBlockID++
+		s.progressBlockCovered = false
+		s.progressBlockBreak = false
+	}
+	s.progressBlockMessage = message
 }
 
-func (s *Session) consumePlanCover(message *ai.AssistantMessage) bool {
+func (s *Session) noteAssistantOutput(message *ai.AssistantMessage) {
+	if !messageEndsWithText(message) {
+		return
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if message != nil && message == s.progressCoveredBlock {
-		return true
-	}
-	if !s.progressPlanCovers {
-		return false
-	}
-	s.progressPlanCovers = false
-	s.progressCoveredBlock = message
-	return true
+	s.progressBlockBreak = true
+	s.progressForceToolChoice = true
+	s.mu.Unlock()
 }
 
-func blockStartsWithPlan(message *ai.AssistantMessage) bool {
+func (s *Session) noteUserOutput() {
+	s.mu.Lock()
+	s.progressBlockBreak = true
+	s.progressForceToolChoice = true
+	s.mu.Unlock()
+}
+
+func (s *Session) beginPlanActivity() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.progressBlockID = 0
+	s.progressBlockCovered = false
+	s.progressBlockMessage = nil
+	s.progressBlockBreak = false
+	s.progressForceToolChoice = true
+}
+
+func messageHasTextBeforeFirstTool(message *ai.AssistantMessage) bool {
 	if message == nil {
 		return false
 	}
 	for _, content := range message.Content {
-		if call, ok := content.(ai.ToolCall); ok {
-			return call.Name == "reportTaskProgress"
+		switch value := content.(type) {
+		case ai.TextContent:
+			if strings.TrimSpace(value.Text) != "" {
+				return true
+			}
+		case ai.ToolCall:
+			return false
 		}
 	}
 	return false
 }
 
-func planOnlyBlock(message *ai.AssistantMessage) bool {
+func messageEndsWithText(message *ai.AssistantMessage) bool {
 	if message == nil {
 		return false
 	}
+	endsWithText := false
 	for _, content := range message.Content {
-		if call, ok := content.(ai.ToolCall); ok && call.Name != "reportTaskProgress" {
-			return false
+		switch value := content.(type) {
+		case ai.TextContent:
+			if strings.TrimSpace(value.Text) != "" {
+				endsWithText = true
+			}
+		case ai.ThinkingContent:
+			if strings.TrimSpace(value.Thinking) != "" {
+				endsWithText = false
+			}
+		case ai.ToolCall:
+			endsWithText = false
 		}
 	}
-	return true
+	return endsWithText
 }
+
+const planToolName = "reportTaskProgress"
 
 func planGateBlock() *agent.BeforeToolCallResult {
 	return &agent.BeforeToolCallResult{
 		Block: true,
-		Reason: "Plan reminder: a block of tool calls must begin with " +
-			"`reportTaskProgress`. Call it first, in the same message as the " +
-			"tools, with the complete list (3–8 ordered items, mark finished " +
-			"ones `done` and the current one `in_progress`), then call the tool." +
+		Reason: "Plan reminder: this activity block must begin with " +
+			"`reportTaskProgress`. Call it first with the complete list " +
+			"(3–8 ordered items, mark finished ones `done` and the current one " +
+			"`in_progress`), then continue the block; one plan covers the rest " +
+			"of the block, so do not call it again until the next block." +
 			carryOn,
 	}
 }
@@ -273,19 +319,17 @@ func (s *Session) beginPlanRun() []agent.AgentMessage {
 	progress := s.progressState()
 	s.mu.Lock()
 	s.progressTouchedRun = false
-	s.progressPlanOnly = false
-	s.progressPlanCovers = false
-	s.progressCoveredBlock = nil
 	s.progressSettleNudges = 0
 	s.mu.Unlock()
+	s.beginPlanActivity()
 	if len(progress.Todos) > 0 {
 		return nil
 	}
 	return []agent.AgentMessage{
 		progressReminder("Plan reminder: this task has no plan yet. Publish one with " +
 			"`reportTaskProgress` before doing the work: 3–8 ordered items, each " +
-			"`pending` (a genuinely one-step task gets one item). Every block of " +
-			"tool calls must begin with it, so keep it current: mark an item " +
-			"`in_progress` when you begin it and `done` when it lands."),
+			"`pending` (a genuinely one-step task gets one item). Every activity " +
+			"block begins with it, so keep it current: mark an item `in_progress` " +
+			"when you begin it and `done` when it lands."),
 	}
 }

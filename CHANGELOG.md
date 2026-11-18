@@ -5,6 +5,12 @@ history at release time.
 
 ## 0.12.0 — 2026-11-18
 
+### Fixes
+
+- **agent:** force the plan once per activity block
+
+## 0.12.0 — 2026-11-18
+
 ### Documentation
 
 - **agency:** describe who may list an agent's memberships

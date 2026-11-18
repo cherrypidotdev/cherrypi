@@ -276,6 +276,7 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 
 		MaxRetries:     3,
 		BeforeToolCall: s.beforeToolCall,
+		OnPayload:      s.forcePlanToolChoice,
 	}
 	if s.cfg.Model == nil {
 
@@ -406,6 +407,7 @@ func (s *Session) handleAgentEvent(_ context.Context, event agent.AgentEvent) er
 	switch event.Type {
 	case agent.EvAgentStart:
 		s.setRunning(true)
+		s.beginPlanActivity()
 		s.emit(Event{Kind: EventRunStarted, At: time.Now()})
 		s.notifyAgentState("run_started", StatusInProgress)
 
@@ -447,12 +449,14 @@ func (s *Session) handleAgentEvent(_ context.Context, event agent.AgentEvent) er
 		if text := userMessageText(event.Message); text != "" {
 
 			s.consumeQueued(text)
+			s.noteUserOutput()
 			s.emit(Event{Kind: EventUser, At: time.Now(), Text: text})
 		}
 
 	case agent.EvMessageEnd:
 		if assistant, ok := event.Message.(*ai.AssistantMessage); ok {
 			s.recordRunUsage(assistant.Usage)
+			s.noteAssistantOutput(assistant)
 		}
 
 	case agent.EvToolExecutionStart:
