@@ -26,6 +26,7 @@ require (
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/rs/cors v1.11.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/sky-valley/pi v1.5.31
 	github.com/yuin/gopher-lua v1.1.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0

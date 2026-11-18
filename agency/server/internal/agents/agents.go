@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -316,6 +317,21 @@ func (r *Registry) Reject(
 		buildVersion:    buildVersion,
 		protocolVersion: protocolVersion,
 		remoteAddr:      remoteAddr,
+	}
+}
+
+func (r *Registry) RecordLastOnline(
+	ctx context.Context,
+	agentID ids.AgentID,
+	at time.Time,
+	online bool,
+) {
+	stamp := at.UnixMilli()
+	if online {
+		stamp = 0
+	}
+	if err := r.store.SetAgentLastOnline(ctx, agentID, stamp); err != nil {
+		log.Printf("[agents] record last online %d: %v", agentID, err)
 	}
 }
 

@@ -59,7 +59,7 @@ agents from the UI:
 
 Use the typed [Connect API](/advanced/api) and the
 [JavaScript SDK](/advanced/sdk), or drive it with the same personal access
-tokens the browser and bundled Pi tools use.
+tokens the browser and the agent's tools use.
 
 </div>
 
@@ -72,8 +72,8 @@ flowchart LR
   A -->|S3| S3[("Attachments<br/>& artifacts")]
   A <-->|outbound tunnel| W1["Agent<br/>machine A"]
   A <-->|outbound tunnel| W2["Agent<br/>machine B"]
-  W1 --> P1["Pi sessions<br/>terminals"]
-  W2 --> P2["Pi sessions<br/>terminals"]
+  W1 --> P1["Task sessions<br/>terminals"]
+  W2 --> P2["Task sessions<br/>terminals"]
 ```
 
 Only the agency is reachable from the outside. Agents connect to it, report

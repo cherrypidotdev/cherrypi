@@ -24,7 +24,9 @@ import (
 
 // additive, so existing bundles that accept the 0.2.x line keep working; a
 
-const APIVersion = "0.2.7"
+// either, so the whole line moves to >=0.3.0 <0.4.0.
+
+const APIVersion = "0.3.1"
 
 type VersionRange struct {
 	alternatives [][]comparator

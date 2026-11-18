@@ -16,12 +16,14 @@
 
 -- name: InsertAgentUsage :exec
 INSERT INTO agent_usage (
-  agent_id, session_id, provider, model, input_tokens, output_tokens, cost,
-  active_ms, tool_ms, model_wait_ms, ttft_ms, at
+  agent_id, session_id, provider, model, input_tokens, output_tokens,
+  cache_read_tokens, cache_write_tokens, cost, active_ms, tool_ms,
+  model_wait_ms, ttft_ms, at
 )
 VALUES (
   sqlc.arg(agent_id), sqlc.arg(session_id), sqlc.arg(provider), sqlc.arg(model),
-  sqlc.arg(input_tokens), sqlc.arg(output_tokens), sqlc.arg(cost),
+  sqlc.arg(input_tokens), sqlc.arg(output_tokens),
+  sqlc.arg(cache_read_tokens), sqlc.arg(cache_write_tokens), sqlc.arg(cost),
   sqlc.arg(active_ms), sqlc.arg(tool_ms), sqlc.arg(model_wait_ms),
   sqlc.arg(ttft_ms), sqlc.arg(at)
 );
@@ -34,6 +36,8 @@ SELECT
   ag.session_id,
   CAST(COALESCE(SUM(ag.input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(ag.cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(ag.cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS REAL) AS cost,
   CAST(COALESCE(SUM(ag.active_ms), 0) AS INTEGER) AS active_ms,
   CAST(COALESCE(SUM(ag.tool_ms), 0) AS INTEGER) AS tool_ms,
@@ -59,6 +63,8 @@ ORDER BY last_at DESC;
 SELECT
   CAST(COALESCE(SUM(input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost
 FROM agent_usage;
 
@@ -69,6 +75,8 @@ SELECT
   CAST(ag.at / 86400000 AS INTEGER) AS day,
   CAST(COALESCE(SUM(ag.input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(ag.cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(ag.cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS REAL) AS cost,
   CAST(COUNT(*) AS INTEGER) AS runs
 FROM agent_usage AS ag
@@ -94,6 +102,8 @@ SELECT
   ag.model,
   CAST(COALESCE(SUM(ag.input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(ag.output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(ag.cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(ag.cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(ag.cost), 0.0) AS REAL) AS cost,
   CAST(COALESCE(SUM(ag.active_ms), 0) AS INTEGER) AS active_ms,
   CAST(COALESCE(SUM(ag.tool_ms), 0) AS INTEGER) AS tool_ms,

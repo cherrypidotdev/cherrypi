@@ -38,8 +38,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.text-muted-foreground.text-2xs.font-semibold {{ $t("account.tabs.tokens") }}
       span.text-muted-foreground.text-10 {{ $t("usage.kpis.inOut") }}
     .text-23.mt-1.leading-tight.font-semibold.tracking-tight.tabular-nums {{ formatTokens(summary.inputTokens + summary.outputTokens) }}
-    .text-2xs.text-muted-foreground.mt-1
-      | {{ $t("usage.kpis.inOutCounts", { in: formatTokens(summary.inputTokens), out: formatTokens(summary.outputTokens) }) }}
+    .text-2xs.text-muted-foreground.mt-1(:title="$t('usage.kpis.cacheHint')")
+      template(v-if="summary.cacheReadTokens || summary.cacheWriteTokens")
+        | {{ $t("usage.kpis.inOutCachedCounts", { in: formatTokens(summary.inputTokens), out: formatTokens(summary.outputTokens), cached: formatTokens(summary.cacheReadTokens) }) }}
+      template(v-else)
+        | {{ $t("usage.kpis.inOutCounts", { in: formatTokens(summary.inputTokens), out: formatTokens(summary.outputTokens) }) }}
     .mt-auto.h-7.pt-1
       UsageSparkline(color="var(--chart-2)" :values="spark.tokens")
 
@@ -192,6 +195,8 @@ en:
       aria: "Usage summary"
       tasksInScope: "{count} tasks in scope"
       inOutCounts: "{in} in · {out} out"
+      inOutCachedCounts: "{in} in · {out} out · {cached} cached"
+      cacheHint: "Cached is input the providers served from a prompt cache. It is priced by the model's cache rates and already included in the cost, so it is not added to the input/output counts."
       completedOf: "{completed} completed · {tasks} tasks"
       acrossCompleted: "across {count} completed tasks"
       timed: "{timed} of {completed} timed"
@@ -215,6 +220,8 @@ ru:
       aria: "Сводка использования"
       tasksInScope: "задач в области: {count}"
       inOutCounts: "{in} вх. · {out} исх."
+      inOutCachedCounts: "{in} вх. · {out} исх. · {cached} из кэша"
+      cacheHint: "«Из кэша» — вход, прочитанный из кэша провайдера. Считается по ценам кэша модели и уже входит в стоимость, поэтому не прибавляется к входу/выходу."
       completedOf: "завершено {completed} · задач {tasks}"
       acrossCompleted: "по {count} завершённым задачам"
       timed: "измерено {timed} из {completed}"

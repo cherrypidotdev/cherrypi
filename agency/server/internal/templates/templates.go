@@ -71,29 +71,29 @@ type Arg struct {
 }
 
 type Content struct {
-	Body                string
-	TitleTemplate       string
-	Args                []Arg
-	DefaultPriority     int64
-	DefaultSize         string
-	DefaultTagIDs       []string
-	DefaultTeamIDs      []int64
-	DefaultLeadActorIDs []ids.ActorID
+	Body                 string
+	TitleTemplate        string
+	Args                 []Arg
+	DefaultPriority      int64
+	DefaultSize          string
+	DefaultTagIDs        []string
+	DefaultTeamIDs       []int64
+	DefaultLeaderActorID ids.ActorID
 }
 
 type Version struct {
-	TemplateID          string
-	Version             int64
-	Body                string
-	TitleTemplate       string
-	Args                []Arg
-	DefaultPriority     int64
-	DefaultSize         string
-	DefaultTagIDs       []string
-	DefaultTeamIDs      []int64
-	DefaultLeadActorIDs []ids.ActorID
-	CreatedByActorID    ids.ActorID
-	CreatedAt           time.Time
+	TemplateID           string
+	Version              int64
+	Body                 string
+	TitleTemplate        string
+	Args                 []Arg
+	DefaultPriority      int64
+	DefaultSize          string
+	DefaultTagIDs        []string
+	DefaultTeamIDs       []int64
+	DefaultLeaderActorID ids.ActorID
+	CreatedByActorID     ids.ActorID
+	CreatedAt            time.Time
 }
 
 type Template struct {
@@ -119,17 +119,17 @@ type Validation struct {
 func (v Validation) Valid() bool { return len(v.Errors) == 0 }
 
 type Rendered struct {
-	TemplateID   string
-	TemplateName string
-	Version      int64
-	Prompt       string
-	Title        string
-	Priority     int64
-	Size         string
-	TagIDs       []string
-	TeamIDs      []int64
-	LeadActorIDs []ids.ActorID
-	ArgsJSON     string
+	TemplateID    string
+	TemplateName  string
+	Version       int64
+	Prompt        string
+	Title         string
+	Priority      int64
+	Size          string
+	TagIDs        []string
+	TeamIDs       []int64
+	LeaderActorID ids.ActorID
+	ArgsJSON      string
 }
 
 type Service struct {
@@ -511,14 +511,14 @@ func (s *Service) RenderContent(
 		)
 	}
 	return renderVersion(Template{}, Version{
-		Body:                normalized.Body,
-		TitleTemplate:       normalized.TitleTemplate,
-		Args:                normalized.Args,
-		DefaultPriority:     normalized.DefaultPriority,
-		DefaultSize:         normalized.DefaultSize,
-		DefaultTagIDs:       normalized.DefaultTagIDs,
-		DefaultTeamIDs:      normalized.DefaultTeamIDs,
-		DefaultLeadActorIDs: normalized.DefaultLeadActorIDs,
+		Body:                 normalized.Body,
+		TitleTemplate:        normalized.TitleTemplate,
+		Args:                 normalized.Args,
+		DefaultPriority:      normalized.DefaultPriority,
+		DefaultSize:          normalized.DefaultSize,
+		DefaultTagIDs:        normalized.DefaultTagIDs,
+		DefaultTeamIDs:       normalized.DefaultTeamIDs,
+		DefaultLeaderActorID: normalized.DefaultLeaderActorID,
 	}, argsJSON)
 }
 
@@ -634,7 +634,7 @@ func (s *Service) appendVersion(
 	if err != nil {
 		return Version{}, err
 	}
-	leadsJSON, err := json.Marshal(actorIDStrings(content.DefaultLeadActorIDs))
+	leadsJSON, err := json.Marshal(actorIDStrings(actorIDList(content.DefaultLeaderActorID)))
 	if err != nil {
 		return Version{}, err
 	}
@@ -700,7 +700,7 @@ func (s *Service) validateDefaults(
 			}
 		}
 	}
-	if len(content.DefaultLeadActorIDs) > 0 {
+	if content.DefaultLeaderActorID != 0 {
 		members, err := s.store.ListProjectMemberActorIDs(ctx, projectID)
 		if err != nil {
 			return err
@@ -709,10 +709,10 @@ func (s *Service) validateDefaults(
 		for _, id := range members {
 			valid[ids.ActorID(id)] = true
 		}
-		for _, id := range content.DefaultLeadActorIDs {
+		for _, id := range []ids.ActorID{content.DefaultLeaderActorID} {
 			if !valid[id] {
 				validation.Errors = append(validation.Errors,
-					fmt.Sprintf("default lead %d is not a project member", id))
+					fmt.Sprintf("default leader %d is not a project member", id))
 			}
 		}
 	}
@@ -745,31 +745,31 @@ func templateFromSummary(row store.TaskTemplateSummary) Template {
 
 func versionFromRow(row store.TaskTemplateVersion) Version {
 	return Version{
-		TemplateID:          row.TemplateID,
-		Version:             row.Version,
-		Body:                row.Body,
-		TitleTemplate:       row.TitleTemplate,
-		Args:                decodeArgs(row.ArgsJson),
-		DefaultPriority:     row.DefaultPriority,
-		DefaultSize:         row.DefaultSize,
-		DefaultTagIDs:       decodeStrings(row.DefaultTagIdsJson),
-		DefaultTeamIDs:      decodeInt64s(row.DefaultTeamIdsJson),
-		DefaultLeadActorIDs: decodeActorIDs(row.DefaultLeadActorIdsJson),
-		CreatedByActorID:    ids.ActorID(row.CreatedByActorID.Int64),
-		CreatedAt:           time.UnixMilli(row.CreatedAt),
+		TemplateID:           row.TemplateID,
+		Version:              row.Version,
+		Body:                 row.Body,
+		TitleTemplate:        row.TitleTemplate,
+		Args:                 decodeArgs(row.ArgsJson),
+		DefaultPriority:      row.DefaultPriority,
+		DefaultSize:          row.DefaultSize,
+		DefaultTagIDs:        decodeStrings(row.DefaultTagIdsJson),
+		DefaultTeamIDs:       decodeInt64s(row.DefaultTeamIdsJson),
+		DefaultLeaderActorID: firstDecodedActorID(row.DefaultLeadActorIdsJson),
+		CreatedByActorID:     ids.ActorID(row.CreatedByActorID.Int64),
+		CreatedAt:            time.UnixMilli(row.CreatedAt),
 	}
 }
 
 func contentFromVersion(v Version) Content {
 	return Content{
-		Body:                v.Body,
-		TitleTemplate:       v.TitleTemplate,
-		Args:                v.Args,
-		DefaultPriority:     v.DefaultPriority,
-		DefaultSize:         v.DefaultSize,
-		DefaultTagIDs:       v.DefaultTagIDs,
-		DefaultTeamIDs:      v.DefaultTeamIDs,
-		DefaultLeadActorIDs: v.DefaultLeadActorIDs,
+		Body:                 v.Body,
+		TitleTemplate:        v.TitleTemplate,
+		Args:                 v.Args,
+		DefaultPriority:      v.DefaultPriority,
+		DefaultSize:          v.DefaultSize,
+		DefaultTagIDs:        v.DefaultTagIDs,
+		DefaultTeamIDs:       v.DefaultTeamIDs,
+		DefaultLeaderActorID: v.DefaultLeaderActorID,
 	}
 }
 
@@ -792,11 +792,6 @@ func normalizeComparable(c Content) Content {
 	sort.Slice(
 		c.DefaultTeamIDs,
 		func(i, j int) bool { return c.DefaultTeamIDs[i] < c.DefaultTeamIDs[j] },
-	)
-	c.DefaultLeadActorIDs = append([]ids.ActorID(nil), c.DefaultLeadActorIDs...)
-	sort.Slice(
-		c.DefaultLeadActorIDs,
-		func(i, j int) bool { return c.DefaultLeadActorIDs[i] < c.DefaultLeadActorIDs[j] },
 	)
 	return c
 }
@@ -843,6 +838,21 @@ func decodeActorIDs(raw string) []ids.ActorID {
 		}
 	}
 	return out
+}
+
+func actorIDList(id ids.ActorID) []ids.ActorID {
+	if id == 0 {
+		return nil
+	}
+	return []ids.ActorID{id}
+}
+
+func firstDecodedActorID(raw string) ids.ActorID {
+	ids := decodeActorIDs(raw)
+	if len(ids) == 0 {
+		return 0
+	}
+	return ids[0]
 }
 
 func actorIDStrings(in []ids.ActorID) []string {

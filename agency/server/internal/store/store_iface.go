@@ -45,6 +45,24 @@ type Store interface {
 		ctx context.Context,
 		entries []AppendTaskSessionEntryParams,
 	) (int64, error)
+	AppendTaskEvents(ctx context.Context, events []AppendTaskEventParams) (int64, error)
+
+	GetTaskSessionState(ctx context.Context, taskID string) (TaskSessionState, error)
+
+	PutTaskSessionState(ctx context.Context, p PutTaskSessionStateParams) (int64, error)
+
+	ListTaskEvents(ctx context.Context, taskID string) ([]TaskEvent, error)
+
+	PageTaskEvents(
+		ctx context.Context,
+		taskID string,
+		before int64,
+		limit int,
+	) ([]TaskEvent, error)
+
+	LastTaskEventSeq(ctx context.Context, taskID string) (int64, error)
+
+	DeleteTaskSessionData(ctx context.Context, taskID string) error
 	AppendTaskSessionEntry(
 		ctx context.Context,
 		p AppendTaskSessionEntryParams,
@@ -249,6 +267,8 @@ type Store interface {
 	GetActorByID(ctx context.Context, id ids.ActorID) (Actor, error)
 	GetActorByUsername(ctx context.Context, username string) (Actor, error)
 	GetActorSetting(ctx context.Context, actorID ids.ActorID, key string) (string, error)
+
+	ListActorsByIDs(ctx context.Context, ids []ids.ActorID) ([]Actor, error)
 	GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, error)
 	GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error)
 	GetAgentByUsername(ctx context.Context, username string) (AgentRow, error)
@@ -347,6 +367,8 @@ type Store interface {
 	GetTaskCommentRead(ctx context.Context, p GetTaskCommentReadParams) (int64, error)
 	GetTeam(ctx context.Context, id int64) (Team, error)
 	GetTeamByName(ctx context.Context, name string) (Team, error)
+
+	ListTeamsByIDs(ctx context.Context, ids []int64) ([]Team, error)
 	GetEffectiveTeamMember(ctx context.Context, p GetTeamMemberParams) (EffectiveTeamMember, error)
 	GetTeamInvitation(ctx context.Context, id int64) (TeamInvitation, error)
 	GetTeamMember(ctx context.Context, p GetTeamMemberParams) (TeamMember, error)
@@ -614,6 +636,9 @@ type Store interface {
 	ListSessionTasks(ctx context.Context) ([]Task, error)
 	ListSessionsByActor(ctx context.Context, actorID ids.ActorID) ([]Session, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
+
+	AgentConfigStore
+
 	ListTags(
 		ctx context.Context,
 		projectID string,
@@ -646,8 +671,20 @@ type Store interface {
 	ListTaskNotificationRecipients(ctx context.Context, taskID string) ([]int64, error)
 	ListTaskReferenceIDs(ctx context.Context, taskID string) ([]string, error)
 	ListTaskReferenceRefs(ctx context.Context) ([]ListTaskReferenceRefsRow, error)
+	ListTaskReferenceRefsByTask(
+		ctx context.Context,
+		taskID string,
+	) ([]ListTaskReferenceRefsByTaskRow, error)
 	ListTaskReferencedBy(ctx context.Context, taskID string) ([]Task, error)
-	ListTaskReferencedByRefs(ctx context.Context) ([]ListTaskReferencedByRefsRow, error)
+	ListBlockedEdgesByBlocker(
+		ctx context.Context,
+		blockerID string,
+	) ([]ListBlockedEdgesByBlockerRow, error)
+	ListPendingSteeringTasks(ctx context.Context) ([]ListPendingSteeringTasksRow, error)
+	ListTaskReferencedByRefsByTask(
+		ctx context.Context,
+		taskID string,
+	) ([]ListTaskReferencedByRefsByTaskRow, error)
 	ListTaskReferences(ctx context.Context, taskID string) ([]Task, error)
 	ListTaskSessionEntries(ctx context.Context, taskID string) ([]TaskSessionEntry, error)
 	ListTaskTemplates(
@@ -729,10 +766,12 @@ type Store interface {
 	RemoveTeamMember(ctx context.Context, p RemoveTeamMemberParams) (int64, error)
 	RenameTask(ctx context.Context, p RenameTaskParams) (Task, error)
 	SetTaskPendingSteering(ctx context.Context, p SetTaskPendingSteeringParams) (int64, error)
+	SetTaskNeedsOperator(ctx context.Context, p SetTaskNeedsOperatorParams) (int64, error)
+	SetTaskReactionReminders(ctx context.Context, p SetTaskReactionRemindersParams) (int64, error)
+	ListLiveReactionTasksByOrigin(ctx context.Context, originID string) ([]Task, error)
+	ListStalledReactionTasks(ctx context.Context, cutoffMs int64) ([]Task, error)
+	SetAgentLastOnline(ctx context.Context, id ids.AgentID, at int64) error
 	SetTaskPendingPromptAny(ctx context.Context, p SetTaskPendingPromptAnyParams) (int64, error)
-	ListTaskChildren(ctx context.Context, parentTaskID string) ([]Task, error)
-	CountIncompleteChildTasks(ctx context.Context, parentTaskID string) (int64, error)
-	DetachTaskChildren(ctx context.Context, p DetachTaskChildrenParams) error
 	RespondProjectTeamInvitation(
 		ctx context.Context,
 		p RespondProjectTeamInvitationParams,
@@ -792,6 +831,8 @@ type Store interface {
 	SetTaskPrompt(ctx context.Context, p SetTaskPromptParams) (int64, error)
 	SetTaskModel(ctx context.Context, p SetTaskModelParams) (int64, error)
 	SetTaskProgress(ctx context.Context, p SetTaskPlanParams) error
+
+	SetTaskRequiredTools(ctx context.Context, taskID, toolsJSON string) error
 	SetTaskSession(ctx context.Context, p SetTaskSessionParams) (int64, error)
 	SetTaskSize(ctx context.Context, p SetTaskSizeParams) (Task, error)
 	SetTaskTemplateArchived(

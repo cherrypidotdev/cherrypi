@@ -1,0 +1,153 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "agency/v1/task.proto";
+
+
+
+
+
+service ModelRoutingService {
+  rpc GetOrganizationModelRouting(GetOrganizationModelRoutingRequest) returns (GetOrganizationModelRoutingResponse);
+  
+  rpc UpdateOrganizationModelRouting(UpdateOrganizationModelRoutingRequest) returns (UpdateOrganizationModelRoutingResponse);
+  rpc GetProjectModelRouting(GetProjectModelRoutingRequest) returns (GetProjectModelRoutingResponse);
+  
+  rpc UpdateProjectModelRouting(UpdateProjectModelRoutingRequest) returns (UpdateProjectModelRoutingResponse);
+  
+  
+  rpc PreviewModelRouting(PreviewModelRoutingRequest) returns (PreviewModelRoutingResponse);
+  
+  
+  
+  rpc ListRoutingModels(ListRoutingModelsRequest) returns (ListRoutingModelsResponse);
+}
+
+
+
+message ModelSelection {
+  string provider = 1;
+  string model_id = 2;
+  
+  
+  string model_name = 3;
+  
+  
+  
+  string thinking_level = 4;
+}
+
+
+
+message ModelRoute {
+  
+  TaskPriority priority = 1;
+  
+  TaskSize size = 2;
+  
+  
+  string tag = 3;
+  ModelSelection model = 4;
+}
+
+
+
+
+message OrganizationModelRouting {
+  ModelSelection default_model = 1;
+  repeated ModelRoute routes = 2;
+}
+
+
+
+message ProjectModelRouting {
+  ModelSelection default_model = 1;
+  
+  repeated ModelRoute tag_pins = 2;
+  repeated ModelRoute routes = 3;
+}
+
+message GetOrganizationModelRoutingRequest {}
+
+message GetOrganizationModelRoutingResponse {
+  OrganizationModelRouting routing = 1;
+}
+
+message UpdateOrganizationModelRoutingRequest {
+  OrganizationModelRouting routing = 1;
+}
+
+message UpdateOrganizationModelRoutingResponse {
+  OrganizationModelRouting routing = 1;
+}
+
+message GetProjectModelRoutingRequest {
+  string project_id = 1;
+}
+
+message GetProjectModelRoutingResponse {
+  ProjectModelRouting routing = 1;
+}
+
+message UpdateProjectModelRoutingRequest {
+  string project_id = 1;
+  ProjectModelRouting routing = 2;
+}
+
+message UpdateProjectModelRoutingResponse {
+  ProjectModelRouting routing = 1;
+}
+
+message PreviewModelRoutingRequest {
+  string project_id = 1;
+  TaskPriority priority = 2;
+  TaskSize size = 3;
+  repeated string tags = 4;
+}
+
+message PreviewModelRoutingResponse {
+  
+  ModelSelection model = 1;
+  
+  
+  string scope = 2;
+  
+  int32 rule = 3;
+}
+
+message RoutingModel {
+  string provider = 1;
+  string model_id = 2;
+  string name = 3;
+  
+  
+  
+  
+  repeated string thinking_levels = 4;
+}
+
+message ListRoutingModelsRequest {
+  
+  string project_id = 1;
+}
+
+message ListRoutingModelsResponse {
+  repeated RoutingModel models = 1;
+}

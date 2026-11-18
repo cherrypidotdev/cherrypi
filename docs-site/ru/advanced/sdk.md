@@ -115,7 +115,7 @@ await agency.addToTask(task.id, "Also update the meta description.");
 ```
 
 `watchTask` стримит live-события одной задачи; `getTaskHistory` читает
-сохранённые записи сессии Pi с пагинацией.
+сохранённую переписку с пагинацией.
 
 ## Ошибки и повторы
 

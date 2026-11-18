@@ -127,10 +127,9 @@ CHERRYPI_AGENT_TOKEN=pat_…
 cherrypi-agent --agency-url … --token pat_…
 ```
 
-An explicit token wins over the cached token file, for the agent and the
-bundled Pi tools alike. Rotate a token by minting a new one and restarting the
-agent, or by replacing `$CHERRYPI_DIR/agent.token` (the bundled Pi tools
-re-read it).
+`--token` wins over `CHERRYPI_AGENT_TOKEN`. Rotate a token by minting a new one
+and restarting the agent: the worker holds its token in memory and caches
+nothing on disk.
 
 ## Removing an agent
 

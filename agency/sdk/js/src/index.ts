@@ -55,7 +55,7 @@ export {
   type ReopenTaskOptions,
   type ReleaseTaskHoldInput,
   type SetTaskModelInput,
-  type SetTaskLeadsInput,
+  type SetTaskLeaderInput,
   type SetTaskFavoriteInput,
   type SetTaskSubscriptionInput,
   type SetTaskTeamsInput,
@@ -99,6 +99,13 @@ export {
   type AgencyNotification,
   type AgencySettings,
   type AgencySettingsInput,
+  type ModelRouteInput,
+  type ModelSelectionInput,
+  type ModelRoutingPreview,
+  type OrganizationModelRoutingInput,
+  type PreviewModelRoutingInput,
+  type ProjectModelRoutingInput,
+  type RoutingModelOption,
   type VoiceInput,
   type VoiceInputSettingsInput,
   type TranscribeAudioInput,
@@ -157,6 +164,13 @@ export * from "./gen/buf/agency/v1/plugins_pb.js";
 export * from "./gen/buf/agency/v1/task_pb.js";
 
 export * from "./gen/buf/agency/v1/task_templates_pb.js";
+
+export type {
+  ModelRoute,
+  ModelSelection,
+  OrganizationModelRouting,
+  ProjectModelRouting,
+} from "./gen/buf/agency/v1/model_routing_pb.js";
 
 export * from "./gen/buf/agency/v1/attachments_pb.js";
 

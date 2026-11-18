@@ -54,6 +54,7 @@ func (s *TaskServer) CreateTask(
 		AgencySeq:          req.Ref.GetSeq(),
 		Sender:             sessionSender(req.Sender),
 		PluginTools:        sessionPluginTools(req.Tools),
+		RequiredTools:      req.RequiredTools,
 	})
 	if err != nil {
 		return nil, connectError(err)
@@ -72,6 +73,12 @@ func (s *TaskServer) AddToTask(
 		AgencyProjectID: req.Ref.GetProjectId(),
 		AgencySeq:       req.Ref.GetSeq(),
 		Sender:          sessionSender(req.Sender),
+		RequiredTools:   req.RequiredTools,
+		Model: session.ModelSelection{
+			Provider:      req.ModelProvider,
+			ModelID:       req.ModelId,
+			ThinkingLevel: req.ThinkingLevel,
+		},
 	}); err != nil {
 		return nil, connectError(err)
 	}
@@ -127,7 +134,14 @@ func (s *TaskServer) RetryTask(
 	ctx context.Context,
 	req *agentv1.RetryTaskRequest,
 ) (*agentv1.RetryTaskResponse, error) {
-	if err := s.Tasks.Retry(ctx, req.Id, req.Ref.GetProjectId(), req.Ref.GetSeq()); err != nil {
+	if err := s.Tasks.Retry(
+		ctx, req.Id, req.Ref.GetProjectId(), req.Ref.GetSeq(), req.RequiredTools,
+		session.ModelSelection{
+			Provider:      req.ModelProvider,
+			ModelID:       req.ModelId,
+			ThinkingLevel: req.ThinkingLevel,
+		},
+	); err != nil {
 		return nil, connectError(err)
 	}
 
@@ -143,10 +157,25 @@ func (s *TaskServer) StopTask(
 	ctx context.Context,
 	req *agentv1.StopTaskRequest,
 ) (*agentv1.StopTaskResponse, error) {
-	if err := s.Tasks.Stop(ctx, req.Id); err != nil {
+	if err := s.Tasks.Stop(ctx, req.Id, req.Actor); err != nil {
 		return nil, connectError(err)
 	}
 	return &agentv1.StopTaskResponse{}, nil
+}
+
+func (s *TaskServer) InterruptToolCall(
+	ctx context.Context,
+	req *agentv1.InterruptToolCallRequest,
+) (*agentv1.InterruptToolCallResponse, error) {
+	if err := s.Tasks.InterruptToolCall(
+		ctx,
+		req.Id,
+		req.ToolCallId,
+		req.Actor,
+	); err != nil {
+		return nil, connectError(err)
+	}
+	return &agentv1.InterruptToolCallResponse{}, nil
 }
 
 func (s *TaskServer) DeleteTask(
@@ -207,7 +236,7 @@ func (s *TaskServer) WatchTask(
 			if !ok {
 				return nil
 			}
-			msg := &agentv1.WatchTaskResponse{Event: toProtoEvent(req.Id, ev)}
+			msg := &agentv1.WatchTaskResponse{Event: session.TaskEventProto(req.Id, ev)}
 			if err := stream.Send(msg); err != nil {
 				return err
 			}
@@ -226,7 +255,7 @@ func (s *TaskServer) GetTaskHistory(
 
 	out := make([]*agentv1.TaskEvent, len(events))
 	for i, ev := range events {
-		out[i] = toProtoEvent(req.Id, ev)
+		out[i] = session.TaskEventProto(req.Id, ev)
 	}
 
 	return &agentv1.GetTaskHistoryResponse{Events: out, NextBefore: nextBefore}, nil
@@ -350,6 +379,9 @@ func connectError(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, session.ErrNoPendingDialog):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, session.ErrToolCallNotRunning):
+
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, session.ErrInvalidCursor):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, session.ErrInvalidModel):
@@ -376,7 +408,7 @@ func (s *TaskServer) toProtoTask(row taskRow) *agentv1.Task {
 		Prompt:            row.Prompt,
 		Name:              row.Name,
 		Workspace:         row.Workspace,
-		PiSessionId:       row.PiSessionID,
+		SessionId:         row.SessionID,
 		Error:             row.Error.String,
 		CreatedAt:         timestamp(row.CreatedAt),
 		UpdatedAt:         timestamp(row.UpdatedAt),
@@ -416,134 +448,4 @@ func toProtoConfig(cfg session.SessionConfig) *agentv1.TaskConfig {
 		ThinkingLevel:  cfg.ThinkingLevel,
 		ThinkingLevels: cfg.ThinkingLevels,
 	}
-}
-
-func toProtoEvent(sessionID string, ev session.Event) *agentv1.TaskEvent {
-	out := &agentv1.TaskEvent{
-		TaskId: sessionID,
-		At:     timestamppb.New(ev.At),
-	}
-
-	switch ev.Kind {
-	case session.EventStatus:
-		out.Event = &agentv1.TaskEvent_StatusChanged{
-			StatusChanged: &agentv1.TaskStatusChanged{
-				Status: agentv1.TaskStatus(ev.Status),
-				Error:  ev.Error,
-			},
-		}
-	case session.EventRunStarted:
-		out.Event = &agentv1.TaskEvent_RunStarted{RunStarted: &agentv1.RunStarted{}}
-	case session.EventRunSettled:
-		out.Event = &agentv1.TaskEvent_RunSettled{RunSettled: &agentv1.RunSettled{}}
-	case session.EventText:
-		out.Event = &agentv1.TaskEvent_Text{Text: &agentv1.AgentText{Delta: ev.Delta}}
-	case session.EventThinking:
-		thinking := &agentv1.AgentThinking{Delta: ev.Delta}
-
-		if ev.ThinkingSpan != nil {
-			thinking.DurationMs = ev.ThinkingSpan.DurationMs
-			thinking.Chars = ev.ThinkingSpan.Chars
-			thinking.Estimated = ev.ThinkingSpan.Estimated
-		}
-		out.Event = &agentv1.TaskEvent_Thinking{Thinking: thinking}
-	case session.EventThinkingSpan:
-
-		thinking := &agentv1.AgentThinking{}
-		if ev.ThinkingSpan != nil {
-			thinking.DurationMs = ev.ThinkingSpan.DurationMs
-			thinking.Chars = ev.ThinkingSpan.Chars
-		}
-		out.Event = &agentv1.TaskEvent_Thinking{Thinking: thinking}
-	case session.EventLog:
-		out.Event = &agentv1.TaskEvent_Log{Log: &agentv1.LogLine{Line: ev.Line}}
-	case session.EventTool:
-		out.Event = &agentv1.TaskEvent_Tool{
-			Tool: &agentv1.ToolExecution{
-				ToolCallId:  ev.Tool.CallID,
-				ToolName:    ev.Tool.Name,
-				Phase:       agentv1.ToolPhase(ev.Tool.Phase),
-				ArgsJson:    ev.Tool.ArgsJSON,
-				ResultJson:  ev.Tool.ResultJSON,
-				DetailsJson: ev.Tool.DetailsJSON,
-				IsError:     ev.Tool.IsError,
-			},
-		}
-	case session.EventExtensionUI:
-		out.Event = &agentv1.TaskEvent_ExtensionUi{
-			ExtensionUi: &agentv1.ExtensionUiRequest{
-				RequestId:   ev.Extension.RequestID,
-				Method:      ev.Extension.Method,
-				Title:       ev.Extension.Title,
-				Message:     ev.Extension.Message,
-				Placeholder: ev.Extension.Placeholder,
-				Prefill:     ev.Extension.Prefill,
-				Options:     ev.Extension.Options,
-				Timeout:     ev.Extension.Timeout,
-				RawJson:     ev.Extension.RawJSON,
-			},
-		}
-	case session.EventUser:
-		message := &agentv1.UserMessage{Text: ev.Text}
-
-		if parsed, ok := session.ParsePromptEnvelope(ev.Text); ok {
-			message.Body = parsed.Body
-			if parsed.Sender != nil {
-				message.Sender = &agentv1.PromptSender{
-					ActorId:  parsed.Sender.ActorID,
-					Username: parsed.Sender.Username,
-					Name:     parsed.Sender.Name,
-					Kind:     parsed.Sender.Kind,
-				}
-			}
-			for _, attachment := range parsed.Attachments {
-				message.Attachments = append(message.Attachments, &agentv1.MessageAttachment{
-					Id:       attachment.ID,
-					Filename: attachment.Filename,
-				})
-			}
-		}
-		out.Event = &agentv1.TaskEvent_UserMessage{UserMessage: message}
-	case session.EventQueue:
-
-		steering := make([]string, len(ev.Queue.Steering))
-		queued := make([]*agentv1.QueuedMessage, len(ev.Queue.Steering))
-		for i, entry := range ev.Queue.Steering {
-			steering[i] = entry.Text
-			queued[i] = &agentv1.QueuedMessage{Id: entry.ID, Text: entry.Text}
-		}
-		out.Event = &agentv1.TaskEvent_PendingMessages{
-			PendingMessages: &agentv1.PendingMessages{
-				//nolint:staticcheck // an older agency reads only this field.
-				Steering:       steering,
-				QueuedSteering: queued,
-			},
-		}
-	case session.EventPending:
-		pending := &agentv1.PendingActivity{}
-		if ev.Pending != nil {
-			pending.Kind = agentv1.PendingActivity_Kind(ev.Pending.Kind)
-			pending.Model = ev.Pending.Model
-			pending.Provider = ev.Pending.Provider
-			pending.Error = ev.Pending.Error
-			pending.Attempt = ev.Pending.Attempt
-			pending.MaxAttempts = ev.Pending.MaxAttempts
-			pending.Reason = ev.Pending.Reason
-		}
-		out.Event = &agentv1.TaskEvent_PendingActivity{PendingActivity: pending}
-	case session.EventModelWait:
-		wait := &agentv1.ModelWait{}
-		if ev.ModelWait != nil {
-			wait.Kind = agentv1.ModelWait_Kind(ev.ModelWait.Kind)
-			wait.Model = ev.ModelWait.Model
-			wait.Provider = ev.ModelWait.Provider
-			wait.DurationMs = ev.ModelWait.DurationMs
-			wait.Error = ev.ModelWait.Error
-			wait.Attempt = ev.ModelWait.Attempt
-			wait.Reason = ev.ModelWait.Reason
-		}
-		out.Event = &agentv1.TaskEvent_ModelWait{ModelWait: wait}
-	}
-
-	return out
 }

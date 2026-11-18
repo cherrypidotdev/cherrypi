@@ -27,6 +27,7 @@ Dialog(v-model:open="open")
         | {{ $t("taskComposer.description") }}
 
     ExpressTaskForm(
+      ref="form"
       bare
       :project-id="relatedTask?.projectId"
       :default-project-id="defaultProjectId"
@@ -38,6 +39,7 @@ Dialog(v-model:open="open")
 
 <script setup lang="ts">
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
+
 import {
   Dialog,
   DialogContent,
@@ -47,7 +49,7 @@ import {
 } from "@/components/ui/dialog";
 import { newTaskRelationNote, type NewTaskRelation } from "@/lib/task";
 import type { Task } from "@cherrypi/sdk";
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 
 const props = defineProps<{
   relatedTask?: Task | null;
@@ -60,6 +62,12 @@ const props = defineProps<{
 const emit = defineEmits<{ created: [Task] }>();
 
 const open = defineModel<boolean>("open", { default: false });
+
+const form = ref<InstanceType<typeof ExpressTaskForm> | null>(null);
+
+watch(open, (isOpen) => {
+  if (!isOpen) form.value?.resetProjectChoice();
+});
 
 const relationNote = computed(() =>
   props.relatedTask

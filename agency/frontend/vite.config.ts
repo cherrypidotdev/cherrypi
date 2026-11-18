@@ -80,6 +80,9 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion()),
   },
+  build: {
+    sourcemap: true,
+  },
   server: {
     proxy: apiProxy(process.env.CHERRYPI_API_TARGET),
   },

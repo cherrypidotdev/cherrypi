@@ -19,10 +19,19 @@ import { readdirSync, readFileSync } from "node:fs";
 const POINTER = "version https://git-lfs.github.com/spec/v1";
 const publicDir = new URL("../public/", import.meta.url);
 
-const pointers = readdirSync(publicDir).filter((name) => {
-  if (!/\.(png|ico)$/i.test(name)) return false;
-  return readFileSync(new URL(name, publicDir), "utf8").startsWith(POINTER);
-});
+function assets(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+    if (entry.isDirectory()) {
+      return assets(path);
+    }
+    return /\.(png|ico|ttf|otf|woff2?)$/i.test(entry.name) ? [path] : [];
+  });
+}
+
+const pointers = assets(publicDir)
+  .filter((path) => readFileSync(path, "utf8").startsWith(POINTER))
+  .map((path) => path.pathname.slice(publicDir.pathname.length));
 
 if (pointers.length > 0) {
   console.error(

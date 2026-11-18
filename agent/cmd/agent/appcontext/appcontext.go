@@ -17,7 +17,6 @@
 package appcontext
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,17 +26,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agent/internal/agency"
 	"cherrypi.vladfaust.com/agent/internal/auth"
 	"cherrypi.vladfaust.com/agent/internal/desktop"
 	"cherrypi.vladfaust.com/agent/internal/events"
 	"cherrypi.vladfaust.com/agent/internal/session"
 	"cherrypi.vladfaust.com/agent/internal/store"
 	"cherrypi.vladfaust.com/agent/internal/terminal"
+	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
+	"connectrpc.com/connect"
 )
 
 type AppContext struct {
@@ -77,153 +78,36 @@ func newAttachmentFetcher(config Config) func(context.Context, string) (io.ReadC
 }
 
 func setAuth(req *http.Request, config Config) {
-	token := config.AgentToken
-	if !config.AgentTokenFixed {
-		if rotated := auth.LoadToken("", config.AgentTokenFile); rotated != "" {
-			token = rotated
-		}
-	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if config.AgentToken != "" {
+		req.Header.Set("Authorization", "Bearer "+config.AgentToken)
 	}
 }
 
-const agentTokenPath = "/api/rest/agent-tools/token"
-
-func ResolveAgentToken(ctx context.Context, config *Config) error {
-	if token := auth.LoadToken(config.AgentToken, ""); token != "" {
+func ResolveAgentToken(config *Config) error {
+	if token := auth.LoadToken(config.AgentToken); token != "" {
 		config.AgentToken = token
-		if err := auth.SaveToken(config.AgentTokenFile, token); err != nil {
-			log.Printf("Cache agent token: %v", err)
-		}
 		return nil
-	}
-
-	cached := auth.LoadToken("", config.AgentTokenFile)
-	if cached != "" {
-		valid := true
-		if config.AgencyURL != "" {
-			var err error
-			valid, err = validateAgentToken(ctx, *config, cached)
-			if err != nil {
-
-				log.Printf("Validate agent token: %v; using the cached token", err)
-				valid = true
-			}
-		}
-		if valid {
-			config.AgentToken = cached
-			if err := auth.SaveToken(config.AgentTokenFile, cached); err != nil {
-				log.Printf("Cache agent token: %v", err)
-			}
-			return nil
-		}
-
-		if err := os.Remove(config.AgentTokenFile); err != nil && !os.IsNotExist(err) {
-			log.Printf("Discard rejected agent token: %v", err)
-		}
-		return fmt.Errorf(
-			"cached agent token was rejected; create a new personal access token and pass --token or set CHERRYPI_AGENT_TOKEN (or write it to %s)",
-			config.AgentTokenFile,
-		)
-	}
-
-	return fmt.Errorf(
-		"no agent token: pass --token or set CHERRYPI_AGENT_TOKEN (or write a personal access token to %s)",
-		config.AgentTokenFile,
-	)
-}
-
-func RefreshAgentToken(ctx context.Context, config *Config) error {
-	if config.AgentTokenFixed {
-		return errors.New("CHERRYPI_AGENT_TOKEN is fixed; cannot refresh it")
-	}
-	if config.AgencyURL == "" {
-		return errors.New("no agency URL to refresh the agent token")
-	}
-
-	cached := auth.LoadToken("", config.AgentTokenFile)
-	if cached == "" {
-		return errors.New("no cached agent token to refresh")
-	}
-	valid, err := validateAgentToken(ctx, *config, cached)
-	if err != nil {
-		return err
-	}
-	if valid {
-		return nil
-	}
-	if err := os.Remove(config.AgentTokenFile); err != nil && !os.IsNotExist(err) {
-		log.Printf("Discard rejected agent token: %v", err)
 	}
 	return errors.New(
-		"cached agent token was rejected; mint a new personal access token and pass --token or set CHERRYPI_AGENT_TOKEN",
+		"no agent token: pass --token or set CHERRYPI_AGENT_TOKEN to a personal access token",
 	)
-}
-
-func validateAgentToken(ctx context.Context, config Config, token string) (bool, error) {
-	endpoint := strings.TrimRight(config.AgencyURL, "/") + agentTokenPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	switch res.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return false, nil
-	case http.StatusNotFound, http.StatusMethodNotAllowed:
-
-		return true, nil
-	default:
-		return false, fmt.Errorf("agent token check: %s", res.Status)
-	}
 }
 
 func newTaskIDResolver(
-	config Config,
+	client *agency.Client,
 ) func(context.Context, string, int64) (string, error) {
-	if config.AgencyURL == "" || config.AgentToken == "" {
+	if client == nil || client.BaseURL == "" {
 		return nil
 	}
-
-	base := strings.TrimRight(config.AgencyURL, "/")
-	client := &http.Client{}
-
 	return func(ctx context.Context, projectID string, seq int64) (string, error) {
-		endpoint := base + "/api/rest/agent-tools/tasks/resolve?project_id=" +
-			url.QueryEscape(projectID) + "&seq=" + strconv.FormatInt(seq, 10)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		res, err := client.Tasks.ResolveTaskRef(
+			ctx,
+			&agencyv1.ResolveTaskRefRequest{ProjectId: projectID, Seq: seq},
+		)
 		if err != nil {
 			return "", err
 		}
-		setAuth(req, config)
-
-		res, err := client.Do(req)
-		if err != nil {
-			return "", err
-		}
-		defer func() { _ = res.Body.Close() }()
-		if res.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("resolve task: %s", res.Status)
-		}
-
-		var payload struct {
-			TaskID string `json:"task_id"`
-		}
-		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-			return "", err
-		}
-		return payload.TaskID, nil
+		return res.GetTaskId(), nil
 	}
 }
 
@@ -282,52 +166,96 @@ func taskHistoryStatusError(res *http.Response) error {
 	}
 }
 
-func newTaskHistoryPusher(
-	config Config,
-) func(context.Context, string, int64, []session.SessionEntry) error {
-	if config.AgencyURL == "" || config.AgentToken == "" {
+func newTaskSessionStateGetter(
+	client *agency.Client,
+) func(context.Context, string) (session.TaskSessionState, bool, error) {
+	if client == nil || client.BaseURL == "" {
 		return nil
 	}
-
-	base := strings.TrimRight(config.AgencyURL, "/")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-
 	return func(
 		ctx context.Context,
-		projectID string,
-		seq int64,
-		entries []session.SessionEntry,
-	) error {
-		body, err := json.Marshal(map[string]any{
-			"project_id": projectID,
-			"seq":        seq,
-			"entries":    entries,
-		})
-		if err != nil {
-			return err
-		}
-		req, err := http.NewRequestWithContext(
+		taskID string,
+	) (session.TaskSessionState, bool, error) {
+		res, err := client.Tasks.GetTaskSessionState(
 			ctx,
-			http.MethodPost,
-			base+"/api/rest/task-history",
-			bytes.NewReader(body),
+			&agencyv1.GetTaskSessionStateRequest{Id: taskID},
 		)
 		if err != nil {
-			return err
+			return session.TaskSessionState{}, false, err
 		}
-		req.Header.Set("Content-Type", "application/json")
-		setAuth(req, config)
+		state := res.GetState()
+		if state == nil {
+			return session.TaskSessionState{}, false, nil
+		}
+		return session.TaskSessionState{
+			Revision:      state.GetRevision(),
+			ModelProvider: state.GetModelProvider(),
+			ModelID:       state.GetModelId(),
+			ThinkingLevel: state.GetThinkingLevel(),
+			EntriesJSON:   state.GetEntriesJson(),
+			LastEventSeq:  state.GetLastEventSeq(),
+		}, res.GetFound(), nil
+	}
+}
 
-		res, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = res.Body.Close() }()
-		if res.StatusCode != http.StatusOK {
-			return taskHistoryStatusError(res)
-		}
+func newTaskSessionStatePutter(
+	client *agency.Client,
+) func(context.Context, string, session.TaskSessionState, int64) (int64, error) {
+	if client == nil || client.BaseURL == "" {
 		return nil
+	}
+	return func(
+		ctx context.Context,
+		taskID string,
+		state session.TaskSessionState,
+		expectedRevision int64,
+	) (int64, error) {
+		res, err := client.Tasks.PutTaskSessionState(
+			ctx,
+			&agencyv1.PutTaskSessionStateRequest{
+				Id:               taskID,
+				ExpectedRevision: expectedRevision,
+				ModelProvider:    state.ModelProvider,
+				ModelId:          state.ModelID,
+				ThinkingLevel:    state.ThinkingLevel,
+				EntriesJson:      state.EntriesJSON,
+			},
+		)
+		if err != nil {
+			if connect.CodeOf(err) == connect.CodeAborted {
+				return 0, session.ErrTaskSessionStateConflict
+			}
+			return 0, err
+		}
+		return res.GetRevision(), nil
+	}
+}
+
+func newTaskEventAppender(
+	client *agency.Client,
+) func(context.Context, string, []session.TaskEventRecord) error {
+	if client == nil || client.BaseURL == "" {
+		return nil
+	}
+	return func(
+		ctx context.Context,
+		taskID string,
+		events []session.TaskEventRecord,
+	) error {
+		records := make([]*agencyv1.TaskEventRecord, len(events))
+		for i, event := range events {
+			records[i] = &agencyv1.TaskEventRecord{
+				Seq:         event.Seq,
+				At:          event.At,
+				Kind:        event.Kind,
+				PayloadJson: event.PayloadJSON,
+			}
+		}
+		_, err := client.Tasks.AppendTaskEvents(
+			ctx,
+			&agencyv1.AppendTaskEventsRequest{Id: taskID, Events: records},
+		)
+		return err
 	}
 }
 
@@ -339,31 +267,23 @@ func NewAppContext(config Config, eventHub *events.Hub) *AppContext {
 
 	st := store.NewStore(config.DatabaseDSN, nil)
 
-	extensionPaths, err := session.InstallExtensions(filepath.Join(config.Dir, "extensions"))
-	if err != nil {
-		log.Fatalf("Failed to install Pi extensions: %v", err)
-	}
-	piArgs := config.PiArgs
-	for _, path := range extensionPaths {
-		piArgs = append(piArgs, "--extension", path)
-	}
+	agencyClient := agency.New(config.AgencyURL, func() string {
+		return config.AgentToken
+	}, nil)
 
 	sessions := session.NewManager(session.Config{
-		PiBin:            config.PiBin,
-		PiSessionDir:     config.PiSessionDir,
-		AgentDir:         config.PiAgentDir,
-		PiArgs:           piArgs,
-		WorkspaceRoot:    config.WorkspaceRoot,
-		Notify:           eventHub.Publish,
-		FetchAttachment:  newAttachmentFetcher(config),
-		AgencyURL:        config.AgencyURL,
-		AgentTokenFile:   config.AgentTokenFile,
-		ResolveTaskID:    newTaskIDResolver(config),
-		FetchTaskHistory: newTaskHistoryFetcher(config),
-		PushTaskHistory:  newTaskHistoryPusher(config),
-		RefreshTaskHistoryAuth: func(ctx context.Context) error {
-			return RefreshAgentToken(ctx, &config)
-		},
+		WorkspaceRoot:       config.WorkspaceRoot,
+		Notify:              eventHub.Publish,
+		FetchAttachment:     newAttachmentFetcher(config),
+		AgencyURL:           config.AgencyURL,
+		AgentToken:          config.AgentToken,
+		Agency:              agencyClient,
+		AgencyCatalog:       &agentCatalog{client: agencyClient},
+		ResolveTaskID:       newTaskIDResolver(agencyClient),
+		FetchTaskHistory:    newTaskHistoryFetcher(config),
+		GetTaskSessionState: newTaskSessionStateGetter(agencyClient),
+		PutTaskSessionState: newTaskSessionStatePutter(agencyClient),
+		AppendTaskEvents:    newTaskEventAppender(agencyClient),
 	}, st)
 
 	terminals := terminal.NewManager(terminal.Config{
@@ -383,4 +303,40 @@ func NewAppContext(config Config, eventHub *events.Hub) *AppContext {
 		Desktops:  desktops,
 		Events:    eventHub,
 	}
+}
+
+type agentCatalog struct {
+	client *agency.Client
+}
+
+func (c *agentCatalog) Fetch(
+	ctx context.Context,
+	taskID, knownRevision string,
+) (session.AgencyModels, bool, error) {
+	if c.client == nil || c.client.BaseURL == "" {
+		return session.AgencyModels{}, false, nil
+	}
+	path := "/api/rest/agent-config"
+	query := url.Values{}
+	if taskID != "" {
+		query.Set("task", taskID)
+	}
+	if knownRevision != "" {
+		query.Set("revision", knownRevision)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	raw, notModified, err := c.client.RESTConditional(ctx, path)
+	if err != nil {
+		return session.AgencyModels{}, false, err
+	}
+	if notModified {
+		return session.AgencyModels{}, false, nil
+	}
+	var models session.AgencyModels
+	if err := json.Unmarshal(raw, &models); err != nil {
+		return session.AgencyModels{}, false, err
+	}
+	return models, true, nil
 }

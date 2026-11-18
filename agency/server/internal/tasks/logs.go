@@ -69,8 +69,6 @@ const (
 
 	LogQuestionnaire = "questionnaire"
 
-	LogParent = "parent"
-
 	LogPlugin = "plugin"
 
 	LogHold = "hold"
@@ -259,16 +257,23 @@ func (s *Service) logOwnership(ctx context.Context, before, after Task) {
 			map[string]any{"team_ids": after.TeamIDs},
 		)
 	}
-	if !equalActorIDs(before.LeadActorIDs, after.LeadActorIDs) {
+	if before.LeaderActorID != after.LeaderActorID {
 		s.recordLog(
 			ctx, actor, at,
-			after.ID, LogLeads, "leads",
-			labelWithCount("leads", len(before.LeadActorIDs)),
-			labelWithCount("leads", len(after.LeadActorIDs)),
-			"Leads changed to "+labelWithCount("leads", len(after.LeadActorIDs)),
-			map[string]any{"actor_ids": after.LeadActorIDs},
+			after.ID, LogLeads, "leader",
+			actorLabel(before.LeaderActorID),
+			actorLabel(after.LeaderActorID),
+			"Leader changed to "+actorLabel(after.LeaderActorID),
+			map[string]any{"actor_id": after.LeaderActorID},
 		)
 	}
+}
+
+func actorLabel(actorID ids.ActorID) string {
+	if actorID == 0 {
+		return "none"
+	}
+	return "actor " + strconv.FormatInt(int64(actorID), 10)
 }
 
 func labelWithCount(noun string, count int) string {
@@ -276,18 +281,6 @@ func labelWithCount(noun string, count int) string {
 		return "no " + noun
 	}
 	return noun + " (" + strconv.Itoa(count) + ")"
-}
-
-func equalActorIDs(a, b []ids.ActorID) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func equalInt64(a, b []int64) bool {

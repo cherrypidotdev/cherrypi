@@ -19,6 +19,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strconv"
+	"strings"
 
 	pgdb "cherrypi.vladfaust.com/agency/internal/gen/pg"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -30,6 +32,32 @@ func (s *PgStore) GetActorByID(ctx context.Context, id ids.ActorID) (Actor, erro
 		return Actor{}, err
 	}
 	return fromPgActor(row), nil
+}
+
+func joinedIDs[T ~int64](ids []T) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(int64(id), 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (s *PgStore) ListActorsByIDs(
+	ctx context.Context,
+	ids []ids.ActorID,
+) ([]Actor, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListActorsByIDs(ctx, joinedIDs(ids))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Actor, len(rows))
+	for i, row := range rows {
+		out[i] = fromPgActor(row)
+	}
+	return out, nil
 }
 
 func (s *PgStore) GetActorByUsername(
@@ -1191,6 +1219,28 @@ func (s *PgStore) ListTasks(
 	ctx context.Context,
 	p ListTasksParams,
 ) ([]Task, error) {
+
+	if p.Search.Valid && p.Search.String != "" {
+		rows, err := s.q.ListTasksRanked(ctx, pgdb.ListTasksRankedParams{
+			ProjectID:          p.ProjectID,
+			AgentID:            p.AgentID,
+			State:              p.State,
+			Archived:           p.Archived,
+			IncludeArchived:    p.IncludeArchived,
+			Automated:          p.Automated,
+			TagID:              p.TagID,
+			Search:             p.Search,
+			Size:               p.Size,
+			Priority:           p.Priority,
+			ReferenceProjectID: p.ReferenceProjectID,
+			PageOffset:         p.PageOffset,
+			PageLimit:          p.PageLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return fromPgTaskSlice(rows), nil
+	}
 	rows, err := s.q.ListTasks(ctx, pgdb.ListTasksParams(p))
 	if err != nil {
 		return nil, err
@@ -1426,32 +1476,57 @@ func (s *PgStore) RenameTask(
 	return fromPgTask(row), nil
 }
 
-func (s *PgStore) ListTaskChildren(
+func (s *PgStore) SetTaskNeedsOperator(
 	ctx context.Context,
-	parentTaskID string,
+	p SetTaskNeedsOperatorParams,
+) (int64, error) {
+	return s.q.SetTaskNeedsOperator(ctx, pgdb.SetTaskNeedsOperatorParams(p))
+}
+
+func (s *PgStore) SetTaskReactionReminders(
+	ctx context.Context,
+	p SetTaskReactionRemindersParams,
+) (int64, error) {
+	return s.q.SetTaskReactionReminders(ctx, pgdb.SetTaskReactionRemindersParams(p))
+}
+
+func (s *PgStore) ListLiveReactionTasksByOrigin(
+	ctx context.Context,
+	originID string,
 ) ([]Task, error) {
-	rows, err := s.q.ListTaskChildren(ctx, sql.NullString{String: parentTaskID, Valid: true})
+	rows, err := s.q.ListLiveReactionTasksByOrigin(
+		ctx,
+		sql.NullString{String: originID, Valid: originID != ""},
+	)
 	if err != nil {
 		return nil, err
 	}
 	return fromPgTaskSlice(rows), nil
 }
 
-func (s *PgStore) CountIncompleteChildTasks(
+func (s *PgStore) ListStalledReactionTasks(
 	ctx context.Context,
-	parentTaskID string,
-) (int64, error) {
-	return s.q.CountIncompleteChildTasks(
+	cutoffMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListStalledReactionTasks(
 		ctx,
-		sql.NullString{String: parentTaskID, Valid: true},
+		sql.NullInt64{Int64: cutoffMs, Valid: true},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskSlice(rows), nil
 }
 
-func (s *PgStore) DetachTaskChildren(
+func (s *PgStore) SetAgentLastOnline(
 	ctx context.Context,
-	p DetachTaskChildrenParams,
+	id ids.AgentID,
+	at int64,
 ) error {
-	return s.q.DetachTaskChildren(ctx, pgdb.DetachTaskChildrenParams(p))
+	return s.q.SetAgentLastOnline(ctx, pgdb.SetAgentLastOnlineParams{
+		LastOnlineAt: sql.NullInt64{Int64: at, Valid: at != 0},
+		ID:           int64(id),
+	})
 }
 
 func (s *PgStore) SetTaskPendingSteering(
@@ -1693,6 +1768,35 @@ func (s *PgStore) ListTaskReferences(ctx context.Context, taskID string) ([]Task
 	return fromPgTaskSlice(rows), nil
 }
 
+func (s *PgStore) ListBlockedEdgesByBlocker(
+	ctx context.Context,
+	blockerID string,
+) ([]ListBlockedEdgesByBlockerRow, error) {
+	rows, err := s.q.ListBlockedEdgesByBlocker(ctx, blockerID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListBlockedEdgesByBlockerRow, len(rows))
+	for i, row := range rows {
+		out[i] = fromPgListBlockedEdgesByBlockerRow(row)
+	}
+	return out, nil
+}
+
+func (s *PgStore) ListPendingSteeringTasks(
+	ctx context.Context,
+) ([]ListPendingSteeringTasksRow, error) {
+	rows, err := s.q.ListPendingSteeringTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListPendingSteeringTasksRow, len(rows))
+	for i, row := range rows {
+		out[i] = fromPgListPendingSteeringTasksRow(row)
+	}
+	return out, nil
+}
+
 func (s *PgStore) ListTaskReferencedBy(
 	ctx context.Context,
 	taskID string,
@@ -1735,14 +1839,26 @@ func (s *PgStore) ListTaskReferenceRefs(
 	return fromPgListTaskReferenceRefsRowSlice(rows), nil
 }
 
-func (s *PgStore) ListTaskReferencedByRefs(
+func (s *PgStore) ListTaskReferenceRefsByTask(
 	ctx context.Context,
-) ([]ListTaskReferencedByRefsRow, error) {
-	rows, err := s.q.ListTaskReferencedByRefs(ctx)
+	taskID string,
+) ([]ListTaskReferenceRefsByTaskRow, error) {
+	rows, err := s.q.ListTaskReferenceRefsByTask(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
-	return fromPgListTaskReferencedByRefsRowSlice(rows), nil
+	return fromPgListTaskReferenceRefsByTaskRowSlice(rows), nil
+}
+
+func (s *PgStore) ListTaskReferencedByRefsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskReferencedByRefsByTaskRow, error) {
+	rows, err := s.q.ListTaskReferencedByRefsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListTaskReferencedByRefsByTaskRowSlice(rows), nil
 }
 
 func (s *PgStore) CreateTag(
@@ -2666,6 +2782,21 @@ func (s *PgStore) GetTeam(ctx context.Context, id int64) (Team, error) {
 		return Team{}, err
 	}
 	return fromPgTeam(row), nil
+}
+
+func (s *PgStore) ListTeamsByIDs(ctx context.Context, ids []int64) ([]Team, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListTeamsByIDs(ctx, joinedIDs(ids))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Team, len(rows))
+	for i, row := range rows {
+		out[i] = fromPgTeam(row)
+	}
+	return out, nil
 }
 
 func (s *PgStore) GetTeamByName(ctx context.Context, name string) (Team, error) {

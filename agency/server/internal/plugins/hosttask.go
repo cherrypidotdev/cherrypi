@@ -46,11 +46,36 @@ func (h *Host) taskForWrite(taskID string) (tasks.Task, error) {
 	return t, nil
 }
 
-func (h *Host) addTaskMessage(taskID, text string) error {
+func (h *Host) addTaskMessage(taskID, text string, opts *lua.LTable) error {
 	if _, err := h.taskForWrite(taskID); err != nil {
 		return err
 	}
-	return h.Bridge.AddTaskMessage(h.Ctx, strings.TrimSpace(taskID), text)
+	message := AddMessageOptions{}
+	if opts != nil {
+		raw := opts.RawGetString("required_tools")
+		if raw != lua.LNil {
+			list, ok := raw.(*lua.LTable)
+			if !ok {
+				return errors.New(
+					"required_tools must be a list of tool names",
+				)
+			}
+			names := make([]string, 0, list.Len())
+			for i := 1; i <= list.Len(); i++ {
+				name, ok := list.RawGetInt(i).(lua.LString)
+				if !ok || strings.TrimSpace(string(name)) == "" {
+					return fmt.Errorf(
+						"required_tools entry %d must be a tool name", i,
+					)
+				}
+				names = append(names, strings.TrimSpace(string(name)))
+			}
+			message.RequiredTools = names
+		}
+	}
+	return h.Bridge.AddTaskMessage(
+		h.Ctx, strings.TrimSpace(taskID), text, message,
+	)
 }
 
 func (h *Host) respondTaskInput(taskID, requestID string, value lua.LValue) error {
@@ -166,6 +191,7 @@ func (h *Host) holdTask(taskID string, opts *lua.LTable) error {
 	return h.Bridge.HoldTask(h.Ctx, strings.TrimSpace(taskID), HoldInput{
 		Key:    key,
 		Reason: stringField(opts, "reason"),
+		URL:    stringField(opts, "url"),
 	})
 }
 
@@ -202,6 +228,7 @@ func (h *Host) listTaskHolds(taskID string) ([]map[string]any, error) {
 			"plugin_name": hold.PluginName,
 			"key":         hold.Key,
 			"reason":      hold.Reason,
+			"url":         hold.URL,
 			"created_at":  hold.CreatedAt.UnixMilli(),
 		}
 	}

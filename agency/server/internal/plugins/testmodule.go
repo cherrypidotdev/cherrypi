@@ -430,22 +430,37 @@ func (h *Host) attachTest(L *lua.LState) {
 		}
 		return 1
 	}))
+	table.RawSetString("project_settings", L.NewFunction(func(L *lua.LState) int {
+		row, err := fake.ProjectSettings(h.Ctx, L.CheckString(1))
+		if err != nil {
+			L.RaiseError("project_settings: %v", err)
+			return 0
+		}
+		L.Push(toLua(L, map[string]any{
+			"enabled":             row.Enabled,
+			"allow_task_creation": row.AllowTaskCreation,
+			"max_priority":        row.MaxPriority,
+			"settings":            row.Values,
+		}))
+		return 1
+	}))
 	table.RawSetString("created_tasks", L.NewFunction(func(L *lua.LState) int {
 		rows := fake.CreatedTaskRows()
 		out := L.NewTable()
 		for _, row := range rows {
 			out.Append(toLua(L, map[string]any{
-				"id":          row.ID,
-				"project":     row.ProjectID,
-				"name":        row.Name,
-				"prompt":      row.Prompt,
-				"assignee":    int64(row.AssigneeActorID),
-				"priority":    row.Priority,
-				"size":        row.Size,
-				"interactive": row.Interactive,
-				"tags":        tagNames(row.Tags),
-				"tools":       toolNames(fake.Tools(row.ID)),
-				"state":       string(row.State),
+				"id":        row.ID,
+				"project":   row.ProjectID,
+				"name":      row.Name,
+				"prompt":    row.Prompt,
+				"assignee":  int64(row.AssigneeActorID),
+				"priority":  row.Priority,
+				"size":      row.Size,
+				"automated": row.Automated,
+				"leader":    int64(row.LeaderActorID),
+				"tags":      tagNames(row.Tags),
+				"tools":     toolNames(fake.Tools(row.ID)),
+				"state":     string(row.State),
 			}))
 		}
 		L.Push(out)
@@ -462,10 +477,19 @@ func (h *Host) attachTest(L *lua.LState) {
 	table.RawSetString("task_messages", L.NewFunction(func(L *lua.LState) int {
 		out := L.NewTable()
 		for _, row := range fake.TaskMessages() {
-			out.Append(toLua(L, map[string]any{
+			item := toLua(L, map[string]any{
 				"task_id": row.TaskID,
 				"text":    row.Text,
-			}))
+			}).(*lua.LTable)
+
+			if row.RequiredTools != nil {
+				required := L.NewTable()
+				for _, name := range row.RequiredTools {
+					required.Append(lua.LString(name))
+				}
+				item.RawSetString("required_tools", required)
+			}
+			out.Append(item)
 		}
 		L.Push(out)
 		return 1
@@ -514,6 +538,7 @@ func (h *Host) attachTest(L *lua.LState) {
 				"plugin_name": hold.PluginName,
 				"key":         hold.Key,
 				"reason":      hold.Reason,
+				"url":         hold.URL,
 				"created_at":  hold.CreatedAt.UnixMilli(),
 			}))
 		}

@@ -171,24 +171,6 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             )
               XIcon.size-3
 
-          TaskParentPicker(
-            v-model="parentChoice"
-            :project-id="selectedProjectId"
-            :disabled="!projectReady"
-          )
-
-          label.inline-flex.items-center.text-xs(
-            v-if="parentChoice"
-            class="gap-1.5"
-            :title="$t('express.interactiveHint')"
-            data-testid="composer-interactive"
-          )
-            Switch(
-              v-model="interactive"
-              :aria-label="$t('express.interactive')"
-            )
-            span {{ $t("express.interactive") }}
-
           Button(
             v-if="fixedAgentId"
             type="button"
@@ -216,8 +198,9 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
           TaskModelPicker(
             :agent-id="selectedAgentId"
             :selection="modelSelection"
+            :routing="routingContext"
             @change="modelSelection = $event"
-            :disabled="saving || !selectedAgentId"
+            :disabled="saving"
           )
 
           .bg-muted.inline-flex.items-center.gap-1.rounded-lg.border(class="p-0.5")
@@ -357,6 +340,7 @@ Card.overflow-visible(:class="bare ? BARE_CARD : ''")
             v-model="references"
             :project-id="selectedProjectId"
             :known-tasks="referenceTasks"
+            :locked-ids="lockedReferenceIds"
             :disabled="!projectReady"
           )
 
@@ -387,7 +371,6 @@ import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import StagedAttachmentList from "@/components/attachments/StagedAttachmentList.vue";
 import TagPicker from "@/components/tags/TagPicker.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
-import TaskParentPicker from "@/components/tasks/TaskParentPicker.vue";
 import TaskReferencePicker from "@/components/tasks/TaskReferencePicker.vue";
 import TaskTemplateApplyDialog, {
   type AppliedTemplate,
@@ -414,7 +397,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
 import { useAgents } from "@/composables/useAgents";
 import { useDraft } from "@/composables/useDraft";
 import { useSessionEditorHeight } from "@/composables/useEditorHeight";
@@ -449,6 +431,7 @@ import {
   taskPriorityTextClass,
   taskSizeKey,
   taskSizeTextClass,
+  type ComposerPreview,
   type NewTaskRelation,
   type TaskModelSelection,
 } from "@/lib/task";
@@ -521,6 +504,8 @@ const props = defineProps<{
   relatedTask?: Task | null;
 
   relation?: NewTaskRelation;
+
+  preview?: ComposerPreview;
 }>();
 
 const BARE_CARD =
@@ -530,6 +515,13 @@ const emit = defineEmits<{ created: [Task] }>();
 
 const { agents, loadAgents, actorIdFor } = useAgents();
 const { active: allProjects, loadProjects } = useProjects();
+
+const projectSource = computed(() =>
+  props.preview ? props.preview.projects : allProjects.value,
+);
+const agentSource = computed(() =>
+  props.preview ? props.preview.agents : agents.value,
+);
 
 const prompt = useDraft(() =>
   composerDraftKey({ agent: props.agentId, project: props.projectId }),
@@ -577,15 +569,11 @@ const references = ref<TaskReferenceInput[]>([]);
 const appliedTemplate = ref<AppliedTemplate | null>(null);
 const templateOpen = ref(false);
 
-const parentChoice = ref<Task | null>(null);
-
-const interactive = ref(true);
-
 let seededRelation = "";
 
-watch(parentChoice, (parent) => {
-  if (!parent) interactive.value = true;
-});
+const lockedReferenceIds = computed(() =>
+  props.relatedTask ? [props.relatedTask.id] : [],
+);
 
 const referenceTasks = ref<Task[]>([]);
 
@@ -642,11 +630,9 @@ function toggleOwningTeam(id: number) {
   else next.add(id);
   owningTeamIds.value = [...next];
 }
+
 function toggleLead(id: string) {
-  const next = new Set(leadActorIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  leadActorIds.value = [...next];
+  leadActorIds.value = leadActorIds.value.includes(id) ? [] : [id];
 }
 
 const submitting = ref<TaskState | null>(null);
@@ -793,17 +779,25 @@ const selectedAgentId = computed(
     (assigneeChoice.value === AUTO ? "" : assigneeChoice.value),
 );
 
-watch(selectedAgentId, () => {
+watch(selectedAgentId, (next, previous) => {
+  if (!previous || next === previous) return;
   modelSelection.value = { ...EMPTY_TASK_MODEL_SELECTION };
 });
 
+const routingContext = computed(() => ({
+  projectId: selectedProjectId.value,
+  priority: priority.value,
+  size: size.value,
+  tags: selectedTagNames.value,
+}));
+
 const fixedAgentLabel = computed(() => {
-  const item = agents.value.find((agent) => agent.id === props.agentId);
+  const item = agentSource.value.find((agent) => agent.id === props.agentId);
   return item?.displayName || item?.username || t("admin.agents.columnAgent");
 });
 
 const fixedProjectLabel = computed(() => {
-  const item = allProjects.value.find(
+  const item = projectSource.value.find(
     (project) => project.id === fixedProjectId.value,
   );
   return item?.name || t("admin.projects.columnProject");
@@ -818,7 +812,7 @@ const projectOptions = computed(() => {
   if (projectChoice.value === NO_PROJECT && assigneeChoice.value !== AUTO) {
     return sortProjectsByName(agentProjects.value);
   }
-  return sortProjectsByName(allProjects.value);
+  return sortProjectsByName(projectSource.value);
 });
 
 const noProjects = computed(
@@ -831,8 +825,18 @@ const selectedProjectId = computed(
     (projectChoice.value === NO_PROJECT ? "" : projectChoice.value),
 );
 
-const { active: activeTags, refresh: refreshTags } = useTags(
-  () => selectedProjectId.value,
+const scopedTags = useTags(() =>
+  props.preview ? "" : selectedProjectId.value,
+);
+const activeTags = computed(() =>
+  props.preview ? props.preview.tags : scopedTags.active.value,
+);
+const refreshTags = scopedTags.refresh;
+
+const selectedTagNames = computed(() =>
+  activeTags.value
+    .filter((tag) => selectedTags.value.has(tag.id))
+    .map((tag) => tag.name),
 );
 
 watch(activeTags, (list) => {
@@ -861,10 +865,10 @@ const eligibleProjectAgentIds = computed(
 
 const assigneeOptions = computed(() => {
   if (!selectedProjectId.value || !projectMembersLoaded.value) {
-    return agents.value;
+    return agentSource.value;
   }
   const memberIds = eligibleProjectAgentIds.value;
-  return agents.value.filter((agent) => memberIds.has(agent.id));
+  return agentSource.value.filter((agent) => memberIds.has(agent.id));
 });
 
 watch(
@@ -920,7 +924,7 @@ watch(
     selectedProjectId,
     projectMembersLoaded,
     eligibleProjectAgentIds,
-    agents,
+    agentSource,
   ],
   dropIneligibleAssignee,
 );
@@ -928,7 +932,7 @@ watch(
 watch(
   assigneeChoice,
   async (value) => {
-    if (fixedProjectId.value || value === AUTO) {
+    if (fixedProjectId.value || value === AUTO || props.preview) {
       agentProjects.value = [];
       return;
     }
@@ -960,8 +964,6 @@ watch(
     references.value = [];
     referenceTasks.value = [];
     appliedTemplate.value = null;
-    parentChoice.value = null;
-    interactive.value = true;
     selectedTags.value = new Set();
     defaultTagsProject.value = "";
     owningTeamIds.value = [];
@@ -970,7 +972,7 @@ watch(
     leadCandidates.value = [];
     projectMembers.value = [];
     projectMembersLoaded.value = false;
-    if (!id) return;
+    if (!id || props.preview) return;
     try {
       const members = await agency.listProjectAgents(id);
       if (selectedProjectId.value !== id) return;
@@ -1023,12 +1025,9 @@ watch(
     const key = `${related.id}:${relation}`;
     if (seededRelation === key) return;
     seededRelation = key;
-    const kind = newTaskReferenceKind(relation);
-    if (!kind) {
-      parentChoice.value = related;
-      return;
-    }
-    references.value = [{ taskId: related.id, kind }];
+    references.value = [
+      { taskId: related.id, kind: newTaskReferenceKind(relation) },
+    ];
     referenceTasks.value = [related];
   },
   { immediate: true },
@@ -1062,6 +1061,7 @@ function addPromptReference(task: Task) {
 }
 
 async function submit(desired: TaskState = TaskState.BACKLOG) {
+  if (props.preview) return;
   if (!prompt.value.trim() || saving.value || !projectReady.value) return;
   saving.value = true;
   submitting.value = desired;
@@ -1087,15 +1087,12 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
       tagIds: [...selectedTags.value],
       references: references.value,
       teamIds: owningTeamIds.value,
-      leadActorIds: leadActorIds.value,
+      leaderActorId: leadActorIds.value[0] ?? "",
       templateId: appliedTemplate.value?.templateId,
       templateVersion: appliedTemplate.value?.version,
       templateArgs: appliedTemplate.value?.args,
 
       templatePromptOverride: !!appliedTemplate.value,
-      parentTaskId: parentChoice.value?.id,
-
-      interactive: parentChoice.value ? interactive.value : undefined,
 
       originTaskId: props.relatedTask?.id,
 
@@ -1120,12 +1117,10 @@ async function submit(desired: TaskState = TaskState.BACKLOG) {
 
     prompt.value = "";
     title.value = "";
-    draftProject.value = "";
     clearStaged();
     references.value = [];
     referenceTasks.value = [];
     appliedTemplate.value = null;
-    adoptPageProject();
     await nextTick();
     promptInput.value?.focus();
     emit("created", task);
@@ -1145,8 +1140,7 @@ function fillFromTemplate(payload: AppliedTemplate) {
   selectedTags.value = new Set(payload.tagIds);
 
   if (payload.teamIds.length) owningTeamIds.value = [...payload.teamIds];
-  if (payload.leadActorIds.length)
-    leadActorIds.value = [...payload.leadActorIds];
+  if (payload.leaderActorId) leadActorIds.value = [payload.leaderActorId];
   appliedTemplate.value = payload;
 }
 
@@ -1166,10 +1160,19 @@ function detachTemplate() {
 }
 
 onMounted(() => {
+  if (props.preview) return;
   void Promise.all([loadAgents(), loadProjects()]);
 });
 
 onBeforeUnmount(clearStaged);
+
+function resetProjectChoice() {
+  draftProject.value = "";
+  projectChoice.value = props.projectId || NO_PROJECT;
+  adoptPageProject();
+}
+
+defineExpose({ resetProjectChoice });
 </script>
 
 <i18n lang="yaml">
@@ -1179,7 +1182,6 @@ en:
     toBacklog: "Put to Backlog"
     attachmentsHint: "Paste, drop, or pick files to attach them to the task"
     shortcutsShort: "Ctrl+Enter to create · Tab indents"
-    interactive: "Interactive"
     noTeams: "No teams in this project"
     noMembers: "No members to pick"
     noProject: "A task must belong to a project. Create one or ask to be added."
@@ -1189,7 +1191,6 @@ en:
     toQueueHint: "Create the task and queue it for the scheduler"
     promptPlaceholder: "Describe a task…"
     detachTemplate: "Detach the template (keeps the rendered prompt)"
-    interactiveHint: "Surface questionnaires and extension dialogs for this sub-task; turn off for background work that must not wait for the user"
     searchTeams: "Search teams…"
     removeTeam: "Remove team"
     searchMembers: "Search members…"
@@ -1215,7 +1216,6 @@ ru:
     toBacklog: "В бэклог"
     attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы прикрепить их к задаче"
     shortcutsShort: "Ctrl+Enter — создать · Tab — отступ"
-    interactive: "Интерактивная"
     noTeams: "В этом проекте нет команд"
     noMembers: "Нет участников для выбора"
     noProject: "Задача должна принадлежать проекту. Создайте проект или попросите добавить вас."
@@ -1225,7 +1225,6 @@ ru:
     toQueueHint: "Создать задачу и поставить её в очередь планировщика"
     promptPlaceholder: "Опишите задачу…"
     detachTemplate: "Отвязать шаблон (промпт останется)"
-    interactiveHint: "Показывать опросники и диалоги расширений для этой подзадачи; отключите для фоновой работы, которая не должна ждать пользователя"
     searchTeams: "Поиск команд…"
     removeTeam: "Убрать команду"
     searchMembers: "Поиск участников…"

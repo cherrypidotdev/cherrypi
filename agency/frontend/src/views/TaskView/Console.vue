@@ -33,6 +33,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             class="hover:text-foreground/80"
             :to="{ name: 'task', params: { id: part.id } }"
           ) {{ part.id }}
+          TaskHoldReason(
+            v-else-if="part.kind === 'hold'"
+            :plugin-name="part.pluginName"
+            :reason="part.reason"
+            :url="part.url"
+            :icon-url="part.pluginIconUrl"
+          )
           template(v-else) {{ part.text }}
 
   .shrink-0.border-b.px-4.py-2(
@@ -44,6 +51,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       .flex.min-w-0.flex-1.flex-col(class="gap-0.5")
         p.text-destructive.text-sm.font-medium {{ $t("taskConsolePage.failed") }}
         p.text-muted-foreground.text-xs.break-words {{ task.error || "No error details." }}
+
+        p.text-muted-foreground.text-xs.break-words(
+          v-if="task.needsOperator"
+          data-testid="task-needs-operator"
+        )
+          span.font-medium {{ $t("taskConsolePage.needsOperator") }}
+          | {{ task.needsOperator }}
       Button.shrink-0(
         v-if="!sessionDeleted"
         variant="outline"
@@ -91,6 +105,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TaskConsole.min-h-0.flex-1(
       :key="task.sessionId"
       :id="id"
+      :project-id="task?.projectId ?? ''"
       :busy="busy"
       :waiting-for-input="task?.runtime?.waitingForInput"
       :run-over="runOver"
@@ -106,100 +121,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :model-disabled="saving.model || !config"
       :usage-runs="taskUsage?.runs ?? []"
       :can-answer="canAnswer"
+      :can-interrupt="steer"
       :state-changes="stateChanges"
+      :unsent="unsent"
       @queue="$emit('queue', $event)"
+      @cancel-unsent="$emit('cancel-unsent', $event)"
       @open-attachment="$emit('open-attachment', $event)"
       @open-image="$emit('open-image', $event)"
       @open-diagram="$emit('open-diagram', $event)"
       @model-change="$emit('model-change', $event)"
       @live-timing="$emit('live-timing', $event)"
     )
-
-    Collapsible.shrink-0.border-t.px-4.pt-3(
-      v-if="outgoingCount"
-      v-model:open="queueOpen"
-      class="group/queue"
-      :class="queueOpen ? '' : 'pb-3'"
-    )
-      .mx-auto.flex.max-w-3xl.flex-col.gap-1
-        .flex.items-center.gap-2
-          CollapsibleTrigger.flex.flex-1.cursor-pointer.items-center.gap-2.text-left(
-            data-testid="steering-queue-trigger"
-          )
-            ChevronRightIcon.text-muted-foreground.size-4.shrink-0.transition-transform(
-              class="group-data-[state=open]/queue:rotate-90"
-            )
-            p.text-muted-foreground.text-xs(
-              data-testid="steering-queue-caption"
-            )
-              | {{ $t("taskConsolePage.queuedSteering", { count: outgoingCount }) }}{{ queueOpen ? queueCaption : "" }}
-          Button.ml-auto(
-            v-if="taskQueue.length"
-            variant="outline"
-            size="sm"
-            @click="$emit('clear-queue')"
-            :disabled="clearingQueue"
-          )
-            Spinner(v-if="clearingQueue" data-icon="inline-start")
-            Trash2Icon(v-else data-icon="inline-start")
-            span {{ $t("taskConsolePage.clearQueue") }}
-        CollapsibleContent
-          .flex.flex-col.gap-1
-            div(v-if="showPendingPrompt" data-testid="stashed-follow-up")
-              TaskPrompt(
-                field="pendingPrompt"
-                compact
-                :hint="pendingPromptHint"
-                :task="task"
-                :editable="canEditPrompt"
-                :text="task.pendingPrompt"
-                @saved="$emit('pending-prompt-saved')"
-              )
-
-            .d-chat.d-chat-end(
-              v-for="item in queuedMessages"
-              :key="item.id"
-              data-testid="steering-message"
-            )
-              ChatAvatar(
-                v-if="item.sender && item.sender.kind !== 'system'"
-                :sender="item.sender"
-                :picture="pictureFor(item.sender)"
-              )
-              .d-chat-header(v-if="item.sender")
-                MessageSender(:sender="item.sender" :avatar="false")
-              .d-chat-bubble.border.border-dashed(class="bg-muted/60 max-w-[80%]")
-                .text-sm.break-words.whitespace-pre-wrap(v-if="!item.text")
-                MarkdownText.prose.prose-sm.max-w-none(
-                  v-else
-                  class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
-                  :text="item.text"
-                )
-              .d-chat-footer(
-                v-if="item.attachmentIds.length || item.queueId"
-                class="flex.items-center.gap-2"
-              )
-                AttachmentChips(
-                  v-if="item.attachmentIds.length"
-                  :attachments="queueAttachments(item.attachmentIds)"
-                  @open="$emit('open-attachment', $event)"
-                )
-
-                Button(
-                  v-if="item.queueId"
-                  variant="ghost"
-                  size="icon-xs"
-                  :aria-label="$t('taskConsolePage.removeQueued')"
-                  :title="$t('taskConsolePage.removeQueuedHint')"
-                  @click="$emit('remove-queued', item.queueId)"
-                  :disabled="removingQueueId === item.queueId"
-                  data-testid="steering-remove"
-                )
-                  Spinner(
-                    v-if="removingQueueId === item.queueId"
-                    data-icon="inline-start"
-                  )
-                  XIcon(v-else)
 
     //- Published plan: a compact status line above the composer; the full
 
@@ -213,169 +145,51 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @remind="$emit('remind-plan')"
     )
 
-    form.relative.shrink-0.border-t.p-3(
-      ref="composer"
-      :class="canCompose ? '' : 'opacity-50'"
-      @submit.prevent="$emit('send')"
+    TaskFollowUpComposer(
+      v-if="task"
+      :task="task"
+      :prompt="prompt"
+      :tab="tab"
+      :can-compose="canCompose"
+      :can-follow-up="canFollowUp"
+      :awaiting-answers="awaitingAnswers"
+      :steer="steer"
+      :sending="sending"
+      :stopping="stopping"
+      :config="config"
+      :model-selection="modelSelection"
+      :model-saving="saving.model"
+      :staged-attachments="stagedAttachments"
+      :task-usage="taskUsage"
+      @update:prompt="$emit('update:prompt', $event)"
+      @update:tab="$emit('update:tab', $event)"
+      @send="$emit('send')"
+      @enter="$emit('enter')"
+      @stop="$emit('stop')"
+      @model-change="$emit('model-change', $event)"
+      @staged-uploaded="$emit('staged-uploaded', $event)"
+      @remove-staged="$emit('remove-staged', $event)"
+      @open-attachment="$emit('open-attachment', $event)"
+      @open-new-sketch="$emit('open-new-sketch')"
+      @open-sketch="$emit('open-sketch', $event)"
     )
-      .absolute.inset-x-0.-top-1.z-10.flex.h-2.cursor-row-resize.items-center.justify-center(
-        v-if="canCompose && tab === 'write'"
-        :title="$t('taskConsolePage.resizeHint')"
-        @pointerdown="startResize"
-        data-testid="composer-resize-handle"
-      )
-        .bg-border.h-1.w-10.rounded-full.transition-opacity(
-          :class="resizing ? 'opacity-100' : 'opacity-40 hover:opacity-100'"
-        )
-
-      .mx-auto.flex.max-w-3xl.flex-col.gap-3
-        p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
-          v-if="sessionDeleted"
-          data-testid="session-cleaned-up-hint"
-        )
-          CircleSlashIcon.size-3.shrink-0(class="mt-0.5")
-          span
-            | {{ $t("taskConsolePage.sessionGone") }}
-
-        p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
-          v-if="awaitingAnswers"
-          data-testid="composer-input-hint"
-        )
-          InfoIcon.size-3.shrink-0(class="mt-0.5")
-          span
-            | {{ $t("taskConsolePage.awaitingAnswers") }}
-
-        .flex.flex-col.gap-2
-          .flex.flex-wrap.items-center.gap-2
-            WritePreviewTabs(
-              test-id="composer-tab"
-              :model-value="tab"
-              @update:model-value="$emit('update:tab', $event)"
-            )
-
-            .ml-auto.flex.flex-wrap.items-center.gap-2
-              TaskModelPicker(
-                v-if="task.assigneeActorId && !sessionDeleted"
-                :agent-id="agentIdForActor(task.assigneeActorId)"
-                :config="config"
-                :selection="modelSelection"
-                :use-defaults="false"
-                @change="$emit('model-change', $event)"
-                :disabled="saving.model || !config"
-              )
-              Button.shrink-0(
-                v-if="steer"
-                type="button"
-                variant="outline"
-                :title="$t('taskConsolePage.stopHint')"
-                @click="$emit('stop')"
-                :disabled="stopping"
-              )
-                Spinner(v-if="stopping" data-icon="inline-start")
-                SquareIcon(v-else data-icon="inline-start")
-                span {{ $t("settings.sounds.stop") }}
-              Button.shrink-0(
-                type="submit"
-                :title="sendTitle"
-                :disabled="!canFollowUp || !prompt.trim() || sending"
-              )
-                SendIcon(data-icon="inline-start")
-                span {{ steer ? "Steer" : "Send" }}
-
-          MarkdownEditor(
-            v-if="tab === 'write'"
-            ref="promptInput"
-            :placeholder="awaitingAnswers ? $t('taskConsolePage.draftPlaceholder') : $t('taskConsolePage.sendPlaceholder')"
-            submit-on-enter
-            references
-            test-id="composer-editor"
-            :title="$t('taskConsolePage.editorHint')"
-            :aria-label="$t('releaseHold.followUp')"
-            :model-value="prompt"
-            :reference-project-id="task?.projectId ?? ''"
-            :reference-task-id="task?.id ?? ''"
-            :fill="textareaHeight !== null"
-            :style="textareaStyle"
-            height="6.5rem"
-            @update:model-value="$emit('update:prompt', $event)"
-            @submit="$emit('enter')"
-            :disabled="!canCompose"
-          )
-          .text-foreground.border-border.w-full.rounded-lg.border.px-4.py-3.text-sm(
-            v-else
-            data-testid="composer-preview"
-          )
-            MarkdownText.prose.prose-sm.max-w-none(
-              class="prose-p:my-1 prose-pre:my-2"
-              :style="inheritProse"
-              :text="prompt"
-            )
-
-          .flex.flex-col.gap-1(v-if="canCompose || contextWindow")
-            .flex.min-h-7.flex-wrap.items-center.gap-2
-              template(v-if="canCompose")
-                AttachmentUploadButton(
-                  :label="$t('taskPrompt.attach')"
-                  :task-id="task.id"
-                  @uploaded="$emit('staged-uploaded', $event)"
-                )
-                Button(
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  :title="$t('taskPrompt.sketchAria')"
-                  @click="$emit('open-new-sketch')"
-                )
-                  PencilIcon(data-icon="inline-start")
-                  span {{ $t("taskPrompt.sketch") }}
-                span.text-muted-foreground.text-xs(
-                  v-if="!stagedAttachments.length"
-                ) {{ $t("taskConsolePage.attachmentsHint") }}
-              ContextMeter.ml-auto(
-                v-if="contextWindow"
-                :tokens="taskUsage?.contextTokens ?? 0"
-                :window="contextWindow"
-              )
-            AttachmentList(
-              v-if="canCompose && stagedAttachments.length"
-              removable
-              sketchable
-              compact
-              :show-author="false"
-              :attachments="stagedAttachments"
-              @remove="$emit('remove-staged', $event)"
-              @sketch="$emit('open-sketch', $event)"
-              @open="$emit('open-attachment', $event)"
-            )
-          p.text-muted-foreground.text-xs(v-if="isPostponed")
-            | {{ $t("taskConsolePage.queuesImmediately") }}
 </template>
 
 <script setup lang="ts">
-import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
-import AttachmentList from "@/components/attachments/AttachmentList.vue";
-import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
-import MarkdownEditor from "@/components/MarkdownEditor.vue";
-import MarkdownText from "@/components/MarkdownText.vue";
-import MessageSender from "@/components/MessageSender.vue";
-import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
-import ContextMeter from "@/components/tasks/ContextMeter.vue";
 import TaskConsole from "@/components/tasks/TaskConsole.vue";
-import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
+import TaskFollowUpComposer from "@/components/tasks/TaskFollowUpComposer.vue";
+import TaskHoldReason from "@/components/tasks/TaskHoldReason.vue";
 import TaskProgressStrip from "@/components/tasks/TaskProgressStrip.vue";
 import TaskPrompt from "@/components/tasks/TaskPrompt.vue";
-import WritePreviewTabs from "@/components/tasks/WritePreviewTabs.vue";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Spinner } from "@/components/ui/spinner";
 import { useActorPictures } from "@/composables/useActorPictures";
 import { useAgents } from "@/composables/useAgents";
 import { namedSender } from "@/lib/actors";
-import type { StateChange, UserMessageParts } from "@/lib/console";
+import type {
+  StateChange,
+  UnsentMessage,
+  UserMessageParts,
+} from "@/lib/console";
 import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import {
   taskWaitingReason,
@@ -390,22 +204,12 @@ import {
   type TaskUsageWithRuns,
 } from "@cherrypi/sdk";
 import {
-  ChevronRightIcon,
-  CircleSlashIcon,
   InfoIcon,
   PaperclipIcon,
-  PencilIcon,
   PlayIcon,
-  SendIcon,
-  SquareIcon,
-  Trash2Icon,
   TriangleAlertIcon,
-  XIcon,
 } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
-
-const { t } = useI18n();
+import { computed, onMounted } from "vue";
 
 const props = defineProps<{
   active: boolean;
@@ -425,9 +229,8 @@ const props = defineProps<{
   stagedAttachments: Attachment[];
   draggingFiles: boolean;
   taskQueue: (UserMessageParts & { id: number; queueId: string })[];
-  clearingQueue: boolean;
 
-  removingQueueId: string;
+  cancellingUnsent: string;
   sending: boolean;
   stopping: boolean;
 
@@ -444,7 +247,6 @@ defineEmits<{
   (e: "remove-attachment", attachment: Attachment): void;
   (e: "attachment-uploaded"): void;
   (e: "draft-saved", task: Task): void;
-  (e: "pending-prompt-saved"): void;
   (e: "open-attachment", attachment: Attachment): void;
   (e: "open-image", image: InlineImage): void;
 
@@ -463,14 +265,13 @@ defineEmits<{
   (e: "drop", event: DragEvent): void;
   (e: "paste", event: ClipboardEvent): void;
   (e: "queue", steering: { id: string; text: string }[]): void;
-  (e: "clear-queue"): void;
-  (e: "remove-queued", queueId: string): void;
+  (e: "cancel-unsent", item: UnsentMessage): void;
   (e: "open-plan"): void;
   (e: "remind-plan"): void;
 }>();
 
 const { agents, loadAgents, agentIdForActor } = useAgents();
-const { actorNames, actorPictures, pictureFor } = useActorPictures();
+const { actorNames, actorPictures } = useActorPictures();
 
 const assigneeAgent = computed(() => {
   const actorId = props.task?.assigneeActorId;
@@ -482,25 +283,6 @@ const assigneeAgent = computed(() => {
 onMounted(() => {
   void loadAgents();
 });
-
-const inheritProse = {
-  "--tw-prose-body": "currentColor",
-  "--tw-prose-headings": "currentColor",
-  "--tw-prose-lead": "currentColor",
-  "--tw-prose-links": "currentColor",
-  "--tw-prose-bold": "currentColor",
-  "--tw-prose-counters": "currentColor",
-  "--tw-prose-bullets": "currentColor",
-  "--tw-prose-hr": "currentColor",
-  "--tw-prose-quotes": "currentColor",
-  "--tw-prose-quote-borders": "currentColor",
-  "--tw-prose-captions": "currentColor",
-  "--tw-prose-code": "currentColor",
-  "--tw-prose-pre-code": "currentColor",
-  "--tw-prose-pre-bg": "transparent",
-  "--tw-prose-th-borders": "currentColor",
-  "--tw-prose-td-borders": "currentColor",
-};
 
 const isBacklog = computed(() => props.task?.state === TaskState.BACKLOG);
 const hasStarted = computed(() => Boolean(props.task?.startedAt));
@@ -526,13 +308,13 @@ const runOver = computed(() => {
   );
 });
 
-const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
-
 const showPrompt = computed(() => !isStarted.value && !isPostponed.value);
 const waitingReason = computed(() =>
   props.task ? taskWaitingReason(props.task) : "",
 );
-const waitingParts = computed(() => waitingReasonParts(waitingReason.value));
+const waitingParts = computed(() =>
+  waitingReasonParts(waitingReason.value, props.task?.holds ?? []),
+);
 const promptHint = computed(() => {
   if (isPostponed.value) return "Started · follow up below to queue it again";
   if (isBacklog.value) return "Backlog · click to edit";
@@ -540,157 +322,62 @@ const promptHint = computed(() => {
   return "";
 });
 
+const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
+
 const showPendingPrompt = computed(
   () => !!props.task?.pendingPrompt && isStarted.value,
 );
-const isResting = computed(() => {
-  const state = props.task?.state;
-  return (
-    state === TaskState.SETTLED ||
-    state === TaskState.FAILED ||
-    state === TaskState.COMPLETED ||
-    state === TaskState.CANCELLED
-  );
-});
-const pendingPromptHint = computed(() => {
-  if (isPostponed.value) return "Started · follow up below to queue it again";
-  if (isBacklog.value) return "Backlog · not queued yet";
-  if (waitingReason.value) return waitingReason.value;
 
-  if (awaitingAnswers.value) return t("taskConsolePage.stashedUntilAnswered");
-  if (isResting.value)
-    return "Undelivered follow-up · the next run delivers it";
-  return "";
+const stashCancellable = computed(() => {
+  const state = props.task?.state;
+  return state === TaskState.INPUT || state === TaskState.RUNNING;
 });
 const busy = computed(() => !props.task || props.task.runtime?.runInProgress);
 
 const steer = computed(() => props.task?.runtime?.runInProgress === true);
 
-const sendTitle = computed(() =>
-  awaitingAnswers.value
-    ? t("taskConsolePage.sendTitleBlocked")
-    : steer.value
-      ? t("taskConsolePage.sendTitleSteer")
-      : t("taskConsolePage.sendTitle"),
-);
+const PENDING_PROMPT_KEY = "pending-prompt";
 
-const contextWindow = computed(() =>
-  Number(props.taskUsage?.contextWindow ?? 0),
-);
+const unsent = computed<UnsentMessage[]>(() => {
+  const rows: UnsentMessage[] = [];
+  const task = props.task;
+  if (task && showPendingPrompt.value) {
+    rows.push({
+      key: PENDING_PROMPT_KEY,
+      queueId: "",
+      text: task.pendingPrompt,
+      attachmentIds: [],
+      sender: pendingPromptSender(task),
 
-const composer = ref<HTMLElement | null>(null);
-const promptInput = ref<InstanceType<typeof MarkdownEditor> | null>(null);
-const textareaHeight = ref<number | null>(null);
-const resizing = ref(false);
-
-const queueCaption = computed(() =>
-  steer.value ? " — injected between blocks" : " — held until the run resumes",
-);
-
-const outgoingCount = computed(
-  () => props.taskQueue.length + (showPendingPrompt.value ? 1 : 0),
-);
-
-const queueOpen = ref(!awaitingAnswers.value);
-
-let shutByQuestionnaire = awaitingAnswers.value;
-let reopenTimer: ReturnType<typeof setTimeout> | undefined;
-const REOPEN_DELAY_MS = 500;
-
-function cancelReopen() {
-  if (reopenTimer !== undefined) {
-    clearTimeout(reopenTimer);
-    reopenTimer = undefined;
+      cancellable: stashCancellable.value,
+      busy: props.cancellingUnsent === PENDING_PROMPT_KEY,
+    });
   }
-}
+  for (const item of props.taskQueue) {
+    const key = item.queueId || `queue-${item.id}`;
+    rows.push({
+      key,
+      queueId: item.queueId,
+      text: item.text,
+      attachmentIds: item.attachmentIds,
 
-watch(
-  () => props.task?.id,
-  () => {
-    cancelReopen();
-    queueOpen.value = !awaitingAnswers.value;
-    shutByQuestionnaire = awaitingAnswers.value;
-  },
-);
+      sender: namedSender(item.sender, actorNames.value),
 
-watch(queueOpen, (open) => {
-  if (open) shutByQuestionnaire = false;
-});
-watch(awaitingAnswers, (waiting) => {
-  cancelReopen();
-  if (waiting) {
-    if (queueOpen.value) {
-      queueOpen.value = false;
-      shutByQuestionnaire = true;
-    }
-    return;
+      cancellable: Boolean(item.queueId),
+      busy: props.cancellingUnsent === key,
+    });
   }
-  if (!shutByQuestionnaire) return;
-  reopenTimer = setTimeout(() => {
-    reopenTimer = undefined;
-    if (shutByQuestionnaire && !awaitingAnswers.value) {
-      shutByQuestionnaire = false;
-      queueOpen.value = true;
-    }
-  }, REOPEN_DELAY_MS);
-});
-const textareaStyle = computed(() =>
-  textareaHeight.value === null
-    ? undefined
-    : { height: `${textareaHeight.value}px` },
-);
-
-const MIN_TEXTAREA_HEIGHT = 72;
-let resizeStartY = 0;
-let resizeStartHeight = 0;
-
-function startResize(event: PointerEvent) {
-  if (event.button !== 0 || !props.canCompose) return;
-  const el = promptInput.value?.$el;
-  if (!el) return;
-  event.preventDefault();
-  resizing.value = true;
-  resizeStartY = event.clientY;
-  resizeStartHeight = el.offsetHeight;
-  window.addEventListener("pointermove", onResizeMove);
-  window.addEventListener("pointerup", stopResize, { once: true });
-}
-
-function onResizeMove(event: PointerEvent) {
-  const column = composer.value?.parentElement;
-  const max = column
-    ? Math.max(MIN_TEXTAREA_HEIGHT, column.clientHeight - 120)
-    : 480;
-  const next = resizeStartHeight + (resizeStartY - event.clientY);
-  textareaHeight.value = Math.min(Math.max(next, MIN_TEXTAREA_HEIGHT), max);
-}
-
-function stopResize() {
-  resizing.value = false;
-  window.removeEventListener("pointermove", onResizeMove);
-}
-
-onBeforeUnmount(() => {
-  window.removeEventListener("pointermove", onResizeMove);
-  cancelReopen();
+  return rows;
 });
 
-const queuedMessages = computed(() =>
-  props.taskQueue.map((item) => ({
-    ...item,
-    sender: namedSender(item.sender, actorNames.value),
-  })),
-);
-
-function queueAttachments(ids: string[]): Attachment[] {
-  const byId = new Map(
-    [...props.stagedAttachments, ...(props.task?.attachments ?? [])].map(
-      (attachment) => [String(attachment.id), attachment],
-    ),
+function pendingPromptSender(task: Task): UnsentMessage["sender"] {
+  const id = task.pendingPromptActorId;
+  const name = task.pendingPromptActorName;
+  if (!id && !name) return undefined;
+  return namedSender(
+    { id, username: "", name: name || id, kind: "user" },
+    actorNames.value,
   );
-  return ids
-    .map((id) => byId.get(id))
-    .filter((attachment): attachment is Attachment => attachment !== undefined);
 }
 </script>
 
@@ -700,45 +387,13 @@ function queueAttachments(ids: string[]): Attachment[] {
 en:
   taskConsolePage:
     failed: "The task failed."
+    needsOperator: "Needs an operator:"
     requeue: "Re-queue"
     noConsole: "This task has no console yet. Its Pi session starts when the scheduler finds an eligible agent with a free slot."
-    clearQueue: "Clear queue"
-    sessionGone: "The agent-side Pi session and workspace are gone (cleaned up, or the agent restarted with fresh data). Sending a message replays the stored conversation in a new Pi session."
-    awaitingAnswers: "The agent is waiting for your answers. You can draft a follow-up now; sending unlocks once the questionnaire is submitted."
-    attachmentsHint: "Paste, drop, or pick files to send with this prompt"
-    queuesImmediately: "Sending a follow-up queues this task immediately."
-    resizeHint: "Drag to resize the composer"
-    stopHint: "Stop the agent"
-    removeQueued: "Remove queued message"
-    removeQueuedHint: "Remove this queued message"
-    sendTitle: "Send prompt"
-    sendTitleSteer: "Steer: injected between the run’s blocks"
-    sendTitleBlocked: "Answer the questionnaire to send this follow-up"
-    stashedUntilAnswered: "Undelivered follow-up · sent once you answer the questionnaire"
-    draftPlaceholder: "You can draft a follow-up while the questionnaire is open…"
-    sendPlaceholder: "Send a follow-up prompt…"
-    editorHint: "Enter sends · Shift+Enter adds a line · Tab indents · Ctrl+B bold · Ctrl+I italic · Ctrl+E code · Ctrl+K deletes to the end of the line · {'@'} mentions · # tasks"
-    queuedSteering: "Queued steering ({count})"
 ru:
   taskConsolePage:
     failed: "Задача завершилась ошибкой."
+    needsOperator: "Требуется оператор:"
     requeue: "Поставить в очередь снова"
     noConsole: "У задачи пока нет консоли. Сеанс Pi запустится, когда планировщик найдёт подходящего агента со свободным слотом."
-    clearQueue: "Очистить очередь"
-    sessionGone: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными). Отправка сообщения воспроизведёт сохранённую переписку в новом сеансе Pi."
-    awaitingAnswers: "Агент ждёт ваших ответов. Уточнение можно написать сейчас; отправка станет доступна после отправки опросника."
-    attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы отправить их с этим промптом"
-    queuesImmediately: "Отправка уточнения сразу ставит задачу в очередь."
-    resizeHint: "Потяните, чтобы изменить размер композера"
-    stopHint: "Остановить агента"
-    removeQueued: "Убрать сообщение из очереди"
-    removeQueuedHint: "Убрать это сообщение из очереди"
-    sendTitle: "Отправить промпт"
-    sendTitleSteer: "Указание: вставляется между блоками запуска"
-    sendTitleBlocked: "Ответьте на опросник, чтобы отправить уточнение"
-    stashedUntilAnswered: "Неотправленное уточнение · уйдёт после ответа на опросник"
-    draftPlaceholder: "Пока опросник открыт, можно написать уточнение…"
-    sendPlaceholder: "Отправить уточняющий промпт…"
-    editorHint: "Enter — отправить · Shift+Enter — новая строка · Tab — отступ · Ctrl+B — жирный · Ctrl+I — курсив · Ctrl+E — код · Ctrl+K — удалить до конца строки · {'@'} — упоминания · # — задачи"
-    queuedSteering: "Указания в очереди ({count})"
 </i18n>

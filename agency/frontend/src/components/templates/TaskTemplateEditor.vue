@@ -290,7 +290,7 @@ Dialog(:open="open" @update:open="requestOpen")
                 DropdownMenuCheckboxItem(
                   v-for="candidate in leadCandidates"
                   :key="candidate.actor_id"
-                  :model-value="(content.defaultLeadActorIds ?? []).includes(candidate.actor_id)"
+                  :model-value="content.defaultLeaderActorId === candidate.actor_id"
                   @update:model-value="toggleLead(candidate.actor_id)"
                 )
                   ActorAvatar(
@@ -520,8 +520,8 @@ const selectedTeams = computed(() =>
   ),
 );
 const selectedLeads = computed(() =>
-  leadCandidates.value.filter((lead) =>
-    (content.value.defaultLeadActorIds ?? []).includes(lead.actor_id),
+  leadCandidates.value.filter(
+    (lead) => content.value.defaultLeaderActorId === lead.actor_id,
   ),
 );
 
@@ -689,10 +689,8 @@ function toggleTeam(id: number) {
 }
 
 function toggleLead(id: string) {
-  const current = content.value.defaultLeadActorIds ?? [];
-  content.value.defaultLeadActorIds = current.includes(id)
-    ? current.filter((value) => value !== id)
-    : [...current, id];
+  content.value.defaultLeaderActorId =
+    content.value.defaultLeaderActorId === id ? "" : id;
 }
 
 function schedulePreview() {

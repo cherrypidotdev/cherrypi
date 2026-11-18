@@ -18,6 +18,29 @@ startup; restart the agency after changing them.
 | `CHERRYPI_H2C` | off | Enable cleartext HTTP/2 on the listener. Diagnostic/direct-agent use only; do not force it through a proxy. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Number of timestamped process-log files to keep. |
 
+## Provider secrets
+
+`CHERRYPI_SECRET_KEY` seals the provider keys the agency holds for
+**Settings → Models** (AES-256-GCM). Generate a base64 value that decodes to
+exactly **32 bytes**:
+
+```sh
+openssl rand -base64 32
+```
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CHERRYPI_SECRET_KEY` | — | Base64-encoded 32-byte key that seals agency-held provider keys. |
+
+The value is validated during boot. A malformed base64 value, or one that
+decodes to any length other than 32 bytes, **stops the agency from starting**
+with a `Model catalog: CHERRYPI_SECRET_KEY …` error. Leave the variable unset to
+disable agency-held provider keys: the Models settings then explain that keys
+cannot be stored, and no agent offers a model until that changes.
+
+Losing the key makes every stored provider key unreadable; keep it in the same
+secret store as the database and its backup.
+
 ## Database
 
 | Variable | Default | Description |

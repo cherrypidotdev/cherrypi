@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.flex.flex-wrap.items-center(class="gap-1.5")
+.flex.flex-wrap.items-center(class="gap-1.5" data-testid="task-reference-picker")
   DropdownMenu(v-model:open="menuOpen")
     DropdownMenuTrigger(as-child)
       Button(
@@ -58,7 +58,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :is="taskReferenceKindIcon(entry.kind)"
     )
     strong.font-semibold {{ entry.task.id }}
-    span.max-w-40.truncate(:class="taskNameClass(entry.task)") {{ taskReferenceName(entry.task) }}
+
+    span.max-w-40.overflow-clip.text-ellipsis.whitespace-nowrap(
+      :class="taskNameClass(entry.task)"
+    ) {{ taskReferenceName(entry.task) }}
     DropdownMenu
       DropdownMenuTrigger(as-child)
         button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
@@ -78,6 +81,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :value="option.value"
           ) {{ $t(option.labelKey) }}
     button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+      v-if="!lockedIds.includes(entry.task.id)"
       type="button"
       class="p-0.5 hover:opacity-100"
       :title="$t('taskRefs.remove')"
@@ -131,8 +135,10 @@ const props = withDefaults(
     disabled?: boolean;
 
     knownTasks?: Task[];
+
+    lockedIds?: string[];
   }>(),
-  { projectId: "", disabled: false, knownTasks: () => [] },
+  { projectId: "", disabled: false, knownTasks: () => [], lockedIds: () => [] },
 );
 const emit = defineEmits<{ "update:modelValue": [TaskReferenceInput[]] }>();
 
@@ -204,7 +210,7 @@ watch(
     }
     selected.value = next;
   },
-  { deep: true },
+  { deep: true, immediate: true },
 );
 </script>
 
@@ -215,10 +221,14 @@ en:
     selectProjectFirst: "Select a project first"
     kindLabel: "Reference kind"
     triggerTitle: "References"
+  taskParent:
+    searchPlaceholder: "Search tasks…"
 ru:
   taskRefs:
     searchAria: "Поиск задач для ссылки"
     selectProjectFirst: "Сначала выберите проект"
     kindLabel: "Тип ссылки"
     triggerTitle: "Связи"
+  taskParent:
+    searchPlaceholder: "Поиск задач…"
 </i18n>

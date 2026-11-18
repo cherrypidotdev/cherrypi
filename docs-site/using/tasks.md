@@ -141,12 +141,12 @@ re-queues, restarts and archiving.
 ### Prompting
 
 Before the first run, the prompt editor edits the task's original prompt. After
-the task starts, the composer sends follow-up messages to the same Pi session.
+the task starts, the composer sends follow-up messages to the same task session.
 Use **Write** and **Preview** to check Markdown before sending.
 
 `Ctrl+Enter` (`Cmd+Enter` on macOS) sends a message. Drag files into the
 console or use the paperclip to attach them. Files are uploaded to the agency
-and materialized into the agent's workspace before Pi sees them.
+and materialized into the agent's workspace before the model sees them.
 
 ### Sites
 
@@ -197,8 +197,18 @@ retry without losing it.
 ### Queued steering
 
 While a run is active you can send steering messages. They are queued and
-injected between tool blocks instead of interrupting the current step. The
-console shows the queue above the composer, where you can clear it.
+injected between tool blocks instead of interrupting the current step.
+
+Everything that has not reached the model yet — the steering you just sent and a
+follow-up the agency holds for the next run — appears at the end of the
+transcript as the same chat bubbles, but dashed and with a **Cancel** action, so
+you can tell at a glance what the agent has not read. Cancelling one bubble
+drops that message and keeps the rest. The bubbles scroll with the transcript,
+so a long queue never squeezes the conversation or the composer. While a
+questionnaire is open the console keeps the form in view and the unsent bubbles
+wait below it. A follow-up the agency holds can be cancelled while the task
+holds its slot (running, or waiting for your answers); a queued or resting task
+would resume with nothing to deliver, so its bubble has no cancel.
 
 ### Stopping and resuming
 
@@ -212,7 +222,7 @@ console shows the queue above the composer, where you can clear it.
 A task that is reassigned to another agent is reconstructed from the agency's
 session history. If the old agent's workspace was deleted, or the agent was
 restarted with fresh data (for example on another machine), the task shows
-**Session cleaned up**; a follow-up starts a fresh Pi session from the stored
+**Session cleaned up**; a follow-up starts a fresh session from the stored
 conversation. A run that was in flight when its agent disappeared is failed
 with an explanation, and re-queueing it recreates the session the same way.
 

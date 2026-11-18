@@ -16,7 +16,7 @@
 
 -- name: CreateSession :one
 INSERT INTO tasks (
-  id, status, prompt, name, workspace, pi_session_id, pending_prompt, interactive,
+  id, status, prompt, name, workspace, session_id, pending_prompt, interactive,
   append_system_prompt, agency_project_id, agency_task_seq, plugin_tools,
   created_at, updated_at
 ) VALUES (

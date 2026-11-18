@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,6 +61,10 @@ type Log struct {
 
 	mu   sync.Mutex
 	file *os.File
+
+	// hold a line without its newline until the next write completes it.
+	stdlogMu      sync.Mutex
+	stdlogPending string
 
 	also io.Writer
 
@@ -162,8 +167,24 @@ func (l *Log) capture() error {
 	l.pipe = read
 	l.mu.Unlock()
 
+	log.SetOutput(l)
+
 	go l.pump(read)
 	return nil
+}
+
+// a trailing partial line until the next write completes it.
+func (l *Log) Write(p []byte) (int, error) {
+	l.stdlogMu.Lock()
+	text := l.stdlogPending + string(p)
+	lines := strings.Split(text, "\n")
+	l.stdlogPending = lines[len(lines)-1]
+	l.stdlogMu.Unlock()
+
+	for _, line := range lines[:len(lines)-1] {
+		l.append(line)
+	}
+	return len(p), nil
 }
 
 // pump copies the captured output into the file, one line at a time.
@@ -195,6 +216,14 @@ func (l *Log) append(line string) {
 }
 
 func (l *Log) Close() error {
+	l.stdlogMu.Lock()
+	pending := l.stdlogPending
+	l.stdlogPending = ""
+	l.stdlogMu.Unlock()
+	if pending != "" {
+		l.append(pending)
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.file == nil {

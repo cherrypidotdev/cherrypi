@@ -567,7 +567,6 @@ const { t } = useI18n();
 <i18n lang="yaml">
 en:
   taskLog:
-    system: "System"
     kind:
       parent: "Parent task"
       created: "Created"
@@ -595,7 +594,6 @@ en:
     pluginBadge: "{plugin} — {badge}"
 ru:
   taskLog:
-    system: "Система"
     kind:
       parent: "Родительская задача"
       created: "Создано"

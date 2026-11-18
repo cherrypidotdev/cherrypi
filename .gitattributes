@@ -16,3 +16,4 @@
 
 agency/frontend/public/*.png filter=lfs diff=lfs merge=lfs -text
 agency/frontend/public/*.ico filter=lfs diff=lfs merge=lfs -text
+agency/frontend/public/fonts/**/*.ttf filter=lfs diff=lfs merge=lfs -text

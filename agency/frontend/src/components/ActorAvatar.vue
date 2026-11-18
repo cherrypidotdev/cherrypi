@@ -25,8 +25,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     img(:src="src" :alt="label")
 .d-avatar.d-avatar-placeholder.shrink-0(
   v-else
-  :title="label"
-  :aria-label="label"
+  :title="decorative ? undefined : label"
+  :aria-label="decorative ? undefined : label"
+  :aria-hidden="decorative ? 'true' : undefined"
   :style="{ width: `${size}px`, height: `${size}px` }"
 )
   .bg-muted.text-muted-foreground.h-full.w-full.rounded-full.font-medium(
@@ -46,8 +47,10 @@ const props = withDefaults(
     username?: string;
 
     size?: number;
+
+    decorative?: boolean;
   }>(),
-  { src: "", name: "", username: "", size: 20 },
+  { src: "", name: "", username: "", size: 20, decorative: false },
 );
 
 const label = computed(() => props.name || props.username || "?");

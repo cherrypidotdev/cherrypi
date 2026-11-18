@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/projects"
+	"cherrypi.vladfaust.com/agency/internal/tasks"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -40,6 +42,8 @@ type Server struct {
 	Projects *projects.Service
 	Agents   *agents.Registry
 	Accounts *accounts.Service
+
+	Tasks *tasks.Service
 }
 
 func (s *Server) ListPlugins(
@@ -450,6 +454,60 @@ func (s *Server) InvitePluginToProject(
 	return &agencyv1.InvitePluginToProjectResponse{ProjectPlugin: out}, nil
 }
 
+func (s *Server) InvokePluginTool(
+	ctx context.Context,
+	req *agencyv1.InvokePluginToolRequest,
+) (*agencyv1.InvokePluginToolResponse, error) {
+	taskID := strings.TrimSpace(req.TaskId)
+	tool := strings.TrimSpace(req.Tool)
+	if taskID == "" || tool == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("task_id and tool are required"))
+	}
+	identity, err := s.identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if identity.Kind != "agent" {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("agent authentication is required"))
+	}
+	if s.Tasks == nil || s.Plugins == nil {
+		return nil, connect.NewError(connect.CodeUnavailable,
+			errors.New("plugin tools are unavailable"))
+	}
+	task, err := s.Tasks.Get(ctx, taskID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("task not found"))
+	}
+
+	caller, err := s.Agents.GetByActor(ctx, identity.ActorID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("agent not found"))
+	}
+
+	if task.AssigneeActorID != caller.ActorID && task.SessionAgentID != caller.ID {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("task is not assigned to this agent"))
+	}
+	attached, err := s.Plugins.ResolveTool(ctx, taskID, tool)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	args := map[string]any{}
+	if raw := strings.TrimSpace(req.ArgsJson); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &args); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("args_json: %w", err))
+		}
+	}
+	result, err := s.Plugins.InvokeTool(ctx, attached, taskID, tool, args)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	return &agencyv1.InvokePluginToolResponse{Text: result}, nil
+}
+
 func (s *Server) identity(ctx context.Context) (auth.Identity, error) {
 	identity, ok := auth.IdentityFrom(ctx)
 	if !ok {
@@ -747,6 +805,7 @@ func toProtoPlugin(p pluginhost.Plugin) *agencyv1.Plugin {
 		ActorName:        p.ActorName,
 		ManifestJson:     string(p.ManifestRaw),
 		SettingsSurfaces: sortedSurfaces(p),
+		IconUrl:          pluginhost.IconURL(p),
 		CreatedAt:        timestamppb.New(p.CreatedAt),
 		UpdatedAt:        timestamppb.New(p.UpdatedAt),
 	}
@@ -803,6 +862,7 @@ func toProtoPreview(preview pluginhost.Preview) *agencyv1.PluginPreview {
 		InstalledVersion: preview.InstalledVersion,
 		Warnings:         preview.Warnings,
 		Compatible:       preview.Compatible,
+		IconDataUrl:      preview.IconDataURL,
 	}
 }
 

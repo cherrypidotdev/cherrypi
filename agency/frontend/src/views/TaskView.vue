@@ -18,10 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .relative.flex.h-full.flex-col
-  header.shrink-0.border-b(
-    :class="detailsOpen ? 'mr-80' : ''"
-    data-testid="task-header"
-  )
+  header.shrink-0.border-b(:style="detailsStyle" data-testid="task-header")
     .flex.items-center.gap-3.px-4.py-2
       BackButton(:fallback="backFallback")
       .flex.min-w-0.flex-1.items-center.gap-2
@@ -103,12 +100,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     v-if="taskSites.length"
     :taskSites="taskSites"
     :activeTaskTab="activeTaskTab"
-    :detailsOpen="detailsOpen"
+    :detailsStyle="detailsStyle"
     @selectSiteTab="selectSiteTab"
     @select-chat="activeTaskTab = 'chat'"
   )
 
-  .flex.min-h-0.flex-1(:class="detailsOpen ? 'mr-80' : ''")
+  .flex.min-h-0.flex-1(:style="detailsStyle")
     Console(
       :active="activeTaskTab === 'chat'"
       :id="id"
@@ -126,8 +123,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :dragging-files="draggingFiles"
       :task-queue="taskQueue"
       :state-changes="stateChanges"
-      :clearing-queue="clearingQueue"
-      :removing-queue-id="removingQueueId"
+      :cancelling-unsent="cancellingUnsent"
       :sending="sending"
       :stopping="stopping"
       @update:prompt="prompt = $event"
@@ -139,7 +135,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @remove-attachment="removeAttachment"
       @attachment-uploaded="onAttachmentUploaded"
       @draft-saved="onPromptSaved"
-      @pending-prompt-saved="onPendingPromptSaved"
       @open-attachment="openAttachment"
       @open-image="openInlineImage"
       @open-diagram="openInlineDiagram"
@@ -153,8 +148,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @drop="onDrop"
       @paste="onPaste"
       @queue="onQueue"
-      @clear-queue="clearQueue"
-      @remove-queued="removeQueued"
+      @cancel-unsent="cancelUnsent"
       @open-plan="openPlan"
       @remind-plan="remindPlan"
       @live-timing="liveTiming = $event"
@@ -192,7 +186,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @size-change="onSizeChange"
       @project-change="onProjectChange"
       @toggle-team="toggleTaskTeam"
-      @toggle-lead="toggleTaskLead"
+      @set-leader="setTaskLead"
       @toggle-tag="toggleTag"
       @toggle-subscription="toggleSubscription"
       @reference-change="onReferenceChange"
@@ -306,6 +300,7 @@ import {
   timestampMs,
   type StateChange,
   type StateTrigger,
+  type UnsentMessage,
   type UserMessageParts,
 } from "@/lib/console";
 import { chatDraftKey } from "@/lib/draft";
@@ -444,7 +439,11 @@ const {
   open: detailsOpen,
   toggle: toggleDetails,
   setOpen: setDetailsOpen,
+  width: detailsWidth,
 } = useTaskDetails();
+const detailsStyle = computed(() =>
+  detailsOpen.value ? { marginRight: `${detailsWidth.value}px` } : undefined,
+);
 
 const detailsTab = ref("general");
 
@@ -561,9 +560,8 @@ const {
 });
 const sending = ref(false);
 const stopping = ref(false);
-const clearingQueue = ref(false);
 
-const removingQueueId = ref("");
+const cancellingUnsent = ref("");
 
 const taskQueue = ref<(UserMessageParts & { id: number; queueId: string })[]>(
   [],
@@ -579,7 +577,7 @@ const saving = reactive({
   tags: false,
   links: false,
   teams: false,
-  leads: false,
+  leader: false,
   subscription: false,
   favorite: false,
   model: false,
@@ -614,9 +612,6 @@ const projectTeams = ref<ProjectTeamLink[]>([]);
 const leadCandidates = ref<LeadCandidate[]>([]);
 const teamIds = computed(() =>
   (task.value?.teams ?? []).map((team) => team.id),
-);
-const leadIds = computed(() =>
-  (task.value?.leads ?? []).map((lead) => lead.actorId),
 );
 const assigneeOptions = computed(() => {
   const members = new Set(projectMembers.value);
@@ -869,16 +864,18 @@ async function toggleTaskTeam(id: number) {
   await setTaskTeams([...next]);
 }
 
-async function setTaskLeads(ids: string[]) {
+async function setTaskLeader(id: string) {
   const current = task.value;
   if (!current) return;
-  saving.leads = true;
+  saving.leader = true;
   try {
-    task.value = await agency.setTaskLeads(current.id, { leadActorIds: ids });
+    task.value = await agency.setTaskLeader(current.id, {
+      leaderActorId: id,
+    });
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    saving.leads = false;
+    saving.leader = false;
   }
 }
 
@@ -889,15 +886,12 @@ const leadRequired = computed(() => {
   );
 });
 
-async function toggleTaskLead(id: string) {
-  const next = new Set(leadIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  if (!next.size && leadRequired.value) {
-    toast.error("A task needs at least one lead");
+async function setTaskLead(id: string) {
+  if (!id && leadRequired.value) {
+    toast.error("A task needs a leader");
     return;
   }
-  await setTaskLeads([...next]);
+  await setTaskLeader(id);
 }
 
 async function toggleFavorite() {
@@ -1098,10 +1092,6 @@ function applyTask(next: Task, options: { refetchSession?: boolean } = {}) {
 
 function onPromptSaved(next: Task) {
   task.value = next;
-}
-
-function onPendingPromptSaved() {
-  void load();
 }
 
 function onReferenceChange(next: Task) {
@@ -1496,25 +1486,23 @@ function onQueue(steering: { id: string; text: string }[]) {
   }));
 }
 
-async function clearQueue() {
-  clearingQueue.value = true;
+async function cancelUnsent(item: UnsentMessage) {
+  cancellingUnsent.value = item.key;
   try {
-    await withProgress(() => agency.clearTaskQueue(props.id));
+    if (item.queueId) {
+      await withProgress(() =>
+        agency.removeTaskQueuedMessage(props.id, item.queueId),
+      );
+    } else {
+      await withProgress(() =>
+        agency.updateTask(props.id, { setPendingPrompt: "" }),
+      );
+      await load();
+    }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
-    clearingQueue.value = false;
-  }
-}
-
-async function removeQueued(queueId: string) {
-  removingQueueId.value = queueId;
-  try {
-    await withProgress(() => agency.removeTaskQueuedMessage(props.id, queueId));
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    removingQueueId.value = "";
+    cancellingUnsent.value = "";
   }
 }
 
@@ -1614,6 +1602,8 @@ watch(
     modelSelection.value = { ...EMPTY_TASK_MODEL_SELECTION };
     configGeneration += 1;
     taskUsage.value = undefined;
+
+    taskQueue.value = [];
     liveTiming.value = { toolRunning: false, modelWaiting: false };
     taskDiskBytes.value = undefined;
     taskDiskLoading.value = false;

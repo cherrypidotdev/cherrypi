@@ -121,19 +121,19 @@ func (h *devHandler) seedTask(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UnixMilli()
 	params := store.CreateTaskParams{
-		ID:          tasks.TaskID(project.Prefix, number),
-		Seq:         number,
-		Prompt:      prompt,
-		Name:        strings.TrimSpace(req.Name),
-		ProjectID:   project.ID,
-		State:       state,
-		Size:        tasks.SizeMedium,
-		Interactive: 1,
-		QueuedAt:    devSeedTimestamp(state, string(tasks.StateBacklog), now),
-		StartedAt:   devSeedTimestamp(state, string(tasks.StateQueued), now),
-		SettledAt:   devSeedTimestamp(state, string(tasks.StateRunning), now),
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        tasks.TaskID(project.Prefix, number),
+		Seq:       number,
+		Prompt:    prompt,
+		Name:      strings.TrimSpace(req.Name),
+		ProjectID: project.ID,
+		State:     state,
+		Size:      tasks.SizeMedium,
+
+		QueuedAt:  devSeedTimestamp(state, string(tasks.StateBacklog), now),
+		StartedAt: devSeedTimestamp(state, string(tasks.StateQueued), now),
+		SettledAt: devSeedTimestamp(state, string(tasks.StateRunning), now),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	if actorID, ok := auth.ActorID(ctx); ok {
 		params.CreatorActorID = sql.NullInt64{Int64: int64(actorID), Valid: true}

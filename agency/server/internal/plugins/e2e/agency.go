@@ -63,6 +63,10 @@ type AgencyOptions struct {
 
 const defaultAdminUsername = "admin"
 
+const agentConfigAdminPath = "/api/rest/agent-config/admin"
+
+const testSecretKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
 func StartAgency(ctx context.Context, opts AgencyOptions) (*Agency, error) {
 	if opts.URL != "" {
 		a := &Agency{
@@ -128,6 +132,7 @@ func StartAgency(ctx context.Context, opts AgencyOptions) (*Agency, error) {
 		"CHERRYPI_ADMIN_USERNAME="+defaultAdminUsername,
 		"CHERRYPI_ADMIN_PASSWORD="+password,
 		"CHERRYPI_PUBLIC_URL="+baseURL,
+		"CHERRYPI_SECRET_KEY="+testSecretKey,
 		"CHERRYPI_PLUGIN_ALLOW_PRIVATE_NETWORK=1",
 
 		"CHERRYPI_PLUGIN_DISABLE_TICKS=1",
@@ -201,6 +206,7 @@ func cleanEnv() []string {
 		"CHERRYPI_ADMIN_USERNAME":      true,
 		"CHERRYPI_ADMIN_PASSWORD":      true,
 		"CHERRYPI_PUBLIC_URL":          true,
+		"CHERRYPI_SECRET_KEY":          true,
 	}
 	var out []string
 	for _, entry := range os.Environ() {
@@ -266,6 +272,27 @@ func (a *Agency) login() error {
 		return fmt.Errorf("login returned no csrf token or actor")
 	}
 	return nil
+}
+
+func (a *Agency) declareProvider(input json.RawMessage) error {
+	if len(input) == 0 {
+		return fmt.Errorf("mockllm readiness carries no provider entry")
+	}
+	var provider struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(input, &provider); err != nil {
+		return fmt.Errorf("mockllm provider entry: %w", err)
+	}
+	if provider.Slug == "" {
+		return fmt.Errorf("mockllm provider entry has no slug")
+	}
+	var payload any
+	if err := json.Unmarshal(input, &payload); err != nil {
+		return fmt.Errorf("mockllm provider entry: %w", err)
+	}
+	_, err := a.postJSON(agentConfigAdminPath+"/providers/"+provider.Slug, payload)
+	return err
 }
 
 func (a *Agency) postJSON(path string, payload any) (map[string]any, error) {

@@ -115,12 +115,14 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
                 )
                   component(:is="action.icon")
         TableCell(v-else-if="column.key === 'project'")
-          RouterLink.inline-flex.rounded-full.border.px-2.text-xs.transition-colors(
+          AvatarTip(
             v-if="task.projectId && projectSlug(task.projectId)"
-            class="hover:bg-muted/50 py-0.5"
+            :src="projectPicture(task.projectId)"
             :to="{ name: 'project', params: { slug: projectSlug(task.projectId) } }"
-            @click.stop
-          ) {{ projectName(task.projectId) }}
+            :seed="task.projectId"
+            :name="projectName(task.projectId)"
+            :meta="`/${projectSlug(task.projectId)}`"
+          )
           span.text-muted-foreground(v-else) —
         TableCell(v-else-if="column.key === 'title'")
           .flex.min-w-0.flex-col
@@ -153,20 +155,12 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
               span.text-muted-foreground.font-mono.text-xs(:title="task.id")
                 | {{ shortTaskId(task.id) }}
               span.text-muted-foreground.inline-flex.shrink-0.items-center.text-xs(
-                v-if="task.parentTaskId"
+                v-if="task.automated"
                 class="gap-0.5"
-                :title="$t('tasksTable.subTask')"
-                data-testid="task-subtask-badge"
+                :title="$t('tasksTable.automatedHint')"
+                data-testid="task-automated-badge"
               )
-                GitBranchIcon.size-3
-              span.text-muted-foreground.inline-flex.shrink-0.items-center.rounded-full.border.text-xs(
-                v-if="!task.interactive"
-                class="gap-0.5 px-1.5"
-                :title="$t('tasksTable.nonInteractiveHint')"
-                data-testid="task-non-interactive-badge"
-              )
-                MessageSquareOffIcon.size-3
-                | {{ $t("tasksTable.nonInteractive") }}
+                CogIcon.size-3
         TableCell(v-else-if="column.key === 'progress'")
           .flex.flex-col.gap-1(v-if="taskProgressHasPlan(task.progress)")
             .flex.items-center(class="gap-1.5")
@@ -235,25 +229,22 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
           TaskBadges(:badges="task.badges" :limit="2")
         TableCell(v-else-if="column.key === 'references'")
           .flex.flex-wrap.items-center.gap-1(v-if="task.references.length")
-            RouterLink.inline-flex.max-w-full.min-w-0.items-center.gap-1.rounded-full.border.px-2.text-xs.transition-colors(
-              v-for="ref in task.references.slice(0, 3)"
+            TaskTooltip(
+              v-for="ref in task.references.slice(0, 5)"
               :key="ref.id"
-              class="hover:bg-muted/50 py-0.5"
-              :to="{ name: 'task', params: { id: ref.id } }"
-              :class="taskStateClassFor(ref)"
-              :title="taskReferenceTitle(ref)"
-              @click.stop
+              :id="ref.id"
+              :kind="ref.kind"
+              :name="ref.name"
+              :priority="ref.priority"
+              :prompt="ref.prompt"
+              :size="ref.size"
+              :state="ref.state"
+              :tags="ref.tags"
             )
-              LockIcon.size-3.shrink-0.text-amber-500(
-                v-if="ref.kind === TaskReferenceKind.BLOCKING"
-              )
-              component.size-3.shrink-0(:is="taskStateIcon(ref.state)")
-              strong.shrink-0.font-semibold {{ ref.id }}:
-              span.max-w-32.truncate(:class="taskNameClass(ref)") {{ taskReferenceName(ref) }}
             span.text-muted-foreground.text-xs(
-              v-if="task.references.length > 3"
+              v-if="task.references.length > 5"
             )
-              | +{{ task.references.length - 3 }}
+              | +{{ task.references.length - 5 }}
           span.text-muted-foreground.text-xs(v-else) —
         TableCell(v-else-if="column.key === 'priority'")
           span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
@@ -268,28 +259,64 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
           )
             | {{ $t(taskSizeKey(task.size)) }}
         TableCell(v-else-if="column.key === 'assignee'")
-          .flex.items-center.gap-2(v-if="task.assigneeActorId")
-            RouterLink.flex.items-center.gap-2(
-              v-if="agentUsername(task.assigneeActorId)"
-              class="hover:underline"
-              :to="{ name: 'agent', params: { username: agentUsername(task.assigneeActorId) } }"
-              @click.stop
+          .flex.items-center.gap-1(v-if="task.assigneeActorId")
+            ActorTooltip(
+              kind="agent"
+              :to="agentRoute(task.assigneeActorId)"
+              :actor-id="task.assigneeActorId"
+              :name="agentName(task.assigneeActorId)"
+              :picture-url="agentPicture(task.assigneeActorId)"
+              :username="agentUsername(task.assigneeActorId)"
             )
-              span.size-5.shrink-0(
-                :innerHTML="agentAvatar(task.assigneeActorId)"
-              )
-              span.truncate.text-sm {{ agentName(task.assigneeActorId) }}
-            template(v-else)
-              span.size-5.shrink-0(
-                :innerHTML="agentAvatar(task.assigneeActorId)"
-              )
-              span.truncate.text-sm {{ agentName(task.assigneeActorId) }}
             PinIcon.text-muted-foreground.size-3.shrink-0(
               v-if="task.assigneePinned"
               :title="$t('tasksTable.pinned')"
               :aria-label="$t('tasksTable.pinned')"
             )
           span.text-muted-foreground.text-xs(v-else) {{ $t("tasks.toasts.unassigned") }}
+        TableCell(v-else-if="column.key === 'creator'")
+          span.text-muted-foreground.text-xs(
+            v-if="task.automated && !task.creatorActorId"
+            :title="$t('tasksTable.creatorSystemHint')"
+            data-testid="task-creator-system"
+          ) {{ $t("tasksTable.creatorSystem") }}
+          ActorTooltip(
+            v-else-if="task.creatorActorId || task.creatorName"
+            :to="creatorRoute(task)"
+            :actor-id="task.creatorActorId"
+            :kind="creatorActor(task)?.kind"
+            :name="creatorName(task)"
+            :picture-url="task.creatorPictureUrl"
+            :username="creatorActor(task)?.username"
+            data-testid="task-creator"
+          )
+          span.text-muted-foreground.text-xs(v-else)
+            | {{ $t("tasksTable.creatorUnknown") }}
+        TableCell(v-else-if="column.key === 'leader'")
+          ActorTooltip(
+            v-if="leaderActor(task)"
+            :to="leaderRoute(task)"
+            :actor-id="task.leader?.actorId"
+            :kind="leaderActor(task)?.kind"
+            :name="leaderName(task)"
+            :picture-url="task.leader?.pictureUrl"
+            :username="leaderActor(task)?.username"
+            data-testid="task-leader"
+          )
+          span.text-muted-foreground.text-xs(v-else) —
+        TableCell(v-else-if="column.key === 'teams'")
+          .flex.flex-wrap.items-center.gap-1(v-if="task.teams.length")
+            AvatarTip(
+              v-for="team in task.teams.slice(0, 3)"
+              :key="team.id"
+              :to="{ name: 'team', params: { id: String(team.id) } }"
+              :name="teamName(team.id, team.name)"
+              :meta="$t('tasksTable.team')"
+              data-testid="task-team"
+            )
+            span.text-muted-foreground.text-xs(v-if="task.teams.length > 3")
+              | +{{ task.teams.length - 3 }}
+          span.text-muted-foreground.text-xs(v-else) —
         TableCell.text-muted-foreground.text-xs(
           v-else-if="column.key === 'cost'"
         )
@@ -300,8 +327,11 @@ Table(class="[&_td]:px-1 [&_th]:px-1" container-class="no-scrollbar")
 </template>
 
 <script setup lang="ts">
+import ActorTooltip from "@/components/ActorTooltip.vue";
+import AvatarTip from "@/components/AvatarTip.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import TaskBadges from "@/components/tasks/TaskBadges.vue";
+import TaskTooltip from "@/components/TaskTooltip.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -316,11 +346,13 @@ import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
 import { useTaskColumns } from "@/composables/useTaskColumns";
 import type { UsageBucket } from "@/composables/useUsage";
+import { useUsers } from "@/composables/useUsers";
 import {
   formatCost,
   formatRelativeTimestamp,
   formatTimestamp,
 } from "@/lib/format";
+import { useTeamDirectory } from "@/lib/references";
 import {
   shortTaskId,
   tagStyle,
@@ -333,8 +365,6 @@ import {
   taskProgressHasPlan,
   taskProgressInProgress,
   taskProgressPercent,
-  taskReferenceName,
-  taskReferenceTitle,
   taskSizeClass,
   taskSizeKey,
   taskStateClassFor,
@@ -343,7 +373,7 @@ import {
   taskTitlePending,
   taskWaitingReason,
 } from "@/lib/task";
-import { TaskReferenceKind, TaskState, type Task } from "@cherrypi/sdk";
+import { TaskState, type Task } from "@cherrypi/sdk";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -355,14 +385,13 @@ import {
   CheckSquareIcon,
   CircleAlertIcon,
   CircleSlashIcon,
+  CogIcon,
   EraserIcon,
   ExternalLinkIcon,
-  GitBranchIcon,
   HardDriveDownloadIcon,
   InfoIcon,
   LockIcon,
   MessageSquareIcon,
-  MessageSquareOffIcon,
   MinusSquareIcon,
   PinIcon,
   PlayIcon,
@@ -372,10 +401,9 @@ import {
   Undo2Icon,
   type LucideIcon,
 } from "@lucide/vue";
-import { toSvg } from "jdenticon";
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { RouterLink } from "vue-router";
+import type { RouteLocationRaw } from "vue-router";
 
 const { t } = useI18n();
 
@@ -450,6 +478,16 @@ const skeletonWidths = computed(() => [
 
 const { agents } = useAgents();
 const { active: projects } = useProjects();
+const { users } = useUsers();
+
+const { teams, loadTeams } = useTeamDirectory();
+watch(
+  () => visibleColumns.value.some((column) => column.key === "teams"),
+  (shown) => {
+    if (shown) void loadTeams();
+  },
+  { immediate: true },
+);
 
 function sortIcon(key: string) {
   if (props.sortKey !== key) return ArrowUpDownIcon;
@@ -475,6 +513,12 @@ function projectSlug(id: string): string {
   return projects.value.find((project) => project.id === id)?.slug ?? "";
 }
 
+function projectPicture(id: string): string {
+  return (
+    projects.value.find((project) => project.id === id)?.picture?.url ?? ""
+  );
+}
+
 function agentName(id: string): string {
   const item = agents.value.find(
     (agent) => agent.id === id || agent.actorId === id,
@@ -489,8 +533,117 @@ function agentUsername(id: string): string {
   );
 }
 
-function agentAvatar(id: string): string {
-  return toSvg(id, 20);
+function agentPicture(id: string): string {
+  return (
+    agents.value.find((agent) => agent.id === id || agent.actorId === id)
+      ?.picture?.url ?? ""
+  );
+}
+
+function agentRoute(id: string): RouteLocationRaw | null {
+  const username = agentUsername(id);
+  return username ? { name: "agent", params: { username } } : null;
+}
+
+function creatorActor(task: Task): DirectoryActor | null {
+  if (task.creatorUsername) {
+    return {
+      kind: actorKind(task.creatorKind),
+      username: task.creatorUsername,
+      name: task.creatorName || task.creatorUsername,
+    };
+  }
+  const known = directoryActor(task.creatorActorId);
+  if (known) return known;
+  if (task.creatorActorId) {
+    return {
+      kind: "",
+      username: "",
+      name: task.creatorName || `#${task.creatorActorId}`,
+    };
+  }
+  return task.creatorName
+    ? { kind: "", username: "", name: task.creatorName }
+    : null;
+}
+
+function creatorName(task: Task): string {
+  return creatorActor(task)?.name ?? "";
+}
+
+function creatorRoute(task: Task): RouteLocationRaw | null {
+  return actorRoute(creatorActor(task));
+}
+
+function leaderActor(task: Task): DirectoryActor | null {
+  const leader = task.leader;
+  if (!leader) return null;
+  if (leader.username || leader.name) {
+    return {
+      kind: actorKind(leader.kind),
+      username: leader.username,
+      name: leader.name || leader.username,
+    };
+  }
+  return (
+    directoryActor(leader.actorId) ?? {
+      kind: "",
+      username: "",
+      name: `#${leader.actorId}`,
+    }
+  );
+}
+
+function leaderName(task: Task): string {
+  return leaderActor(task)?.name ?? "";
+}
+
+function leaderRoute(task: Task): RouteLocationRaw | null {
+  return actorRoute(leaderActor(task));
+}
+
+function actorRoute(actor: DirectoryActor | null): RouteLocationRaw | null {
+  if (!actor?.username || !actor.kind) return null;
+  return { name: actor.kind, params: { username: actor.username } };
+}
+
+function actorKind(kind: string): "agent" | "user" | "" {
+  return kind === "agent" || kind === "user" ? kind : "";
+}
+
+/** A team's name: the task's own copy, else the cached team directory. */
+function teamName(id: number, name: string): string {
+  if (name) return name;
+  return teams.value.find((team) => team.id === id)?.name || `#${id}`;
+}
+
+interface DirectoryActor {
+  kind: "agent" | "user" | "";
+  username: string;
+  name: string;
+}
+
+function directoryActor(actorId: string): DirectoryActor | null {
+  if (!actorId) return null;
+  const agent = agents.value.find(
+    (item) => item.actorId === actorId || item.id === actorId,
+  );
+  if (agent?.username) {
+    return {
+      kind: "agent",
+      username: agent.username,
+      name: agent.displayName || agent.username,
+    };
+  }
+  const user = users.value.find((item) => String(item.id) === actorId);
+  if (user?.username) {
+    return {
+      kind: "user",
+      username: user.username,
+      name: user.name || user.username,
+    };
+  }
+  return null;
 }
 
 function taskCost(task: Task): string {
@@ -623,14 +776,17 @@ en:
     requiredTagHint: "Only runs on agents that declare this tag"
     stepInProgress: "A step is in progress"
     noPlanHint: "The agent has not published a plan for this task"
-    nonInteractive: "Non-interactive"
+    automated: "Automated"
+    automatedHint: "Automated: authored by the system or a plugin; no leader and no user-input tools"
+    creatorSystem: "System"
+    creatorSystemHint: "The agency authored this task"
+    creatorUnknown: "Unknown"
+    team: "Team"
     noPlan: "No plan"
     favoritesHint: "Favorites stay on top of every list"
     favorites: "Favorites"
     archivedOffline: "Archived while the agent was offline: its Pi session and workspace still need cleanup"
     sessionGone: "The agent-side Pi session and workspace are gone (cleaned up, or the agent was restarted with fresh data); the conversation is stored in the agency"
-    subTask: "Sub-task"
-    nonInteractiveHint: "Non-interactive: the agent cannot show questionnaires or extension dialogs"
     planningOptional: "Planning is optional for small tasks"
     pinned: "Pinned to this agent"
     cleanUpSession: "Clean up session"
@@ -647,14 +803,17 @@ ru:
     requiredTagHint: "Выполняется только на агентах, которые объявляют этот тег"
     stepInProgress: "Шаг выполняется"
     noPlanHint: "Агент не опубликовал план для этой задачи"
-    nonInteractive: "Неинтерактивная"
+    automated: "Автоматическая"
+    automatedHint: "Автоматическая: создана системой или плагином; без руководителя и без инструментов ввода"
+    creatorSystem: "Система"
+    creatorSystemHint: "Задачу создало агентство"
+    creatorUnknown: "Неизвестно"
+    team: "Команда"
     noPlan: "Плана нет"
     favoritesHint: "Избранное всегда сверху списка"
     favorites: "Избранное"
     archivedOffline: "Архивировано, пока агент был не в сети: сеанс Pi и рабочее пространство всё ещё требуют очистки"
     sessionGone: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными); переписка хранится в агентстве"
-    subTask: "Подзадача"
-    nonInteractiveHint: "Неинтерактивная: агент не может показывать опросники и диалоги расширений"
     planningOptional: "Для небольших задач планирование необязательно"
     pinned: "Закреплена за этим агентом"
     cleanUpSession: "Очистить сеанс"

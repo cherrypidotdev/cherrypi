@@ -31,6 +31,8 @@ type Preview struct {
 	InstalledVersion string
 	Compatible       bool
 	Warnings         []string
+
+	IconDataURL string
 }
 
 func (s *Service) Inspect(ctx context.Context, data []byte) (Preview, error) {
@@ -55,7 +57,8 @@ func (s *Service) Inspect(ctx context.Context, data []byte) (Preview, error) {
 			Entry:       manifest.Entry,
 			Checksum:    bundle.Checksum,
 		},
-		Compatible: compatible,
+		Compatible:  compatible,
+		IconDataURL: IconDataURL(manifest, bundle.Files),
 	}
 	if rangeErr != nil {
 		preview.Warnings = append(

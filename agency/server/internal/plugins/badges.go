@@ -41,6 +41,8 @@ type TaskBadge struct {
 
 	PluginID   string `json:"-"`
 	PluginName string `json:"-"`
+
+	PluginIconURL string `json:"-"`
 }
 
 const (
@@ -129,19 +131,20 @@ func (s *Service) TaskBadgesFor(
 		log.Printf("[plugins] task badges: %v", err)
 		return nil
 	}
-	names := map[string]string{}
+	owners := map[string]Plugin{}
 	out := map[string][]TaskBadge{}
 	for _, row := range rows {
-		name, ok := names[row.PluginID]
+		owner, ok := owners[row.PluginID]
 		if !ok {
 			if p, err := s.Get(ctx, row.PluginID); err == nil {
-				name = p.Name
+				owner = p
 			}
-			names[row.PluginID] = name
+			owners[row.PluginID] = owner
 		}
 		for _, badge := range row.Badges {
 			badge.PluginID = row.PluginID
-			badge.PluginName = name
+			badge.PluginName = owner.Name
+			badge.PluginIconURL = IconURL(owner)
 			out[row.TaskID] = append(out[row.TaskID], badge)
 		}
 	}

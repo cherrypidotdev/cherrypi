@@ -29,5 +29,8 @@ dev/*/node_modules
 dev/*/dist
 dev/*/*.zip
 
+/testbin/
+
 /agency/server/agency
 /agent/agent
+/agent/mockllm

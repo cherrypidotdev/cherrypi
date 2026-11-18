@@ -20,7 +20,12 @@ import {
   type QuestionnaireQuestion,
   type QuestionnaireReview,
 } from "@/lib/questionnaire";
-import { ModelWait_Kind, ToolPhase, type TaskEvent } from "@cherrypi/sdk";
+import {
+  ModelWait_Kind,
+  PendingActivity_Kind,
+  ToolPhase,
+  type TaskEvent,
+} from "@cherrypi/sdk";
 
 export function timestampMs(
   at: { seconds: bigint; nanos?: number } | undefined,
@@ -120,6 +125,16 @@ export interface UserMessageParts {
   sender?: MessageSender;
 
   system?: boolean;
+}
+
+export interface UnsentMessage extends UserMessageParts {
+  key: string;
+
+  queueId: string;
+
+  cancellable: boolean;
+
+  busy: boolean;
 }
 
 function normalizeSender(
@@ -414,6 +429,86 @@ export type Group =
   | { id: number; kind: "state"; change: StateChange }
   | ({ id: number; kind: "questionnaire" } & QuestionnaireReview);
 
+export interface PendingStep {
+  kind: PendingActivity_Kind;
+
+  since: number;
+  model: string;
+  provider: string;
+  error: string;
+  attempt: number;
+  maxAttempts: number;
+  reason: string;
+}
+
+export interface WaitTotals {
+  ms: number;
+  requests: number;
+  retries: number;
+  compactions: number;
+}
+
+export interface RenderActivity extends Extract<Group, { kind: "activity" }> {
+  running: boolean;
+
+  pending?: PendingStep;
+
+  waiting: WaitTotals;
+
+  span: ActivityItem[];
+}
+
+export interface RunState {
+  live: boolean;
+
+  waitingForInput: boolean;
+
+  pending: boolean;
+
+  newestId?: number;
+}
+
+export function isToolInFlight(item: Item, run: RunState): boolean {
+  if (item.kind !== "tool") return false;
+  if (item.phase === ToolPhase.FINISHED || item.interrupted) return false;
+  if (!run.live || run.waitingForInput) return false;
+  return run.newestId === item.id;
+}
+
+export function isThinkingStreaming(
+  item: ActivityItem,
+  run: RunState,
+): boolean {
+  if (item.kind !== "thinking") return false;
+
+  if (!run.live || run.waitingForInput || run.pending) return false;
+  return run.newestId === item.id;
+}
+
+export function isInterrupted(item: ActivityItem, run: RunState): boolean {
+  return (
+    item.kind === "tool" &&
+    item.phase !== ToolPhase.FINISHED &&
+    !isToolInFlight(item, run)
+  );
+}
+
+export function blockWaiting(items: ActivityItem[]): WaitTotals {
+  const totals: WaitTotals = {
+    ms: groupWaitingMs(items),
+    requests: 0,
+    retries: 0,
+    compactions: 0,
+  };
+  for (const item of items) {
+    if (item.kind !== "wait" || item.durationMs < WAIT_RENDER_MS) continue;
+    if (item.waitKind === ModelWait_Kind.RETRY) totals.retries++;
+    else if (item.waitKind === ModelWait_Kind.COMPACTION) totals.compactions++;
+    else totals.requests++;
+  }
+  return totals;
+}
+
 export function groupEnd(
   group: { id: number; kind: string },
   items: Item[],
@@ -531,6 +626,10 @@ export interface RunUsage {
   model: string;
   inputTokens: number;
   outputTokens: number;
+
+  cacheReadTokens: number;
+
+  cacheWriteTokens: number;
   cost: number;
   activeMs: number;
 

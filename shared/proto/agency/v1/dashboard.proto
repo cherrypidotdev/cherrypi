@@ -85,6 +85,12 @@ message GetUsageResponse {
   
   
   repeated string available_models = 7;
+  
+  
+  
+  
+  int64 cache_read_tokens = 8;
+  int64 cache_write_tokens = 9;
 }
 
 
@@ -111,6 +117,10 @@ message AgentTaskUsage {
   int64 model_wait_ms = 10;
   int64 ttft_ms = 11;
   int64 ttft_runs = 12;
+  
+  
+  int64 cache_read_tokens = 13;
+  int64 cache_write_tokens = 14;
 }
 
 
@@ -137,6 +147,9 @@ message UsageModel {
   int64 model_wait_ms = 10;
   int64 ttft_ms = 11;
   int64 ttft_runs = 12;
+  
+  int64 cache_read_tokens = 13;
+  int64 cache_write_tokens = 14;
 }
 
 
@@ -148,6 +161,8 @@ message UsageDay {
   double cost = 4;
   
   int64 runs = 5;
+  int64 cache_read_tokens = 6;
+  int64 cache_write_tokens = 7;
 }
 
 
@@ -185,6 +200,10 @@ message AgentUsageRun {
   int64 tool_ms = 9;
   int64 model_wait_ms = 10;
   int64 ttft_ms = 11;
+  
+  
+  int64 cache_read_tokens = 12;
+  int64 cache_write_tokens = 13;
 }
 
 message GetTaskUsageResponse {

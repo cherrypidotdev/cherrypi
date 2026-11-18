@@ -107,21 +107,25 @@ func (s *DashboardServer) GetUsage(
 	for _, row := range rows {
 		index[usageKey(ids.AgentID(row.AgentID.Int64), row.SessionID)] = len(resp.Tasks)
 		resp.Tasks = append(resp.Tasks, &agencyv1.AgentTaskUsage{
-			AgentId:      actorid.Format(row.AgentID.Int64),
-			TaskId:       row.SessionID,
-			InputTokens:  row.InputTokens,
-			OutputTokens: row.OutputTokens,
-			Cost:         row.Cost,
-			ActiveMs:     row.ActiveMs,
-			ThinkingMs:   thinkingMs(row.ActiveMs, row.ToolMs),
-			ToolMs:       row.ToolMs,
-			ModelWaitMs:  row.ModelWaitMs,
-			TtftMs:       row.TtftMs,
-			TtftRuns:     row.TtftRuns,
-			Runs:         row.Runs,
+			AgentId:          actorid.Format(row.AgentID.Int64),
+			TaskId:           row.SessionID,
+			InputTokens:      row.InputTokens,
+			OutputTokens:     row.OutputTokens,
+			CacheReadTokens:  row.CacheReadTokens,
+			CacheWriteTokens: row.CacheWriteTokens,
+			Cost:             row.Cost,
+			ActiveMs:         row.ActiveMs,
+			ThinkingMs:       thinkingMs(row.ActiveMs, row.ToolMs, row.ModelWaitMs),
+			ToolMs:           row.ToolMs,
+			ModelWaitMs:      row.ModelWaitMs,
+			TtftMs:           row.TtftMs,
+			TtftRuns:         row.TtftRuns,
+			Runs:             row.Runs,
 		})
 		resp.InputTokens += row.InputTokens
 		resp.OutputTokens += row.OutputTokens
+		resp.CacheReadTokens += row.CacheReadTokens
+		resp.CacheWriteTokens += row.CacheWriteTokens
 		resp.Cost += row.Cost
 	}
 
@@ -133,11 +137,13 @@ func (s *DashboardServer) GetUsage(
 	}
 	for _, day := range days {
 		resp.Days = append(resp.Days, &agencyv1.UsageDay{
-			Day:          timestamppb.New(time.UnixMilli(day.Day * 86400000)),
-			InputTokens:  day.InputTokens,
-			OutputTokens: day.OutputTokens,
-			Cost:         day.Cost,
-			Runs:         day.Runs,
+			Day:              timestamppb.New(time.UnixMilli(day.Day * 86400000)),
+			InputTokens:      day.InputTokens,
+			OutputTokens:     day.OutputTokens,
+			CacheReadTokens:  day.CacheReadTokens,
+			CacheWriteTokens: day.CacheWriteTokens,
+			Cost:             day.Cost,
+			Runs:             day.Runs,
 		})
 	}
 
@@ -149,18 +155,20 @@ func (s *DashboardServer) GetUsage(
 	}
 	for _, row := range byModel {
 		resp.Models = append(resp.Models, &agencyv1.UsageModel{
-			Provider:     row.Provider,
-			Model:        row.Model,
-			InputTokens:  row.InputTokens,
-			OutputTokens: row.OutputTokens,
-			Cost:         row.Cost,
-			Runs:         row.Runs,
-			Tasks:        row.Tasks,
-			ActiveMs:     row.ActiveMs,
-			ToolMs:       row.ToolMs,
-			ModelWaitMs:  row.ModelWaitMs,
-			TtftMs:       row.TtftMs,
-			TtftRuns:     row.TtftRuns,
+			Provider:         row.Provider,
+			Model:            row.Model,
+			InputTokens:      row.InputTokens,
+			OutputTokens:     row.OutputTokens,
+			CacheReadTokens:  row.CacheReadTokens,
+			CacheWriteTokens: row.CacheWriteTokens,
+			Cost:             row.Cost,
+			Runs:             row.Runs,
+			Tasks:            row.Tasks,
+			ActiveMs:         row.ActiveMs,
+			ToolMs:           row.ToolMs,
+			ModelWaitMs:      row.ModelWaitMs,
+			TtftMs:           row.TtftMs,
+			TtftRuns:         row.TtftRuns,
 		})
 	}
 
@@ -182,8 +190,8 @@ func (s *DashboardServer) GetUsage(
 	return resp, nil
 }
 
-func thinkingMs(activeMs, toolMs int64) int64 {
-	if thinking := activeMs - toolMs; thinking > 0 {
+func thinkingMs(activeMs, toolMs, modelWaitMs int64) int64 {
+	if thinking := activeMs - toolMs - modelWaitMs; thinking > 0 {
 		return thinking
 	}
 	return 0
@@ -279,18 +287,20 @@ func mergeLiveUsage(
 		return
 	}
 	live := &agencyv1.AgentTaskUsage{
-		AgentId:      actorid.Format(agentID),
-		TaskId:       bucket.TaskId,
-		InputTokens:  bucket.InputTokens,
-		OutputTokens: bucket.OutputTokens,
-		Cost:         bucket.Cost,
-		ActiveMs:     bucket.ActiveMs,
-		ThinkingMs:   bucket.ThinkingMs,
-		ToolMs:       bucket.ToolMs,
-		ModelWaitMs:  bucket.ModelWaitMs,
-		TtftMs:       bucket.TtftMs,
-		TtftRuns:     bucket.TtftRuns,
-		Runs:         1,
+		AgentId:          actorid.Format(agentID),
+		TaskId:           bucket.TaskId,
+		InputTokens:      bucket.InputTokens,
+		OutputTokens:     bucket.OutputTokens,
+		CacheReadTokens:  bucket.CacheReadTokens,
+		CacheWriteTokens: bucket.CacheWriteTokens,
+		Cost:             bucket.Cost,
+		ActiveMs:         bucket.ActiveMs,
+		ThinkingMs:       bucket.ThinkingMs,
+		ToolMs:           bucket.ToolMs,
+		ModelWaitMs:      bucket.ModelWaitMs,
+		TtftMs:           bucket.TtftMs,
+		TtftRuns:         bucket.TtftRuns,
+		Runs:             1,
 	}
 	key := usageKey(agentID, bucket.TaskId)
 	if i, ok := index[key]; ok {
@@ -370,17 +380,19 @@ func (s *DashboardServer) GetTaskUsage(
 	out := make([]*agencyv1.AgentUsageRun, 0, len(runs))
 	for _, run := range runs {
 		out = append(out, &agencyv1.AgentUsageRun{
-			Provider:     run.Provider,
-			Model:        run.Model,
-			InputTokens:  run.InputTokens,
-			OutputTokens: run.OutputTokens,
-			Cost:         run.Cost,
-			ActiveMs:     run.ActiveMs,
-			ThinkingMs:   thinkingMs(run.ActiveMs, run.ToolMs),
-			ToolMs:       run.ToolMs,
-			ModelWaitMs:  run.ModelWaitMs,
-			TtftMs:       run.TtftMs,
-			At:           timestamppb.New(time.UnixMilli(run.At)),
+			Provider:         run.Provider,
+			Model:            run.Model,
+			InputTokens:      run.InputTokens,
+			OutputTokens:     run.OutputTokens,
+			CacheReadTokens:  run.CacheReadTokens,
+			CacheWriteTokens: run.CacheWriteTokens,
+			Cost:             run.Cost,
+			ActiveMs:         run.ActiveMs,
+			ThinkingMs:       thinkingMs(run.ActiveMs, run.ToolMs, run.ModelWaitMs),
+			ToolMs:           run.ToolMs,
+			ModelWaitMs:      run.ModelWaitMs,
+			TtftMs:           run.TtftMs,
+			At:               timestamppb.New(time.UnixMilli(run.At)),
 		})
 	}
 	return &agencyv1.GetTaskUsageResponse{Usage: usage, Runs: out}, nil

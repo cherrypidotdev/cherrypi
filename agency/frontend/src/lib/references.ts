@@ -119,6 +119,10 @@ export interface ReferenceDirectory {
   teams: Team[];
 }
 
+export function useTeamDirectory() {
+  return { teams, loadTeams };
+}
+
 export function referenceDirectory(): ReferenceDirectory {
   return {
     users: users.value,
@@ -355,7 +359,7 @@ function compareSuggestions(
 export function searchReferences(
   query: string,
   directory: ReferenceDirectory = referenceDirectory(),
-  limitPerKind = 5,
+  limitPerOtherKind = 5,
 ): ReferenceSuggestion[] {
   const actors: ReferenceSuggestion[] = [];
   const seenActors = new Set<string>();
@@ -418,9 +422,9 @@ export function searchReferences(
   }
 
   return [
-    ...actors.sort(compareSuggestions).slice(0, limitPerKind),
-    ...projects.sort(compareSuggestions).slice(0, limitPerKind),
-    ...teamSuggestions.sort(compareSuggestions).slice(0, limitPerKind),
+    ...actors.sort(compareSuggestions),
+    ...projects.sort(compareSuggestions).slice(0, limitPerOtherKind),
+    ...teamSuggestions.sort(compareSuggestions).slice(0, limitPerOtherKind),
   ];
 }
 

@@ -1234,3 +1234,115 @@ func (s *PgStore) ApprovePromptProposal(
 	})
 	return outPrompt, outProposal, err
 }
+
+func (s *PgStore) GetTaskSessionState(
+	ctx context.Context,
+	taskID string,
+) (TaskSessionState, error) {
+	row, err := s.q.GetTaskSessionState(ctx, taskID)
+	if err != nil {
+		return TaskSessionState{}, err
+	}
+	return fromPgTaskSessionState(row), nil
+}
+
+func (s *PgStore) PutTaskSessionState(
+	ctx context.Context,
+	p PutTaskSessionStateParams,
+) (int64, error) {
+	if p.ExpectedRevision == 0 {
+		n, err := s.q.CreateTaskSessionState(ctx, pgdb.CreateTaskSessionStateParams{
+			TaskID:        p.TaskID,
+			ModelProvider: p.ModelProvider,
+			ModelID:       p.ModelID,
+			ThinkingLevel: p.ThinkingLevel,
+			EntriesJson:   p.EntriesJSON,
+			UpdatedAt:     p.UpdatedAt,
+		})
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return 0, ErrTaskSessionStateConflict
+		}
+		return 1, nil
+	}
+	n, err := s.q.UpdateTaskSessionState(ctx, pgdb.UpdateTaskSessionStateParams{
+		ModelProvider:    p.ModelProvider,
+		ModelID:          p.ModelID,
+		ThinkingLevel:    p.ThinkingLevel,
+		EntriesJson:      p.EntriesJSON,
+		UpdatedAt:        p.UpdatedAt,
+		TaskID:           p.TaskID,
+		ExpectedRevision: p.ExpectedRevision,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, ErrTaskSessionStateConflict
+	}
+	return p.ExpectedRevision + 1, nil
+}
+
+func (s *PgStore) AppendTaskEvents(
+	ctx context.Context,
+	events []AppendTaskEventParams,
+) (int64, error) {
+	var appended int64
+	err := s.tx(ctx, func(q *pgdb.Queries) error {
+		for _, p := range events {
+			n, err := q.AppendTaskEvent(ctx, pgdb.AppendTaskEventParams(p))
+			if err != nil {
+				return err
+			}
+			appended += n
+		}
+		return nil
+	})
+	return appended, err
+}
+
+func (s *PgStore) ListTaskEvents(ctx context.Context, taskID string) ([]TaskEvent, error) {
+	rows, err := s.q.ListTaskEvents(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskEventSlice(rows), nil
+}
+
+func (s *PgStore) PageTaskEvents(
+	ctx context.Context,
+	taskID string,
+	before int64,
+	limit int,
+) ([]TaskEvent, error) {
+	params := pgdb.PageTaskEventsParams{
+		TaskID:    taskID,
+		PageLimit: int32(limit),
+	}
+	if before > 0 {
+		params.Before = sql.NullInt32{Int32: int32(before), Valid: true}
+	}
+	rows, err := s.q.PageTaskEvents(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgTaskEventSlice(rows), nil
+}
+
+func (s *PgStore) LastTaskEventSeq(ctx context.Context, taskID string) (int64, error) {
+	return s.q.LastTaskEventSeq(ctx, taskID)
+}
+
+func (s *PgStore) DeleteTaskSessionData(ctx context.Context, taskID string) error {
+	return s.tx(ctx, func(q *pgdb.Queries) error {
+		if err := q.DeleteTaskSessionState(ctx, taskID); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskEventsForTask(ctx, taskID); err != nil {
+			return err
+		}
+		return q.DeleteTaskSessionEntriesForTask(ctx, taskID)
+	})
+}

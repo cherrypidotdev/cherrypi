@@ -24,6 +24,7 @@ details.rounded-md.border(
   :open="open"
   @toggle="onToggle"
   data-testid="thinking-block"
+  :data-thinking-running="running ? 'true' : undefined"
 )
   summary.flex.cursor-pointer.items-center.gap-2.px-2.py-1.text-xs.select-none
     ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
@@ -165,12 +166,6 @@ const rate = computed(() => {
   return chars.value / (ms / 1000);
 });
 
-/**
- * Whether the body is showing. A block opens itself while it streams, so the
- * reasoning is readable as the model writes it, and folds back to one line when
- * it stops. A reader who toggles it by hand keeps their choice until the block
- * settles; the fold on settle is the only state the component forces.
- */
 const open = ref(props.running);
 
 function onToggle(event: Event) {
@@ -180,7 +175,7 @@ function onToggle(event: Event) {
 watch(
   () => props.running,
   (running) => {
-    open.value = running;
+    if (running) open.value = true;
   },
 );
 

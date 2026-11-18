@@ -108,7 +108,14 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
             FieldLabel(:for="`plugin-setting-${fieldOf(row).key}`")
               | {{ fieldOf(row).title }}
               span.text-destructive(v-if="fieldOf(row).required") *
-            template(v-if="fieldOf(row).kind === 'boolean'")
+            PluginModelSelect(
+              v-if="fieldOf(row).kind === 'model'"
+              :model-value="String(values[fieldOf(row).key] ?? '')"
+              :models="modelCatalog"
+              :empty-label="scope === 'project' ? $t('pluginModelSelect.inherit') : $t('pluginModelSelect.useRouting')"
+              @update:model-value="values[fieldOf(row).key] = $event"
+            )
+            template(v-else-if="fieldOf(row).kind === 'boolean'")
               Switch(
                 :id="`plugin-setting-${fieldOf(row).key}`"
                 :model-value="Boolean(values[fieldOf(row).key])"
@@ -289,6 +296,7 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
 
 <script setup lang="ts">
 import MarkdownText from "@/components/MarkdownText.vue";
+import PluginModelSelect from "@/components/plugins/PluginModelSelect.vue";
 import PluginTemplateField from "@/components/plugins/PluginTemplateField.vue";
 import PluginTemplateSamplesDialog from "@/components/plugins/PluginTemplateSamplesDialog.vue";
 import { Button } from "@/components/ui/button";
@@ -324,6 +332,8 @@ import {
   type PluginTemplateMeta,
   type PluginTemplateVariable,
 } from "@/lib/plugins";
+import { agency } from "@/lib/sdk";
+import type { RoutingModelOption } from "@cherrypi/sdk";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -386,6 +396,7 @@ const emit = defineEmits<{
 }>();
 
 const values = reactive<Record<string, unknown>>({});
+const modelCatalog = ref<RoutingModelOption[]>([]);
 const jsonDrafts = reactive<Record<string, string>>({});
 const itemDrafts = reactive<Record<string, string>>({});
 const revealed = reactive<Record<string, boolean>>({});
@@ -428,7 +439,8 @@ interface FieldSpec {
     | "json"
     | "array"
     | "enum-array"
-    | "template";
+    | "template"
+    | "model";
   itemKind?: ItemKind;
   options: unknown[];
   itemOptions: unknown[];
@@ -482,19 +494,22 @@ const fields = computed<FieldSpec[]>(() => {
     const template = pluginTemplateMeta(property as Record<string, unknown>);
     const kind: FieldSpec["kind"] = template
       ? "template"
-      : type === "boolean"
-        ? "boolean"
-        : type === "number" || type === "integer"
-          ? "number"
-          : type === "array"
-            ? Array.isArray(property.items?.enum) && property.items.enum.length
-              ? "enum-array"
-              : "array"
-            : type === "object"
-              ? "json"
-              : Array.isArray(property.enum) && property.enum.length > 0
-                ? "enum"
-                : "string";
+      : property.format === "model"
+        ? "model"
+        : type === "boolean"
+          ? "boolean"
+          : type === "number" || type === "integer"
+            ? "number"
+            : type === "array"
+              ? Array.isArray(property.items?.enum) &&
+                property.items.enum.length
+                ? "enum-array"
+                : "array"
+              : type === "object"
+                ? "json"
+                : Array.isArray(property.enum) && property.enum.length > 0
+                  ? "enum"
+                  : "string";
     return {
       key,
       title: property.title || key,
@@ -522,6 +537,44 @@ const fields = computed<FieldSpec[]>(() => {
     };
   });
 });
+
+const hasModelField = computed(() =>
+  fields.value.some((field) => field.kind === "model"),
+);
+
+function catalogTarget(): string {
+  return props.scope === "project" ? (props.targetId ?? "") : "";
+}
+
+let catalogGeneration = 0;
+
+async function loadModelCatalog() {
+  const generation = ++catalogGeneration;
+  try {
+    const models = await agency.listRoutingModels(catalogTarget());
+    if (generation !== catalogGeneration) return;
+    modelCatalog.value = models;
+  } catch {
+    if (generation !== catalogGeneration) return;
+
+    modelCatalog.value = [];
+  }
+}
+
+let catalogKey: string | null = null;
+watch(
+  [hasModelField, catalogTarget],
+  ([hasModel]) => {
+    if (!hasModel) return;
+    const key = catalogTarget();
+    if (key === catalogKey) return;
+    catalogKey = key;
+
+    modelCatalog.value = [];
+    void loadModelCatalog();
+  },
+  { immediate: true },
+);
 
 const settingsGroups = computed(() => pluginSettingsGroups(props.schema));
 const templateVariables = computed<Record<string, PluginTemplateVariable>>(() =>

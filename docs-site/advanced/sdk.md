@@ -115,7 +115,7 @@ await agency.addToTask(task.id, "Also update the meta description.");
 ```
 
 `watchTask` streams live runtime events for one task; `getTaskHistory` reads the
-stored Pi session entries with pagination.
+stored conversation with pagination.
 
 ## Errors and retries
 

@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"github.com/nikolalohinski/gonja/v2"
 	"github.com/nikolalohinski/gonja/v2/config"
@@ -42,13 +41,13 @@ var argKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 func normalizeContent(content Content) (Content, Validation) {
 	var v Validation
 	out := Content{
-		Body:                strings.TrimSpace(content.Body),
-		TitleTemplate:       strings.TrimSpace(content.TitleTemplate),
-		DefaultPriority:     content.DefaultPriority,
-		DefaultSize:         strings.TrimSpace(content.DefaultSize),
-		DefaultTagIDs:       normalizeStrings(content.DefaultTagIDs),
-		DefaultTeamIDs:      normalizeInt64s(content.DefaultTeamIDs),
-		DefaultLeadActorIDs: normalizeActorIDs(content.DefaultLeadActorIDs),
+		Body:                 strings.TrimSpace(content.Body),
+		TitleTemplate:        strings.TrimSpace(content.TitleTemplate),
+		DefaultPriority:      content.DefaultPriority,
+		DefaultSize:          strings.TrimSpace(content.DefaultSize),
+		DefaultTagIDs:        normalizeStrings(content.DefaultTagIDs),
+		DefaultTeamIDs:       normalizeInt64s(content.DefaultTeamIDs),
+		DefaultLeaderActorID: content.DefaultLeaderActorID,
 	}
 	if out.Body == "" {
 		v.Errors = append(v.Errors, "the template body must be non-empty")
@@ -295,20 +294,6 @@ func normalizeInt64s(in []int64) []int64 {
 	return out
 }
 
-func normalizeActorIDs(in []ids.ActorID) []ids.ActorID {
-	out := make([]ids.ActorID, 0, len(in))
-	seen := map[ids.ActorID]bool{}
-	for _, value := range in {
-		if value == 0 || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
-}
-
 func uniqueSorted(in []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(in))
@@ -382,16 +367,16 @@ func renderVersion(t Template, v Version, argsJSON string) (Rendered, error) {
 		}
 	}
 	return Rendered{
-		TemplateID:   t.ID,
-		TemplateName: t.Name,
-		Version:      v.Version,
-		Prompt:       prompt,
-		Title:        title,
-		Priority:     v.DefaultPriority,
-		Size:         v.DefaultSize,
-		TagIDs:       v.DefaultTagIDs,
-		TeamIDs:      v.DefaultTeamIDs,
-		LeadActorIDs: v.DefaultLeadActorIDs,
-		ArgsJSON:     normalizedJSON,
+		TemplateID:    t.ID,
+		TemplateName:  t.Name,
+		Version:       v.Version,
+		Prompt:        prompt,
+		Title:         title,
+		Priority:      v.DefaultPriority,
+		Size:          v.DefaultSize,
+		TagIDs:        v.DefaultTagIDs,
+		TeamIDs:       v.DefaultTeamIDs,
+		LeaderActorID: v.DefaultLeaderActorID,
+		ArgsJSON:      normalizedJSON,
 	}, nil
 }

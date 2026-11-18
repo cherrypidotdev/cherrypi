@@ -33,6 +33,7 @@ Card
           TableHead.text-right {{ $t("nav.tasks") }}
           TableHead.text-right {{ $t("usage.breakdown.rounds") }}
           TableHead.text-right {{ $t("account.tabs.tokens") }}
+          TableHead.text-right(:title="$t('usage.models.cacheTitle')") {{ $t("usage.models.cache") }}
           TableHead.text-right(:title="$t('usage.models.speedTitle')") {{ $t("usage.insights.speed") }}
           TableHead.text-right {{ $t("usage.breakdown.spend") }}
       TableBody
@@ -49,6 +50,7 @@ Card
           TableCell.text-right.tabular-nums {{ formatCount(row.tasks) }}
           TableCell.text-right.tabular-nums {{ formatCount(row.runs) }}
           TableCell.text-right.tabular-nums {{ formatTokens(tokens(row)) }}
+          TableCell.text-right.tabular-nums(:title="cacheTitle(row)") {{ cache(row) }}
           TableCell.text-right.tabular-nums {{ rate(row) }}
           TableCell.text-right.font-semibold.tabular-nums {{ formatCost(row.cost) }}
   CardFooter.justify-between.gap-3
@@ -85,6 +87,9 @@ import {
 import { generationRate, thinkingMs, usageAccent } from "@/lib/usage";
 import type { AgencyUsageModel } from "@cherrypi/sdk";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   rows: AgencyUsageModel[];
@@ -112,17 +117,30 @@ function tokens(row: AgencyUsageModel): number {
   return Number(row.inputTokens) + Number(row.outputTokens);
 }
 
+function cache(row: AgencyUsageModel): string {
+  const read = Number(row.cacheReadTokens ?? 0);
+  return read > 0 ? formatTokens(read) : "—";
+}
+
+function cacheTitle(row: AgencyUsageModel): string {
+  const read = Number(row.cacheReadTokens ?? 0);
+  const write = Number(row.cacheWriteTokens ?? 0);
+  if (read === 0 && write === 0) {
+    return t("usage.models.noCache");
+  }
+  return t("usage.models.cacheDetail", {
+    read: formatTokens(read),
+    write: formatTokens(write),
+  });
+}
+
 function rate(row: AgencyUsageModel): string {
   const timing = {
     activeMs: Number(row.activeMs),
     toolMs: Number(row.toolMs),
     modelWaitMs: Number(row.modelWaitMs),
   };
-  const value = generationRate(
-    Number(row.outputTokens),
-    thinkingMs(timing),
-    timing.modelWaitMs,
-  );
+  const value = generationRate(Number(row.outputTokens), thinkingMs(timing));
   return value > 0 ? formatRate(value) : "—";
 }
 </script>
@@ -136,6 +154,10 @@ en:
       footnote: "Settled runs only; a running task joins the table when it settles."
       unknownHint: "Unknown = Pi reported no model for the run."
       speedTitle: "Output tokens over the time the model spent generating them"
+      cache: "cached in"
+      cacheTitle: "Input served from the provider's prompt cache; the tooltip shows what was written into it"
+      cacheDetail: "{read} read from cache · {write} written to it"
+      noCache: "This provider reported no prompt caching for the model"
 ru:
   usage:
     models:
@@ -144,4 +166,8 @@ ru:
       footnote: "Только завершённые запуски; выполняющаяся задача попадёт в таблицу после завершения."
       unknownHint: "«Неизвестно» = Pi не сообщил модель запуска."
       speedTitle: "Выходные токены за время генерации моделью"
+      cache: "из кэша"
+      cacheTitle: "Вход, прочитанный из кэша провайдера; во всплывающей подсказке — записанное в кэш"
+      cacheDetail: "{read} прочитано из кэша · {write} записано в него"
+      noCache: "Провайдер не сообщил о кэшировании для этой модели"
 </i18n>

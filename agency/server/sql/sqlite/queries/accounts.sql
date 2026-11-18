@@ -39,6 +39,11 @@ RETURNING id;
 -- name: GetActorByID :one
 SELECT * FROM actors WHERE id = sqlc.arg(id);
 
+-- name: ListActorsByIDs :many
+
+
+SELECT * FROM actors WHERE id IN (sqlc.slice('ids'));
+
 -- name: GetActorByUsername :one
 SELECT * FROM actors WHERE username = sqlc.arg(username);
 

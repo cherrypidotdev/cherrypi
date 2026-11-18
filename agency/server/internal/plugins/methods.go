@@ -141,8 +141,23 @@ func (h *Host) attachAgency(L *lua.LState, root *lua.LTable) {
 		L.Push(toLua(L, out))
 		return 1
 	}))
+	root.RawSetString("update_settings", L.NewFunction(func(L *lua.LState) int {
+		scope := L.CheckString(1)
+		target := L.OptString(2, "")
+		values, ok := fromLua(L.CheckTable(3)).(map[string]any)
+		if !ok {
+			L.RaiseError("update_settings: values must be an object")
+			return 0
+		}
+		if err := h.Bridge.UpdateSettings(h.Ctx, scope, target, values); err != nil {
+			L.RaiseError("update_settings: %v", err)
+			return 0
+		}
+		return 0
+	}))
 	root.RawSetString("add_task_message", L.NewFunction(func(L *lua.LState) int {
-		if err := h.addTaskMessage(L.CheckString(1), L.CheckString(2)); err != nil {
+		opts := L.OptTable(3, nil)
+		if err := h.addTaskMessage(L.CheckString(1), L.CheckString(2), opts); err != nil {
 			L.RaiseError("add_task_message: %v", err)
 			return 0
 		}
@@ -507,7 +522,21 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 		return "", fmt.Errorf("unknown size %q", size)
 	}
 
-	interactive, err := optionalBoolField(input, "interactive")
+	automated, err := optionalBoolField(input, "automated")
+	if err != nil {
+		return "", err
+	}
+	isAutomated := automated != nil && *automated
+	leader, err := h.resolveLeader(project.ID, input.RawGetString("leader"))
+	if err != nil {
+		return "", err
+	}
+	if !isAutomated && leader == 0 {
+		return "", errors.New(
+			"a manual task needs an explicit leader (human or agent)",
+		)
+	}
+	model, err := modelInput(input.RawGetString("model"))
 	if err != nil {
 		return "", err
 	}
@@ -523,11 +552,14 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 		References:      refs,
 		Priority:        priority,
 		Size:            size,
-		Interactive:     interactive,
+		ModelProvider:   model.Provider,
+		ModelID:         model.ModelID,
+		ThinkingLevel:   model.ThinkingLevel,
+		Automated:       isAutomated,
 		State:           tasks.StateBacklog,
 		AutoTitle:       title == "",
 
-		LeadActorIDs: []ids.ActorID{h.pluginActorID()},
+		LeaderActorID: leader,
 	})
 	if err != nil {
 		return "", err
@@ -535,8 +567,11 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 	if err := h.Bridge.AttachTools(h.Ctx, t.ID, tools); err != nil {
 		return "", err
 	}
-	if _, err := h.Bridge.QueueTask(h.Ctx, t.ID); err != nil {
-		return "", err
+
+	if !isAutomated {
+		if _, err := h.Bridge.QueueTask(h.Ctx, t.ID); err != nil {
+			return "", err
+		}
 	}
 	h.log(
 		LevelInfo,
@@ -545,6 +580,40 @@ func (h *Host) createTask(input *lua.LTable) (string, error) {
 		[]LogSurface{{Scope: ScopeProject, TargetID: project.ID}},
 	)
 	return t.ID, nil
+}
+
+type pluginModel struct {
+	Provider      string
+	ModelID       string
+	ThinkingLevel string
+}
+
+var pluginThinkingLevels = map[string]bool{
+	"off": true, "minimal": true, "low": true,
+	"medium": true, "high": true, "xhigh": true, "max": true,
+}
+
+func modelInput(value lua.LValue) (pluginModel, error) {
+	if value == nil || value == lua.LNil {
+		return pluginModel{}, nil
+	}
+	table, ok := value.(*lua.LTable)
+	if !ok {
+		return pluginModel{}, errors.New("model must be a table")
+	}
+	provider := strings.TrimSpace(stringField(table, "provider"))
+	modelID := strings.TrimSpace(stringField(table, "model_id"))
+	if modelID == "" {
+		modelID = strings.TrimSpace(stringField(table, "id"))
+	}
+	level := strings.ToLower(strings.TrimSpace(stringField(table, "thinking_level")))
+	if (provider == "") != (modelID == "") {
+		return pluginModel{}, errors.New("model provider and id must be set together")
+	}
+	if level != "" && !pluginThinkingLevels[level] {
+		return pluginModel{}, fmt.Errorf("unknown thinking level %q", level)
+	}
+	return pluginModel{Provider: provider, ModelID: modelID, ThinkingLevel: level}, nil
 }
 
 func (h *Host) resolveTags(projectID string, value lua.LValue) ([]string, error) {
@@ -600,6 +669,25 @@ func (h *Host) resolveAssignee(projectID string, value lua.LValue) (ids.ActorID,
 		return 0, errors.New("assignee is not a member of the project")
 	}
 	return agent.ActorID, nil
+}
+
+func (h *Host) resolveLeader(projectID string, value lua.LValue) (ids.ActorID, error) {
+	text := strings.TrimSpace(luaValueString(value))
+	if text == "" {
+		return 0, nil
+	}
+	actor, err := h.Bridge.Agent(h.Ctx, text)
+	if err != nil {
+		return 0, errors.New("leader is not an actor of this agency")
+	}
+	role, ok, err := h.Bridge.ProjectRole(h.Ctx, projectID, actor.ActorID)
+	if err != nil {
+		return 0, err
+	}
+	if !ok || role == "" {
+		return 0, errors.New("leader is not a member of the project")
+	}
+	return actor.ActorID, nil
 }
 
 func (h *Host) referenceInputs(value lua.LValue) ([]tasks.ReferenceInput, error) {

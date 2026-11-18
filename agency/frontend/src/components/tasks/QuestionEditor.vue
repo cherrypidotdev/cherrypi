@@ -94,11 +94,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         v-model:resize-height="noteHeight"
         :placeholder="answer.customSelected ? $t('questionEditor.customPlaceholder') : $t('questionEditor.notePlaceholder')"
         resizable
+        references
         test-id="note"
+        :reference-project-id="projectId"
+        :reference-task-id="taskId"
         :model-value="answer.notes"
         :aria-label="answer.customSelected ? $t('questionEditor.customAnswer') : $t('questionEditor.note')"
         @update:model-value="(value) => emit('notes', String(value))"
         :disabled="disabled"
+      )
+    .flex.items-center.gap-2
+      AttachmentUploadButton(
+        v-if="taskId"
+        :label="$t('questionEditor.attach')"
+        :task-id="taskId"
+        :title="$t('questionEditor.attachHint')"
+        @uploaded="appendAttachment"
       )
 
   .flex.flex-col(v-else-if="answer.notes")
@@ -112,9 +123,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import { useSessionEditorHeight } from "@/composables/useEditorHeight";
+import { attachmentMarkdownLink } from "@/lib/attachments";
 import {
   COMPACT_EDITOR_HEIGHT,
   QUESTIONNAIRE_NOTE_HEIGHT_KEY,
@@ -124,6 +137,7 @@ import type {
   QuestionnaireAnswer,
   QuestionnaireQuestion,
 } from "@/lib/questionnaire";
+import type { Attachment } from "@cherrypi/sdk";
 import { CheckIcon } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
 
@@ -133,6 +147,10 @@ const props = defineProps<{
   disabled: boolean;
 
   readonly?: boolean;
+
+  taskId?: string;
+
+  projectId?: string;
 }>();
 const emit = defineEmits<{
   toggle: [optionIndex: number];
@@ -167,6 +185,12 @@ watch(
     }
   },
 );
+
+function appendAttachment(attachment: Attachment) {
+  const current = props.answer.notes.trimEnd();
+  const link = attachmentMarkdownLink(attachment);
+  emit("notes", current ? `${current}\n${link}` : link);
+}
 
 function isSelected(optionIndex: number): boolean {
   return props.answer.selected.includes(optionIndex);
@@ -243,6 +267,8 @@ function onSpace(event: KeyboardEvent, action: () => void) {
 en:
   questionEditor:
     recommended: "Recommended"
+    attach: "Attach"
+    attachHint: "Attach a file to this note; a Markdown link is added to the note text"
     customOption: "Type something."
     answerInField: "Type your answer in the field below"
     note: "Note"
@@ -253,6 +279,8 @@ en:
 ru:
   questionEditor:
     recommended: "Рекомендуется"
+    attach: "Прикрепить"
+    attachHint: "Прикрепить файл к заметке; в текст заметки добавится ссылка Markdown"
     customOption: "Напишите свой вариант."
     answerInField: "Введите ответ в поле ниже"
     note: "Заметка"

@@ -32,6 +32,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/limits"
+	"cherrypi.vladfaust.com/agency/internal/modelrouting"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
@@ -55,6 +56,8 @@ type Scheduler struct {
 
 	Plugins *pluginhost.Service
 
+	ModelRouting *modelrouting.Service
+
 	Interval time.Duration
 
 	SettleGrace time.Duration
@@ -65,7 +68,14 @@ type Scheduler struct {
 		agentID ids.AgentID,
 		req *agentv1.CreateTaskRequest,
 	) (sessionID string, err error)
-	RetryTask func(ctx context.Context, agentID ids.AgentID, sessionID string, ref *agentv1.TaskRef) error
+
+	RetryTask func(
+		ctx context.Context,
+		agentID ids.AgentID, sessionID string,
+		ref *agentv1.TaskRef,
+		requiredTools []string,
+		model ModelSelection,
+	) error
 
 	AddToTask func(
 		ctx context.Context,
@@ -73,6 +83,8 @@ type Scheduler struct {
 		ref *agentv1.TaskRef,
 		sender *agentv1.PromptSender,
 		atts []*agentv1.AttachmentRef,
+		requiredTools []string,
+		model ModelSelection,
 	) error
 
 	AgentTasks func(ctx context.Context, agentID ids.AgentID) ([]*agentv1.Task, error)
@@ -128,14 +140,20 @@ func New(
 			ctx context.Context,
 			agentID ids.AgentID, sessionID string,
 			ref *agentv1.TaskRef,
+			requiredTools []string,
+			model ModelSelection,
 		) error {
 			conn, err := hub.Connection(agentID)
 			if err != nil {
 				return err
 			}
 			_, err = conn.Tasks.RetryTask(ctx, &agentv1.RetryTaskRequest{
-				Id:  sessionID,
-				Ref: ref,
+				Id:            sessionID,
+				Ref:           ref,
+				RequiredTools: requiredTools,
+				ModelProvider: model.Provider,
+				ModelId:       model.ModelID,
+				ThinkingLevel: model.ThinkingLevel,
 			})
 			return err
 		}
@@ -145,17 +163,23 @@ func New(
 			ref *agentv1.TaskRef,
 			sender *agentv1.PromptSender,
 			atts []*agentv1.AttachmentRef,
+			requiredTools []string,
+			model ModelSelection,
 		) error {
 			conn, err := hub.Connection(agentID)
 			if err != nil {
 				return err
 			}
 			_, err = conn.Tasks.AddToTask(ctx, &agentv1.AddToTaskRequest{
-				Id:          sessionID,
-				Prompt:      prompt,
-				Attachments: atts,
-				Ref:         ref,
-				Sender:      sender,
+				Id:            sessionID,
+				Prompt:        prompt,
+				Attachments:   atts,
+				Ref:           ref,
+				Sender:        sender,
+				RequiredTools: requiredTools,
+				ModelProvider: model.Provider,
+				ModelId:       model.ModelID,
+				ThinkingLevel: model.ThinkingLevel,
 			})
 			return err
 		}
@@ -237,7 +261,8 @@ func (s *Scheduler) FollowUp(
 		}
 		return s.AddToTask(
 			ctx, t.SessionAgentID, t.SessionID, prompt,
-			taskRef(t), s.sender(ctx, actorID), nil,
+			taskRef(t), s.sender(ctx, actorID), nil, t.RequiredTools,
+			s.ResumeModel(ctx, t, t.SessionAgentID),
 		)
 	default:
 		return fmt.Errorf(
@@ -246,23 +271,25 @@ func (s *Scheduler) FollowUp(
 	}
 }
 
-func (s *Scheduler) DeliverPendingPrompt(ctx context.Context, t tasks.Task) {
+func (s *Scheduler) DeliverPendingPrompt(ctx context.Context, t tasks.Task) bool {
 	if strings.TrimSpace(t.PendingPrompt) == "" {
-		return
+		return false
 	}
 	if t.SessionID == "" || s.AddToTask == nil {
-		return
+		return false
 	}
 	err := s.AddToTask(
 		ctx, t.SessionAgentID, t.SessionID, t.PendingPrompt,
 		taskRef(t), s.sender(ctx, t.PendingPromptActorID),
-		s.pendingAttachments(ctx, t),
+		s.pendingAttachments(ctx, t), t.RequiredTools,
+		s.ResumeModel(ctx, t, t.SessionAgentID),
 	)
 	if err != nil {
 		log.Printf("[scheduler] deliver pending prompt %s: %v", t.ID, err)
-		return
+		return false
 	}
 	s.clearDeliveredPrompt(ctx, t.ID, t.PendingPrompt)
+	return true
 }
 
 func (s *Scheduler) clearDeliveredPrompt(
@@ -596,16 +623,8 @@ func (s *Scheduler) waitingReason(
 		})
 		reasons = append(
 			reasons,
-			"Waiting for tasks to become completed: "+strings.Join(blockers, ", "),
-		)
-	}
-	if children, err := s.Tasks.IncompleteChildIDs(ctx, task.ID); err == nil && len(children) > 0 {
-		sort.SliceStable(children, func(i, j int) bool {
-			return taskIDLess(children[i], children[j])
-		})
-		reasons = append(
-			reasons,
-			"Waiting for sub-tasks to finish: "+strings.Join(children, ", "),
+			"Waiting for blocking tasks to complete or be cancelled: "+
+				strings.Join(blockers, ", "),
 		)
 	}
 	if len(reasons) > 0 {
@@ -745,7 +764,18 @@ func (s *Scheduler) attachmentRefs(ctx context.Context, taskID string) []*agentv
 	if s.Attachments == nil {
 		return nil
 	}
-	list, err := s.Attachments.TaskAttachments(ctx, taskID)
+	return AttachmentRefs(s.Attachments, ctx, taskID)
+}
+
+func AttachmentRefs(
+	svc *attachments.Service,
+	ctx context.Context,
+	taskID string,
+) []*agentv1.AttachmentRef {
+	if svc == nil {
+		return nil
+	}
+	list, err := svc.TaskAttachments(ctx, taskID)
 	if err != nil {
 		return nil
 	}
@@ -894,15 +924,18 @@ func (s *Scheduler) contextBlock(ctx context.Context, task tasks.Task, agentID i
 	var b strings.Builder
 	b.WriteString("\n\n## CherryPi context\n\n")
 	b.WriteString("This session is a CherryPi task. The `listTasks`, `getTask`, " +
-		"`getTaskHistory`, `getTaskInput`, `respondToTaskInput`, `createTask`, " +
-		"`updateTask`, and `listProjects` tools talk to the CherryPi agency; use " +
-		"them to coordinate work when the task calls for it. `listTasks` and " +
-		"`getTask` never return a task's conversation; read it with " +
-		"`getTaskHistory`. A task you lead may be blocked on a question: read it " +
-		"with `getTaskInput` and answer it with `respondToTaskInput`. You cannot " +
-		"delete tasks, and you can only see tasks in a project you are a member " +
-		"of with the `can_list_tasks` permission. You can always see and update " +
-		"your own tasks.\n\n" +
+		"`getTaskHistory`, `getTaskInput`, `updateTask`, and `listProjects` tools " +
+		"talk to the CherryPi agency; use them to coordinate work when the task " +
+		"calls for it. `listTasks` and `getTask` never return a task's " +
+		"conversation; read it with `getTaskHistory`. Create work with " +
+		"`queue_child_task` when this task must wait for it, or " +
+		"`create_backlog_task` when it must not. A task you lead may be blocked " +
+		"on a question: read it with `getTaskInput` and answer it with " +
+		"`respondToTaskInput`. An automated reaction answers its origin task " +
+		"with `answer_origin_task_questions`, `complete_origin_task`, or " +
+		"`cancel_origin_task`. You cannot delete tasks, and you can only see " +
+		"tasks in a project you are a member of with the `can_list_tasks` " +
+		"permission. You can always see and update your own tasks.\n\n" +
 		"Your prompts are versioned. Use `getPrompt` and `listPromptVersions` to " +
 		"read your own agent prompt or a project prompt, and `proposePromptChange` " +
 		"to suggest a complete replacement; an owner approves it (or your " +
@@ -1024,30 +1057,100 @@ func taskRef(task tasks.Task) *agentv1.TaskRef {
 	return &agentv1.TaskRef{ProjectId: task.ProjectID, Seq: task.Seq}
 }
 
+func routePriority(priority int64) int64 {
+	switch priority {
+	case tasks.PriorityLow:
+		return 1
+	case tasks.PriorityNormal:
+		return 2
+	case tasks.PriorityHigh:
+		return 3
+	case tasks.PriorityCritical:
+		return 4
+	default:
+		return 0
+	}
+}
+
+type ModelSelection struct {
+	Provider      string
+	ModelID       string
+	ThinkingLevel string
+}
+
 func (s *Scheduler) taskModel(
 	ctx context.Context,
 	task tasks.Task,
-	agent agents.Agent,
-) (provider, modelID, thinkingLevel string) {
-	provider = task.ModelProvider
-	modelID = task.ModelID
-	thinkingLevel = task.ThinkingLevel
-	if provider != "" && modelID != "" && thinkingLevel != "" {
-		return provider, modelID, thinkingLevel
+	agentID ids.AgentID,
+) ModelSelection {
+	sel := ModelSelection{
+		Provider:      task.ModelProvider,
+		ModelID:       task.ModelID,
+		ThinkingLevel: task.ThinkingLevel,
 	}
-	defaults, err := s.Agents.Defaults(ctx, agent.ID)
+	if sel.Provider != "" && sel.ModelID != "" && sel.ThinkingLevel != "" {
+		return sel
+	}
+
+	if sel.Provider == "" && sel.ModelID == "" && s.ModelRouting != nil {
+		tags := make([]string, len(task.Tags))
+		for i, tag := range task.Tags {
+			tags[i] = tag.Name
+		}
+		selection, ok, err := s.ModelRouting.Resolve(ctx, modelrouting.ResolveInput{
+			ProjectID: task.ProjectID,
+			Priority:  routePriority(task.Priority),
+			Size:      task.Size,
+			Tags:      tags,
+		})
+		if err != nil {
+			log.Printf("[scheduler] model routing for task %s: %v", task.ID, err)
+		} else if ok {
+			sel.Provider = selection.Provider
+			sel.ModelID = selection.ModelID
+			if sel.ThinkingLevel == "" {
+				sel.ThinkingLevel = selection.ThinkingLevel
+			}
+		}
+	}
+
+	defaults, err := s.Agents.Defaults(ctx, agentID)
 	if err != nil {
-		log.Printf("[scheduler] agent defaults %d: %v", agent.ID, err)
-		return provider, modelID, thinkingLevel
+		log.Printf("[scheduler] agent defaults %d: %v", agentID, err)
+		return sel
 	}
-	if provider == "" && modelID == "" {
-		provider = defaults.ModelProvider
-		modelID = defaults.ModelID
+	if sel.Provider == "" && sel.ModelID == "" {
+		sel.Provider = defaults.ModelProvider
+		sel.ModelID = defaults.ModelID
 	}
-	if thinkingLevel == "" {
-		thinkingLevel = defaults.ThinkingLevel
+	if sel.ThinkingLevel == "" {
+		sel.ThinkingLevel = defaults.ThinkingLevel
 	}
-	return provider, modelID, thinkingLevel
+	return sel
+}
+
+func (s *Scheduler) ResumeModel(
+	ctx context.Context,
+	task tasks.Task,
+	agentID ids.AgentID,
+) ModelSelection {
+	sel := s.taskModel(ctx, task, agentID)
+	if task.ModelProvider != "" || task.ModelID != "" {
+		return sel
+	}
+	state, ok, err := s.Tasks.SessionState(ctx, task.ID)
+	if err != nil {
+		log.Printf("[scheduler] resume model for %s: %v", task.ID, err)
+		return sel
+	}
+	if !ok || state.ModelProvider == "" || state.ModelID == "" {
+		return sel
+	}
+	sel.Provider, sel.ModelID = state.ModelProvider, state.ModelID
+	if state.ThinkingLevel != "" {
+		sel.ThinkingLevel = state.ThinkingLevel
+	}
+	return sel
 }
 
 func (s *Scheduler) pluginTools(ctx context.Context, task tasks.Task) []*agentv1.PluginTool {
@@ -1125,6 +1228,8 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			taskRef(task),
 			s.sender(ctx, task.PendingPromptActorID),
 			s.pendingAttachments(ctx, task),
+			task.RequiredTools,
+			s.ResumeModel(ctx, task, agent.ID),
 		)
 		if err == nil {
 			s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)
@@ -1144,7 +1249,10 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	}
 
 	if resume {
-		err := s.RetryTask(ctx, agent.ID, task.SessionID, taskRef(task))
+		err := s.RetryTask(
+			ctx, agent.ID, task.SessionID, taskRef(task), task.RequiredTools,
+			s.ResumeModel(ctx, task, agent.ID),
+		)
 		if err == nil {
 			return
 		}
@@ -1169,16 +1277,16 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 
 	s.recordInitialMessage(ctx, task.ID, prompt, promptActorID, now)
 
-	modelProvider, modelID, thinkingLevel := s.taskModel(ctx, task, agent)
+	model := s.taskModel(ctx, task, agent.ID)
 
-	interactive := task.Interactive
+	interactive := !task.Automated
 	sessionID, err := s.CreateTask(ctx, agent.ID, &agentv1.CreateTaskRequest{
 		Prompt:             prompt,
 		Workspace:          task.Workspace,
 		Interactive:        &interactive,
-		ModelProvider:      modelProvider,
-		ModelId:            modelID,
-		ThinkingLevel:      thinkingLevel,
+		ModelProvider:      model.Provider,
+		ModelId:            model.ModelID,
+		ThinkingLevel:      model.ThinkingLevel,
 		Title:              task.Name,
 		AutoTitle:          task.AutoTitle,
 		AppendSystemPrompt: appendPrompt,
@@ -1187,6 +1295,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 		Ref:                taskRef(task),
 		Sender:             s.sender(ctx, promptActorID),
 		Tools:              s.pluginTools(ctx, task),
+		RequiredTools:      task.RequiredTools,
 	})
 	if err != nil {
 		log.Printf("[scheduler] start %s on %d: %v", task.ID, agent.ID, err)

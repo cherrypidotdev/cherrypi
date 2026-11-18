@@ -7,16 +7,17 @@ description: Run a CherryPi agent from the container image or a release binary, 
 
 An agent is a headless worker. It has **no inbound port**: it dials the agency,
 authenticates, and serves its task API over the tunnel. Install it on any
-machine that should run Pi sessions — a laptop, a build box, or a cloud VM.
+machine that should run task sessions — a laptop, a build box, or a cloud VM.
 
 ## Before you start
 
 - A running agency URL, reachable from the agent host.
 - A **personal access token** (`pat_…`) for a registered agent.
-- Enough disk for `$CHERRYPI_DIR` — per-task workspaces and Pi sessions live
+- Enough disk for `$CHERRYPI_DIR` — per-task workspaces and attachments live
   there.
-- Pi model credentials, if you use the binary rather than the image. The image
-  bundles Pi but not your provider keys.
+- Providers and models declared in the agency (**Settings → Models**): an agent
+  keeps no model configuration of its own, so a task can only run a model the
+  agency declares and grants to it.
 
 ## Register the agent
 
@@ -31,13 +32,14 @@ agent cannot connect until it has a PAT.
 
 ## Option A — Docker image (recommended)
 
-The published agent image includes Pi, Node, X utilities and `x11vnc`.
+The published agent image is the static Go binary plus X utilities and
+`x11vnc`: it carries no Node and no `pi`, because the coding agent runs
+in-process.
 
 ```sh
 docker run -d --name cherrypi-agent \
   --restart unless-stopped \
   -v /srv/cherrypi/agent:/root/.cherrypi \
-  -v /srv/cherrypi/pi:/root/.pi/agent \
   -e CHERRYPI_AGENCY_URL='https://cherrypi.example.com' \
   -e CHERRYPI_AGENT_TOKEN='pat_…' \
   ghcr.io/cherrypidotdev/cherrypi-agent:latest
@@ -45,13 +47,12 @@ docker run -d --name cherrypi-agent \
 
 | Mount | Why |
 | --- | --- |
-| `/root/.cherrypi` | Agent database, cached token and task workspaces. |
-| `/root/.pi/agent` | Pi configuration, model/provider credentials, memory. |
+| `/root/.cherrypi` | Agent database and task workspaces. |
+| `/root/.pi/agent` | Optional: host skills the model may use (`skills/`). Mount it if you keep Agent Skills on the host; models and keys do **not** come from here. |
 
-The agent caches the token at `/root/.cherrypi/agent.token` (mode `0600`).
-Keep the data volume: it is the agent's identity cache. You can also pass the
-token as `--token pat_…`; an explicit token wins over the cached file, so
-token rotation is a container/process restart.
+Pass the token as `--token pat_…` or `CHERRYPI_AGENT_TOKEN`. The worker keeps it
+in memory only, so rotating a token is a container/process restart. Keep the
+data volume: it holds the task database and workspaces.
 
 ### Compose
 
@@ -65,7 +66,6 @@ services:
       CHERRYPI_AGENT_TOKEN: pat_…
     volumes:
       - ./agent-data:/root/.cherrypi
-      - ./pi-agent:/root/.pi/agent
 ```
 
 ## Option B — release binary
@@ -82,9 +82,9 @@ install -m 0755 cherrypi-agent /usr/local/bin/cherrypi-agent
 The binary needs:
 
 - Go is **not** required at runtime.
-- **Pi** on `PATH` (or `PI_BIN=/path/to/pi`). Install the Pi coding agent
-  version compatible with your CherryPi release.
-- Your model credentials in `$PI_CODING_AGENT_DIR` (default `~/.pi/agent`).
+- No Pi installation and no model credentials: the coding agent runs
+  **in-process** through the pure-Go port bundled into the binary, and every
+  model comes from the agency's catalog.
 
 Run it once to verify:
 
@@ -110,7 +110,6 @@ Group=cherrypi
 Environment=CHERRYPI_AGENCY_URL=https://cherrypi.example.com
 Environment=CHERRYPI_AGENT_TOKEN=pat_…
 Environment=CHERRYPI_DIR=/var/lib/cherrypi
-Environment=PI_CODING_AGENT_DIR=/var/lib/cherrypi/.pi/agent
 ExecStart=/usr/local/bin/cherrypi-agent
 Restart=on-failure
 RestartSec=5

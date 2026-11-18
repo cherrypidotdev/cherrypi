@@ -89,8 +89,6 @@ curl -fsS \
 | Маршрут | Назначение |
 | --- | --- |
 | `/api/rest/task-history` | Отправка и чтение записей сессии Pi. |
-| `/api/rest/agent-tools` | Встроенные инструменты Pi (`listTasks`, `getTask`, `createTask`, …). |
-| `/api/rest/agent-tools/token` | Read-only `GET`-проверка PAT вызывающего. Выпуск токена — в UI/API agency. |
 | `/api/rest/attachments` | Скачивание файлов задачи и загрузка картинок. |
 
 Эти маршруты аутентифицируются сами и не входят в браузерный поток сессии.

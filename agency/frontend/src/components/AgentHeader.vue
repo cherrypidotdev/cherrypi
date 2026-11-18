@@ -29,9 +29,9 @@ header.flex.h-14.shrink-0.items-center.gap-3.border-b.px-6
         :alt="$t('settings.auth.namePlaceholderPath')"
       )
       span.block.size-6(v-else :innerHTML="avatar")
-      span.border-background.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
-        :class="online ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-        :title="online ? $t('agentHeader.online') : $t('agentHeader.offline')"
+      AgentStatusDot(
+        :status="item?.status"
+        :running="fleetStat(currentAgentId)?.running ?? 0"
       )
     .flex.min-w-0.flex-col
       span.truncate.text-sm.font-semibold {{ name }}
@@ -62,12 +62,13 @@ header.flex.h-14.shrink-0.items-center.gap-3.border-b.px-6
 </template>
 
 <script setup lang="ts">
+import AgentStatusDot from "@/components/AgentStatusDot.vue";
 import { Button } from "@/components/ui/button";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useAgents } from "@/composables/useAgents";
+import { useFleetConcurrency } from "@/composables/useFleetConcurrency";
 import { useTerminals } from "@/composables/useTerminals";
 import { currentAgentId, currentAgentUsername } from "@/lib/sdk";
-import { AgentStatus } from "@cherrypi/sdk";
 import { MonitorIcon, SettingsIcon, TerminalIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed } from "vue";
@@ -90,7 +91,13 @@ const name = computed(
     item.value?.username ||
     t("admin.agents.columnAgent"),
 );
-const online = computed(() => item.value?.status === AgentStatus.ONLINE);
+const { stats: fleetStats } = useFleetConcurrency(() =>
+  item.value ? [item.value] : [],
+);
+
+function fleetStat(agentId: string) {
+  return fleetStats.value[agentId];
+}
 const avatar = computed(() => toSvg(currentAgentId.value || "agent", 24));
 
 function isActive(page: string): boolean {
@@ -120,13 +127,9 @@ en:
     rootTerminals: "Root terminals ({count})"
     openRootTerminals: "Open root terminals"
     ownersOnlyTerminals: "Only agent owners can open terminals"
-    online: "Online"
-    offline: "Offline"
 ru:
   agentHeader:
     rootTerminals: "Root-терминалы ({count})"
     openRootTerminals: "Открыть root-терминалы"
     ownersOnlyTerminals: "Открывать терминалы могут только владельцы агента"
-    online: "В сети"
-    offline: "Не в сети"
 </i18n>

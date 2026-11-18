@@ -43,6 +43,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         data-testid="task-picker-archived-filter"
       )
       span.text-muted-foreground.text-xs {{ $t("taskPicker.archived") }}
+    label.flex.cursor-pointer.items-center.gap-1(
+      :title="includeAutomated ? $t('taskPicker.automatedIncluded') : $t('taskPicker.automatedHidden')"
+    )
+      input.accent-primary.size-3.cursor-pointer(
+        v-model="includeAutomated"
+        type="checkbox"
+        data-testid="task-picker-automated-filter"
+      )
+      span.text-muted-foreground.text-xs {{ $t("taskPicker.automated") }}
     label.flex.items-center.gap-1(
       v-if="referenceProjectId || showProjectFilter"
     )
@@ -113,17 +122,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @scroll.passive="onScroll"
     data-testid="task-picker-list"
   )
-    p.text-muted-foreground.px-2.text-xs(v-if="loading && !candidates.length")
+    p.text-muted-foreground.px-2.text-xs(v-if="loading && !rows.length")
       | {{ $t("taskPicker.searching") }}
-    p.text-muted-foreground.px-2.text-xs(
-      v-else-if="!candidates.length && !loading"
-    )
+    p.text-muted-foreground.px-2.text-xs(v-else-if="!rows.length && !loading")
       | {{ $t("taskPicker.empty") }}
     template(v-else)
       p.text-muted-foreground.px-2.text-xs(v-if="!search.trim()")
         | {{ $t("taskPicker.recent") }}
-      button.inline-flex.w-full.min-w-0.cursor-pointer.items-center.gap-1.rounded-full.border.px-2.text-left.text-xs(
-        v-for="(candidate, index) in candidates"
+
+      button.inline-flex.w-full.min-w-0.cursor-pointer.items-center.gap-1.overflow-hidden.rounded-full.border.px-2.text-left.text-xs(
+        v-for="(candidate, index) in rows"
         :key="candidate.id"
         type="button"
         role="option"
@@ -137,16 +145,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         component.size-3.shrink-0(:is="taskStateIcon(candidate.state)")
         strong.shrink-0.font-semibold {{ candidate.id }}:
-        span.truncate(:class="taskNameClass(candidate)") {{ taskReferenceName(candidate) }}
+
+        MarqueeText.min-w-0.flex-1(
+          :active="index === activeIndex"
+          :class="taskNameClass(candidate)"
+        ) {{ taskReferenceName(candidate) }}
       .flex.justify-center.py-1(v-if="loading")
         Spinner.size-3
-      p.text-muted-foreground.px-2.text-xs(
-        v-else-if="!hasMore && candidates.length"
-      )
+      p.text-muted-foreground.px-2.text-xs(v-else-if="!hasMore && rows.length")
         | {{ $t("taskPicker.endOfList") }}
 </template>
 
 <script setup lang="ts">
+import MarqueeText from "@/components/MarqueeText.vue";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
 import { referenceProjectIds, sortProjectsByName } from "@/lib/project";
@@ -160,6 +171,7 @@ import {
   taskReferenceTitle,
   taskStateClassFor,
   taskStateIcon,
+  type TaskPickerPreview,
 } from "@/lib/task";
 import {
   TaskPriority,
@@ -205,7 +217,11 @@ const props = withDefaults(
 
     includeArchived?: boolean;
 
+    includeAutomated?: boolean;
+
     embedded?: boolean;
+
+    preview?: TaskPickerPreview;
   }>(),
   {
     search: "",
@@ -214,6 +230,7 @@ const props = withDefaults(
     showProjectFilter: false,
     excludeIds: () => [],
     includeArchived: true,
+    includeAutomated: false,
     embedded: false,
   },
 );
@@ -222,6 +239,13 @@ const emit = defineEmits<{ pick: [Task] }>();
 
 const { active: projects, loadProjects } = useProjects();
 const { agents, loadAgents } = useAgents();
+
+const projectSource = computed(() =>
+  props.preview ? props.preview.projects : projects.value,
+);
+const agentSource = computed(() =>
+  props.preview ? props.preview.agents : agents.value,
+);
 
 const list = ref<HTMLElement | null>(null);
 const search = toRef(props, "search");
@@ -234,7 +258,14 @@ const sizeFilter = ref<TaskSize | "">("");
 const tagFilter = ref("");
 
 const includeArchived = ref(props.includeArchived);
+const includeAutomated = ref(props.includeAutomated);
 const tags = ref<Tag[]>([]);
+
+const tagSource = computed(() =>
+  props.preview ? props.preview.tags : tags.value,
+);
+
+const picked = ref(new Set<string>());
 const candidates = ref<Task[]>([]);
 const loading = ref(false);
 const hasMore = ref(true);
@@ -244,8 +275,10 @@ const activeIndex = ref(0);
 const reachableProjectIds = ref<string[]>([]);
 
 const projectOptions = computed(() => {
-  if (!props.referenceProjectId) return sortProjectsByName(projects.value);
-  const byId = new Map(projects.value.map((project) => [project.id, project]));
+  if (!props.referenceProjectId) return sortProjectsByName(projectSource.value);
+  const byId = new Map(
+    projectSource.value.map((project) => [project.id, project]),
+  );
   return sortProjectsByName(
     reachableProjectIds.value
       .map((id) => byId.get(id))
@@ -258,13 +291,45 @@ const scopedProjectLabel = computed(() =>
     : t("taskPicker.anyProject"),
 );
 const agentOptions = computed(() =>
-  [...agents.value].sort((a, b) =>
+  [...agentSource.value].sort((a, b) =>
     (a.displayName || a.username).localeCompare(b.displayName || b.username),
   ),
 );
 const tagOptions = computed(() =>
-  [...tags.value].sort((a, b) => a.name.localeCompare(b.name)),
+  [...tagSource.value].sort((a, b) => a.name.localeCompare(b.name)),
 );
+
+const previewCandidates = computed<Task[]>(() => {
+  const preview = props.preview;
+  if (!preview) return [];
+  const ids = excluded();
+  const query = debouncedSearch.value.trim().toLowerCase();
+  const tag = tagFilter.value;
+  return preview.tasks.filter((task) => {
+    if (ids.has(task.id) || picked.value.has(task.id)) return false;
+    if (!includeArchived.value && task.archived) return false;
+    if (stateFilter.value !== "" && task.state !== stateFilter.value) {
+      return false;
+    }
+    if (projectFilter.value && task.projectId !== projectFilter.value) {
+      return false;
+    }
+    if (agentFilter.value && task.assigneeActorId !== agentFilter.value) {
+      return false;
+    }
+    if (priorityFilter.value !== "" && task.priority !== priorityFilter.value) {
+      return false;
+    }
+    if (sizeFilter.value !== "" && task.size !== sizeFilter.value) return false;
+    if (tag && !task.tags.some((item) => item.id === tag)) return false;
+    if (!query) return true;
+    return (
+      task.id.toLowerCase().includes(query) ||
+      task.name.toLowerCase().includes(query) ||
+      task.prompt.toLowerCase().includes(query)
+    );
+  });
+});
 
 const tagProjectId = computed(
   () => projectFilter.value || props.referenceProjectId || "",
@@ -274,6 +339,7 @@ let generation = 0;
 let tagGeneration = 0;
 
 onMounted(() => {
+  if (props.preview) return;
   void Promise.all([
     loadProjects(),
     loadAgents(),
@@ -326,7 +392,14 @@ async function loadTags() {
   }
 }
 
-watch(tagProjectId, () => void loadTags(), { immediate: true });
+watch(
+  tagProjectId,
+  () => {
+    if (props.preview) return;
+    void loadTags();
+  },
+  { immediate: true },
+);
 watch(
   () => props.projectFilter,
   (value) => {
@@ -337,6 +410,10 @@ watch(
 function excluded() {
   return new Set(props.excludeIds);
 }
+
+const rows = computed<Task[]>(() =>
+  props.preview ? previewCandidates.value : candidates.value,
+);
 
 function mergeCandidates(existing: Task[], incoming: Task[]): Task[] {
   const excludedIds = excluded();
@@ -361,6 +438,7 @@ async function loadPage(reset: boolean) {
   const size = sizeFilter.value;
   const tag = tagFilter.value;
   const include = includeArchived.value;
+  const automated = includeAutomated.value ? undefined : false;
   const referenceProject = props.referenceProjectId;
   if (reset) {
     offset.value = 0;
@@ -378,6 +456,7 @@ async function loadPage(reset: boolean) {
       size: size === "" ? undefined : size,
       tagId: tag || undefined,
       includeArchived: include,
+      automated,
       search: query || undefined,
       limit: PAGE_SIZE + 1,
       offset: reset ? 0 : offset.value,
@@ -393,6 +472,7 @@ async function loadPage(reset: boolean) {
       sizeFilter.value !== size ||
       tagFilter.value !== tag ||
       includeArchived.value !== include ||
+      (includeAutomated.value ? undefined : false) !== automated ||
       debouncedSearch.value.trim() !== query
     ) {
       return;
@@ -417,6 +497,8 @@ async function loadPage(reset: boolean) {
 
 function restart() {
   activeIndex.value = 0;
+
+  if (props.preview) return;
   void loadPage(true);
 }
 
@@ -427,6 +509,7 @@ function resetFilters() {
   sizeFilter.value = "";
   tagFilter.value = "";
   includeArchived.value = props.includeArchived;
+  includeAutomated.value = props.includeAutomated;
   projectFilter.value = props.projectFilter;
   restart();
 }
@@ -439,22 +522,26 @@ function onScroll(event: Event) {
 }
 
 function candidateClass(candidate: Task, index: number) {
-  return [
+  const active = index === activeIndex.value;
+  const classes = [
     taskStateClassFor(candidate),
-
-    index === activeIndex.value
-      ? "ring-2 ring-primary ring-offset-1 ring-offset-popover"
-      : "hover:bg-muted",
+    `ring-2 ring-offset-1 ring-offset-popover ${active ? "ring-primary" : "ring-transparent"}`,
   ];
+  if (!active) classes.push("hover:bg-muted");
+  return classes;
 }
 
 function pick(candidate: Task) {
   emit("pick", candidate);
-  candidates.value = candidates.value.filter(
-    (item) => item.id !== candidate.id,
-  );
-  if (activeIndex.value >= candidates.value.length) {
-    activeIndex.value = Math.max(0, candidates.value.length - 1);
+
+  if (props.preview) picked.value.add(candidate.id);
+  else
+    candidates.value = candidates.value.filter(
+      (item) => item.id !== candidate.id,
+    );
+  const remaining = props.preview ? previewCandidates.value : candidates.value;
+  if (activeIndex.value >= remaining.length) {
+    activeIndex.value = Math.max(0, remaining.length - 1);
   }
 }
 
@@ -467,14 +554,14 @@ async function ensureActiveVisible() {
 }
 
 function moveActive(delta: number) {
-  const count = candidates.value.length;
+  const count = rows.value.length;
   if (!count) return;
   activeIndex.value = (activeIndex.value + delta + count) % count;
   void ensureActiveVisible();
 }
 
 function pickActive(): boolean {
-  const candidate = candidates.value[activeIndex.value];
+  const candidate = rows.value[activeIndex.value];
   if (!candidate) return false;
   pick(candidate);
   return true;
@@ -483,7 +570,7 @@ function pickActive(): boolean {
 defineExpose({ moveActive, pickActive });
 
 watch(
-  () => candidates.value.length,
+  () => rows.value.length,
   (length) => {
     if (activeIndex.value >= length) {
       activeIndex.value = Math.max(0, length - 1);
@@ -501,6 +588,7 @@ watch(
     sizeFilter,
     tagFilter,
     includeArchived,
+    includeAutomated,
   ],
   restart,
 );
@@ -542,6 +630,9 @@ en:
     archived: "Archived"
     archivedIncluded: "Archived tasks are included"
     archivedHidden: "Archived tasks are hidden"
+    automated: "Automated"
+    automatedIncluded: "Automated tasks are included"
+    automatedHidden: "Automated tasks are hidden"
     anyAgent: "Any agent"
     anyPriority: "Any priority"
     anyTag: "Any tag"
@@ -563,6 +654,9 @@ ru:
     archived: "Архивные"
     archivedIncluded: "Архивные задачи включены"
     archivedHidden: "Архивные задачи скрыты"
+    automated: "Автоматические"
+    automatedIncluded: "Автоматические задачи включены"
+    automatedHidden: "Автоматические задачи скрыты"
     anyAgent: "Любой агент"
     anyPriority: "Любой приоритет"
     anyTag: "Любой тег"

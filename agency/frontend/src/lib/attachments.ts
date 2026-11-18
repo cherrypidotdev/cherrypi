@@ -16,6 +16,12 @@
 
 import type { Attachment } from "@cherrypi/sdk";
 
+export function attachmentMarkdownLink(attachment: Attachment): string {
+  const label = attachment.filename.replace(/[\\\[\]]/g, "\\$&");
+  const url = attachment.url || `/api/rest/attachments/${attachment.id}`;
+  return `[${label}](${url})`;
+}
+
 export function attachmentFilename(file: File): string {
   if (file.name) return file.name;
   const extension = (file.type.split("/")[1] || "bin").split("+")[0];

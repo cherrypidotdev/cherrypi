@@ -29,9 +29,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       target="_blank"
       data-testid="task-badge"
     )
-      span.text-muted-foreground.inline-flex.items-center.truncate(
+      span.text-muted-foreground.inline-flex.items-center.gap-1.truncate(
         class="bg-muted/60 px-1.5 py-0.5"
-      ) {{ badge.label }}
+      )
+        img.shrink-0.rounded(
+          v-if="badge.pluginIconUrl"
+          :src="badge.pluginIconUrl"
+          class="size-3.5"
+          :alt="''"
+          data-testid="badge-icon"
+        )
+        | {{ badge.label }}
       span.inline-flex.items-center.truncate.font-medium(
         v-if="badge.value"
         class="px-1.5 py-0.5"
@@ -42,9 +50,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :title="badgeTitle(badge)"
       data-testid="task-badge"
     )
-      span.text-muted-foreground.inline-flex.items-center.truncate(
+      span.text-muted-foreground.inline-flex.items-center.gap-1.truncate(
         class="bg-muted/60 px-1.5 py-0.5"
-      ) {{ badge.label }}
+      )
+        img.shrink-0.rounded(
+          v-if="badge.pluginIconUrl"
+          :src="badge.pluginIconUrl"
+          class="size-3.5"
+          :alt="''"
+          data-testid="badge-icon"
+        )
+        | {{ badge.label }}
       span.inline-flex.items-center.truncate.font-medium(
         v-if="badge.value"
         class="px-1.5 py-0.5"

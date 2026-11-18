@@ -22,29 +22,50 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     SelectTrigger(
       size="sm"
       :title="$t('taskModel.title')"
+      :class="manualModel ? MANUAL_CLASS : ''"
       :disabled="!canPickModel"
       data-testid="task-model"
     )
+      SparklesIcon.text-primary.size-3.shrink-0(
+        v-if="showingRouted"
+        :aria-label="$t('taskModel.routed')"
+        data-testid="task-model-routed"
+      )
       SelectValue(:placeholder="$t('domainLog.kind.model')")
-        | {{ modelDisplayLabel }}
+        ModelName(v-if="selectedModel" :model="selectedModel")
     SelectContent
       SelectGroup
+        SelectItem(v-if="autoChoice" value="__auto__")
+          .flex.items-center.gap-1
+            SparklesIcon.text-primary.size-3
+            span {{ autoLabel }}
         SelectItem(
           v-for="model in modelOptions"
           :key="`${model.provider}/${model.id}`"
           :value="`${model.provider}/${model.id}`"
-        ) {{ modelLabel(model) }}
+        )
+          ModelName(:model="model")
   Select(:model-value="thinkingChoice" @update:model-value="onThinkingChange")
     SelectTrigger(
       size="sm"
       :title="$t('taskModel.thinkingHint')"
+      :class="manualThinking ? MANUAL_CLASS : ''"
       :disabled="!canPickThinking"
       data-testid="task-thinking"
     )
+      SparklesIcon.text-primary.size-3.shrink-0(
+        v-if="showingRoutedThinking"
+        :aria-label="$t('taskModel.routed')"
+        data-testid="task-thinking-routed"
+      )
       SelectValue(:placeholder="$t('taskModel.thinking')")
         | {{ thinkingDisplayLabel }}
     SelectContent
       SelectGroup
+        SelectItem(v-if="showAutomaticThinking" value="__auto__")
+          .flex.items-center.gap-1
+            SparklesIcon.text-primary.size-3
+            span {{ $t("taskModel.automatic") }}
         SelectItem(
           v-for="level in thinkingOptions"
           :key="level"
@@ -53,6 +74,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ModelName from "@/components/ModelName.vue";
 import {
   Select,
   SelectContent,
@@ -61,17 +83,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { sortThinkingLevels, type TaskRoutingContext } from "@/lib/model";
 import { agency } from "@/lib/sdk";
 import type { TaskModelSelection } from "@/lib/task";
-import { create } from "@bufbuild/protobuf";
-import {
-  TaskModelSchema,
-  type AgentDefaults,
-  type TaskConfig,
-  type TaskModel,
+import type {
+  AgentDefaults,
+  ModelSelectionInput,
+  RoutingModelOption,
+  TaskConfig,
+  TaskModel,
 } from "@cherrypi/sdk";
-import { computed, ref, watch } from "vue";
+import { SparklesIcon } from "@lucide/vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+
+const MANUAL_CLASS = "ring-1 ring-primary/40";
 
 const props = withDefaults(
   defineProps<{
@@ -83,30 +109,52 @@ const props = withDefaults(
 
     useDefaults?: boolean;
     disabled?: boolean;
+
+    routing?: TaskRoutingContext;
   }>(),
-  { agentId: "", config: undefined, useDefaults: true, disabled: false },
+  {
+    agentId: "",
+    config: undefined,
+    useDefaults: true,
+    disabled: false,
+    routing: undefined,
+  },
 );
 
 const emit = defineEmits<{
   (event: "change", value: TaskModelSelection): void;
 }>();
 
+const { t } = useI18n();
+
+interface ModelChoice {
+  provider: string;
+  id: string;
+  name: string;
+  reasoning: boolean;
+  thinkingLevels: string[];
+}
+
 const taskDefaults = ref<TaskConfig | undefined>();
 const agentDefaults = ref<AgentDefaults | undefined>();
-const loading = ref(false);
-let generation = 0;
+const loadingCatalog = ref(false);
+const agencyModels = ref<RoutingModelOption[]>([]);
+const routingPreview = ref<ModelSelectionInput | undefined>();
+let catalogGeneration = 0;
+let routingGeneration = 0;
+let routingTimer: ReturnType<typeof setTimeout> | undefined;
 
 watch(
   () => [props.agentId, props.config, props.useDefaults] as const,
   async ([agentId, config, useDefaults]) => {
-    const gen = ++generation;
+    const gen = ++catalogGeneration;
     taskDefaults.value = undefined;
     agentDefaults.value = undefined;
-    if (!agentId || (config && !useDefaults)) {
-      loading.value = false;
+    if (!agentId) {
+      loadingCatalog.value = false;
       return;
     }
-    loading.value = true;
+    loadingCatalog.value = true;
     const catalogRequest = config
       ? Promise.resolve(config)
       : Promise.resolve().then(() => agency.getTaskDefaults(agentId));
@@ -117,165 +165,279 @@ watch(
       catalogRequest,
       defaultsRequest,
     ]);
-    if (gen !== generation) return;
+    if (gen !== catalogGeneration) return;
     if (catalog.status === "fulfilled") taskDefaults.value = catalog.value;
     if (defaults.status === "fulfilled") {
       agentDefaults.value = defaults.value ?? undefined;
     }
-    loading.value = false;
+    loadingCatalog.value = false;
   },
   { immediate: true },
 );
 
-const defaultProvider = computed(
-  () =>
+watch(
+  () => [props.agentId, props.routing?.projectId ?? ""] as const,
+  async ([agentId, projectId]) => {
+    if (agentId && !props.routing) {
+      agencyModels.value = [];
+      return;
+    }
+    try {
+      agencyModels.value = await agency.listRoutingModels(projectId);
+    } catch {
+      agencyModels.value = [];
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => {
+    const routing = props.routing;
+    if (!routing) return undefined;
+    return [
+      routing.projectId,
+      routing.priority,
+      routing.size,
+      routing.tags,
+    ] as const;
+  },
+  (shape) => {
+    if (routingTimer) clearTimeout(routingTimer);
+    if (!shape) {
+      routingPreview.value = undefined;
+      return;
+    }
+    const gen = ++routingGeneration;
+    routingTimer = setTimeout(async () => {
+      try {
+        const preview = await agency.previewModelRouting({
+          projectId: shape[0],
+          priority: shape[1],
+          size: shape[2],
+          tags: shape[3] ?? [],
+        });
+        if (gen === routingGeneration) routingPreview.value = preview.model;
+      } catch {
+        if (gen === routingGeneration) routingPreview.value = undefined;
+      }
+    }, 180);
+  },
+  { immediate: true, deep: true },
+);
+
+const agentCatalog = computed<ModelChoice[]>(() => {
+  const models: TaskModel[] =
+    props.config?.models ?? taskDefaults.value?.models ?? [];
+  return models.map((model) => ({
+    provider: model.provider,
+    id: model.id,
+    name: model.name,
+    reasoning: model.reasoning,
+    thinkingLevels: [...model.thinkingLevels],
+  }));
+});
+
+const declaredCatalog = computed<ModelChoice[]>(() =>
+  agencyModels.value.map((model) => ({
+    provider: model.provider,
+    id: model.modelId,
+    name: model.name,
+    reasoning: model.thinkingLevels.length > 1,
+    thinkingLevels: [...model.thinkingLevels],
+  })),
+);
+
+const baseModels = computed<ModelChoice[]>(() =>
+  agentCatalog.value.length ? agentCatalog.value : declaredCatalog.value,
+);
+
+function findModel(provider: string, id: string): ModelChoice | undefined {
+  if (!provider || !id) return undefined;
+  return baseModels.value.find(
+    (model) => model.provider === provider && model.id === id,
+  );
+}
+
+const defaultModel = computed<ModelChoice | undefined>(() => {
+  const provider =
     agentDefaults.value?.modelProvider ||
     taskDefaults.value?.modelProvider ||
-    "",
-);
-const defaultModelId = computed(
-  () => agentDefaults.value?.modelId || taskDefaults.value?.modelId || "",
-);
-const defaultModelName = computed(
-  () =>
-    agentDefaults.value?.modelName ||
-    taskDefaults.value?.modelName ||
-    defaultModelId.value,
-);
+    "";
+  const id = agentDefaults.value?.modelId || taskDefaults.value?.modelId || "";
+  if (!provider || !id) return undefined;
+  return {
+    provider,
+    id,
+    name: agentDefaults.value?.modelName || taskDefaults.value?.modelName || id,
+    reasoning: true,
+    thinkingLevels: [
+      ...(taskDefaults.value?.thinkingLevels ??
+        props.config?.thinkingLevels ??
+        []),
+    ],
+  };
+});
 
-const effectiveProvider = computed(
-  () => props.selection.modelProvider || defaultProvider.value,
-);
-const effectiveModelId = computed(
-  () => props.selection.modelId || defaultModelId.value,
-);
-const onDefaultModel = computed(
-  () =>
-    !props.selection.modelProvider ||
-    (props.selection.modelProvider === defaultProvider.value &&
-      props.selection.modelId === defaultModelId.value),
-);
+const routedModel = computed<ModelChoice | undefined>(() => {
+  const model = routingPreview.value;
+  if (!model?.provider || !model.modelId) return undefined;
+  return (
+    findModel(model.provider, model.modelId) ?? {
+      provider: model.provider,
+      id: model.modelId,
+      name: model.modelName || model.modelId,
+      reasoning: true,
+      thinkingLevels: [],
+    }
+  );
+});
 
-const catalogModels = computed<TaskModel[]>(
-  () => props.config?.models ?? taskDefaults.value?.models ?? [],
+const pinnedModel = computed(
+  () => !!props.selection.modelProvider || !!props.selection.modelId,
 );
-const modelOptions = computed<TaskModel[]>(() => {
-  const list = [...catalogModels.value];
-  const has = (provider: string, id: string) =>
-    list.some((model) => model.provider === provider && model.id === id);
-  if (
-    defaultProvider.value &&
-    !has(defaultProvider.value, defaultModelId.value)
-  ) {
-    list.unshift(
-      create(TaskModelSchema, {
-        provider: defaultProvider.value,
-        id: defaultModelId.value,
-        name: defaultModelName.value,
-        thinkingLevels: [],
-      }),
+const manualModel = computed(() => props.useDefaults && pinnedModel.value);
+const showingRouted = computed(() => !pinnedModel.value && !!routedModel.value);
+
+const routedThinking = computed(() => {
+  if (pinnedModel.value) return "";
+  return routingPreview.value?.thinkingLevel ?? "";
+});
+
+const selectedModel = computed<ModelChoice | undefined>(() => {
+  if (pinnedModel.value) {
+    const found = findModel(
+      props.selection.modelProvider,
+      props.selection.modelId,
     );
+    if (found) return found;
+
+    return {
+      provider: props.selection.modelProvider,
+      id: props.selection.modelId,
+      name: props.selection.modelName || props.selection.modelId,
+      reasoning: true,
+      thinkingLevels: [],
+    };
   }
-  if (
-    props.selection.modelProvider &&
-    !has(props.selection.modelProvider, props.selection.modelId)
-  ) {
-    list.unshift(
-      create(TaskModelSchema, {
-        provider: props.selection.modelProvider,
-        id: props.selection.modelId,
-        name: props.selection.modelName || props.selection.modelId,
-        reasoning: false,
-        thinkingLevels: [],
-      }),
-    );
-  }
+  return (
+    routedModel.value ?? (props.useDefaults ? defaultModel.value : undefined)
+  );
+});
+
+const modelOptions = computed<ModelChoice[]>(() => {
+  const list = [...baseModels.value];
+  const add = (model: ModelChoice | undefined) => {
+    if (!model?.provider || !model.id) return;
+    if (
+      list.some(
+        (item) => item.provider === model.provider && item.id === model.id,
+      )
+    ) {
+      return;
+    }
+    list.unshift(model);
+  };
+
+  add(defaultModel.value);
+  add(routedModel.value);
+  add(selectedModel.value);
   return list;
 });
 
-const selectedModel = computed(() =>
-  modelOptions.value.find(
-    (model) =>
-      model.provider === effectiveProvider.value &&
-      model.id === effectiveModelId.value,
-  ),
-);
 const defaultThinkingLevel = computed(() => {
-  if (!props.useDefaults || !onDefaultModel.value) return "";
+  if (!props.useDefaults || pinnedModel.value) return "";
   return (
     agentDefaults.value?.thinkingLevel ||
     taskDefaults.value?.thinkingLevel ||
     ""
   );
 });
-const thinkingOptions = computed(() => {
-  const levels = [
-    ...(selectedModel.value
-      ? selectedModel.value.thinkingLevels
-      : (props.config?.thinkingLevels ??
-        taskDefaults.value?.thinkingLevels ??
-        [])),
-  ];
-  const current = props.selection.thinkingLevel || defaultThinkingLevel.value;
-  if (current && !levels.includes(current)) levels.push(current);
-  return levels;
-});
 
-const modelChoice = computed(() =>
-  props.selection.modelProvider
-    ? `${props.selection.modelProvider}/${props.selection.modelId}`
-    : props.useDefaults && defaultProvider.value
-      ? `${defaultProvider.value}/${defaultModelId.value}`
-      : "",
+const thinkingOptions = computed(() =>
+  sortThinkingLevels(selectedModel.value?.thinkingLevels ?? []),
 );
+
+const pinnedThinking = computed(() => !!props.selection.thinkingLevel);
+const manualThinking = computed(
+  () => props.useDefaults && pinnedThinking.value,
+);
+const showingRoutedThinking = computed(
+  () => !pinnedThinking.value && !!routedThinking.value,
+);
+
+const modelChoice = computed(() => {
+  const model = selectedModel.value;
+  return model ? `${model.provider}/${model.id}` : "";
+});
 const thinkingChoice = computed(
-  () => props.selection.thinkingLevel || defaultThinkingLevel.value,
-);
-
-function modelLabel(model: TaskModel): string {
-  const name = model.name || model.id;
-  return model.provider ? `${model.provider}/${name}` : name;
-}
-
-const modelDisplayLabel = computed(() => {
-  if (props.selection.modelProvider) {
-    const model = selectedModel.value;
-    if (model) return modelLabel(model);
-
-    const name = props.selection.modelName || props.selection.modelId;
-    return `${props.selection.modelProvider}/${name}`;
-  }
-  return selectedModel.value
-    ? modelLabel(selectedModel.value)
-    : t("domainLog.kind.model");
-});
-const thinkingDisplayLabel = computed(
   () =>
     props.selection.thinkingLevel ||
-    defaultThinkingLevel.value ||
-    t("taskModel.thinking"),
+    routedThinking.value ||
+    defaultThinkingLevel.value,
 );
 
+const autoChoice = computed(
+  () => !!routedModel.value || (props.useDefaults && !!defaultModel.value),
+);
+
+const autoLabel = computed(() =>
+  routedModel.value
+    ? t("taskModel.automaticRouting")
+    : t("taskModel.automaticDefault"),
+);
+
+const automaticThinkingLevel = computed(
+  () => routedThinking.value || defaultThinkingLevel.value,
+);
+
+const showAutomaticThinking = computed(() => props.useDefaults);
+
+const thinkingDisplayLabel = computed(
+  () => thinkingChoice.value || t("taskModel.thinking"),
+);
+
+onUnmounted(() => {
+  if (routingTimer) clearTimeout(routingTimer);
+});
+
 const canPickModel = computed(
-  () => !props.disabled && !loading.value && modelOptions.value.length > 0,
+  () =>
+    !props.disabled && !loadingCatalog.value && modelOptions.value.length > 0,
 );
 const canPickThinking = computed(
-  () => !props.disabled && !loading.value && thinkingOptions.value.length > 0,
+  () =>
+    !props.disabled &&
+    !loadingCatalog.value &&
+    thinkingOptions.value.length > 0,
 );
+
+function levelFor(model: ModelChoice | undefined, level: string): string {
+  if (!model || !level) return level;
+  return model.thinkingLevels.includes(level) ? level : "";
+}
 
 function onModelChange(value: unknown) {
   const choice = String(value);
+  if (choice === "__auto__") {
+    const next = routedModel.value ?? defaultModel.value;
+    emit("change", {
+      modelProvider: "",
+      modelId: "",
+      modelName: "",
+      thinkingLevel: levelFor(next, props.selection.thinkingLevel),
+    });
+    return;
+  }
   const model = modelOptions.value.find(
     (item) => `${item.provider}/${item.id}` === choice,
   );
   if (!model) return;
-  const levels = model.thinkingLevels ?? [];
-  const current = props.selection.thinkingLevel;
-  const thinkingLevel = current && levels.includes(current) ? current : "";
+  const thinkingLevel = levelFor(model, props.selection.thinkingLevel);
   const isDefault =
     props.useDefaults &&
-    model.provider === defaultProvider.value &&
-    model.id === defaultModelId.value;
+    model.provider === defaultModel.value?.provider &&
+    model.id === defaultModel.value?.id;
   emit("change", {
     modelProvider: isDefault ? "" : model.provider,
     modelId: isDefault ? "" : model.id,
@@ -289,14 +451,14 @@ function onModelChange(value: unknown) {
 
 function onThinkingChange(value: unknown) {
   const level = String(value);
+
+  const automatic =
+    level === "__auto__" || level === automaticThinkingLevel.value;
   emit("change", {
     ...props.selection,
-    thinkingLevel:
-      props.useDefaults && level === defaultThinkingLevel.value ? "" : level,
+    thinkingLevel: props.useDefaults && automatic ? "" : level,
   });
 }
-
-const { t } = useI18n();
 </script>
 
 <i18n lang="yaml">
@@ -305,9 +467,17 @@ en:
     title: "Model for this task"
     thinkingHint: "Thinking level for this task"
     thinking: "Thinking level"
+    automatic: "Automatic"
+    automaticRouting: "Automatic (routing)"
+    automaticDefault: "Automatic (agent default)"
+    routed: "Picked automatically by the model routing"
 ru:
   taskModel:
     title: "Модель для этой задачи"
     thinkingHint: "Уровень размышления для этой задачи"
     thinking: "Уровень размышления"
+    automatic: "Автоматически"
+    automaticRouting: "Автоматически (маршрутизация)"
+    automaticDefault: "Автоматически (модель агента)"
+    routed: "Выбрано автоматически по маршрутизации моделей"
 </i18n>

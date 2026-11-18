@@ -45,6 +45,14 @@ VERSION_DIRTY := $(shell git diff --quiet --ignore-submodules 2>/dev/null || ech
 VERSION ?= $(if $(VERSION_TAG),$(VERSION_TAG)-$(VERSION_FLAVOR),$(VERSION_FLAVOR)) ($(VERSION_SHA)$(VERSION_DIRTY))
 
 
+
+
+
+
+AGENCY_LDFLAGS := -X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'
+AGENT_LDFLAGS := -X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=$(VERSION)'
+
+
 version:
 	@echo '$(VERSION)'
 
@@ -256,9 +264,9 @@ binaries_build:
 	@for target in $(TARGETS); do \
 	  os=$${target%/*}; arch=$${target#*/}; \
 	  echo "Building $$os/$$arch"; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agency-$$os-$$arch ./cmd/agency || exit 1; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agent -ldflags "-X 'cherrypi.vladfaust.com/agent/internal/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-agent-$$os-$$arch ./cmd/agent || exit 1; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "-X 'cherrypi.vladfaust.com/agency/cmd/agency/buildinfo.Version=$(VERSION)'" -o $(abspath $(DIST))/cherrypi-plugin-$$os-$$arch ./cmd/cherrypi-plugin || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "$(AGENCY_LDFLAGS)" -o $(abspath $(DIST))/cherrypi-agency-$$os-$$arch ./cmd/agency || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agent -ldflags "$(AGENT_LDFLAGS)" -o $(abspath $(DIST))/cherrypi-agent-$$os-$$arch ./cmd/agent || exit 1; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -C agency/server -ldflags "$(AGENCY_LDFLAGS)" -o $(abspath $(DIST))/cherrypi-plugin-$$os-$$arch ./cmd/cherrypi-plugin || exit 1; \
 	done
 
 

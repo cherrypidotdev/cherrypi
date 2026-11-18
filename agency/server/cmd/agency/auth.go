@@ -24,8 +24,8 @@ import (
 	"strings"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/agentconfig"
 	"cherrypi.vladfaust.com/agency/internal/agents"
-	"cherrypi.vladfaust.com/agency/internal/agenttools"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
@@ -50,7 +50,7 @@ type agentAuthenticator interface {
 	GetByActor(ctx context.Context, actorID ids.ActorID) (agents.Agent, error)
 }
 
-func withAuth(a accountAuthenticator, next http.Handler) http.Handler {
+func withAuth(a accountAuthenticator, agents agentAuthenticator, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		if r.URL.Path == "/api/rest/health" || !strings.HasPrefix(r.URL.Path, "/api/") {
@@ -61,13 +61,25 @@ func withAuth(a accountAuthenticator, next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, tunnelPathPrefix) ||
 			r.URL.Path == tunnelWSPath ||
 			strings.HasPrefix(r.URL.Path, attachmentsPathPrefix) ||
-			strings.HasPrefix(r.URL.Path, taskhistory.Prefix) ||
-			strings.HasPrefix(r.URL.Path, agenttools.Prefix) {
+			r.URL.Path == agentconfig.BundlePath ||
+			strings.HasPrefix(r.URL.Path, agentconfig.ProxyPrefix+"/") ||
+			strings.HasPrefix(r.URL.Path, taskhistory.Prefix) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		identity, viaCookie, ok := resolveIdentity(a, r)
+		pat := resolvePAT(r.Context(), a, r)
+
+		if pat != nil && pat.Kind == accounts.KindAgent && agents != nil {
+			if agent, err := agents.GetByActor(r.Context(), pat.ActorID); err == nil {
+
+				pat.Role = agent.Role
+				next.ServeHTTP(w, r.WithContext(withAgentContext(r.Context(), agent.ID, *pat)))
+				return
+			}
+		}
+
+		identity, viaCookie, ok := resolveIdentity(a, pat, r)
 		if ok {
 			if viaCookie && isMutating(r.Method) && !csrfOK(r) {
 				rejectRequest(w, r, "csrf token missing or mismatched")
@@ -100,11 +112,34 @@ func withAuth(a accountAuthenticator, next http.Handler) http.Handler {
 	})
 }
 
-func resolveIdentity(a accountAuthenticator, r *http.Request) (accounts.Identity, bool, bool) {
+func resolvePAT(
+	ctx context.Context,
+	a accountAuthenticator,
+	r *http.Request,
+) *accounts.Identity {
+	token, ok := bearerToken(r)
+	if !ok {
+		return nil
+	}
+	identity, _, err := a.ResolvePAT(ctx, token)
+	if err != nil {
+		return nil
+	}
+	return &identity
+}
+
+func resolveIdentity(
+	a accountAuthenticator,
+	pat *accounts.Identity,
+	r *http.Request,
+) (accounts.Identity, bool, bool) {
 	if cookie, err := r.Cookie(accounts.SessionCookieName); err == nil && cookie.Value != "" {
 		if identity, _, err := a.ResolveSession(r.Context(), cookie.Value); err == nil {
 			return identity, true, true
 		}
+	}
+	if pat != nil {
+		return *pat, false, true
 	}
 	if token, ok := bearerToken(r); ok {
 		if identity, _, err := a.ResolvePAT(r.Context(), token); err == nil {
@@ -178,7 +213,7 @@ func withAttachmentAuth(
 			return
 		}
 
-		if identity, _, ok := resolveIdentity(users, r); ok {
+		if identity, _, ok := resolveIdentity(users, resolvePAT(r.Context(), users, r), r); ok {
 			ctx := auth.WithIdentity(r.Context(), identity)
 			ctx = auth.WithUsername(ctx, identity.Username)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -186,21 +221,6 @@ func withAttachmentAuth(
 		}
 
 		rejectRequest(w, r, "no agent token, session cookie or personal access token")
-	})
-}
-
-func withAgentToolsAuth(
-	users accountAuthenticator,
-	agents agentAuthenticator,
-	next http.Handler,
-) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		agentID, identity, ok := resolveAgentRequest(r.Context(), users, agents, r)
-		if !ok {
-			rejectRequest(w, r, "no valid agent personal access token")
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(withAgentContext(r.Context(), agentID, identity)))
 	})
 }
 

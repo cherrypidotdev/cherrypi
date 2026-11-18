@@ -17,11 +17,7 @@
 package session
 
 import (
-	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -99,43 +95,50 @@ func (s *Session) loadHistoryPage(before int64, limit int) ([]Event, int64) {
 // readHistory parses every message line of the session file in order, keeping
 
 func (s *Session) readHistory() []historyEvent {
-	path := s.sessionFilePath()
-	if path == "" {
-		return nil
-	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
+	s.mu.Lock()
+	lines := append([]string(nil), s.historyRaw...)
+	s.mu.Unlock()
 
 	var out []historyEvent
+	var offset int64
 	parser := &historyParser{}
-	for offset := int64(0); offset < int64(len(data)); {
-		rest := data[offset:]
-		next := bytes.IndexByte(rest, '\n')
-		var line []byte
-		var size int64
-		if next < 0 {
-			line = rest
-			size = int64(len(rest))
-		} else {
-			line = rest[:next]
-			size = int64(next) + 1
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
 		}
-		for _, ev := range parser.parseLine(line) {
-			out = append(out, historyEvent{event: ev, offset: offset})
+		for _, event := range parser.parseLine([]byte(trimmed)) {
+			out = append(out, historyEvent{event: event, offset: offset})
 		}
-		offset += size
+		offset += int64(len(line)) + 1
 	}
 	return out
+}
+
+func parseCustomHistoryEntry(entry historyEntry, at time.Time) []Event {
+	switch entry.CustomType {
+	case modelWaitCustomType:
+		wait, ok := parseModelWait(entry.Data)
+		if !ok {
+			return nil
+		}
+		return []Event{{Kind: EventModelWait, At: at, ModelWait: wait}}
+	case thinkingSpanCustomType:
+		span, ok := parseThinkingSpan(entry.Data)
+		if !ok {
+			return nil
+		}
+		return []Event{{Kind: EventThinkingSpan, At: at, ThinkingSpan: span}}
+	}
+	return nil
 }
 
 type historyParser struct {
 	lastWaitEnd time.Time
 }
 
-// parseHistoryLine decodes one JSONL line on its own, without the timing
+// parseHistoryLine decodes one JSONL line on its own, without the timing context
 
 func parseHistoryLine(line []byte) []Event {
 	return new(historyParser).parseLine(line)
@@ -248,69 +251,6 @@ func (p *historyParser) parseLine(line []byte) []Event {
 	}
 
 	return nil
-}
-
-func parseCustomHistoryEntry(entry historyEntry, at time.Time) []Event {
-	switch entry.CustomType {
-	case modelWaitCustomType:
-		wait, ok := parseModelWait(entry.Data)
-		if !ok {
-			return nil
-		}
-		return []Event{{Kind: EventModelWait, At: at, ModelWait: wait}}
-	case thinkingSpanCustomType:
-		span, ok := parseThinkingSpan(entry.Data)
-		if !ok {
-			return nil
-		}
-		return []Event{{Kind: EventThinkingSpan, At: at, ThinkingSpan: span}}
-	}
-	return nil
-}
-
-func (s *Session) sessionFilePath() string {
-	dir := s.sessionDir()
-
-	matches, err := filepath.Glob(filepath.Join(dir, "*_"+s.PiSessionID+".jsonl"))
-	if err != nil || len(matches) == 0 {
-		return ""
-	}
-	if len(matches) == 1 {
-		return matches[0]
-	}
-
-	sort.Slice(matches, func(i, j int) bool {
-		left, err := os.Stat(matches[i])
-		if err != nil {
-			return false
-		}
-		right, err := os.Stat(matches[j])
-		if err != nil {
-			return true
-		}
-		return left.ModTime().After(right.ModTime())
-	})
-	return matches[0]
-}
-
-func (s *Session) sessionDir() string {
-	if s.cfg.PiSessionDir != "" {
-		return s.cfg.PiSessionDir
-	}
-	agentDir := s.cfg.AgentDir
-	if agentDir == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			agentDir = filepath.Join(home, ".pi", "agent")
-		}
-	}
-	return filepath.Join(agentDir, "sessions", encodeSessionCwd(s.Workspace))
-}
-
-func encodeSessionCwd(cwd string) string {
-	trimmed := strings.TrimPrefix(cwd, "/")
-	trimmed = strings.TrimPrefix(trimmed, "\\")
-	trimmed = strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(trimmed)
-	return "--" + trimmed + "--"
 }
 
 func parseHistoryTime(value string) time.Time {

@@ -26,6 +26,9 @@ export type TaskColumnKey =
   | "priority"
   | "size"
   | "assignee"
+  | "creator"
+  | "leader"
+  | "teams"
   | "cost";
 
 export interface TaskColumn {
@@ -57,9 +60,9 @@ export const TASK_COLUMNS: TaskColumn[] = [
   {
     key: "project",
     labelKey: "taskColumn.project",
-    widthClass: "w-32",
+    widthClass: "w-10",
     sortKey: "project",
-    skeleton: "w-20",
+    skeleton: "w-5",
   },
   {
     key: "title",
@@ -117,8 +120,26 @@ export const TASK_COLUMNS: TaskColumn[] = [
   {
     key: "assignee",
     labelKey: "taskColumn.assignee",
-    widthClass: "w-40",
-    skeleton: "w-20",
+    widthClass: "w-12",
+    skeleton: "w-5",
+  },
+  {
+    key: "creator",
+    labelKey: "taskColumn.creator",
+    widthClass: "w-10",
+    skeleton: "w-5",
+  },
+  {
+    key: "leader",
+    labelKey: "taskColumn.leader",
+    widthClass: "w-10",
+    skeleton: "w-5",
+  },
+  {
+    key: "teams",
+    labelKey: "taskColumn.teams",
+    widthClass: "w-16",
+    skeleton: "w-10",
   },
   {
     key: "cost",

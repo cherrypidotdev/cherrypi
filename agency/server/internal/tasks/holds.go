@@ -35,6 +35,8 @@ const (
 	MaxHoldsPerPlugin = 8
 
 	MaxHoldReasonLength = 200
+
+	MaxHoldURLLength = 2048
 )
 
 var holdKeyPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
@@ -48,6 +50,10 @@ var (
 
 	ErrHoldReasonTooLong = fmt.Errorf(
 		"hold reason must be at most %d characters", MaxHoldReasonLength,
+	)
+
+	ErrInvalidHoldURL = errors.New(
+		"hold url must be an http(s) link of at most 2048 characters",
 	)
 
 	ErrHoldLimit = fmt.Errorf(
@@ -65,7 +71,9 @@ type TaskHold struct {
 	PluginName string
 	Key        string
 	Reason     string
-	CreatedAt  time.Time
+
+	URL       string
+	CreatedAt time.Time
 }
 
 func (h TaskHold) Summary() string {
@@ -82,6 +90,8 @@ func (h TaskHold) Summary() string {
 type HoldInput struct {
 	Key    string
 	Reason string
+
+	URL string
 }
 
 type ReleaseMode string
@@ -124,6 +134,8 @@ type HoldRelease struct {
 
 	Reason string
 
+	URL string
+
 	Mode ReleaseMode
 
 	Applied bool
@@ -144,6 +156,10 @@ func (s *Service) Hold(ctx context.Context, taskID, pluginID string, in HoldInpu
 		return err
 	}
 	reason, err := normalizeHoldReason(in.Reason)
+	if err != nil {
+		return err
+	}
+	url, err := normalizeHoldURL(in.URL)
 	if err != nil {
 		return err
 	}
@@ -185,6 +201,7 @@ func (s *Service) Hold(ctx context.Context, taskID, pluginID string, in HoldInpu
 		PluginID:  pluginID,
 		Key:       key,
 		Reason:    reason,
+		Url:       url,
 		CreatedAt: now,
 	}); err != nil {
 		return err
@@ -346,6 +363,7 @@ func (s *Service) ReleaseHold(
 		PluginName: released.PluginName,
 		Key:        released.Key,
 		Reason:     released.Reason,
+		URL:        released.URL,
 		Mode:       mode,
 		Applied:    applied,
 		Cause:      HoldReleasedByOperator,
@@ -382,6 +400,7 @@ func (s *Service) restoreHold(ctx context.Context, hold TaskHold) {
 		PluginID:  hold.PluginID,
 		Key:       hold.Key,
 		Reason:    hold.Reason,
+		Url:       hold.URL,
 		CreatedAt: hold.CreatedAt.UnixMilli(),
 	}); err != nil {
 		log.Printf(
@@ -421,7 +440,7 @@ func (s *Service) applyRelease(
 	now := time.Now().UnixMilli()
 	switch mode {
 	case ReleaseQueue:
-		applied, err := s.releaseQueue(ctx, cur, prompt, actorID, now)
+		applied, err := s.releaseQueue(ctx, cur, prompt, actorID, now, true)
 		if err != nil {
 			return false, err
 		}
@@ -432,6 +451,18 @@ func (s *Service) applyRelease(
 		}
 		return true, nil
 	default:
+
+		if strings.TrimSpace(cur.PendingPrompt) != "" &&
+			!s.pendingPromptDelivered(ctx, taskID, cur.PendingPrompt) {
+			applied, err := s.releaseQueue(ctx, cur, prompt, actorID, now, false)
+			if err != nil {
+				return false, err
+			}
+			if applied && s.OnPendingPromptQueued != nil {
+				s.OnPendingPromptQueued(ctx, taskID)
+			}
+			return applied, nil
+		}
 		n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 			Event:     store.TaskReleaseSettle,
 			SettledAt: sql.NullInt64{Int64: now, Valid: true},
@@ -457,7 +488,7 @@ func (s *Service) applyRelease(
 		} else if requeued && s.OnPendingPromptQueued != nil {
 			s.OnPendingPromptQueued(ctx, taskID)
 		}
-		s.childFinished(ctx, taskID, ChildSettled)
+		s.taskFinished(ctx, taskID, OutcomeSettled)
 		return true, nil
 	}
 }
@@ -468,16 +499,20 @@ func (s *Service) releaseQueue(
 	prompt string,
 	actorID ids.ActorID,
 	now int64,
+	requireLeader bool,
 ) (bool, error) {
-	if err := s.requireLead(ctx, cur.ID, StateQueued); err != nil {
-		return false, err
-	}
-	if cur.ParentTaskID != "" {
-		s.clearChildWakeKey(ctx, cur.ParentTaskID, cur.ID)
+	if requireLeader {
+		if err := s.requireLeader(ctx, cur.ID, StateQueued); err != nil {
+			return false, err
+		}
 	}
 	pendingActor := nullID(actorID)
 	if stashed := strings.TrimSpace(cur.PendingPrompt); stashed != "" {
-		prompt = stashed + "\n\n" + prompt
+		if prompt == "" {
+			prompt = stashed
+		} else {
+			prompt = stashed + "\n\n" + prompt
+		}
 		pendingActor = nullID(cur.PendingPromptActorID)
 	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
@@ -544,6 +579,7 @@ func (s *Service) ReleasePluginHolds(
 				PluginName: hold.PluginName,
 				Key:        hold.Key,
 				Reason:     hold.Reason,
+				URL:        hold.URL,
 				Mode:       ReleaseSettle,
 				Applied:    applied,
 				Cause:      HoldReleasedByPluginDisable,
@@ -576,6 +612,7 @@ func (s *Service) ClearHolds(
 			PluginName: hold.PluginName,
 			Key:        hold.Key,
 			Reason:     hold.Reason,
+			URL:        hold.URL,
 			Cause:      cause,
 		})
 	}
@@ -614,6 +651,7 @@ func toTaskHolds(rows []store.ListTaskHoldsRow) []TaskHold {
 			PluginName: row.PluginName,
 			Key:        row.Key,
 			Reason:     row.Reason,
+			URL:        normalizeStoredHoldURL(row.Url),
 			CreatedAt:  time.UnixMilli(row.CreatedAt),
 		}
 	}
@@ -634,6 +672,26 @@ func normalizeHoldReason(raw string) (string, error) {
 		return "", ErrHoldReasonTooLong
 	}
 	return reason, nil
+}
+
+func normalizeHoldURL(raw string) (string, error) {
+	url := strings.TrimSpace(raw)
+	if url == "" {
+		return "", nil
+	}
+	if len(url) > MaxHoldURLLength ||
+		(!strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://")) {
+		return "", ErrInvalidHoldURL
+	}
+	return url, nil
+}
+
+func normalizeStoredHoldURL(raw string) string {
+	url, err := normalizeHoldURL(raw)
+	if err != nil {
+		return ""
+	}
+	return url
 }
 
 func normalizeRelease(opts ReleaseOptions) (ReleaseMode, string, error) {

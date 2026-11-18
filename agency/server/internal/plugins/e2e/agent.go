@@ -32,7 +32,6 @@ import (
 type AgentOptions struct {
 	Bin        string
 	MockLLMBin string
-	PiBin      string
 	Tool       string
 	Args       string
 	Text       string
@@ -50,8 +49,8 @@ type AgentProcess struct {
 }
 
 type mockLLMReady struct {
-	AgentDir string `json:"agentDir"`
-	BaseURL  string `json:"baseUrl"`
+	BaseURL  string          `json:"baseUrl"`
+	Provider json.RawMessage `json:"provider"`
 }
 
 func StartAgent(
@@ -74,23 +73,17 @@ func StartAgent(
 				"or run inside the plugin-ci image",
 		)
 	}
-	piBin := resolveBin(opts.PiBin, "PI_BIN", "pi")
-	if piBin == "" {
-		return nil, fmt.Errorf("pi not found: set PI_BIN or put pi on PATH")
-	}
-
 	dir, err := os.MkdirTemp("", "cherrypi-plugin-agent-")
 	if err != nil {
 		return nil, err
 	}
-	agentDir := dir + "/agent"
 	logBuf := &bytes.Buffer{}
 	stdio := io.Writer(logBuf)
 	if opts.Verbose {
 		stdio = opts.Stderr
 	}
 
-	mockArgs := []string{"--agent-dir", agentDir, "--text", opts.Text}
+	mockArgs := []string{"--text", opts.Text}
 	if opts.Tool != "" {
 		mockArgs = append(mockArgs, "--tool", opts.Tool, "--args", opts.Args)
 	}
@@ -109,18 +102,16 @@ func StartAgent(
 		return nil, err
 	}
 
+	if err := agency.declareProvider(ready.Provider); err != nil {
+		_ = mock.Process.Kill()
+		return nil, err
+	}
+
 	cmd := exec.Command(agentBin, "--agency-url", agency.URL)
 	cmd.Env = append(cleanEnv(),
 		"CHERRYPI_AGENCY_URL="+agency.URL,
 		"CHERRYPI_AGENT_TOKEN="+agent.Token,
 		"CHERRYPI_DIR="+dir+"/cherrypi",
-		"PI_BIN="+piBin,
-		"PI_SESSION_DIR="+dir+"/tasks",
-		"PI_ARGS=--model test/deterministic",
-		"PI_CODING_AGENT_DIR="+ready.AgentDir,
-		"PI_OFFLINE=1",
-		"PI_TELEMETRY=0",
-		"PI_SKIP_VERSION_CHECK=1",
 	)
 	cmd.Stdout = stdio
 	cmd.Stderr = stdio

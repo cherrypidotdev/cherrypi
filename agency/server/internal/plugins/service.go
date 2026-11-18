@@ -50,6 +50,9 @@ type Config struct {
 	PublicURL string
 
 	DisableTicks bool
+	// LogRetention is the per-plugin log line cap the maintenance pass applies
+
+	LogRetention int
 }
 
 type Service struct {
@@ -64,6 +67,8 @@ type Service struct {
 	Settings *settings.Service
 	Teams    *teams.Service
 	Tags     *tags.Service
+
+	LogRetention int
 
 	mu    sync.Mutex
 	dbs   map[string]*PluginDB
@@ -109,6 +114,7 @@ func NewService(cfg Config, st *Store) *Service {
 	return &Service{
 		Config:         cfg,
 		Store:          st,
+		LogRetention:   cfg.LogRetention,
 		Runtime:        NewRuntime(),
 		dbs:            map[string]*PluginDB{},
 		slots:          map[string]chan struct{}{},
@@ -159,6 +165,29 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 }
 
 func (s *Service) List(ctx context.Context) ([]Plugin, error) { return s.Store.List(ctx) }
+
+const DefaultLogRetention = 20000
+
+func (s *Service) PruneLogs(ctx context.Context) error {
+	if s == nil || s.Store == nil {
+		return nil
+	}
+	list, err := s.Store.List(ctx)
+	if err != nil {
+		return err
+	}
+	keep := s.LogRetention
+	if keep <= 0 {
+		keep = DefaultLogRetention
+	}
+	var errs []error
+	for _, p := range list {
+		if err := s.Store.PruneLogs(ctx, p.ID, int64(keep)); err != nil {
+			errs = append(errs, fmt.Errorf("prune %s logs: %w", p.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
 
 func (s *Service) Get(ctx context.Context, id string) (Plugin, error) {
 	p, err := s.Store.Get(ctx, id)
@@ -442,6 +471,19 @@ func (s *Service) UpdateSettings(
 	values map[string]any,
 	updatedBy int64,
 ) error {
+	return s.updateSettings(ctx, id, scope, target, values, updatedBy, false)
+}
+
+func (s *Service) updateSettings(
+	ctx context.Context,
+	id, scope, target string,
+	values map[string]any,
+	updatedBy int64,
+	inFlight bool,
+) error {
+	if values == nil {
+		return errors.New("values must be an object")
+	}
 	p, err := s.Store.Get(ctx, id)
 	if err != nil {
 		return ErrNotFound
@@ -461,7 +503,9 @@ func (s *Service) UpdateSettings(
 			}
 		}
 	}
-	if err := s.validateSettings(ctx, p, scope, target, values, previous); err != nil {
+	if err := s.validateSettings(
+		ctx, p, scope, target, values, previous, inFlight,
+	); err != nil {
 		return err
 	}
 	if scope == ScopeProject {
@@ -487,6 +531,7 @@ func (s *Service) validateSettings(
 	p Plugin,
 	scope, target string,
 	values, previous map[string]any,
+	inFlight bool,
 ) error {
 
 	if errs := p.Manifest.ValidateSettingsTemplates(scope, values); len(errs) > 0 {
@@ -503,11 +548,13 @@ func (s *Service) validateSettings(
 	if err != nil {
 		return err
 	}
-	release, err := s.acquire(ctx, p)
-	if err != nil {
-		return err
+	if !inFlight {
+		release, err := s.acquire(ctx, p)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	defer release()
 	host := NewHost(
 		ctx,
 		p,
@@ -515,7 +562,7 @@ func (s *Service) validateSettings(
 		newInvocationID(),
 		orgSettings,
 		db,
-		serviceBridge{svc: s, pluginID: p.ID},
+		serviceBridge{svc: s, pluginID: p.ID, plugin: p},
 		s.Config.AllowPrivateNetwork,
 	)
 	resp, err := s.Runtime.Call(ctx, p, host, Invocation{
@@ -582,6 +629,66 @@ func parseSettingErrors(body []byte) error {
 	return &SettingsRejected{Errors: out}
 }
 
+func (s *Service) UpdateSettingsAsPlugin(
+	ctx context.Context,
+	pluginID, scope, target string,
+	values map[string]any,
+) error {
+	if values == nil {
+		return errors.New("values must be an object")
+	}
+	p, err := s.Get(ctx, pluginID)
+	if err != nil {
+		return ErrNotFound
+	}
+	scope = strings.TrimSpace(scope)
+	target = strings.TrimSpace(target)
+	if !p.Manifest.HasSurface(scope) {
+		return fmt.Errorf("plugin %s has no %s settings", pluginID, scope)
+	}
+	switch scope {
+	case ScopeOrg:
+
+		target = ""
+	case ScopeProject:
+		if target == "" {
+			return errors.New("the project target is required")
+		}
+		row, err := s.Store.ProjectSettings(ctx, pluginID, target)
+		if err != nil {
+			return err
+		}
+		if !row.Enabled {
+			return errors.New("the plugin is not enabled in that project")
+		}
+		if s.Projects != nil {
+			role, ok, err := s.Projects.EffectiveRole(
+				ctx, target, ids.ActorID(p.ActorID), false,
+			)
+			if err != nil {
+				return err
+			}
+			if !ok || role == "" {
+				return errors.New("the plugin is not a member of that project")
+			}
+		}
+	case ScopeAgent, ScopeUser:
+		if target == "" {
+			return fmt.Errorf("the %s target is required", scope)
+		}
+		row, err := s.Store.Settings(ctx, pluginID, scope, target)
+		if err != nil {
+			return err
+		}
+		if !row.Enabled {
+			return fmt.Errorf("the plugin is not enabled for %s %s", scope, target)
+		}
+	default:
+		return fmt.Errorf("unknown settings scope %q", scope)
+	}
+	return s.updateSettings(ctx, pluginID, scope, target, values, p.ActorID, true)
+}
+
 func (s *Service) SetSettingsEnabled(
 	ctx context.Context,
 	id, scope, target string,
@@ -641,7 +748,7 @@ func (s *Service) UpdateProjectSettings(
 			}
 		}
 		if err := s.validateSettings(
-			ctx, p, ScopeProject, projectID, values, previous,
+			ctx, p, ScopeProject, projectID, values, previous, false,
 		); err != nil {
 			return err
 		}
@@ -718,7 +825,7 @@ func (s *Service) Invoke(ctx context.Context, p Plugin, inv Invocation) (Respons
 		inv.ID,
 		settings,
 		db,
-		serviceBridge{svc: s, pluginID: p.ID},
+		serviceBridge{svc: s, pluginID: p.ID, plugin: p},
 		s.Config.AllowPrivateNetwork,
 	)
 	host.TaskID = inv.TaskID

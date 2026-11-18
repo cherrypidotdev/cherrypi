@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -35,10 +36,11 @@ import (
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
 	"cherrypi.vladfaust.com/agency/cmd/agency/buildinfo"
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/agentconfig"
 	"cherrypi.vladfaust.com/agency/internal/agents"
-	"cherrypi.vladfaust.com/agency/internal/agenttools"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
+	"cherrypi.vladfaust.com/agency/internal/auth"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
@@ -88,6 +90,11 @@ func main() {
 	}
 
 	appCtx := appcontext.NewAppContext(config, processLog)
+	catalog, err := agentconfig.New(appCtx.Store, os.Getenv("CHERRYPI_SECRET_KEY"))
+	if err != nil {
+		log.Fatalf("Model catalog: %v", err)
+	}
+	appCtx.AgentConfig = catalog
 
 	if count, err := appCtx.Accounts.CountUsers(context.Background()); err == nil && count == 0 {
 		log.Print("No user accounts configured: the agency is un-authenticate-able")
@@ -105,7 +112,7 @@ func main() {
 	serveAttachments(mux, appCtx)
 	serveSpeech(mux, appCtx)
 	serveSites(mux, appCtx)
-	serveAgentTools(mux, appCtx)
+	serveAgentConfig(mux, appCtx)
 	serveTaskHistory(mux, appCtx)
 	serveTerminals(mux, appCtx)
 	serveRealtime(mux, appCtx)
@@ -125,7 +132,7 @@ func main() {
 		serveEmbeddedDocs(mux)
 	}
 
-	apiHandler := withAuth(appCtx.Accounts, mux)
+	apiHandler := withAuth(appCtx.Accounts, appCtx.Agents, mux)
 	if telemetry.Enabled() {
 		apiHandler = instrumentHTTP(mux, apiHandler)
 	}
@@ -380,25 +387,60 @@ func serveTerminals(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/agents/", appCtx.Hub.WSHandler())
 }
 
-func serveAgentTools(mux *http.ServeMux, appCtx *appcontext.AppContext) {
-	handler := withAgentToolsAuth(
-		appCtx.Accounts,
-		appCtx.Agents,
-		&agenttools.Handler{
-			Tasks:       appCtx.Tasks,
-			Projects:    appCtx.Projects,
-			Agents:      appCtx.Agents,
-			Logs:        appCtx.AgentLogs,
-			ProcessLogs: appCtx.ProcessLogs,
-			PromptFlow:  appCtx.PromptFlow,
-			Templates:   appCtx.Templates,
-			Plugins:     appCtx.Plugins,
-			Input:       appCtx.Input,
-			Wake:        appCtx.Scheduler.Wake,
+func serveAgentConfig(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	service := appCtx.AgentConfig
+
+	agent := func(ctx context.Context) string {
+		id, ok := auth.IdentityFrom(ctx)
+		if !ok || id.Kind != "agent" {
+			return ""
+		}
+		return strconv.FormatInt(int64(id.ActorID), 10)
+	}
+	handler := &agentconfig.Handler{
+		Service:      service,
+		AgentActorID: agent,
+		IsAdmin: func(r *http.Request) bool {
+			id, _, ok := resolveIdentity(appCtx.Accounts, nil, r)
+			return ok && id.IsAdmin()
 		},
+		TaskScope: taskScope(appCtx),
+	}
+	mux.Handle(agentconfig.BundlePath, withAgentAuth(appCtx.Accounts, appCtx.Agents, handler))
+	mux.Handle(agentconfig.AdminPath, handler)
+	mux.Handle(agentconfig.AdminPath+"/", handler)
+	mux.Handle(
+		agentconfig.ProxyPrefix+"/",
+		withAgentAuth(
+			appCtx.Accounts,
+			appCtx.Agents,
+			&agentconfig.Proxy{Service: service, TaskScope: taskScope(appCtx)},
+		),
 	)
-	mux.Handle(agenttools.Prefix, handler)
-	mux.Handle(agenttools.Prefix+"/", handler)
+}
+
+func taskScope(appCtx *appcontext.AppContext) agentconfig.TaskScope {
+	return func(
+		ctx context.Context,
+		agentActorID string,
+		taskID string,
+	) (string, []string, bool) {
+		if taskID == "" || agentActorID == "" {
+			return "", nil, false
+		}
+		task, err := appCtx.Tasks.Get(ctx, taskID)
+		if err != nil {
+			return "", nil, false
+		}
+		if strconv.FormatInt(int64(task.AssigneeActorID), 10) != agentActorID {
+			return "", nil, false
+		}
+		teams := make([]string, 0, len(task.TeamIDs))
+		for _, team := range task.TeamIDs {
+			teams = append(teams, strconv.FormatInt(int64(team), 10))
+		}
+		return task.ProjectID, teams, true
+	}
 }
 
 func serveTaskHistory(mux *http.ServeMux, appCtx *appcontext.AppContext) {
@@ -419,7 +461,11 @@ func servePlugins(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	handler := &pluginhost.Handler{
 		Service: appCtx.Plugins,
 		Auth: func(r *http.Request) (pluginhost.Caller, bool) {
-			identity, _, ok := resolveIdentity(appCtx.Accounts, r)
+			identity, _, ok := resolveIdentity(
+				appCtx.Accounts,
+				resolvePAT(r.Context(), appCtx.Accounts, r),
+				r,
+			)
 			if !ok {
 				return pluginhost.Caller{}, false
 			}
@@ -432,6 +478,10 @@ func servePlugins(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		},
 	}
 	mux.Handle("/plugins/", handler)
+
+	icons := &pluginhost.IconHandler{Service: appCtx.Plugins}
+	mux.Handle(pluginhost.IconRoutePrefix, icons)
+	mux.Handle(pluginhost.IconRoutePrefix+"/", icons)
 }
 
 func serveProcessLogs(mux *http.ServeMux, appCtx *appcontext.AppContext) {
@@ -464,16 +514,32 @@ func serveEmbeddedFrontend(mux *http.ServeMux) {
 		return
 	}
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		file, err := frontendFs.Open(strings.TrimPrefix(path.Clean(r.URL.Path), "/"))
+	mux.Handle("/", newFrontendHandler(frontendFs))
+}
+
+func newFrontendHandler(frontendFs fs.FS) http.Handler {
+	files := http.FileServer(http.FS(frontendFs))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+
+		file, err := frontendFs.Open(name)
 		if err == nil {
 			defer func() { _ = file.Close() }()
 		}
 
 		if os.IsNotExist(err) {
+			if strings.HasPrefix(name, "assets/") {
+				http.NotFound(w, r)
+				return
+			}
 			r.URL.Path = "/"
 		}
 
-		http.FileServer(http.FS(frontendFs)).ServeHTTP(w, r)
+		if path.Ext(r.URL.Path) == ".map" {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		}
+
+		files.ServeHTTP(w, r)
 	})
 }

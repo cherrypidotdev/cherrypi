@@ -68,8 +68,9 @@ type TestBridge struct {
 }
 
 type testMessage struct {
-	TaskID string
-	Text   string
+	TaskID        string
+	Text          string
+	RequiredTools []string
 }
 
 type testInputAnswer struct {
@@ -532,7 +533,8 @@ func (b *TestBridge) CreateTask(_ context.Context, p tasks.CreateParams) (tasks.
 		AssigneeActorID: p.AssigneeActorID,
 		Priority:        p.Priority,
 		Size:            p.Size,
-		Interactive:     p.Interactive == nil || *p.Interactive,
+		Automated:       p.Automated,
+		LeaderActorID:   p.LeaderActorID,
 		State:           tasks.StateBacklog,
 	}
 	for _, tagID := range p.TagIDs {
@@ -581,10 +583,37 @@ func (b *TestBridge) TaskPlugin(
 	return row, ok, nil
 }
 
-func (b *TestBridge) AddTaskMessage(_ context.Context, taskID, text string) error {
+func (b *TestBridge) AddTaskMessage(
+	_ context.Context,
+	taskID, text string,
+	opts AddMessageOptions,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.messages = append(b.messages, testMessage{TaskID: taskID, Text: text})
+	if opts.RequiredTools != nil {
+		attached := map[string]bool{}
+		if row, ok := b.taskPlugins[taskID]; ok {
+			for _, tool := range row.Tools {
+				attached[tool.Name] = true
+			}
+		}
+		for _, name := range opts.RequiredTools {
+			if !attached[name] {
+				return fmt.Errorf(
+					"required tool %q is not attached to task %s", name, taskID,
+				)
+			}
+		}
+		if t, ok := b.tasks[taskID]; ok {
+			t.RequiredTools = append([]string(nil), opts.RequiredTools...)
+			b.tasks[taskID] = t
+		}
+	}
+	b.messages = append(b.messages, testMessage{
+		TaskID:        taskID,
+		Text:          text,
+		RequiredTools: opts.RequiredTools,
+	})
 	if t, ok := b.tasks[taskID]; ok {
 		switch t.State {
 		case tasks.StateSettled, tasks.StateFailed,
@@ -682,6 +711,7 @@ func (b *TestBridge) HoldTask(
 	hold.PluginName = b.pluginID
 	hold.Key = in.Key
 	hold.Reason = strings.TrimSpace(in.Reason)
+	hold.URL = strings.TrimSpace(in.URL)
 	if !exists {
 		hold.CreatedAt = time.Now()
 	}
@@ -770,6 +800,41 @@ func (b *TestBridge) ListSettings(_ context.Context, scope string) ([]Settings, 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TargetID < out[j].TargetID })
 	return out, nil
+}
+
+func (b *TestBridge) UpdateSettings(
+	_ context.Context,
+	scope, target string,
+	values map[string]any,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	switch scope {
+	case ScopeProject:
+		row, ok := b.projectSettings[target]
+		if !ok || !row.Enabled {
+			return fmt.Errorf("the plugin is not enabled in that project")
+		}
+		row.Values = values
+		b.projectSettings[target] = row
+	case ScopeOrg, ScopeAgent, ScopeUser:
+		if b.settings[scope] == nil {
+			b.settings[scope] = map[string]Settings{}
+		}
+		row, ok := b.settings[scope][target]
+		if scope != ScopeOrg && (!ok || !row.Enabled) {
+			return fmt.Errorf("the plugin is not enabled for %s %s", scope, target)
+		}
+		row.PluginID = b.pluginID
+		row.Scope = scope
+		row.TargetID = target
+		row.Values = values
+		row.Enabled = true
+		b.settings[scope][target] = row
+	default:
+		return fmt.Errorf("unknown settings scope %q", scope)
+	}
+	return nil
 }
 
 func (b *TestBridge) Team(_ context.Context, id int64) (map[string]any, error) {

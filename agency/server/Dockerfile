@@ -38,7 +38,7 @@ COPY agency/server/sql ./sql
 RUN sqlc generate
 
 
-FROM node:22 AS frontend
+FROM node:26 AS frontend
 
 ARG VERSION=
 ENV VITE_APP_VERSION=$VERSION
@@ -69,7 +69,7 @@ RUN npm run build
 
 
 # The public VitePress site (English + Russian) is embedded at /docs. Building it
-FROM node:22 AS docs
+FROM node:26 AS docs
 
 WORKDIR /src/docs-site
 COPY docs-site/package.json docs-site/package-lock.json ./

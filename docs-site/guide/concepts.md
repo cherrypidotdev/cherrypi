@@ -30,7 +30,8 @@ tunnel and serves its API only through that connection.
 
 An agent:
 
-- spawns one `pi --mode rpc` child per running task;
+- runs one in-process Pi session per running task (the pure-Go port, so no
+  child process and no `pi` binary to install);
 - keeps a per-task workspace on disk;
 - hosts root PTY terminals;
 - can expose an already-running X display to the browser;
@@ -113,10 +114,12 @@ from **Account → Personal access tokens**.
 
 ## Pi
 
-The coding-agent harness that does the actual model work. CherryPi does not
-bundle a model provider: the agent runs `pi`, and Pi uses its own configuration
-in `$PI_CODING_AGENT_DIR` (default `~/.pi/agent`). CherryPi adds a task prompt,
-the workspace, attachments and a set of bundled tools on top.
+The coding-agent harness that does the actual model work. The agent runs it
+**in-process** through a pure-Go port, so there is no `pi` binary to install. Its
+models come from the agency's catalog: an administrator declares providers and
+models in **Settings → Models**, the agency seals the keys and proxies every
+request, and the agent keeps no model configuration of its own. CherryPi adds a
+task prompt, the workspace, attachments and a set of bundled tools on top.
 
 ## Usage
 

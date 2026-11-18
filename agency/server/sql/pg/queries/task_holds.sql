@@ -17,10 +17,10 @@
 
 
 -- name: UpsertTaskHold :exec
-INSERT INTO task_holds (task_id, plugin_id, key, reason, created_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO task_holds (task_id, plugin_id, key, reason, url, created_at)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (task_id, plugin_id, key)
-DO UPDATE SET reason = excluded.reason;
+DO UPDATE SET reason = excluded.reason, url = excluded.url;
 
 -- name: DeleteTaskHold :execrows
 DELETE FROM task_holds
@@ -36,6 +36,7 @@ SELECT
   p.name AS plugin_name,
   h.key,
   h.reason,
+  h.url,
   h.created_at
 FROM task_holds h
 JOIN plugins p ON p.id = h.plugin_id
@@ -49,6 +50,7 @@ SELECT
   p.name AS plugin_name,
   h.key,
   h.reason,
+  h.url,
   h.created_at
 FROM task_holds h
 JOIN plugins p ON p.id = h.plugin_id

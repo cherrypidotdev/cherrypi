@@ -18,6 +18,9 @@ export interface UsageSummary {
   cost: number;
   inputTokens: number;
   outputTokens: number;
+
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   activeMs: number;
   runs: number;
   tasks: number;
@@ -42,16 +45,14 @@ export interface UsageTiming {
   modelWaitMs: number;
 }
 
-export function thinkingMs(timing: Pick<UsageTiming, "activeMs" | "toolMs">) {
-  return Math.max(0, timing.activeMs - timing.toolMs);
+export function thinkingMs(
+  timing: Pick<UsageTiming, "activeMs" | "toolMs" | "modelWaitMs">,
+) {
+  return Math.max(0, timing.activeMs - timing.toolMs - timing.modelWaitMs);
 }
 
-export function generationRate(
-  outputTokens: number,
-  thinking: number,
-  modelWaitMs: number,
-): number {
-  const seconds = (thinking - modelWaitMs) / 1000;
+export function generationRate(outputTokens: number, thinking: number): number {
+  const seconds = thinking / 1000;
   if (seconds <= 0 || outputTokens <= 0) return 0;
   return outputTokens / seconds;
 }
@@ -142,11 +143,7 @@ export function summarizeTaskInsights(
     thinking += thinkingMs(timing);
     modelWait += timing.modelWaitMs;
 
-    const rate = generationRate(
-      sample.outputTokens ?? 0,
-      thinkingMs(timing),
-      timing.modelWaitMs,
-    );
+    const rate = generationRate(sample.outputTokens ?? 0, thinkingMs(timing));
     if (rate > 0) {
       generation += rate;
       generationSamples++;
@@ -184,7 +181,8 @@ export function tickUsage(
   const elapsed = Math.max(0, elapsedMs);
   return {
     activeMs: base.activeMs + elapsed,
-    thinkingMs: base.thinkingMs + (live.toolRunning ? 0 : elapsed),
+    thinkingMs:
+      base.thinkingMs + (live.toolRunning || live.modelWaiting ? 0 : elapsed),
     modelWaitMs: base.modelWaitMs + (live.modelWaiting ? elapsed : 0),
   };
 }

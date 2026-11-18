@@ -181,14 +181,23 @@ import { currentAccount, ensureSession } from "@/lib/account";
 import type { MessageSender as Sender } from "@/lib/console";
 import { formatRelativeTimestamp, formatTimestamp } from "@/lib/format";
 import { agent as agencyFacade } from "@/lib/sdk";
-import type { Attachment, TaskComment } from "@cherrypi/sdk";
+import type {
+  Attachment,
+  ListTaskCommentsResult,
+  TaskComment,
+} from "@cherrypi/sdk";
 import { FileIcon, PencilIcon, SendIcon, Trash2Icon, XIcon } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 import { toast } from "vue3-toastify";
 
 const props = withDefaults(
-  defineProps<{ taskId: string; projectId?: string }>(),
-  { projectId: "" },
+  defineProps<{
+    taskId: string;
+    projectId?: string;
+
+    preview?: ListTaskCommentsResult;
+  }>(),
+  { projectId: "", preview: undefined },
 );
 const emit = defineEmits<{
   read: [];
@@ -250,7 +259,7 @@ async function load() {
 
 async function post() {
   const body = draft.value.trim();
-  if (!body || saving.value) return;
+  if (props.preview || !body || saving.value) return;
   saving.value = true;
   try {
     await agencyFacade.addTaskComment({
@@ -314,6 +323,12 @@ async function remove(comment: TaskComment) {
 }
 
 onMounted(() => {
+  if (props.preview) {
+    comments.value = props.preview.comments;
+    unread.value = props.preview.unread;
+    loading.value = false;
+    return;
+  }
   void ensureSession();
   void load();
 });

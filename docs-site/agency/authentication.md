@@ -80,9 +80,9 @@ access as the account that created them.
 Agents have their own tokens and no username/password fallback. Registering an
 agent returns a PAT once; mint or revoke tokens from the agent's **Settings →
 Security → Personal access tokens**. Pass the token as `--token` or
-`CHERRYPI_AGENT_TOKEN`; the agent caches it in `$CHERRYPI_DIR/agent.token`
-(mode `0600`). A token the agency rejects is discarded at startup so the
-operator can supply a new one.
+`CHERRYPI_AGENT_TOKEN`. The worker keeps it in memory and writes nothing to
+disk, so a rejected or rotated token is replaced by restarting the agent with
+the new value.
 
 ## Roles
 

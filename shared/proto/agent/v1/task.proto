@@ -34,6 +34,11 @@ service TaskService {
   rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
   
   
+  
+  
+  rpc InterruptToolCall(InterruptToolCallRequest) returns (InterruptToolCallResponse);
+  
+  
   rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
   
   rpc RenameTask(RenameTaskRequest) returns (RenameTaskResponse);
@@ -109,7 +114,8 @@ message Task {
   
   string workspace = 4;
   
-  string pi_session_id = 5;
+  
+  string session_id = 5;
   string error = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
@@ -201,6 +207,13 @@ message CreateTaskRequest {
   
   
   repeated PluginTool tools = 14;
+
+  
+  
+  
+  
+  
+  repeated string required_tools = 15;
 }
 
 
@@ -242,6 +255,21 @@ message AddToTaskRequest {
   
   
   PromptSender sender = 6;
+  
+  
+  
+  repeated string required_tools = 7;
+  
+  
+  
+  
+  
+  
+  string model_provider = 8;
+  string model_id = 9;
+  
+  
+  string thinking_level = 10;
 }
 
 
@@ -262,6 +290,18 @@ message RetryTaskRequest {
   
   
   TaskRef ref = 2;
+  
+  
+  
+  repeated string required_tools = 3;
+  
+  
+  
+  string model_provider = 4;
+  string model_id = 5;
+  
+  
+  string thinking_level = 6;
 }
 
 
@@ -279,9 +319,21 @@ message RetryTaskResponse {
 
 message StopTaskRequest {
   string id = 1;
+  
+  
+  string actor = 2;
 }
 
 message StopTaskResponse {}
+
+message InterruptToolCallRequest {
+  string id = 1;
+  string tool_call_id = 2;
+  
+  string actor = 3;
+}
+
+message InterruptToolCallResponse {}
 
 message DeleteTaskRequest {
   string id = 1;
@@ -411,7 +463,19 @@ message TaskEvent {
     PendingMessages pending_messages = 12;
     PendingActivity pending_activity = 13;
     ModelWait model_wait = 14;
+    
+    
+    TaskDomainEvent domain = 15;
   }
+}
+
+
+
+
+
+message TaskDomainEvent {
+  string kind = 1;
+  string payload_json = 2;
 }
 
 message TaskStatusChanged {

@@ -69,7 +69,6 @@ func main() {
 	}
 	if *agentToken != "" {
 		config.AgentToken = strings.TrimSpace(*agentToken)
-		config.AgentTokenFixed = true
 	}
 	if *display != "" {
 		config.Display = *display
@@ -95,7 +94,7 @@ func main() {
 	log.Printf("CherryPi agent %s starting", buildinfo.Version)
 
 	envToken := config.AgentToken
-	if err := appcontext.ResolveAgentToken(context.Background(), &config); err != nil {
+	if err := appcontext.ResolveAgentToken(&config); err != nil {
 		log.Fatalf("No agent token: %v", err)
 	}
 
@@ -134,7 +133,7 @@ func main() {
 		Transport: appCtx.Config.TunnelTransport,
 		Token: func() string {
 
-			return agentauth.LoadToken(envToken, appCtx.Config.AgentTokenFile)
+			return agentauth.LoadToken(envToken)
 		},
 		Handler: tunnelHandler,
 

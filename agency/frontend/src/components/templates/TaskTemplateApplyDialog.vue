@@ -127,7 +127,7 @@ export interface AppliedTemplate {
   size: TaskSize;
   tagIds: string[];
   teamIds: number[];
-  leadActorIds: string[];
+  leaderActorId: string;
 }
 
 const props = defineProps<{ open: boolean; projectId: string }>();
@@ -148,7 +148,7 @@ const preview = ref<{
   size: TaskSize;
   tagIds: string[];
   teamIds: number[];
-  leadActorIds: string[];
+  leaderActorId: string;
 } | null>(null);
 const previewError = ref("");
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -251,7 +251,7 @@ async function renderPreview() {
       size: rendered.size,
       tagIds: rendered.tagIds,
       teamIds: rendered.teamIds,
-      leadActorIds: rendered.leadActorIds,
+      leaderActorId: rendered.leaderActorId,
     };
     previewError.value = "";
   } catch (err) {

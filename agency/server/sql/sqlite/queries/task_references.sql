@@ -24,18 +24,24 @@
 
 
 
+
 -- name: UpsertTaskReference :exec
 
 
-INSERT INTO task_references (task_rowid, referenced_task_rowid, kind, created_at)
+INSERT INTO task_references (
+  task_rowid, referenced_task_rowid, kind, wake_on_resolve_when_many, created_at
+)
 VALUES (
   (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id)),
   (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(referenced_task_id)),
   sqlc.arg(kind),
+  sqlc.arg(wake_on_resolve_when_many),
   sqlc.arg(created_at)
 )
 ON CONFLICT (task_rowid, referenced_task_rowid)
-DO UPDATE SET kind = excluded.kind;
+DO UPDATE SET
+  kind = excluded.kind,
+  wake_on_resolve_when_many = excluded.wake_on_resolve_when_many;
 
 -- name: RemoveTaskReference :execrows
 DELETE FROM task_references
@@ -65,13 +71,28 @@ JOIN task_references r ON r.task_rowid = t.rowid
 WHERE r.referenced_task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = ?)
 ORDER BY t.created_at DESC;
 
+-- name: ListBlockedEdgesByBlocker :many
+
+
+SELECT r.task_rowid AS task_rowid,
+       t.id AS blocked_task_id,
+       r.wake_on_resolve_when_many AS wake_on_resolve_when_many
+FROM task_references r
+JOIN tasks t ON t.rowid = r.task_rowid
+WHERE r.referenced_task_rowid = (
+  SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(blocker_id)
+)
+  AND r.kind = 'blocking'
+ORDER BY r.created_at;
+
 -- name: CountIncompleteBlockingReferences :one
+
 
 SELECT count(*) FROM task_references r
 JOIN tasks t ON t.rowid = r.referenced_task_rowid
 WHERE r.task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = ?)
   AND r.kind = 'blocking'
-  AND t.state <> 'completed';
+  AND t.state NOT IN ('completed', 'cancelled');
 
 -- name: ListAllBlockingTaskReferences :many
 
@@ -106,20 +127,44 @@ WHERE task_rowid IN (
 -- name: ListTaskReferenceRefs :many
 
 
+
 SELECT
   t.id AS task_id,
   ref.id AS reference_id,
   ref.name AS reference_name,
   ref.prompt AS reference_prompt,
   ref.state AS reference_state,
-  r.kind AS kind
+  ref.priority AS reference_priority,
+  ref.size AS reference_size,
+  r.kind AS kind,
+  r.wake_on_resolve_when_many AS wake_on_resolve_when_many
 FROM task_references r
 JOIN tasks t ON t.rowid = r.task_rowid
 JOIN tasks ref ON ref.rowid = r.referenced_task_rowid
-ORDER BY t.id, ref.created_at DESC;
+ORDER BY t.id, ref.created_at DESC, ref.id;
 
--- name: ListTaskReferencedByRefs :many
+-- name: ListTaskReferenceRefsByTask :many
 
+
+
+
+SELECT
+  t.id AS task_id,
+  ref.id AS reference_id,
+  ref.name AS reference_name,
+  ref.prompt AS reference_prompt,
+  ref.state AS reference_state,
+  ref.priority AS reference_priority,
+  ref.size AS reference_size,
+  r.kind AS kind,
+  r.wake_on_resolve_when_many AS wake_on_resolve_when_many
+FROM task_references r
+JOIN tasks t ON t.rowid = r.task_rowid
+JOIN tasks ref ON ref.rowid = r.referenced_task_rowid
+WHERE t.id = sqlc.arg(task_id)
+ORDER BY ref.created_at DESC, ref.id;
+
+-- name: ListTaskReferencedByRefsByTask :many
 
 SELECT
   ref.id AS task_id,
@@ -127,8 +172,12 @@ SELECT
   t.name AS reference_name,
   t.prompt AS reference_prompt,
   t.state AS reference_state,
-  r.kind AS kind
+  t.priority AS reference_priority,
+  t.size AS reference_size,
+  r.kind AS kind,
+  r.wake_on_resolve_when_many AS wake_on_resolve_when_many
 FROM task_references r
 JOIN tasks ref ON ref.rowid = r.referenced_task_rowid
 JOIN tasks t ON t.rowid = r.task_rowid
-ORDER BY ref.id, t.created_at DESC;
+WHERE ref.id = sqlc.arg(task_id)
+ORDER BY t.created_at DESC, t.id;

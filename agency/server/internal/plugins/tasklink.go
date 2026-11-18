@@ -20,6 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,9 +39,14 @@ func wakeCapError(plugin string, limit int) string {
 	)
 }
 
+type AddMessageOptions struct {
+	RequiredTools []string
+}
+
 func (s *Service) AddTaskMessage(
 	ctx context.Context,
 	pluginID, taskID, text string,
+	opts AddMessageOptions,
 ) error {
 	p, err := s.Get(ctx, pluginID)
 	if err != nil {
@@ -70,31 +78,38 @@ func (s *Service) AddTaskMessage(
 		}
 		return errors.New(message)
 	}
-	actorID := ids.ActorID(p.ActorID)
-	if s.FollowUp != nil {
-		if err := s.FollowUp(ctx, t, text, actorID); err != nil {
+
+	requirementChanged := false
+	previousRequirement := t.RequiredTools
+	attemptedRequirement := t.RequiredTools
+	if opts.RequiredTools != nil {
+		names, err := s.attachedToolNames(ctx, t)
+		if err != nil {
 			return err
 		}
-	} else {
-		switch t.State {
-		case tasks.StateSettled, tasks.StateFailed,
-			tasks.StateCompleted, tasks.StateCancelled:
-			if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, text, actorID); err != nil {
-				return err
+		for _, tool := range opts.RequiredTools {
+			if !names[tool] {
+				return fmt.Errorf(
+					"required tool %q is not attached to task %s; it can call: %s",
+					tool, t.ID, toolList(names),
+				)
 			}
-		case tasks.StateQueued, tasks.StateWaiting:
-			if err := s.Tasks.AppendPendingPrompt(ctx, t.ID, text, actorID); err != nil {
-				return err
-			}
-		case tasks.StateInput:
-			return errors.New(
-				"the task is waiting for input; answer the dialog first",
-			)
-		default:
-			return fmt.Errorf(
-				"a task in state %q does not accept a follow-up", t.State,
-			)
 		}
+		t, err = s.Tasks.SetRequiredTools(ctx, t.ID, opts.RequiredTools)
+		if err != nil {
+			return err
+		}
+		requirementChanged = true
+		attemptedRequirement = t.RequiredTools
+		s.logRequiredTools(ctx, p, t.ID, previousRequirement, t.RequiredTools)
+	}
+	actorID := ids.ActorID(p.ActorID)
+	if err := s.deliverFollowUp(ctx, t, text, actorID); err != nil {
+		s.rollBackRequirement(
+			ctx, p, t.ID, requirementChanged,
+			attemptedRequirement, previousRequirement,
+		)
+		return err
 	}
 	if state.PluginWakes == nil {
 		state.PluginWakes = map[string]int{}
@@ -107,6 +122,53 @@ func (s *Service) AddTaskMessage(
 		s.RecordMessage(ctx, t.ID, newInvocationID(), text, actorID, time.Now().UnixMilli())
 	}
 	return nil
+}
+
+func (s *Service) deliverFollowUp(
+	ctx context.Context,
+	t tasks.Task,
+	text string,
+	actorID ids.ActorID,
+) error {
+	if s.FollowUp != nil {
+		return s.FollowUp(ctx, t, text, actorID)
+	}
+	switch t.State {
+	case tasks.StateSettled, tasks.StateFailed,
+		tasks.StateCompleted, tasks.StateCancelled:
+		_, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, text, actorID)
+		return err
+	case tasks.StateQueued, tasks.StateWaiting:
+		return s.Tasks.AppendPendingPrompt(ctx, t.ID, text, actorID)
+	case tasks.StateInput:
+		return errors.New(
+			"the task is waiting for input; answer the dialog first",
+		)
+	default:
+		return fmt.Errorf(
+			"a task in state %q does not accept a follow-up", t.State,
+		)
+	}
+}
+
+func (s *Service) rollBackRequirement(
+	ctx context.Context,
+	p Plugin,
+	taskID string,
+	changed bool,
+	attempted, previous []string,
+) {
+	if !changed {
+		return
+	}
+	if _, err := s.Tasks.SetRequiredTools(ctx, taskID, previous); err != nil {
+		log.Printf(
+			"[plugins] restore required tools on %s: %v", taskID, err,
+		)
+		return
+	}
+
+	s.logRequiredTools(ctx, p, taskID, attempted, previous)
 }
 
 func (s *Service) CloseTask(
@@ -144,4 +206,54 @@ func (s *Service) CloseTask(
 		)
 	}
 	return err
+}
+
+func (s *Service) attachedToolNames(
+	ctx context.Context,
+	t tasks.Task,
+) (map[string]bool, error) {
+	names := map[string]bool{}
+	if row, ok := s.TaskPlugin(ctx, t.ID); ok {
+		for _, tool := range row.Tools {
+			names[tool.Name] = true
+		}
+	}
+	for _, tool := range s.ProjectToolsForTask(ctx, t.ID, t.ProjectID) {
+		names[tool.Tool.Name] = true
+	}
+	return names, nil
+}
+
+func toolList(names map[string]bool) string {
+	list := make([]string, 0, len(names))
+	for name := range names {
+		list = append(list, name)
+	}
+	sort.Strings(list)
+	if len(list) == 0 {
+		return "no tools"
+	}
+	return strings.Join(list, ", ")
+}
+
+func (s *Service) logRequiredTools(
+	ctx context.Context,
+	p Plugin,
+	taskID string,
+	before, after []string,
+) {
+	if s.Tasks == nil || slices.Equal(before, after) {
+		return
+	}
+	logCtx := tasks.WithActor(ctx, tasks.ActorPlugin)
+	logCtx = tasks.WithActorID(logCtx, ids.ActorID(p.ActorID))
+	message := "Cleared the required tools of " + p.Name
+	if len(after) > 0 {
+		message = "Required " + p.Name + " tools: " + strings.Join(after, ", ")
+	}
+	s.Tasks.AppendLog(
+		logCtx, taskID, tasks.LogPlugin, "required_tools",
+		strings.Join(before, ", "), strings.Join(after, ", "),
+		message, map[string]any{"plugin_id": p.ID, "plugin": p.Name, "tools": after},
+	)
 }

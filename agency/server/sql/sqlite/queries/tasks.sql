@@ -16,11 +16,11 @@
 
 -- name: CreateTask :one
 INSERT INTO tasks (
-  id, seq, prompt, name, project_id, parent_task_id, origin_task_id,
+  id, seq, prompt, name, project_id, origin_task_id,
   assignee_actor_id, assignee_pinned, priority, size, state,
   creator_actor_id,
   session_id, org_prompt_id, agent_prompt_id, project_prompt_id, agent_project_prompt_id,
-  error, model_provider, model_id, thinking_level, interactive, workspace, auto_title,
+  error, model_provider, model_id, thinking_level, automated, workspace, auto_title,
   queued_at, started_at, settled_at, created_at, updated_at
 ) VALUES (
   sqlc.arg(id),
@@ -28,7 +28,6 @@ INSERT INTO tasks (
   sqlc.arg(prompt),
   sqlc.arg(name),
   NULLIF(CAST(sqlc.arg(project_id) AS TEXT), ''),
-  NULLIF(CAST(sqlc.arg(parent_task_id) AS TEXT), ''),
   NULLIF(CAST(sqlc.arg(origin_task_id) AS TEXT), ''),
   sqlc.narg(assignee_actor_id),
   sqlc.arg(assignee_pinned),
@@ -45,7 +44,7 @@ INSERT INTO tasks (
   sqlc.arg(model_provider),
   sqlc.arg(model_id),
   sqlc.arg(thinking_level),
-  sqlc.arg(interactive),
+  sqlc.arg(automated),
   sqlc.arg(workspace),
   sqlc.arg(auto_title),
   sqlc.arg(queued_at),
@@ -114,8 +113,8 @@ WHERE (
     )
   )
   AND (
-    CAST(sqlc.narg(parent_task_id) AS TEXT) IS NULL
-    OR t.parent_task_id = sqlc.narg(parent_task_id)
+    CAST(sqlc.narg(automated) AS INTEGER) IS NULL
+    OR t.automated = sqlc.narg(automated)
   )
   AND (
     CAST(sqlc.narg(tag_id) AS TEXT) IS NULL
@@ -159,8 +158,132 @@ WHERE (
 ORDER BY t.rowid DESC
 LIMIT CAST(COALESCE(sqlc.narg(page_limit), -1) AS INTEGER)
 OFFSET sqlc.arg(page_offset);
+-- name: ListTasksRanked :many
+
+
+
+
+
+
+
+
+WITH reference_scope AS (
+  SELECT CAST(sqlc.narg(reference_project_id) AS TEXT) AS id
+  WHERE CAST(sqlc.narg(reference_project_id) AS TEXT) IS NOT NULL
+  UNION
+  SELECT pa.project_id
+  FROM project_ancestors pa
+  WHERE pa.ancestor_id = sqlc.narg(reference_project_id)
+  UNION
+  SELECT pa.ancestor_id
+  FROM project_ancestors pa
+  WHERE pa.project_id = sqlc.narg(reference_project_id)
+  UNION
+  SELECT p.id
+  FROM projects p
+  JOIN projects origin ON origin.id = sqlc.narg(reference_project_id)
+  WHERE p.id <> origin.id
+    AND (
+      (p.parent_project_id IS NOT NULL AND p.parent_project_id = origin.parent_project_id)
+      OR (p.parent_project_id IS NULL AND origin.parent_project_id IS NULL)
+    )
+),
+matched AS (
+  SELECT
+    t.rowid AS rid,
+    CASE
+      WHEN CAST(sqlc.narg(search) AS TEXT) IS NULL THEN 0
+      WHEN lower(t.id) = lower(sqlc.narg(search)) THEN 0
+      WHEN sqlc.narg(search) NOT GLOB '*[^0-9]*'
+        AND CAST(t.seq AS TEXT) = sqlc.narg(search) THEN 1
+      WHEN sqlc.narg(search) NOT GLOB '*[^0-9]*'
+        AND CAST(t.seq AS TEXT) LIKE '%' || sqlc.narg(search) || '%' THEN 2
+      ELSE 3
+    END AS match_rank,
+    
+    
+    CASE
+      WHEN sqlc.narg(search) NOT GLOB '*[^0-9]*'
+        AND CAST(sqlc.narg(reference_project_id) AS TEXT) IS NOT NULL
+        AND t.project_id = sqlc.narg(reference_project_id) THEN 0
+      ELSE 1
+    END AS project_rank
+  FROM tasks t
+  WHERE (
+      CAST(sqlc.narg(project_id) AS TEXT) IS NULL
+      OR t.project_id = sqlc.narg(project_id)
+    )
+    AND (
+      CAST(sqlc.narg(agent_id) AS INTEGER) IS NULL
+      OR t.assignee_actor_id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.narg(agent_id))
+    )
+    AND (
+      CAST(sqlc.narg(state) AS TEXT) IS NULL
+      OR t.state = sqlc.narg(state)
+    )
+    AND (
+      (CAST(sqlc.arg(archived) AS INTEGER) = 1 AND t.archived_at IS NOT NULL)
+      OR (
+        CAST(sqlc.arg(archived) AS INTEGER) = 0
+        AND (
+          t.archived_at IS NULL
+          OR CAST(sqlc.arg(include_archived) AS INTEGER) = 1
+        )
+      )
+    )
+    AND (
+      CAST(sqlc.narg(automated) AS INTEGER) IS NULL
+      OR t.automated = sqlc.narg(automated)
+    )
+    AND (
+      CAST(sqlc.narg(tag_id) AS TEXT) IS NULL
+      OR EXISTS (
+        SELECT 1 FROM task_tags tt WHERE tt.task_rowid = t.rowid AND tt.tag_id = sqlc.narg(tag_id)
+      )
+    )
+    AND (
+      CAST(sqlc.narg(search) AS TEXT) IS NULL
+      OR lower(t.name) LIKE '%' || lower(sqlc.narg(search)) || '%'
+      OR lower(t.prompt) LIKE '%' || lower(sqlc.narg(search)) || '%'
+      
+      
+      OR lower(t.id) LIKE '%' || lower(sqlc.narg(search)) || '%'
+      OR (
+        
+        
+        sqlc.narg(search) NOT GLOB '*[^0-9]*'
+        AND CAST(t.seq AS TEXT) LIKE '%' || sqlc.narg(search) || '%'
+      )
+    )
+    AND (
+      CAST(sqlc.narg(size) AS TEXT) IS NULL
+      OR t.size = sqlc.narg(size)
+    )
+    AND (
+      CAST(sqlc.narg(priority) AS INTEGER) IS NULL
+      OR t.priority = sqlc.narg(priority)
+    )
+    AND (
+      CAST(sqlc.narg(project_id) AS TEXT) IS NOT NULL
+      OR t.project_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM projects p WHERE p.id = t.project_id AND p.archived_at IS NULL
+      )
+    )
+    AND (
+      CAST(sqlc.narg(reference_project_id) AS TEXT) IS NULL
+      OR t.project_id IN (SELECT id FROM reference_scope)
+    )
+)
+SELECT t.* FROM tasks t
+JOIN matched m ON m.rid = t.rowid
+ORDER BY m.match_rank, m.project_rank, t.rowid DESC
+LIMIT CAST(COALESCE(sqlc.narg(page_limit), -1) AS INTEGER)
+OFFSET sqlc.arg(page_offset);
 
 -- name: ListQueuedTasks :many
+
+
 
 
 
@@ -172,12 +295,7 @@ WHERE state = 'queued' AND archived_at IS NULL
     JOIN tasks dep ON dep.rowid = r.referenced_task_rowid
     WHERE r.task_rowid = tasks.rowid
       AND r.kind = 'blocking'
-      AND dep.state <> 'completed'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM tasks child
-    WHERE child.parent_task_id = tasks.id
-      AND child.state NOT IN ('settled', 'failed', 'completed', 'cancelled')
+      AND dep.state NOT IN ('completed', 'cancelled')
   )
 ORDER BY priority DESC, created_at ASC;
 
@@ -217,7 +335,6 @@ UPDATE tasks SET
   model_provider = sqlc.arg(model_provider),
   model_id = sqlc.arg(model_id),
   thinking_level = sqlc.arg(thinking_level),
-  interactive = sqlc.arg(interactive),
   workspace = sqlc.arg(workspace),
   auto_title = sqlc.arg(auto_title),
   updated_at = sqlc.arg(updated_at)
@@ -490,12 +607,11 @@ DELETE FROM tasks WHERE rowid IN (
 
 -- name: ListRunningTasksByAgent :many
 
-
 SELECT t.* FROM tasks t
 JOIN agents g ON g.actor_id = t.assignee_actor_id
 WHERE g.id = sqlc.arg(agent_id)
   AND t.archived_at IS NULL
-  AND t.state IN ('running', 'input', 'settled', 'failed');
+  AND t.state = 'running';
 
 
 -- name: ListRunningTaskTagsByAgent :many
@@ -506,7 +622,7 @@ JOIN agents g ON g.actor_id = t.assignee_actor_id
 JOIN tags ON tags.id = tt.tag_id
 WHERE g.id = sqlc.arg(agent_id)
   AND t.archived_at IS NULL
-  AND t.state IN ('running', 'input', 'settled', 'failed');
+  AND t.state = 'running';
 
 -- name: FailTaskBySession :execrows
 UPDATE tasks SET
@@ -549,23 +665,6 @@ UPDATE tasks SET
   prompt = CASE WHEN prompt = '' THEN sqlc.arg(prompt) ELSE prompt END
 WHERE id = sqlc.arg(id) AND (name = '' OR prompt = '');
 
--- name: ListTaskChildren :many
-
-SELECT * FROM tasks WHERE parent_task_id = sqlc.arg(parent_task_id) ORDER BY rowid;
-
--- name: CountIncompleteChildTasks :one
-
-
-
-SELECT count(*) FROM tasks
-WHERE parent_task_id = sqlc.arg(parent_task_id)
-  AND state NOT IN ('settled', 'failed', 'completed', 'cancelled');
-
--- name: DetachTaskChildren :exec
-
-UPDATE tasks SET parent_task_id = NULL, updated_at = sqlc.arg(updated_at)
-WHERE parent_task_id = sqlc.arg(parent_task_id);
-
 -- name: FailRestingTask :execrows
 
 
@@ -599,7 +698,7 @@ WHERE id = sqlc.arg(id);
 SELECT t.* FROM tasks t
 WHERE t.project_id = sqlc.arg(project_id)
   AND t.archived_at IS NULL
-  AND t.state IN ('running', 'input', 'settled', 'failed');
+  AND t.state = 'running';
 
 -- name: ListRunningTaskTagsByProject :many
 SELECT t.id AS task_id, tt.tag_id, tags.name
@@ -608,7 +707,7 @@ JOIN tasks t ON t.rowid = tt.task_rowid
 JOIN tags ON tags.id = tt.tag_id
 WHERE t.project_id = sqlc.arg(project_id)
   AND t.archived_at IS NULL
-  AND t.state IN ('running', 'input', 'settled', 'failed');
+  AND t.state = 'running';
 
 -- name: ListInheritedAutoArchivableTasks :many
 
@@ -657,3 +756,50 @@ UPDATE task_sessions SET deleted_at = sqlc.arg(deleted_at)
 WHERE task_id = sqlc.arg(task_id)
   AND agent_id = sqlc.arg(agent_id)
   AND session_id = sqlc.arg(session_id);
+
+
+
+-- name: SetTaskNeedsOperator :execrows
+
+
+UPDATE tasks SET needs_operator = sqlc.arg(reason), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: SetTaskReactionReminders :execrows
+
+
+UPDATE tasks SET reaction_reminders = sqlc.arg(count), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: ListLiveReactionTasksByOrigin :many
+
+
+
+SELECT * FROM tasks
+WHERE origin_task_id = sqlc.arg(origin_task_id)
+  AND automated = 1
+  AND archived_at IS NULL
+  AND state NOT IN ('completed', 'cancelled', 'failed')
+ORDER BY rowid DESC;
+
+-- name: ListStalledReactionTasks :many
+
+
+
+
+SELECT t.* FROM tasks t
+JOIN agents g ON g.actor_id = t.assignee_actor_id
+WHERE t.automated = 1
+  AND t.origin_task_id IS NOT NULL
+  AND t.archived_at IS NULL
+  AND t.state IN ('waiting', 'queued', 'input', 'settled')
+  AND g.last_online_at IS NOT NULL
+  AND g.last_online_at <= sqlc.arg(cutoff_ms)
+ORDER BY t.rowid;
+
+-- name: ListPendingSteeringTasks :many
+
+
+SELECT id, pending_steering FROM tasks
+WHERE pending_steering <> ''
+  AND state IN ('waiting', 'queued', 'input', 'settled', 'failed');

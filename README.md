@@ -23,7 +23,7 @@ accounting.
   registry, tunnel hub, webhooks, notifications inbox, usage aggregate) + a
   Vue 3 SPA (Vite, Pug, Tailwind, shadcn-vue, Monaco, xterm.js) embedded into
   the binary.
-- **Agent:** Go worker — the Pi harness (`pi --mode rpc`), parallel session
+- **Agent:** Go worker — the Pi harness in-process (`sky-valley/pi`), parallel session
   manager, PTYs, a desktop bridge, and a tunnel client.
 - **Shared:** all protos (`agent.v1`, `agency.v1`, `tunnel.v1`) + generated
   stubs + the tunnel byte-pipe plumbing.

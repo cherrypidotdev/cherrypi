@@ -76,7 +76,11 @@ type TaskServer struct {
 
 	Actors func(ctx context.Context, id ids.ActorID) (ActorInfo, error)
 
+	ActorsByIDs func(ctx context.Context, ids []ids.ActorID) (map[ids.ActorID]ActorInfo, error)
+
 	TeamName func(ctx context.Context, id int64) (string, error)
+
+	TeamNamesByIDs func(ctx context.Context, ids []int64) (map[int64]string, error)
 
 	Plugins *plugins.Service
 
@@ -138,7 +142,7 @@ func (s *TaskServer) ListTasks(
 		Priority:           priority,
 		Archived:           req.Archived,
 		IncludeArchived:    req.IncludeArchived,
-		ParentTaskID:       req.ParentTaskId,
+		Automated:          req.Automated,
 		ReferenceProjectID: req.ReferenceProjectId,
 		Limit:              int64(req.Limit),
 		Offset:             int64(req.Offset),
@@ -160,9 +164,16 @@ func (s *TaskServer) ListTasks(
 		out[i].CanAnswerInput = s.canAnswerInput(ctx, t)
 	}
 	stripProgressItems(out)
+
+	resolvers := s.attributionResolvers(ctx)
+	resolvers.prefetch(out)
+	for _, task := range out {
+		s.enrichAttributionWith(resolvers, task)
+	}
 	s.enrichRuntime(ctx, list, out)
 	s.enrichWaitingReasons(ctx, list, out)
 	s.enrichBadges(ctx, out)
+	s.enrichHoldIcons(ctx, out)
 	return &agencyv1.ListTasksResponse{Tasks: out}, nil
 }
 
@@ -235,6 +246,7 @@ func (s *TaskServer) protoTask(ctx context.Context, t tasks.Task) *agencyv1.Task
 	s.enrichAttachments(ctx, out.Id, out)
 	s.enrichAttribution(ctx, out)
 	s.enrichBadges(ctx, []*agencyv1.Task{out})
+	s.enrichHoldIcons(ctx, []*agencyv1.Task{out})
 	out.OriginChain = s.originChain(ctx, t)
 	return out
 }
@@ -299,14 +311,38 @@ func (s *TaskServer) enrichBadges(ctx context.Context, tasks []*agencyv1.Task) {
 		task.Badges = make([]*agencyv1.TaskBadge, len(badges))
 		for i, badge := range badges {
 			task.Badges[i] = &agencyv1.TaskBadge{
-				PluginId:   badge.PluginID,
-				PluginName: badge.PluginName,
-				Key:        badge.Key,
-				Label:      badge.Label,
-				Value:      badge.Value,
-				Tone:       badge.Tone,
-				Url:        badge.URL,
+				PluginId:      badge.PluginID,
+				PluginName:    badge.PluginName,
+				PluginIconUrl: badge.PluginIconURL,
+				Key:           badge.Key,
+				Label:         badge.Label,
+				Value:         badge.Value,
+				Tone:          badge.Tone,
+				Url:           badge.URL,
 			}
+		}
+	}
+}
+
+func (s *TaskServer) enrichHoldIcons(ctx context.Context, tasks []*agencyv1.Task) {
+	if s.Plugins == nil || len(tasks) == 0 {
+		return
+	}
+	icons := map[string]string{}
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+		for _, hold := range task.Holds {
+			if hold == nil || hold.Plugin == "" {
+				continue
+			}
+			icon, ok := icons[hold.Plugin]
+			if !ok {
+				icon = s.Plugins.PluginIconURL(ctx, hold.Plugin)
+				icons[hold.Plugin] = icon
+			}
+			hold.PluginIconUrl = icon
 		}
 	}
 }
@@ -363,27 +399,126 @@ func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *
 }
 
 func (s *TaskServer) enrichAttribution(ctx context.Context, out *agencyv1.Task) {
-	actor := s.actorResolver(ctx)
+	s.enrichAttributionWith(s.attributionResolvers(ctx), out)
+}
+
+type attributionResolvers struct {
+	ctx       context.Context
+	server    *TaskServer
+	actors    map[ids.ActorID]ActorInfo
+	teamNames map[int64]string
+}
+
+func (s *TaskServer) attributionResolvers(ctx context.Context) *attributionResolvers {
+	return &attributionResolvers{
+		ctx:       ctx,
+		server:    s,
+		actors:    map[ids.ActorID]ActorInfo{},
+		teamNames: map[int64]string{},
+	}
+}
+
+func (r *attributionResolvers) actor(raw string) (ActorInfo, bool) {
+	id := actorid.ParseActor(raw)
+	if id == 0 || r.server.Actors == nil {
+		return ActorInfo{}, false
+	}
+	if info, ok := r.actors[id]; ok {
+		return info, true
+	}
+	info, err := r.server.Actors(r.ctx, id)
+	if err != nil {
+		return ActorInfo{}, false
+	}
+	r.actors[id] = info
+	return info, true
+}
+
+func (r *attributionResolvers) teamName(id int64) (string, bool) {
+	if r.server.TeamName == nil {
+		return "", false
+	}
+	if name, ok := r.teamNames[id]; ok {
+		return name, true
+	}
+	name, err := r.server.TeamName(r.ctx, id)
+	if err != nil {
+		return "", false
+	}
+	r.teamNames[id] = name
+	return name, true
+}
+
+func (r *attributionResolvers) prefetch(page []*agencyv1.Task) {
+	actorIDs := map[ids.ActorID]struct{}{}
+	teamIDs := map[int64]struct{}{}
+	addActor := func(raw string) {
+		if id := actorid.ParseActor(raw); id != 0 {
+			actorIDs[id] = struct{}{}
+		}
+	}
+	for _, task := range page {
+		addActor(task.CreatorActorId)
+		addActor(task.PendingPromptActorId)
+		if task.Leader != nil {
+			addActor(task.Leader.ActorId)
+		}
+		for _, message := range task.Messages {
+			addActor(message.ActorId)
+		}
+		for _, team := range task.Teams {
+			teamIDs[int64(team.Id)] = struct{}{}
+		}
+	}
+	if r.server.ActorsByIDs != nil && len(actorIDs) > 0 {
+		list := make([]ids.ActorID, 0, len(actorIDs))
+		for id := range actorIDs {
+			list = append(list, id)
+		}
+		if found, err := r.server.ActorsByIDs(r.ctx, list); err == nil {
+			for id, info := range found {
+				r.actors[id] = info
+			}
+		}
+	}
+	if r.server.TeamNamesByIDs != nil && len(teamIDs) > 0 {
+		list := make([]int64, 0, len(teamIDs))
+		for id := range teamIDs {
+			list = append(list, id)
+		}
+		if found, err := r.server.TeamNamesByIDs(r.ctx, list); err == nil {
+			for id, name := range found {
+				r.teamNames[id] = name
+			}
+		}
+	}
+}
+
+func (s *TaskServer) enrichAttributionWith(
+	resolvers *attributionResolvers,
+	out *agencyv1.Task,
+) {
+	actor, teamName := resolvers.actor, resolvers.teamName
 	if info, ok := actor(out.CreatorActorId); ok {
 		out.CreatorName = displayActorName(info)
 		out.CreatorPictureUrl = info.PictureURL
+		out.CreatorUsername = info.Username
+		out.CreatorKind = info.Kind
 	}
 	if info, ok := actor(out.PendingPromptActorId); ok {
 		out.PendingPromptActorName = displayActorName(info)
 	}
-	if s.TeamName != nil {
-		for _, team := range out.Teams {
-			if name, err := s.TeamName(ctx, int64(team.Id)); err == nil {
-				team.Name = name
-			}
+	for _, team := range out.Teams {
+		if name, ok := teamName(int64(team.Id)); ok {
+			team.Name = name
 		}
 	}
-	for _, lead := range out.Leads {
-		if info, ok := actor(lead.ActorId); ok {
-			lead.Username = info.Username
-			lead.Name = displayActorName(info)
-			lead.Kind = info.Kind
-			lead.PictureUrl = info.PictureURL
+	if out.Leader != nil {
+		if info, ok := actor(out.Leader.ActorId); ok {
+			out.Leader.Username = info.Username
+			out.Leader.Name = displayActorName(info)
+			out.Leader.Kind = info.Kind
+			out.Leader.PictureUrl = info.PictureURL
 		}
 	}
 	for _, message := range out.Messages {
@@ -477,14 +612,6 @@ func (s *TaskServer) CreateTask(
 			)
 		}
 	}
-	if req.ModelProvider != "" || req.ModelId != "" || req.ThinkingLevel != "" {
-		if req.AssigneeActorId == "" {
-			return nil, connect.NewError(
-				connect.CodeInvalidArgument,
-				errors.New("assign an agent before choosing a model"),
-			)
-		}
-	}
 
 	if origin := strings.TrimSpace(req.OriginTaskId); origin != "" {
 		if actorID, ok := auth.ActorID(ctx); ok && actorID != 0 && !auth.IsAdmin(ctx) {
@@ -496,14 +623,6 @@ func (s *TaskServer) CreateTask(
 				return nil, connect.NewError(connect.CodeNotFound, tasks.ErrNotFound)
 			}
 		}
-	}
-
-	if req.Interactive != nil && !req.GetInteractive() &&
-		strings.TrimSpace(req.ParentTaskId) == "" {
-		return nil, connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("a non-interactive task must be a sub-task"),
-		)
 	}
 	params := tasks.CreateParams{
 		Prompt:          req.Prompt,
@@ -517,13 +636,12 @@ func (s *TaskServer) CreateTask(
 		ModelProvider:   req.ModelProvider,
 		ModelID:         req.ModelId,
 		ThinkingLevel:   req.ThinkingLevel,
-		Interactive:     req.Interactive,
+		Automated:       req.Automated != nil && req.GetAutomated(),
 		Workspace:       req.Workspace,
 		AutoTitle:       req.AutoTitle,
 		State:           stateFromProto(req.State),
 		TeamIDs:         int32sToInt64s(req.TeamIds),
-		LeadActorIDs:    actorIDsFromStrings(req.LeadActorIds),
-		ParentTaskID:    req.ParentTaskId,
+		LeaderActorID:   actorid.ParseActor(req.LeaderActorId),
 		OriginTaskID:    req.OriginTaskId,
 	}
 	if req.TemplateId != "" {
@@ -566,8 +684,8 @@ func (s *TaskServer) CreateTask(
 		if len(req.TeamIds) == 0 {
 			params.TeamIDs = rendered.TeamIDs
 		}
-		if len(req.LeadActorIds) == 0 {
-			params.LeadActorIDs = rendered.LeadActorIDs
+		if req.LeaderActorId == "" {
+			params.LeaderActorID = rendered.LeaderActorID
 		}
 		params.Template = &tasks.TemplateApplication{
 			TemplateID:      rendered.TemplateID,
@@ -590,6 +708,9 @@ func (s *TaskServer) UpdateTask(
 	ctx context.Context,
 	req *agencyv1.UpdateTaskRequest,
 ) (*agencyv1.UpdateTaskResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	if attrs := attributesFromProto(
 		req.SetPriority,
 		req.SetSize,
@@ -666,6 +787,9 @@ func (s *TaskServer) QueueTask(
 	ctx context.Context,
 	req *agencyv1.QueueTaskRequest,
 ) (*agencyv1.QueueTaskResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.Queue(ctx, req.Id)
 	if err != nil {
 		return nil, mapError(err)
@@ -699,6 +823,9 @@ func (s *TaskServer) AddTaskReference(
 	ctx context.Context,
 	req *agencyv1.AddTaskReferenceRequest,
 ) (*agencyv1.AddTaskReferenceResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.AddReference(
 		ctx,
 		req.Id,
@@ -717,6 +844,9 @@ func (s *TaskServer) RemoveTaskReference(
 	ctx context.Context,
 	req *agencyv1.RemoveTaskReferenceRequest,
 ) (*agencyv1.RemoveTaskReferenceResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	remove := s.Tasks.RemoveReference
 	if req.GetReverse() {
 		remove = s.Tasks.RemoveIncomingReference
@@ -826,6 +956,10 @@ func (s *TaskServer) DeleteTask(
 	if err := s.cleanupTaskSession(ctx, cur); err != nil {
 		log.Printf("[task %s] delete agent session: %v", cur.ID, err)
 	}
+
+	if err := s.Tasks.DeleteSessionData(ctx, req.Id); err != nil {
+		return nil, mapError(err)
+	}
 	if err := s.Tasks.Delete(ctx, req.Id); err != nil {
 		return nil, mapError(err)
 	}
@@ -921,6 +1055,9 @@ func (s *TaskServer) RenameTask(
 	ctx context.Context,
 	req *agencyv1.RenameTaskRequest,
 ) (*agencyv1.RenameTaskResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.Rename(ctx, req.Id, req.Name)
 	if err != nil {
 		return nil, mapError(err)
@@ -943,6 +1080,9 @@ func (s *TaskServer) SetTaskPriority(
 	ctx context.Context,
 	req *agencyv1.SetTaskPriorityRequest,
 ) (*agencyv1.SetTaskPriorityResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.SetPriority(ctx, req.Id, priorityFromProto(req.Priority))
 	if err != nil {
 		return nil, mapError(err)
@@ -954,6 +1094,9 @@ func (s *TaskServer) SetTaskSize(
 	ctx context.Context,
 	req *agencyv1.SetTaskSizeRequest,
 ) (*agencyv1.SetTaskSizeResponse, error) {
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, err := s.Tasks.SetSize(ctx, req.Id, sizeFromProto(req.Size))
 	if err != nil {
 		return nil, mapError(err)
@@ -968,6 +1111,9 @@ func (s *TaskServer) SetTaskLinks(
 	links := make([]tasks.Link, len(req.GetLinks()))
 	for i, link := range req.GetLinks() {
 		links[i] = tasks.Link{URL: link.GetUrl(), Label: link.GetLabel()}
+	}
+	if _, err := s.requireCanEdit(ctx, req.Id); err != nil {
+		return nil, err
 	}
 	t, err := s.Tasks.SetLinks(ctx, req.Id, links)
 	if err != nil {
@@ -989,10 +1135,10 @@ func (s *TaskServer) SetTaskTeams(
 	return &agencyv1.SetTaskTeamsResponse{Task: out}, nil
 }
 
-func (s *TaskServer) SetTaskLeads(
+func (s *TaskServer) SetTaskLeader(
 	ctx context.Context,
-	req *agencyv1.SetTaskLeadsRequest,
-) (*agencyv1.SetTaskLeadsResponse, error) {
+	req *agencyv1.SetTaskLeaderRequest,
+) (*agencyv1.SetTaskLeaderResponse, error) {
 	cur, err := s.Tasks.Get(ctx, req.Id)
 	if err != nil {
 		return nil, mapError(err)
@@ -1000,13 +1146,13 @@ func (s *TaskServer) SetTaskLeads(
 	if err := s.requireCanPrompt(ctx, cur); err != nil {
 		return nil, err
 	}
-	t, err := s.Tasks.SetTaskLeads(ctx, req.Id, actorIDsFromStrings(req.LeadActorIds))
+	t, err := s.Tasks.SetTaskLeader(ctx, req.Id, actorid.ParseActor(req.LeaderActorId))
 	if err != nil {
 		return nil, mapError(err)
 	}
 	out := s.protoTask(ctx, t)
 	s.enrichAttribution(ctx, out)
-	return &agencyv1.SetTaskLeadsResponse{Task: out}, nil
+	return &agencyv1.SetTaskLeaderResponse{Task: out}, nil
 }
 
 func (s *TaskServer) SetTaskSubscription(
@@ -1237,7 +1383,36 @@ func (s *TaskServer) BulkUpdateTask(
 			return nil, err
 		}
 	}
-	results := s.Tasks.UpdateManyAttributes(ctx, req.GetIds(), attrs)
+
+	allowed := make([]string, 0, len(req.GetIds()))
+	denied := make(map[string]string, len(req.GetIds()))
+	for _, id := range req.GetIds() {
+		if _, err := s.requireCanEdit(ctx, id); err != nil {
+			denied[id] = "not allowed to edit this task"
+			continue
+		}
+		allowed = append(allowed, id)
+	}
+	results := s.Tasks.UpdateManyAttributes(ctx, allowed, attrs)
+
+	byID := make(map[string]tasks.AttributeResult, len(results))
+	for _, result := range results {
+		byID[result.ID] = result
+	}
+	merged := make([]tasks.AttributeResult, 0, len(req.GetIds()))
+	for _, id := range req.GetIds() {
+		if msg, ok := denied[id]; ok {
+			merged = append(merged, tasks.AttributeResult{
+				ID:    id,
+				Error: errors.New(msg),
+			})
+			continue
+		}
+		if result, ok := byID[id]; ok {
+			merged = append(merged, result)
+		}
+	}
+	results = merged
 	out := make([]*agencyv1.BulkUpdateTaskResult, 0, len(results))
 	for _, r := range results {
 		item := &agencyv1.BulkUpdateTaskResult{Id: r.ID}
@@ -1325,18 +1500,33 @@ func (s *TaskServer) AddToTask(
 	if err != nil {
 		return nil, err
 	}
+	model := s.resumeModel(ctx, t)
 	if _, err := conn.Tasks.AddToTask(ctx, &agentv1.AddToTaskRequest{
-		Id:          t.SessionID,
-		Prompt:      req.Prompt,
-		Attachments: s.attachmentRefs(ctx, req.AttachmentIds),
-		TaskId:      t.ID,
-		Ref:         taskRef(t),
-		Sender:      s.promptSender(ctx, actorID),
+		Id:            t.SessionID,
+		Prompt:        req.Prompt,
+		Attachments:   s.attachmentRefs(ctx, req.AttachmentIds),
+		TaskId:        t.ID,
+		Ref:           taskRef(t),
+		Sender:        s.promptSender(ctx, actorID),
+		RequiredTools: t.RequiredTools,
+		ModelProvider: model.Provider,
+		ModelId:       model.ModelID,
+		ThinkingLevel: model.ThinkingLevel,
 	}); err != nil {
 		return nil, err
 	}
 	s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
 	return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
+}
+
+func (s *TaskServer) resumeModel(
+	ctx context.Context,
+	t tasks.Task,
+) scheduler.ModelSelection {
+	if s.Scheduler == nil {
+		return scheduler.ModelSelection{}
+	}
+	return s.Scheduler.ResumeModel(ctx, t, t.SessionAgentID)
 }
 
 func (s *TaskServer) promptSender(
@@ -1399,6 +1589,10 @@ func (s *TaskServer) StopTask(
 	ctx context.Context,
 	req *agencyv1.StopTaskRequest,
 ) (*agencyv1.StopTaskResponse, error) {
+
+	if _, err := s.visibleTask(ctx, req.Id); err != nil {
+		return nil, err
+	}
 	t, conn, err := s.activeTask(ctx, req.Id)
 	if err != nil {
 		return nil, err
@@ -1408,7 +1602,10 @@ func (s *TaskServer) StopTask(
 		ctx, t.ID, tasks.LogStop, "", "", "", "Stop requested",
 		map[string]any{"requested": true},
 	)
-	if _, err := conn.Tasks.StopTask(ctx, &agentv1.StopTaskRequest{Id: t.SessionID}); err != nil {
+	if _, err := conn.Tasks.StopTask(ctx, &agentv1.StopTaskRequest{
+		Id:    t.SessionID,
+		Actor: stopActor(ctx),
+	}); err != nil {
 
 		s.Tasks.AppendLog(
 			ctx, t.ID, tasks.LogStop, "", "", "", "Stop failed",
@@ -1419,6 +1616,44 @@ func (s *TaskServer) StopTask(
 	return &agencyv1.StopTaskResponse{}, nil
 }
 
+func (s *TaskServer) InterruptTaskToolCall(
+	ctx context.Context,
+	req *agencyv1.InterruptTaskToolCallRequest,
+) (*agencyv1.InterruptTaskToolCallResponse, error) {
+
+	if strings.TrimSpace(req.ToolCallId) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("tool_call_id is required"))
+	}
+	if _, err := s.visibleTask(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	t, conn, err := s.activeTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.Tasks.InterruptToolCall(ctx, &agentv1.InterruptToolCallRequest{
+		Id:         t.SessionID,
+		ToolCallId: req.ToolCallId,
+		Actor:      stopActor(ctx),
+	}); err != nil {
+		return nil, err
+	}
+	return &agencyv1.InterruptTaskToolCallResponse{}, nil
+}
+
+func stopActor(ctx context.Context) string {
+	if identity, ok := auth.IdentityFrom(ctx); ok {
+		if name := strings.TrimSpace(identity.Name); name != "" {
+			return name
+		}
+		if username := strings.TrimSpace(identity.Username); username != "" {
+			return username
+		}
+	}
+	return "an operator"
+}
+
 func (s *TaskServer) RetryTask(
 	ctx context.Context,
 	req *agencyv1.RetryTaskRequest,
@@ -1427,9 +1662,14 @@ func (s *TaskServer) RetryTask(
 	if err != nil {
 		return nil, err
 	}
+	model := s.resumeModel(ctx, t)
 	if _, err := conn.Tasks.RetryTask(ctx, &agentv1.RetryTaskRequest{
-		Id:  t.SessionID,
-		Ref: taskRef(t),
+		Id:            t.SessionID,
+		Ref:           taskRef(t),
+		RequiredTools: t.RequiredTools,
+		ModelProvider: model.Provider,
+		ModelId:       model.ModelID,
+		ThinkingLevel: model.ThinkingLevel,
 	}); err != nil {
 		return nil, err
 	}
@@ -1498,6 +1738,417 @@ func (s *TaskServer) WatchTask(
 	return err
 }
 
+func (s *TaskServer) readableTask(ctx context.Context, id string) (tasks.Task, error) {
+	if identity, ok := auth.IdentityFrom(ctx); ok && identity.Kind == "agent" {
+		return s.agentTask(ctx, id)
+	}
+	return s.visibleTask(ctx, id)
+}
+
+func (s *TaskServer) requireCanEdit(ctx context.Context, id string) (tasks.Task, error) {
+	t, err := s.Tasks.Get(ctx, id)
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return t, nil
+	}
+	allowed, err := s.Tasks.CanUpdate(ctx, t, actorID, auth.IsAdmin(ctx))
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	if !allowed {
+		return tasks.Task{}, connect.NewError(
+			connect.CodePermissionDenied,
+			errors.New("not allowed to edit this task"),
+		)
+	}
+	return t, nil
+}
+
+func (s *TaskServer) writableTask(ctx context.Context, id string) (tasks.Task, error) {
+	if auth.IsAdmin(ctx) {
+		return s.visibleTask(ctx, id)
+	}
+	if _, ok := auth.ActorID(ctx); !ok {
+		return tasks.Task{}, connect.NewError(connect.CodeUnauthenticated,
+			errors.New("authentication required"))
+	}
+	return s.agentTask(ctx, id)
+}
+
+func (s *TaskServer) agentTask(ctx context.Context, id string) (tasks.Task, error) {
+	t, err := s.Tasks.Get(ctx, id)
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	actorID, ok := auth.ActorID(ctx)
+	if !ok {
+		return tasks.Task{}, connect.NewError(connect.CodeUnauthenticated,
+			errors.New("authentication required"))
+	}
+	if t.AssigneeActorID != 0 && t.AssigneeActorID == actorID {
+		return t, nil
+	}
+	if agent, err := s.Agents.GetByActor(ctx, actorID); err == nil &&
+		t.SessionAgentID != 0 && agent.ID == t.SessionAgentID {
+		return t, nil
+	}
+	return tasks.Task{}, connect.NewError(connect.CodePermissionDenied,
+		errors.New("task is not assigned to this agent"))
+}
+
+func (s *TaskServer) GetTaskSessionState(
+	ctx context.Context,
+	req *agencyv1.GetTaskSessionStateRequest,
+) (*agencyv1.GetTaskSessionStateResponse, error) {
+	t, err := s.readableTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	state, found, err := s.Tasks.SessionState(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	lastSeq, err := s.Tasks.LastTaskEventSeq(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.GetTaskSessionStateResponse{
+		Found: found,
+		State: &agencyv1.TaskSessionState{
+			TaskId:        t.ID,
+			Revision:      state.Revision,
+			ModelProvider: state.ModelProvider,
+			ModelId:       state.ModelID,
+			ThinkingLevel: state.ThinkingLevel,
+			EntriesJson:   state.EntriesJSON,
+			UpdatedAt:     state.UpdatedAt,
+			LastEventSeq:  lastSeq,
+		},
+	}, nil
+}
+
+func (s *TaskServer) PutTaskSessionState(
+	ctx context.Context,
+	req *agencyv1.PutTaskSessionStateRequest,
+) (*agencyv1.PutTaskSessionStateResponse, error) {
+	t, err := s.writableTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.EntriesJson) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("entries_json is required"))
+	}
+	revision, err := s.Tasks.PutSessionState(ctx, t.ID, tasks.SessionState{
+		ModelProvider: req.ModelProvider,
+		ModelID:       req.ModelId,
+		ThinkingLevel: req.ThinkingLevel,
+		EntriesJSON:   req.EntriesJson,
+	}, req.ExpectedRevision)
+	if err != nil {
+		if errors.Is(err, tasks.ErrSessionStateConflict) {
+			return nil, connect.NewError(connect.CodeAborted, err)
+		}
+		return nil, mapError(err)
+	}
+	return &agencyv1.PutTaskSessionStateResponse{Revision: revision}, nil
+}
+
+func (s *TaskServer) AppendTaskEvents(
+	ctx context.Context,
+	req *agencyv1.AppendTaskEventsRequest,
+) (*agencyv1.AppendTaskEventsResponse, error) {
+	t, err := s.writableTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]tasks.TaskEventRow, 0, len(req.Events))
+	for _, event := range req.Events {
+		if event == nil {
+			continue
+		}
+		rows = append(rows, tasks.TaskEventRow{
+			Seq:         event.Seq,
+			At:          event.At,
+			Kind:        event.Kind,
+			PayloadJSON: event.PayloadJson,
+		})
+	}
+	if _, err := s.Tasks.AppendTaskEvents(ctx, t.ID, rows); err != nil {
+		return nil, mapError(err)
+	}
+	lastSeq, err := s.Tasks.LastTaskEventSeq(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.AppendTaskEventsResponse{LastSeq: lastSeq}, nil
+}
+
+func (s *TaskServer) GetTaskInput(
+	ctx context.Context,
+	req *agencyv1.GetTaskInputRequest,
+) (*agencyv1.GetTaskInputResponse, error) {
+	task, err := s.visibleTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if s.Input == nil {
+		return nil, connect.NewError(connect.CodeUnavailable,
+			errors.New("task input is unavailable"))
+	}
+
+	dialog, waiting, err := s.Input.Pending(ctx, task)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	out := &agencyv1.TaskInput{
+		TaskId:  task.ID,
+		State:   string(task.State),
+		Waiting: waiting,
+	}
+	if !waiting {
+		out.Hint = "the task is not waiting for input right now; " +
+			"read it again with getTask or getTaskHistory"
+		return &agencyv1.GetTaskInputResponse{Input: out}, nil
+	}
+	out.RequestId = dialog.RequestID
+	out.Method = dialog.Method
+	out.Title = dialog.Title
+	out.Message = dialog.Message
+	out.Placeholder = dialog.Placeholder
+	out.Options = dialog.Options
+	out.Timeout = dialog.Timeout
+	out.Raw = dialog.Raw
+	if dialog.Questionnaire != nil {
+		raw, err := json.Marshal(dialog.Questionnaire)
+		if err == nil {
+			out.QuestionnaireJson = string(raw)
+		}
+	}
+	out.Hint = answerHint(dialog)
+	return &agencyv1.GetTaskInputResponse{Input: out}, nil
+}
+
+func answerHint(dialog taskinput.Dialog) string {
+	switch {
+	case dialog.Questionnaire != nil:
+		return "answer with \"answers\": one entry per question, each addressing " +
+			"the question by its header (or 1-based index) and naming an option " +
+			"label, or sending \"custom\""
+	case dialog.Method == "confirm":
+		return "answer with \"confirmed\": true or false"
+	case dialog.Method == "select":
+		return "answer with \"value\": exactly one of the listed options"
+	case dialog.Method == "input", dialog.Method == "editor":
+		return "answer with \"value\": the text to send"
+	default:
+		return "answer with \"value\""
+	}
+}
+
+func (s *TaskServer) RespondToTaskInput(
+	ctx context.Context,
+	req *agencyv1.RespondToTaskInputRequest,
+) (*agencyv1.RespondToTaskInputResponse, error) {
+	task, err := s.visibleTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if !s.canAnswerInput(ctx, task) {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("only a lead of this task may read or answer its input"))
+	}
+	if s.Input == nil {
+		return nil, connect.NewError(connect.CodeUnavailable,
+			errors.New("task input is unavailable"))
+	}
+
+	dialog, waiting, err := s.Input.Pending(ctx, task)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	if !waiting {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("the task is not waiting for input right now (it may have "+
+				"been answered already); read it again with GetTaskInput"))
+	}
+	in := req.GetAnswer()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("an answer is required"))
+	}
+	if requestID := strings.TrimSpace(in.GetRequestId()); requestID != "" &&
+		requestID != dialog.RequestID {
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("request_id "+requestID+" does not match the pending dialog ("+
+				dialog.RequestID+"); read it again with GetTaskInput"))
+	}
+
+	var answers []taskinput.LabelAnswer
+	if raw := strings.TrimSpace(in.GetAnswersJson()); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &answers); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("answers_json: %w", err))
+		}
+	}
+	answer, err := inputAnswer(dialog, in, answers)
+	if err != nil {
+		return nil, mapTaskInputError(err)
+	}
+	if err := s.Input.Answer(ctx, task, answer); err != nil {
+		return nil, mapTaskInputError(err)
+	}
+	refreshed, err := s.Tasks.Get(ctx, task.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.RespondToTaskInputResponse{
+		TaskId:    refreshed.ID,
+		Answered:  true,
+		Cancelled: answer.Cancelled,
+		State:     string(refreshed.State),
+		Hint:      answerHintAfter(refreshed, answer.Cancelled),
+	}, nil
+}
+
+func answerHintAfter(_ tasks.Task, cancelled bool) string {
+	if cancelled {
+		return "the dialog was declined; the task continues without an answer"
+	}
+	return "the task continues from your answer; its run is in flight again"
+}
+
+func inputAnswer(
+	dialog taskinput.Dialog,
+	in *agencyv1.TaskInputAnswer,
+	answers []taskinput.LabelAnswer,
+) (taskinput.Answer, error) {
+	answer := taskinput.Answer{RequestID: dialog.RequestID}
+	confirmed := in.Confirmed
+	value := in.GetValue()
+	note := in.GetNote()
+	if in.GetCancelled() {
+		if len(answers) > 0 || value != "" || confirmed != nil {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "cancelled cannot be combined with an answer; " +
+					"send either cancelled or the dialog's answer",
+			}
+		}
+		answer.Cancelled = true
+		return answer, nil
+	}
+	if dialog.Questionnaire != nil {
+		if confirmed != nil || value != "" {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog is a questionnaire; answer it with " +
+					"\"answers\" (question + option label, or custom), not " +
+					"\"value\" or \"confirmed\"",
+			}
+		}
+		resolved, err := dialog.Questionnaire.AnswerValue(answers, note)
+		if err != nil {
+			return taskinput.Answer{}, err
+		}
+		resolved.RequestID = dialog.RequestID
+		return resolved, nil
+	}
+	switch dialog.Method {
+	case "confirm":
+		if confirmed == nil {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog is a confirm; answer it with " +
+					"\"confirmed\": true or false",
+			}
+		}
+		if len(answers) > 0 || value != "" || note != "" {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "a confirm dialog takes only \"confirmed\"; drop the " +
+					"other fields",
+			}
+		}
+		choice := *confirmed
+		answer.Confirmed = &choice
+		return answer, nil
+	case "select", "input", "editor":
+		if len(answers) > 0 {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog is a plain " + dialog.Method +
+					"; answer it with \"value\", not \"answers\"",
+			}
+		}
+		if confirmed != nil {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog is a plain " + dialog.Method +
+					"; answer it with \"value\", not \"confirmed\"",
+			}
+		}
+		if dialog.Method == "select" && strings.TrimSpace(value) == "" {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog is a select; answer it with \"value\" " +
+					"set to one of: " + optionsForError(dialog.Options),
+			}
+		}
+		answer.Value = value
+		return answer, nil
+	default:
+		if len(answers) > 0 {
+			return taskinput.Answer{}, &taskinput.ValidationError{
+				Message: "this dialog does not take \"answers\"; answer it " +
+					"with \"value\" or \"confirmed\"",
+			}
+		}
+		answer.Value = value
+		if confirmed != nil {
+			choice := *confirmed
+			answer.Confirmed = &choice
+		}
+		return answer, nil
+	}
+}
+
+func optionsForError(options []string) string {
+	if len(options) == 0 {
+		return "no options"
+	}
+	quoted := make([]string, 0, len(options))
+	for _, option := range options {
+		quoted = append(quoted, "\""+option+"\"")
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func mapTaskInputError(err error) error {
+	switch {
+	case errors.Is(err, taskinput.ErrNoPendingDialog):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case func() bool { _, ok := err.(*taskinput.ValidationError); return ok }():
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	default:
+		return connect.NewError(connect.CodeUnavailable, err)
+	}
+}
+
+func (s *TaskServer) ResolveTaskRef(
+	ctx context.Context,
+	req *agencyv1.ResolveTaskRefRequest,
+) (*agencyv1.ResolveTaskRefResponse, error) {
+	if strings.TrimSpace(req.ProjectId) == "" || req.Seq <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("project_id and seq are required"))
+	}
+	task, err := s.Tasks.GetByProjectSeq(ctx, req.ProjectId, req.Seq)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if _, err := s.agentTask(ctx, task.ID); err != nil {
+		return nil, err
+	}
+	return &agencyv1.ResolveTaskRefResponse{TaskId: task.ID}, nil
+}
+
 func (s *TaskServer) GetTaskHistory(
 	ctx context.Context,
 	req *agencyv1.GetTaskHistoryRequest,
@@ -1506,22 +2157,67 @@ func (s *TaskServer) GetTaskHistory(
 	if err != nil {
 		return nil, err
 	}
+	var before int64
+	if req.Before != "" {
+		before, err = strconv.ParseInt(req.Before, 10, 64)
+		if err != nil || before < 0 {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				errors.New("invalid history cursor"),
+			)
+		}
+	}
+
+	lastSeq, err := s.Tasks.LastTaskEventSeq(ctx, t.ID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if lastSeq > 0 {
+
+		limit := taskhistory.PageLimit(int(req.Limit))
+
+		stored, err := s.Tasks.TaskEventPage(ctx, t.ID, before, limit+1)
+		if err != nil {
+			return nil, mapError(err)
+		}
+		var (
+			events []*agentv1.TaskEvent
+			next   int64
+		)
+		if req.ModelFacing {
+
+			events, next = taskhistory.PageEventsBounded(
+				t.ID, stored, before, limit,
+				taskhistory.ModelMessageBytes, taskhistory.ModelPageBytes,
+			)
+		} else {
+			events, next = taskhistory.PageEvents(t.ID, stored, before, limit)
+		}
+		nextBefore := ""
+		if next > 0 {
+			nextBefore = strconv.FormatInt(next, 10)
+		}
+		return &agencyv1.GetTaskHistoryResponse{Events: events, NextBefore: nextBefore}, nil
+	}
+
 	entries, err := s.Tasks.SessionHistory(ctx, t.ID)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	if len(entries) > 0 {
-		var before int64
-		if req.Before != "" {
-			before, err = strconv.ParseInt(req.Before, 10, 64)
-			if err != nil || before < 0 {
-				return nil, connect.NewError(
-					connect.CodeInvalidArgument,
-					errors.New("invalid history cursor"),
-				)
-			}
+
+		var (
+			events []*agentv1.TaskEvent
+			next   int64
+		)
+		if req.ModelFacing {
+			events, next = taskhistory.PageBounded(
+				t.ID, entries, before, int(req.Limit),
+				taskhistory.ModelMessageBytes, taskhistory.ModelPageBytes,
+			)
+		} else {
+			events, next = taskhistory.Page(t.ID, entries, before, int(req.Limit))
 		}
-		events, next := taskhistory.Page(t.ID, entries, before, int(req.Limit))
 		nextBefore := ""
 		if next > 0 {
 			nextBefore = strconv.FormatInt(next, 10)
@@ -1550,6 +2246,10 @@ func (s *TaskServer) GetTaskHistory(
 			return &agencyv1.GetTaskHistoryResponse{}, nil
 		}
 		return nil, err
+	}
+	if req.ModelFacing {
+
+		taskhistory.TruncateForModel(res.Events, taskhistory.ModelMessageBytes)
 	}
 	return &agencyv1.GetTaskHistoryResponse{
 		Events:     res.Events,
@@ -2134,13 +2834,6 @@ func (s *TaskServer) requireTaskModelChange(
 		current.ThinkingLevel == thinkingLevel {
 		return nil
 	}
-	if current.AssigneeActorID == 0 &&
-		(provider != "" || modelID != "" || thinkingLevel != "") {
-		return connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("assign an agent before choosing a model"),
-		)
-	}
 	return s.requireTaskModelSelection(ctx, current)
 }
 
@@ -2341,8 +3034,18 @@ func (s *TaskServer) materializeRuntime(
 		if t.RunMayBeStarting(time.Now(), s.settleGrace()) {
 			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false
 		}
-		if _, err := s.Tasks.Settle(ctx, t.ID); err != nil {
+		settled, err := s.Tasks.Settle(ctx, t.ID)
+		if err != nil {
 			log.Printf("[task %s] settle: %v", t.ID, err)
+			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false
+		}
+		if !settled {
+
+			if cur, err := s.Tasks.Get(ctx, t.ID); err == nil {
+				if state := stateToProto(cur.State); state != stateToProto(t.State) {
+					return state, true
+				}
+			}
 			return agencyv1.TaskState_TASK_STATE_UNSPECIFIED, false
 		}
 		return agencyv1.TaskState_TASK_STATE_SETTLED, true
@@ -2466,12 +3169,13 @@ func mapError(err error) *connect.Error {
 		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, tasks.ErrInvalidPrompt),
 		errors.Is(err, tasks.ErrInvalidModel),
-		errors.Is(err, tasks.ErrModelWithoutAssignee),
 		errors.Is(err, tasks.ErrProjectRequired),
 		errors.Is(err, tasks.ErrSelfReference),
 		errors.Is(err, tasks.ErrReferenceCycle),
 		errors.Is(err, tasks.ErrLeadNotAllowed),
 		errors.Is(err, tasks.ErrLeadRequired),
+		errors.Is(err, tasks.ErrAutomatedLeader),
+		errors.Is(err, tasks.ErrAutomatedBacklog),
 		errors.Is(err, tasks.ErrCommentBodyRequired),
 		errors.Is(err, tasks.ErrCommentAttachmentNotFound),
 		errors.Is(err, tags.ErrInvalidName):
@@ -2659,9 +3363,10 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		Name:                 t.Name,
 		Prompt:               t.Prompt,
 		ProjectId:            t.ProjectID,
-		ParentTaskId:         t.ParentTaskID,
 		OriginTaskId:         t.OriginTaskID,
-		PendingChildren:      int32(t.PendingChildren),
+		LeaderActorId:        actorid.Format(t.LeaderActorID),
+		NeedsOperator:        t.NeedsOperator,
+		ReactionReminders:    int32(t.ReactionReminders),
 		PendingSteering:      t.PendingSteering,
 		AssigneeActorId:      actorid.Format(t.AssigneeActorID),
 		AssigneePinned:       t.AssigneePinned,
@@ -2675,7 +3380,7 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 		ModelProvider:        t.ModelProvider,
 		ModelId:              t.ModelID,
 		ThinkingLevel:        t.ThinkingLevel,
-		Interactive:          t.Interactive,
+		Automated:            t.Automated,
 		Workspace:            t.Workspace,
 		AutoTitle:            t.AutoTitle,
 		Archived:             t.Archived,
@@ -2693,22 +3398,13 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 			Id: int32(teamID),
 		})
 	}
-	for _, leadID := range t.LeadActorIDs {
-		out.Leads = append(out.Leads, &agencyv1.TaskLead{
-			ActorId: actorid.Format(leadID),
-		})
+	if t.LeaderActorID != 0 {
+		out.Leader = &agencyv1.TaskLeader{
+			ActorId: actorid.Format(t.LeaderActorID),
+		}
 	}
 	for _, tag := range t.Tags {
-		out.Tags = append(out.Tags, &agencyv1.Tag{
-			Id:          tag.ID,
-			ProjectId:   tag.ProjectID,
-			Name:        tag.Name,
-			Description: tag.Description,
-			Color:       tag.Color,
-			Archived:    tag.Archived,
-
-			IsRequired: tag.Required,
-		})
+		out.Tags = append(out.Tags, tagToProto(tag))
 	}
 	for _, link := range t.Links {
 		out.Links = append(out.Links, &agencyv1.TaskLink{
@@ -2722,15 +3418,13 @@ func toProtoTask(t tasks.Task) *agencyv1.Task {
 	for _, ref := range t.ReferencedBy {
 		out.ReferencedBy = append(out.ReferencedBy, toProtoReference(ref))
 	}
-	for _, child := range t.ChildTasks {
-		out.ChildTasks = append(out.ChildTasks, toProtoReference(child))
-	}
 	for _, hold := range t.Holds {
 		out.Holds = append(out.Holds, &agencyv1.TaskHold{
 			Plugin:     hold.PluginID,
 			PluginName: hold.PluginName,
 			Key:        hold.Key,
 			Reason:     hold.Reason,
+			Url:        hold.URL,
 			CreatedAt:  timeOrNil(hold.CreatedAt),
 		})
 	}
@@ -2779,22 +3473,42 @@ func stripProgressItems(tasksOut []*agencyv1.Task) {
 	}
 }
 
-func toProtoReference(ref tasks.Reference) *agencyv1.TaskReference {
-	return &agencyv1.TaskReference{
-		Id:     ref.ID,
-		Name:   ref.Name,
-		Prompt: ref.Prompt,
-		State:  stateToProto(ref.State),
-		Kind:   referenceKindToProto(ref.Kind),
+func tagToProto(tag tasks.Tag) *agencyv1.Tag {
+	return &agencyv1.Tag{
+		Id:          tag.ID,
+		ProjectId:   tag.ProjectID,
+		Name:        tag.Name,
+		Description: tag.Description,
+		Color:       tag.Color,
+		Archived:    tag.Archived,
+		IsRequired:  tag.Required,
 	}
+}
+
+func toProtoReference(ref tasks.Reference) *agencyv1.TaskReference {
+	out := &agencyv1.TaskReference{
+		Id:                    ref.ID,
+		Name:                  ref.Name,
+		Prompt:                ref.Prompt,
+		State:                 stateToProto(ref.State),
+		Kind:                  referenceKindToProto(ref.Kind),
+		Priority:              priorityToProto(ref.Priority),
+		Size:                  sizeToProto(ref.Size),
+		WakeOnResolveWhenMany: ref.WakeOnResolveWhenMany,
+	}
+	for _, tag := range ref.Tags {
+		out.Tags = append(out.Tags, tagToProto(tag))
+	}
+	return out
 }
 
 func referenceInputsFromProto(in []*agencyv1.TaskReferenceInput) []tasks.ReferenceInput {
 	out := make([]tasks.ReferenceInput, 0, len(in))
 	for _, ref := range in {
 		out = append(out, tasks.ReferenceInput{
-			TaskID: ref.GetReferencedTaskId(),
-			Kind:   referenceKindFromProto(ref.GetKind()),
+			TaskID:                ref.GetReferencedTaskId(),
+			Kind:                  referenceKindFromProto(ref.GetKind()),
+			WakeOnResolveWhenMany: ref.GetWakeOnResolveWhenMany(),
 		})
 	}
 	return out
@@ -2861,16 +3575,6 @@ func int32sToInt64s(ids []int32) []int64 {
 	out := make([]int64, len(ids))
 	for i, id := range ids {
 		out[i] = int64(id)
-	}
-	return out
-}
-
-func actorIDsFromStrings(in []string) []ids.ActorID {
-	out := make([]ids.ActorID, 0, len(in))
-	for _, raw := range in {
-		if id := actorid.ParseActor(raw); id != 0 {
-			out = append(out, id)
-		}
 	}
 	return out
 }

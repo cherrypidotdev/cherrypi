@@ -109,6 +109,9 @@ func ReadBundle(data []byte) (Bundle, error) {
 	if err := validateEntryHandlers(files, manifest); err != nil {
 		return Bundle{}, err
 	}
+	if err := validateBundleIcon(files, manifest); err != nil {
+		return Bundle{}, err
+	}
 	sum := sha256.Sum256(data)
 	return Bundle{
 		Manifest:    manifest,
@@ -204,6 +207,9 @@ func LoadBundleDir(dir string) (Bundle, error) {
 		return Bundle{}, fmt.Errorf("bundle needs %s", manifest.Entry)
 	}
 	if err := validateEntryHandlers(files, manifest); err != nil {
+		return Bundle{}, err
+	}
+	if err := validateBundleIcon(files, manifest); err != nil {
 		return Bundle{}, err
 	}
 	return Bundle{Manifest: manifest, ManifestRaw: manifestRaw, Files: files}, nil

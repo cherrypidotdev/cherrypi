@@ -264,7 +264,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                         v-for="model in modelOptions"
                         :key="`${model.provider}/${model.id}`"
                         :value="`${model.provider}/${model.id}`"
-                      ) {{ modelLabel(model) }}
+                      )
+                        ModelName(:model="model")
               Field
                 FieldLabel {{ $t("taskModel.thinking") }}
                 Select(
@@ -391,6 +392,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
+import ModelName from "@/components/ModelName.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AgentActivityPanel from "@/components/settings/AgentActivityPanel.vue";
 import AgentGroupsPanel from "@/components/settings/AgentGroupsPanel.vue";
@@ -559,11 +561,6 @@ interface ModelOption {
   id: string;
   name: string;
   thinkingLevels: string[];
-}
-
-function modelLabel(model: ModelOption): string {
-  const name = model.name || model.id;
-  return model.provider ? `${model.provider}/${name}` : name;
 }
 
 const modelCatalog = ref<ModelOption[]>([]);
@@ -1035,8 +1032,8 @@ en:
       reset: "Reset models"
       piDefaultPlaceholder: "Pi default"
       defaultPlaceholder: "Model default"
-      offline: "The agent is offline, so its model list is unavailable."
-      resetTitle: "Re-read the agent's models.json"
+      offline: "The agent is offline, or the agency declares no model it may use, so its model list is empty."
+      resetTitle: "Re-read the agent's model catalog"
     logs:
       description: "Operational records this agent pushed to the agency, plus the terminal lifecycle events the agency observed."
     toasts:
@@ -1095,8 +1092,8 @@ ru:
       reset: "Сбросить модели"
       piDefaultPlaceholder: "Значение Pi"
       defaultPlaceholder: "Модель по умолчанию"
-      offline: "Агент не в сети, поэтому список моделей недоступен."
-      resetTitle: "Перечитать models.json агента"
+      offline: "Агент не в сети или агентство не объявило ни одной доступной ему модели, поэтому список моделей пуст."
+      resetTitle: "Перечитать каталог моделей агента"
     logs:
       description: "Операционные записи, которые агент отправил в агентство, а также события жизненного цикла терминалов, замеченные агентством."
     toasts:

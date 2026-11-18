@@ -17,6 +17,6 @@
     "vitepress": "1.6.4"
   },
   "engines": {
-    "node": "22"
+    "node": "26"
   }
 }

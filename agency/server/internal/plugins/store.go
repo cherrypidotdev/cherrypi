@@ -783,6 +783,38 @@ func (s *Store) Log(
 	)
 }
 
+const pruneLogBatch = 1000
+
+func (s *Store) PruneLogs(ctx context.Context, id string, keep int64) error {
+	if keep <= 0 {
+		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		res, err := s.db.ExecContext(
+			ctx,
+			s.q(
+				`DELETE FROM plugin_logs WHERE id IN (SELECT id FROM plugin_logs WHERE plugin_id=? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?)`,
+			),
+			id,
+			pruneLogBatch,
+			keep,
+		)
+		if err != nil {
+			return err
+		}
+		removed, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if removed < pruneLogBatch {
+			return nil
+		}
+	}
+}
+
 func (s *Store) Logs(
 	ctx context.Context,
 	id string,

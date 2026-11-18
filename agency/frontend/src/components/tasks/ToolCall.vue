@@ -30,12 +30,29 @@ details.rounded-md.border(class="group/tool" data-testid="tool-call")
       :added="change.added"
       :removed="change.removed"
     )
+
+    Button.ml-auto.shrink-0(
+      v-if="running && canInterrupt"
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      :title="$t('toolCall.interrupt')"
+      :aria-label="$t('toolCall.interrupt')"
+      @click.prevent.stop="emit('interrupt')"
+      data-testid="tool-call-interrupt"
+    )
+      Spinner.size-3(v-if="interrupting")
+      SquareIcon.size-3(v-else)
     span.text-muted-foreground.shrink-0(v-if="running") {{ $t("toolCall.running") }}
     span.text-muted-foreground.shrink-0(
-      v-else-if="interrupted || item.phase !== ToolPhase.FINISHED"
+      v-if="!running && (interrupted || item.phase !== ToolPhase.FINISHED)"
       :title="$t('toolCall.noResult')"
     ) {{ $t("toolCalls.statusInterrupted") }}
-    span.text-destructive.shrink-0(v-if="item.isError") {{ $t("toolCalls.statusError") }}
+    span.text-muted-foreground.shrink-0(
+      v-if="interruptedBy"
+      data-testid="tool-call-interrupted-by"
+    ) {{ $t("toolCall.interruptedBy", { actor: interruptedBy }) }}
+    span.text-destructive.shrink-0(v-else-if="item.isError") {{ $t("toolCalls.statusError") }}
     span.text-muted-foreground.shrink-0(v-if="duration") · {{ duration }}
 
   ToolCallBody(:item="item")
@@ -44,14 +61,21 @@ details.rounded-md.border(class="group/tool" data-testid="tool-call")
 <script setup lang="ts">
 import DiffStat from "@/components/tasks/DiffStat.vue";
 import ToolCallBody from "@/components/tasks/ToolCallBody.vue";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import type { ToolItem } from "@/lib/console";
-import { displayPath, toolView } from "@/lib/toolPresentation";
+import {
+  displayPath,
+  interruptedBy as interruptedByActor,
+  toolView,
+} from "@/lib/toolPresentation";
 import { ToolPhase } from "@cherrypi/sdk";
 import {
   ChevronRightIcon,
   FilePlusIcon,
   FileTextIcon,
   PencilIcon,
+  SquareIcon,
   SquareTerminalIcon,
   WrenchIcon,
 } from "@lucide/vue";
@@ -65,9 +89,16 @@ const props = defineProps<{
   interrupted?: boolean;
 
   duration: string;
+
+  canInterrupt?: boolean;
+
+  interrupting?: boolean;
 }>();
 
+const emit = defineEmits<{ (e: "interrupt"): void }>();
+
 const view = computed(() => toolView(props.item));
+const interruptedBy = computed(() => interruptedByActor(props.item));
 
 const icons = {
   bash: SquareTerminalIcon,
@@ -88,8 +119,12 @@ en:
   toolCall:
     running: "running…"
     noResult: "The call's run ended before it recorded a result"
+    interrupt: "Stop this tool call"
+    interruptedBy: "interrupted by {actor}"
 ru:
   toolCall:
     running: "выполняется…"
     noResult: "Выполнение вызова завершилось до записи результата"
+    interrupt: "Остановить этот вызов инструмента"
+    interruptedBy: "прервано: {actor}"
 </i18n>

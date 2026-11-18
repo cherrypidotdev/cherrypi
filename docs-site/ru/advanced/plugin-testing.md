@@ -120,7 +120,7 @@ t.equal(#t.http_calls(), 1)
 | `t.agent({ id, actor_id, username, name, project, project_role })` | Агент (и, опционально, его роль в проекте). |
 | `t.user({ id, username, name })` | Пользователь. |
 | `t.task({ id, project_id, state, prompt, ... })` | Задача, которую плагин может читать. `hold_task` на `settled` паркует её в `waiting`, как в agency. |
-| `t.history(task_id, entries)` | Сохранённые записи Pi для `get_task_history`. |
+| `t.history(task_id, entries)` | Сохранённая переписка для `get_task_history`. |
 | `t.team({ id, name })` | Команда. |
 | `t.expect_http(method, path, { status, json, body, headers })` | Один исходящий ответ; фикстуры расходуются по порядку. |
 
@@ -136,6 +136,7 @@ t.equal(#t.http_calls(), 1)
 | `t.update_settings(scope, target, values)` | Прогоняет хук `update_settings` бандла так же, как agency: с сохранённой строкой поверхности в `previous` и с подстановкой сохранённого секрета в пустое поле; возвращает его список `{path, errorText}` (пустой, если хука нет). Результат проверяется как в `parseSettingErrors`, поэтому испорченный список поднимает ошибку. `t.update_settings(scope, values)` работает с безадресной строкой переданной поверхности. Хук, который сам поднимает ошибку, поднимает её и здесь — оберните в `pcall`. |
 | `t.task_tools(task_id)` | Прогоняет хук `handle_task_tools` бандла и проверяет его результат так же, как планировщик. Возвращает имена инструментов проекта, доступных задаче (все объявленные, если обработчик `task_tools` не объявлен); испорченный результат или упавший хук поднимает ошибку и здесь. |
 | `t.created_tasks()` | Вызовы `create_task` с `project`, `tags`, `tools`, `assignee`, `state`, `interactive`. |
+| `t.project_settings(project_id)` | Строка плагина в проекте после записи: `enabled`, `allow_task_creation`, `max_priority` и `settings`. Для проверки того, что сохранил `cherrypi.update_settings`. |
 | `t.holds(task_id)` | Удержания плагина на задаче (`plugin`, `plugin_name`, `key`, `reason`, `created_at`), от старых к новым. |
 | `t.releases(task_id)` | Вызовы `release_task` (`key`, `mode`, `prompt`) в порядке вызовов. |
 | `t.http_calls()` | Исходящие вызовы (`method`, `url`, `path`, `body`). |
@@ -337,7 +338,7 @@ E2E-agency стартует с выключенным фоновым тикер�
   напрямую, поэтому задача должна быть назначена заполненному агенту.
 - **С агентом** (`--with-agent`): поднимает настоящего агента и mock LLM, чей
   первый ход вызывает первый инструмент бандла. Это проверяет весь путь —
-  планировщик, Pi, встроенное расширение инструментов, маршрут agency и
+  планировщик, рантайм задачи, инструмент, маршрут agency и
   `handle_tool_call`. `agent.tool_args` сценария становятся аргументами
   инструмента.
 

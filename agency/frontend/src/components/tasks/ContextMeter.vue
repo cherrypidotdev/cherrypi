@@ -22,7 +22,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   role="meter"
   aria-valuemin="0"
   aria-valuemax="100"
-  :aria-valuenow="percent"
+  :aria-valuenow="fillPercent"
+  :aria-valuetext="percent + '%'"
   :aria-label="label"
   :title="hint"
 )
@@ -47,12 +48,11 @@ const total = computed(() => Number(props.window));
 
 const percent = computed(() =>
   total.value > 0
-    ? Math.min(
-        100,
-        Math.max(0, Math.round((Number(props.tokens) / total.value) * 100)),
-      )
+    ? Math.max(0, Math.round((Number(props.tokens) / total.value) * 100))
     : 0,
 );
+
+const fillPercent = computed(() => Math.min(100, percent.value));
 
 const barClass = computed(() => {
   if (percent.value >= 90) return "bg-destructive";
@@ -66,7 +66,7 @@ const textClass = computed(() => {
   return "text-muted-foreground";
 });
 
-const fillStyle = computed(() => ({ width: percent.value + "%" }));
+const fillStyle = computed(() => ({ width: fillPercent.value + "%" }));
 const label = computed(
   () => t("contextMeter.window") + percent.value + "% used",
 );

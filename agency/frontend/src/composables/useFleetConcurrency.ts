@@ -29,6 +29,8 @@ export interface FleetConcurrencyStat {
   used: number;
   cap: number;
   waiting: number;
+
+  running: number;
   full: boolean;
 }
 
@@ -54,8 +56,11 @@ export function useFleetConcurrency(agents: MaybeRefOrGetter<Agent[]>) {
       const waiting = own.filter(
         (task) => task.state === TaskState.QUEUED,
       ).length;
+      const running = own.filter(
+        (task) => task.state === TaskState.RUNNING,
+      ).length;
       const cap = limits.value.get(agent.id)?.maxConcurrent ?? 1;
-      next[agent.id] = { used, cap, waiting, full: used >= cap };
+      next[agent.id] = { used, cap, waiting, running, full: used >= cap };
     }
     stats.value = next;
   }

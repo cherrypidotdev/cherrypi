@@ -38,6 +38,8 @@ type Manifest struct {
 
 	Entry string `json:"entry"`
 
+	Icon string `json:"icon"`
+
 	Handlers []string `json:"handlers"`
 
 	Schedule *Schedule `json:"schedule"`
@@ -118,6 +120,7 @@ var validEvents = map[string]bool{
 var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,47}$`)
 var entryPattern = regexp.MustCompile(`^[A-Za-z0-9_./-]+\.lua$`)
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+var iconPathPattern = regexp.MustCompile(`^[A-Za-z0-9_./-]+\.(png|jpg|jpeg|gif|webp|avif|svg)$`)
 
 func ParseManifest(data []byte) (Manifest, error) {
 	var m Manifest
@@ -166,6 +169,11 @@ func (m *Manifest) Validate() error {
 	}
 	if !entryPattern.MatchString(m.Entry) || strings.Contains(m.Entry, "..") {
 		return fmt.Errorf("entry %q must be a .lua path inside the bundle", m.Entry)
+	}
+	m.Icon = strings.TrimSpace(m.Icon)
+	if m.Icon != "" && (!iconPathPattern.MatchString(m.Icon) ||
+		strings.Contains(m.Icon, "..")) {
+		return fmt.Errorf("icon %q must be an image path inside the bundle", m.Icon)
 	}
 
 	anyHost := false

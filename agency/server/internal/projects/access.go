@@ -1524,6 +1524,14 @@ func (s *Service) writeLog(
 	}
 }
 
+func (s *Service) LogSettingsChange(
+	ctx context.Context,
+	projectID, field, oldValue, newValue, message string,
+	data any,
+) {
+	s.writeLog(ctx, projectID, "settings", field, oldValue, newValue, message, data)
+}
+
 func actingActor(ctx context.Context) ids.ActorID {
 	if actorID, ok := auth.ActorID(ctx); ok {
 		return actorID

@@ -7,7 +7,7 @@ description: Запустите CherryPi агента из контейнера 
 
 Агент — headless-воркер. У него **нет входящего порта**: он подключается к
 agency, аутентифицируется и отдаёт свой API задач через туннель. Установите его
-на машину, которая должна запускать сессии Pi — ноутбук, build-сервер или
+на машину, которая должна запускать сессии задач — ноутбук, build-сервер или
 облачную VM.
 
 ## Перед началом
@@ -15,9 +15,9 @@ agency, аутентифицируется и отдаёт свой API зада
 - Запущенная и доступная с хоста агента URL agency.
 - **Personal access token** (`pat_…`) зарегистрированного агента.
 - Достаточно места для `$CHERRYPI_DIR`: там рабочие пространства задач и
-  сессии Pi.
-- Креденшелы модели Pi, если используете бинарник. Образ содержит Pi, но не
-  ваши ключи провайдера.
+  вложения.
+- Креденшелы моделей в каталоге агента на хосте, если используете бинарник.
+  Образ содержит воркер, но не ваши ключи провайдера.
 
 ## Зарегистрируйте агента
 
@@ -32,13 +32,14 @@ Username/password tunnel-креденшела и стартового seed бо�
 
 ## Вариант A — Docker-образ (рекомендуется)
 
-Опубликованный образ агента содержит Pi, Node, X-утилиты и `x11vnc`.
+Опубликованный образ агента — это статический Go-бинарник, X-утилиты и
+`x11vnc`: Node и `pi` в нём нет, потому что кодирующий агент работает
+в процессе.
 
 ```sh
 docker run -d --name cherrypi-agent \
   --restart unless-stopped \
   -v /srv/cherrypi/agent:/root/.cherrypi \
-  -v /srv/cherrypi/pi:/root/.pi/agent \
   -e CHERRYPI_AGENCY_URL='https://cherrypi.example.com' \
   -e CHERRYPI_AGENT_TOKEN='pat_…' \
   ghcr.io/cherrypidotdev/cherrypi-agent:latest
@@ -46,13 +47,13 @@ docker run -d --name cherrypi-agent \
 
 | Монтирование | Зачем |
 | --- | --- |
-| `/root/.cherrypi` | База агента, кэш токена и рабочие пространства задач. |
-| `/root/.pi/agent` | Конфигурация Pi, креденшелы провайдеров, память. |
+| `/root/.cherrypi` | База агента и рабочие пространства задач. |
+| `/root/.pi/agent` | Необязательно: хостовые навыки модели (`skills/`). Монтируйте, если держите Agent Skills на хосте; модели и ключи отсюда **не** берутся. |
 
-Агент кэширует токен в `/root/.cherrypi/agent.token` (режим `0600`).
-Сохраняйте data-том — это кэш идентичности агента. Токен также можно передать
-флагом `--token pat_…`; явный токен важнее кэшированного файла, поэтому
-ротация токена — это перезапуск контейнера/процесса.
+Передайте токен через `--token pat_…` или `CHERRYPI_AGENT_TOKEN`. Воркер держит
+его только в памяти, поэтому ротация токена — это перезапуск
+контейнера/процесса. Сохраняйте data-том: в нём база задач и рабочие
+пространства.
 
 ```sh
 -e CHERRYPI_AGENT_TOKEN='pat_…'
@@ -73,7 +74,6 @@ services:
       CHERRYPI_AGENT_TOKEN: pat_…
     volumes:
       - ./agent-data:/root/.cherrypi
-      - ./pi-agent:/root/.pi/agent
 ```
 
 ## Вариант B — релизный бинарник
@@ -90,9 +90,9 @@ install -m 0755 cherrypi-agent /usr/local/bin/cherrypi-agent
 Бинарнику нужны:
 
 - Go **не** нужен во время работы.
-- **Pi** в `PATH` (или `PI_BIN=/path/to/pi`). Установите совместимую с релизом
-  CherryPi версию Pi.
-- Креденшелы моделей в `$PI_CODING_AGENT_DIR` (по умолчанию `~/.pi/agent`).
+- Устанавливать Pi **не** нужно: кодирующий агент работает **в процессе** на
+  встроенном Go-порте.
+- Креденшелы моделей не нужны: все модели приходят из каталога agency.
 
 Проверьте запуск:
 
@@ -118,7 +118,6 @@ Group=cherrypi
 Environment=CHERRYPI_AGENCY_URL=https://cherrypi.example.com
 Environment=CHERRYPI_AGENT_TOKEN=pat_…
 Environment=CHERRYPI_DIR=/var/lib/cherrypi
-Environment=PI_CODING_AGENT_DIR=/var/lib/cherrypi/.pi/agent
 ExecStart=/usr/local/bin/cherrypi-agent
 Restart=on-failure
 RestartSec=5

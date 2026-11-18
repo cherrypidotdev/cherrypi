@@ -17,14 +17,16 @@
 -- name: InsertUsage :exec
 INSERT INTO usage (
   session_id, provider, model, input_tokens, output_tokens, cost, active_ms,
-  tool_ms, model_wait_ms, ttft_ms, at
+  tool_ms, model_wait_ms, ttft_ms, cache_read_tokens, cache_write_tokens, at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SumUsageBySession :one
 SELECT
   CAST(COALESCE(SUM(input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost,
   CAST(COALESCE(SUM(active_ms), 0) AS INTEGER) AS active_ms,
   CAST(COALESCE(SUM(tool_ms), 0) AS INTEGER) AS tool_ms,
@@ -39,6 +41,8 @@ SELECT
   session_id,
   CAST(COALESCE(SUM(input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost,
   CAST(COALESCE(SUM(active_ms), 0) AS INTEGER) AS active_ms,
   CAST(COALESCE(SUM(tool_ms), 0) AS INTEGER) AS tool_ms,
@@ -55,6 +59,8 @@ SELECT
   CAST(at / 86400000 AS INTEGER) AS day,
   CAST(COALESCE(SUM(input_tokens), 0) AS INTEGER) AS input_tokens,
   CAST(COALESCE(SUM(output_tokens), 0) AS INTEGER) AS output_tokens,
+  CAST(COALESCE(SUM(cache_read_tokens), 0) AS INTEGER) AS cache_read_tokens,
+  CAST(COALESCE(SUM(cache_write_tokens), 0) AS INTEGER) AS cache_write_tokens,
   CAST(COALESCE(SUM(cost), 0.0) AS REAL) AS cost
 FROM usage
 GROUP BY day

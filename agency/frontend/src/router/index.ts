@@ -39,6 +39,7 @@ import LoginView from "@/views/LoginView.vue";
 import MagicLinkView from "@/views/MagicLinkView.vue";
 import ProjectView from "@/views/ProjectView.vue";
 import ProjectsView from "@/views/ProjectsView.vue";
+import ProviderEditorView from "@/views/ProviderEditorView.vue";
 import ResetPasswordView from "@/views/ResetPasswordView.vue";
 import SettingsView from "@/views/SettingsView.vue";
 import SiteView from "@/views/SiteView.vue";
@@ -235,6 +236,18 @@ const router = createRouter({
           name: "settings",
           component: SettingsView,
           meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+        },
+        {
+          path: "settings/providers/create",
+          name: "provider-create",
+          component: ProviderEditorView,
+          meta: { titleKey: "pageTitle.provider", adminOnly: true },
+        },
+        {
+          path: "settings/providers/:slug/edit",
+          name: "provider-edit",
+          component: ProviderEditorView,
+          meta: { titleKey: "pageTitle.provider", adminOnly: true },
         },
         {
           path: "account",

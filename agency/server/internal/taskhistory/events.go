@@ -24,12 +24,18 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	defaultPageSize = 200
 	maxPageSize     = 1000
+)
+
+const (
+	ModelMessageBytes = 8 * 1024
+	ModelPageBytes    = 64 * 1024
 )
 
 type historyEntry struct {
@@ -181,6 +187,137 @@ func Page(
 	return events, nextBefore
 }
 
+func decodeEvent(row tasks.TaskEventRow, taskID string) *agentv1.TaskEvent {
+	event := &agentv1.TaskEvent{}
+	if err := protojson.Unmarshal([]byte(row.PayloadJSON), event); err != nil {
+		return nil
+	}
+	event.TaskId = taskID
+	if event.At == nil && row.At > 0 {
+		event.At = timestamppb.New(time.UnixMilli(row.At))
+	}
+	return event
+}
+
+func PageLimit(limit int) int {
+	if limit <= 0 {
+		return defaultPageSize
+	}
+	if limit > maxPageSize {
+		return maxPageSize
+	}
+	return limit
+}
+
+func PageEvents(
+	taskID string,
+	rows []tasks.TaskEventRow,
+	before int64,
+	limit int,
+) ([]*agentv1.TaskEvent, int64) {
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	if limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	older := rows
+	if before > 0 {
+		older = nil
+		for _, row := range rows {
+			if row.Seq < before {
+				older = append(older, row)
+			}
+		}
+	}
+
+	var nextBefore int64
+	if len(older) > limit {
+		older = older[len(older)-limit:]
+		nextBefore = older[0].Seq
+	}
+
+	out := make([]*agentv1.TaskEvent, 0, len(older))
+	for _, row := range older {
+		if event := decodeEvent(row, taskID); event != nil {
+			out = append(out, event)
+		}
+	}
+	return out, nextBefore
+}
+
+func PageEventsBounded(
+	taskID string,
+	rows []tasks.TaskEventRow,
+	before int64,
+	limit int,
+	maxMessageBytes int,
+	maxPageBytes int,
+) ([]*agentv1.TaskEvent, int64) {
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	if limit > maxPageSize {
+		limit = maxPageSize
+	}
+
+	older := rows
+	if before > 0 {
+		older = nil
+		for _, row := range rows {
+			if row.Seq < before {
+				older = append(older, row)
+			}
+		}
+	}
+
+	window := older
+	if len(window) > limit {
+		window = window[len(window)-limit:]
+	}
+
+	type pageEntry struct {
+		seq   int64
+		event *agentv1.TaskEvent
+	}
+	page := make([]pageEntry, 0, len(window))
+	totalBytes := 0
+	stopped := false
+	for i := len(window) - 1; i >= 0; i-- {
+		event := decodeEvent(window[i], taskID)
+		if event == nil {
+			continue
+		}
+
+		if event.GetDomain() != nil {
+			continue
+		}
+		truncateMessage([]*agentv1.TaskEvent{event}, maxMessageBytes)
+		size := messageBytes([]*agentv1.TaskEvent{event})
+		if maxPageBytes > 0 && len(page) > 0 && totalBytes+size > maxPageBytes {
+			stopped = true
+			break
+		}
+		page = append(page, pageEntry{seq: window[i].Seq, event: event})
+		totalBytes += size
+	}
+
+	var nextBefore int64
+	switch {
+	case stopped && len(page) > 0:
+		nextBefore = page[len(page)-1].seq
+	case len(older) > len(window):
+		nextBefore = window[0].Seq
+	}
+
+	out := make([]*agentv1.TaskEvent, 0, len(page))
+	for i := len(page) - 1; i >= 0; i-- {
+		out = append(out, page[i].event)
+	}
+	return out, nextBefore
+}
+
 const truncatedMessageMarker = "\n\nstart of message <truncated text> end of message\n\n"
 
 func PageBounded(
@@ -256,6 +393,10 @@ func PageBounded(
 		}
 	}
 	return out, nextBefore
+}
+
+func TruncateForModel(events []*agentv1.TaskEvent, maxMessageBytes int) {
+	truncateMessage(events, maxMessageBytes)
 }
 
 func truncateMessage(events []*agentv1.TaskEvent, maxBytes int) {

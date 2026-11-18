@@ -67,6 +67,11 @@ service PluginService {
   rpc ListSurfacePlugins(ListSurfacePluginsRequest) returns (ListSurfacePluginsResponse);
 
   
+  
+  
+  rpc InvokePluginTool(InvokePluginToolRequest) returns (InvokePluginToolResponse);
+
+  
   rpc GetProjectPlugin(GetProjectPluginRequest) returns (GetProjectPluginResponse);
   rpc UpdateProjectPlugin(UpdateProjectPluginRequest) returns (UpdateProjectPluginResponse);
   // InvitePluginToProject grants the plugin actor its project grant without
@@ -96,6 +101,11 @@ message Plugin {
   repeated string settings_surfaces = 13;
   google.protobuf.Timestamp created_at = 14;
   google.protobuf.Timestamp updated_at = 15;
+  
+  
+  
+  
+  string icon_url = 16;
 }
 
 
@@ -195,6 +205,9 @@ message PluginPreview {
   repeated string warnings = 13;
   
   bool compatible = 14;
+  
+  
+  string icon_data_url = 15;
 }
 
 message InspectPluginResponse {
@@ -375,4 +388,16 @@ message InvitePluginToProjectRequest {
 
 message InvitePluginToProjectResponse {
   ProjectPlugin project_plugin = 1;
+}
+
+message InvokePluginToolRequest {
+  
+  
+  string task_id = 1;
+  string tool = 2;
+  
+  string args_json = 3;
+}
+message InvokePluginToolResponse {
+  string text = 1;
 }

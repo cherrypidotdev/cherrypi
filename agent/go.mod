@@ -18,6 +18,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/shirou/gopsutil/v4 v4.26.10
+	github.com/sky-valley/pi v1.5.31
 )
 
 require (
@@ -33,8 +34,10 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 
 	github.com/tklauser/numcpus v0.12.0 
 	github.com/yusufpapurcu/wmi v1.2.4 
+	golang.org/x/image v0.41.0 
 	golang.org/x/mod v0.41.0 
 	golang.org/x/sys v0.48.0 
+	golang.org/x/text v0.41.0 
 	modernc.org/libc v1.75.7 
 	modernc.org/mathutil v1.7.1 
 	modernc.org/memory v1.12.1 

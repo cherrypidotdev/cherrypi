@@ -89,10 +89,13 @@ routes authenticated with an agent PAT only:
 
 | Route | Purpose |
 | --- | --- |
-| `/api/rest/task-history` | Push and read Pi session entries. |
-| `/api/rest/agent-tools` | The bundled Pi tools (`listTasks`, `getTask`, `createTask`, …). |
-| `/api/rest/agent-tools/token` | Read-only `GET` probe that validates the caller's PAT. Minting happens in the agency UI/API. |
+| `/api/rest/task-history` | Read the legacy Pi session entries a task has not migrated yet. |
 | `/api/rest/attachments` | Pull task files and upload pictures. |
+
+The agent's tools are **not** REST: every tool the model sees is a Connect call
+on the same services the dashboard uses (`TaskService`, `PromptService`,
+`ProjectService`, `AgentService`, `AgencyService`, `PluginService`), scoped by
+the caller's PAT.
 
 These routes run their own authentication and are not part of the browser
 session flow.

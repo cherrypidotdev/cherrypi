@@ -14,30 +14,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// line to the parent and, once the parent has no incomplete child left, hands
+// summary line to the blocked task and, once the blocked task has no unresolved
+
+// person, so its line is stashed and the task is not started. A settled blocker
 
 package taskwake
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
-	"cherrypi.vladfaust.com/shared/protocol"
 )
 
 const DefaultMaxConsecutive = 20
 
-func wakeError(cap int) string {
-	return fmt.Sprintf(
-		"child wake cap reached (%d): the task keeps spawning sub-tasks", cap,
-	)
-}
+const DefaultCoalesceWindow = 15 * time.Second
 
 type Steer func(ctx context.Context, t tasks.Task, prompt string) error
 
@@ -50,9 +46,9 @@ type Waker struct {
 
 	MaxConsecutive int
 
-	LeadOf func(ctx context.Context, taskID string, actorID ids.ActorID) (bool, error)
+	CoalesceWindow time.Duration
 
-	AgentProtocol func(ctx context.Context, actorID ids.ActorID) (string, error)
+	Now func() time.Time
 }
 
 func (w *Waker) maxConsecutive() int {
@@ -62,119 +58,96 @@ func (w *Waker) maxConsecutive() int {
 	return DefaultMaxConsecutive
 }
 
-func (w *Waker) OnChildFinished(
-	ctx context.Context,
-	child tasks.Task,
-	outcome tasks.ChildOutcome,
-) {
-	if w.Tasks == nil || child.ParentTaskID == "" {
-		return
+func (w *Waker) window() time.Duration {
+	if w.CoalesceWindow > 0 {
+		return w.CoalesceWindow
 	}
-	parent, err := w.Tasks.Get(ctx, child.ParentTaskID)
-	if err != nil {
-		log.Printf("[taskwake] load parent %s: %v", child.ParentTaskID, err)
-		return
-	}
-
-	switch parent.State {
-	case tasks.StateCompleted, tasks.StateCancelled,
-		tasks.StateBacklog:
-		return
-	}
-
-	state, err := w.Tasks.WakeState(ctx, parent.ID)
-	if err != nil {
-		log.Printf("[taskwake] read wake state %s: %v", parent.ID, err)
-		return
-	}
-
-	if previous, ok := state.Keys[child.ID]; ok {
-		if previous == string(outcome) ||
-			(outcome == tasks.ChildCompleted || outcome == tasks.ChildCancelled) {
-			return
-		}
-	}
-	if state.Keys == nil {
-		state.Keys = map[string]string{}
-	}
-	state.Keys[child.ID] = string(outcome)
-	state.Lines = append(state.Lines, wakeLine(child, outcome))
-	if err := w.Tasks.SetWakeState(ctx, parent.ID, state); err != nil {
-		log.Printf("[taskwake] store wake state %s: %v", parent.ID, err)
-		return
-	}
-
-	if err := w.Tasks.ReconcileWaiting(ctx, parent.ID); err != nil {
-		log.Printf("[taskwake] reconcile parent %s: %v", parent.ID, err)
-	}
-	parent, err = w.Tasks.Get(ctx, parent.ID)
-	if err != nil {
-		log.Printf("[taskwake] reload parent %s: %v", parent.ID, err)
-		return
-	}
-	if parent.PendingChildren > 0 {
-		return
-	}
-	w.deliver(ctx, parent, state, deliverSummary)
+	return DefaultCoalesceWindow
 }
 
-func (w *Waker) OnInputRequested(ctx context.Context, taskID, requestID string) {
-	if w.Tasks == nil || w.LeadOf == nil || w.AgentProtocol == nil {
+func (w *Waker) now() int64 {
+	if w.Now != nil {
+		return w.Now().UnixMilli()
+	}
+	return time.Now().UnixMilli()
+}
+
+func (w *Waker) OnTaskFinished(
+	ctx context.Context,
+	blocker tasks.Task,
+	outcome tasks.FinishOutcome,
+) {
+	if w.Tasks == nil {
 		return
 	}
-	child, err := w.Tasks.Get(ctx, taskID)
-	if err != nil || child.ParentTaskID == "" {
+
+	// reason, so its line is stashed for the next run.
+	if outcome == tasks.OutcomeSettled {
 		return
 	}
-	parent, err := w.Tasks.Get(ctx, child.ParentTaskID)
+	edges, err := w.Tasks.BlockedEdges(ctx, blocker.ID)
 	if err != nil {
-		log.Printf("[taskwake] load parent %s: %v", child.ParentTaskID, err)
+		log.Printf("[taskwake] list edges blocked by %s: %v", blocker.ID, err)
 		return
 	}
+	resolved := outcome == tasks.OutcomeCompleted ||
+		outcome == tasks.OutcomeCancelled
+	for _, edge := range edges {
+		blocked, err := w.Tasks.Get(ctx, edge.BlockedTaskID)
+		if err != nil {
+			log.Printf("[taskwake] load blocked %s: %v", edge.BlockedTaskID, err)
+			continue
+		}
 
-	switch parent.State {
-	case tasks.StateCompleted, tasks.StateCancelled, tasks.StateBacklog:
-		return
-	}
-	actorID := parent.AssigneeActorID
-	if actorID == 0 {
+		switch blocked.State {
+		case tasks.StateCompleted, tasks.StateCancelled, tasks.StateBacklog:
+			continue
+		}
+		key := wakeKey(blocker.ID)
+		state, err := w.Tasks.WakeState(ctx, blocked.ID)
+		if err != nil {
+			log.Printf("[taskwake] read wake state %s: %v", blocked.ID, err)
+			continue
+		}
 
-		return
-	}
-	lead, err := w.LeadOf(ctx, child.ID, actorID)
-	if err != nil || !lead {
-		return
-	}
-	version, err := w.AgentProtocol(ctx, actorID)
-	if err != nil {
-		return
-	}
-	if protocol.Compare(version, protocol.TaskInputAnswersVersion) !=
-		protocol.Current {
-		log.Printf(
-			"[taskwake] parent %s agent protocol %q predates the input tools; "+
-				"leaving %s's question to a human",
-			parent.ID, version, child.ID,
-		)
-		return
-	}
+		// must not append the same line twice.
+		if previous, ok := state.Keys[key]; ok && previous == string(outcome) {
+			continue
+		}
+		if state.Keys == nil {
+			state.Keys = map[string]string{}
+		}
+		state.Keys[key] = string(outcome)
+		state.Lines = append(state.Lines, wakeLine(blocker, outcome))
 
-	state, err := w.Tasks.WakeState(ctx, parent.ID)
-	if err != nil {
-		log.Printf("[taskwake] read wake state %s: %v", parent.ID, err)
-		return
-	}
+		if err := w.Tasks.ReconcileWaiting(ctx, blocked.ID); err != nil {
+			log.Printf("[taskwake] reconcile blocked %s: %v", blocked.ID, err)
+		}
+		refreshed, err := w.Tasks.Get(ctx, blocked.ID)
+		if err != nil {
+			continue
+		}
+		// Store the line before delivering: a delivery that cannot happen yet
 
-	if state.SeenInputWake(child.ID, requestID) {
-		return
+		remaining := len(tasks.IncompleteBlockerIDs(refreshed.References))
+		startEarly := resolved && edge.WakeOnResolveWhenMany && remaining > 0
+		if startEarly {
+
+			if state.WakeAfter == 0 {
+				state.WakeAfter = w.now() + w.window().Milliseconds()
+			}
+		}
+		if err := w.Tasks.SetWakeState(ctx, blocked.ID, state); err != nil {
+			log.Printf("[taskwake] store wake state %s: %v", blocked.ID, err)
+			continue
+		}
+
+		// coalescing window, and a task still parked takes the line on the run
+
+		if remaining == 0 {
+			w.deliver(ctx, refreshed, state, deliverSummary)
+		}
 	}
-	state.RememberInputWake(child.ID, requestID)
-	state.Lines = append(state.Lines, inputWakeLine(child))
-	if err := w.Tasks.SetWakeState(ctx, parent.ID, state); err != nil {
-		log.Printf("[taskwake] store wake state %s: %v", parent.ID, err)
-		return
-	}
-	w.deliver(ctx, parent, state, deliverQuestion)
 }
 
 func (w *Waker) OnInputCleared(ctx context.Context, t tasks.Task) {
@@ -185,17 +158,56 @@ func (w *Waker) OnInputCleared(ctx context.Context, t tasks.Task) {
 	w.deliver(ctx, t, state, deliverSummary)
 }
 
+func (w *Waker) Run(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			w.FlushDue(ctx)
+		}
+	}
+}
+
+func (w *Waker) FlushDue(ctx context.Context) {
+	if w.Tasks == nil {
+		return
+	}
+	rows, err := w.Tasks.PendingSteeringTasks(ctx)
+	if err != nil {
+		log.Printf("[taskwake] list pending steering: %v", err)
+		return
+	}
+	now := w.now()
+	for _, row := range rows {
+		state, ok := tasks.ParseWakeStateRow(row.PendingSteering)
+		if !ok || state.WakeAfter == 0 || state.WakeAfter > now {
+			continue
+		}
+		t, err := w.Tasks.Get(ctx, row.ID)
+		if err != nil {
+			continue
+		}
+		w.deliver(ctx, t, state, deliverStart)
+	}
+}
+
 type delivery int
 
 const (
 	deliverSummary delivery = iota
 
-	deliverQuestion
+	deliverStart
 )
 
 func (w *Waker) deliver(
 	ctx context.Context,
-	parent tasks.Task,
+	task tasks.Task,
 	state tasks.WakeState,
 	reason delivery,
 ) {
@@ -204,17 +216,17 @@ func (w *Waker) deliver(
 	}
 	summary := strings.Join(state.Lines, "\n")
 	if state.Count >= w.maxConsecutive() {
-		w.failParent(ctx, parent, state)
+		w.failTask(ctx, task, state)
 		return
 	}
 
-	switch parent.State {
+	switch task.State {
 	case tasks.StateRunning:
 		if w.Steer == nil {
 			return
 		}
-		if err := w.Steer(ctx, parent, summary); err != nil {
-			log.Printf("[taskwake] steer %s: %v", parent.ID, err)
+		if err := w.Steer(ctx, task, summary); err != nil {
+			log.Printf("[taskwake] steer %s: %v", task.ID, err)
 			return
 		}
 	case tasks.StateInput:
@@ -222,35 +234,30 @@ func (w *Waker) deliver(
 		return
 	case tasks.StateQueued:
 
-		if err := w.Tasks.AppendPendingPrompt(ctx, parent.ID, summary, 0); err != nil {
-			log.Printf("[taskwake] append pending prompt %s: %v", parent.ID, err)
+		if err := w.Tasks.AppendPendingPrompt(ctx, task.ID, summary, 0); err != nil {
+			log.Printf("[taskwake] append pending prompt %s: %v", task.ID, err)
 			return
 		}
 	case tasks.StateWaiting:
 
-		if reason == deliverQuestion {
-			_, err := w.Tasks.WakeWaitingWithPrompt(
-				ctx, parent.ID, summary, 0,
-			)
+		if reason == deliverStart {
+			_, err := w.Tasks.WakeWaitingWithPrompt(ctx, task.ID, summary, 0)
 			if err == nil {
 				break
 			}
 
-			if !errors.Is(err, tasks.ErrHeld) &&
-				!errors.Is(err, tasks.ErrWrongState) {
-				log.Printf("[taskwake] wake waiting parent %s: %v", parent.ID, err)
+			if err != tasks.ErrHeld && err != tasks.ErrWrongState {
+				log.Printf("[taskwake] wake waiting task %s: %v", task.ID, err)
 				return
 			}
 		}
-		if err := w.Tasks.AppendPendingPrompt(
-			ctx, parent.ID, summary, 0,
-		); err != nil {
-			log.Printf("[taskwake] append pending prompt %s: %v", parent.ID, err)
+		if err := w.Tasks.AppendPendingPrompt(ctx, task.ID, summary, 0); err != nil {
+			log.Printf("[taskwake] append pending prompt %s: %v", task.ID, err)
 			return
 		}
 	case tasks.StateSettled, tasks.StateFailed:
-		if _, err := w.Tasks.RequeueWithPrompt(ctx, parent.ID, summary, 0); err != nil {
-			log.Printf("[taskwake] requeue parent %s: %v", parent.ID, err)
+		if _, err := w.Tasks.RequeueWithPrompt(ctx, task.ID, summary, 0); err != nil {
+			log.Printf("[taskwake] requeue task %s: %v", task.ID, err)
 			return
 		}
 	default:
@@ -258,34 +265,58 @@ func (w *Waker) deliver(
 	}
 
 	state.Lines = nil
+	state.WakeAfter = 0
 	state.Count++
-	if err := w.Tasks.SetWakeState(ctx, parent.ID, state); err != nil {
-		log.Printf("[taskwake] store wake state %s: %v", parent.ID, err)
+	if err := w.Tasks.SetWakeState(ctx, task.ID, state); err != nil {
+		log.Printf("[taskwake] store wake state %s: %v", task.ID, err)
 	}
 	if w.Wake != nil {
 		w.Wake()
 	}
 }
 
-func (w *Waker) failParent(ctx context.Context, parent tasks.Task, state tasks.WakeState) {
+func (w *Waker) failTask(ctx context.Context, task tasks.Task, state tasks.WakeState) {
 	state.Lines = nil
-	if err := w.Tasks.SetWakeState(ctx, parent.ID, state); err != nil {
-		log.Printf("[taskwake] store wake state %s: %v", parent.ID, err)
+	state.WakeAfter = 0
+	if err := w.Tasks.SetWakeState(ctx, task.ID, state); err != nil {
+		log.Printf("[taskwake] store wake state %s: %v", task.ID, err)
 	}
 	msg := wakeError(w.maxConsecutive())
-	if err := w.Tasks.FailForWakeCap(ctx, parent.ID, msg); err != nil {
-		log.Printf("[taskwake] fail parent %s on wake cap: %v", parent.ID, err)
+	if err := w.Tasks.FailForWakeCap(ctx, task.ID, msg); err != nil {
+		log.Printf("[taskwake] fail task %s on wake cap: %v", task.ID, err)
 		return
 	}
-	log.Printf("[taskwake] parent %s failed: %s", parent.ID, msg)
+	log.Printf("[taskwake] task %s failed: %s", task.ID, msg)
 }
 
-func inputWakeLine(child tasks.Task) string {
-	return fmt.Sprintf(
-		"Sub-task %s is waiting for input — read the dialog with "+
-			"getTaskInput %s and answer it with respondToTaskInput.",
-		taskLabel(child), child.ID,
-	)
+func wakeError(cap int) string {
+	return "wake cap reached (" + strconv.Itoa(cap) +
+		"): the task keeps being woken by its blockers"
+}
+
+func wakeKey(blockerID string) string {
+	return "block:" + blockerID
+}
+
+func wakeLine(blocker tasks.Task, outcome tasks.FinishOutcome) string {
+	label := taskLabel(blocker)
+	switch outcome {
+	case tasks.OutcomeFailed:
+		detail := strings.TrimSpace(blocker.Error)
+		if detail == "" {
+			detail = "no error details"
+		}
+		return "Blocking task " + label + " failed: " + detail +
+			" — it keeps blocking this task; retry it, drop the edge, or ask an operator."
+	case tasks.OutcomeCompleted:
+		return "Blocking task " + label + " completed — that edge is resolved."
+	case tasks.OutcomeCancelled:
+		return "Blocking task " + label + " was cancelled — that edge is resolved; " +
+			"drop it or point it at the work that replaces it."
+	default:
+		return "Blocking task " + label + " settled — review it with getTask " +
+			blocker.ID + "."
+	}
 }
 
 // taskLabel names a task the way a wake line refers to it: its id, plus its
@@ -298,31 +329,7 @@ func taskLabel(task tasks.Task) string {
 	if name == "" || name == task.ID {
 		return task.ID
 	}
-	return fmt.Sprintf("%s (%s)", task.ID, name)
-}
-
-func wakeLine(child tasks.Task, outcome tasks.ChildOutcome) string {
-	label := taskLabel(child)
-	switch outcome {
-	case tasks.ChildFailed:
-		detail := strings.TrimSpace(child.Error)
-		if detail == "" {
-			detail = "no error details"
-		}
-		return fmt.Sprintf(
-			"Sub-task %s failed: %s — retry, cancel, or reassign it.",
-			label, detail,
-		)
-	case tasks.ChildCompleted:
-		return fmt.Sprintf("Sub-task %s completed — no action needed.", label)
-	case tasks.ChildCancelled:
-		return fmt.Sprintf("Sub-task %s was cancelled — no action needed.", label)
-	default:
-		return fmt.Sprintf(
-			"Sub-task %s settled — review it with getTask %s.",
-			label, child.ID,
-		)
-	}
+	return task.ID + " (" + name + ")"
 }
 
 // firstLine returns the first non-empty line of a prompt, trimmed to a short

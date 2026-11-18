@@ -118,6 +118,25 @@ func (s *Service) dispatchEvent(ctx context.Context, ev Event, wait bool) (int, 
 	}
 	s.Start(ctx)
 
+	list, err := s.Store.List(ctx)
+	if err != nil {
+		log.Printf("[plugins] list for event %s: %v", ev.Name, err)
+		return 0, err
+	}
+	subscribers := make([]Plugin, 0, len(list))
+	for _, p := range list {
+		if !p.Enabled && p.ID != ev.IncludeDisabled {
+			continue
+		}
+		if !p.Manifest.SubscribesTo(ev.Name) {
+			continue
+		}
+		subscribers = append(subscribers, p)
+	}
+	if len(subscribers) == 0 {
+		return 0, nil
+	}
+
 	payload := map[string]any{
 		"event":      ev.Name,
 		"task_id":    ev.TaskID,
@@ -141,19 +160,8 @@ func (s *Service) dispatchEvent(ctx context.Context, ev Event, wait bool) (int, 
 		}
 	}
 
-	list, err := s.Store.List(ctx)
-	if err != nil {
-		log.Printf("[plugins] list for event %s: %v", ev.Name, err)
-		return 0, err
-	}
-	jobs := make([]eventJob, 0, len(list))
-	for _, p := range list {
-		if !p.Enabled && p.ID != ev.IncludeDisabled {
-			continue
-		}
-		if !p.Manifest.SubscribesTo(ev.Name) {
-			continue
-		}
+	jobs := make([]eventJob, 0, len(subscribers))
+	for _, p := range subscribers {
 		inv := Invocation{
 			ID:     newInvocationID(),
 			Kind:   HandlerEvent,

@@ -17,12 +17,9 @@
 package session
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,49 +27,41 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"math"
-	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/sky-valley/pi/agent"
+	"github.com/sky-valley/pi/ai"
+	"github.com/sky-valley/pi/coding"
+
+	"cherrypi.vladfaust.com/agent/internal/agency"
 	sqlitedb "cherrypi.vladfaust.com/agent/internal/gen/sqlc"
-	"cherrypi.vladfaust.com/agent/internal/logging"
 	"cherrypi.vladfaust.com/agent/internal/store"
 )
 
-const logRingMax = 200
-
 var ErrNoPendingDialog = errors.New("no pending extension dialog with that request id")
 
-const (
-	questionnaireUnavailableKind = "cherrypi.questionnaire.unavailable"
-
-	questionnaireUnavailableMessage = "This task is non-interactive, so the questionnaire was not shown. Ask the user in plain text instead."
-)
+var ErrToolCallNotRunning = errors.New("tool call is not running")
 
 type Config struct {
-	PiBin string
-
-	PiSessionDir string
-
-	AgentDir string
-
 	WorkspaceRoot string
-
-	EndGrace time.Duration
-
-	PiEnv []string
-
-	PiArgs []string
 
 	FetchAttachment func(ctx context.Context, url string) (io.ReadCloser, error)
 
 	AgencyURL string
 
-	AgentTokenFile string
+	AgentToken string
+
+	Agency *agency.Client
+
+	AgencyCatalog AgencyCatalog
+
+	Model *ai.Model
+
+	Compaction *bool
+
+	CompactionSettings *coding.CompactionSettings
 
 	ResolveTaskID func(
 		ctx context.Context,
@@ -80,22 +69,29 @@ type Config struct {
 		agencySeq int64,
 	) (taskID string, err error)
 
+	GetTaskSessionState func(
+		ctx context.Context,
+		taskID string,
+	) (state TaskSessionState, found bool, err error)
+
+	PutTaskSessionState func(
+		ctx context.Context,
+		taskID string,
+		state TaskSessionState,
+		expectedRevision int64,
+	) (revision int64, err error)
+
+	AppendTaskEvents func(
+		ctx context.Context,
+		taskID string,
+		events []TaskEventRecord,
+	) error
+
 	FetchTaskHistory func(
 		ctx context.Context,
 		agencyProjectID string,
 		agencySeq int64,
 	) ([]SessionEntry, error)
-
-	PushTaskHistory func(
-		ctx context.Context,
-		agencyProjectID string,
-		agencySeq int64,
-		entries []SessionEntry,
-	) error
-
-	RefreshTaskHistoryAuth func(ctx context.Context) error
-
-	HistorySyncInterval time.Duration
 
 	IdleTTL time.Duration
 
@@ -112,30 +108,32 @@ type Session struct {
 	cfg   Config
 	store store.Store
 
-	ID          string
-	Workspace   string
-	PiSessionID string
+	ID        string
+	Workspace string
+
+	SessionID string
 
 	agencyTaskID string
 
 	agencyProjectID string
 	agencySeq       int64
 
+	runStartMu sync.Mutex
+
+	stateStoodDown bool
+
+	checkpointMu sync.Mutex
+
 	opMu sync.Mutex
 
 	mu       sync.Mutex
 	started  bool
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	exited   chan struct{}
 	stopping bool
 	running  bool
 
 	stopRequested bool
 
 	runStartedAt time.Time
-
-	runFailure string
 
 	runWaitAccum  time.Duration
 	waitStartedAt time.Time
@@ -150,20 +148,21 @@ type Session struct {
 	compactionStartedAt time.Time
 
 	openTools map[string]time.Time
-	pending   map[string]chan response
-	reqID     uint64
-	model     string
-	provider  string
-	lastUse   sqlitedb.SumUsageBySessionRow
-	subs      map[chan Event]struct{}
-	logRing   []string
-	writeMu   sync.Mutex
+
+	toolMu         sync.Mutex
+	toolCancels    map[string]context.CancelFunc
+	toolInterrupts map[string]string
+
+	stopActor string
+
+	thinkingStartedAt time.Time
+	thinkingChars     int
+	model             string
+	subs              map[chan Event]struct{}
 
 	interactive bool
 
 	appendSystemPrompt string
-
-	pluginTools []PluginTool
 
 	probe bool
 
@@ -179,29 +178,68 @@ type Session struct {
 
 	savedDialog string
 
-	savedAnswer *ExtensionResponse
-
 	idleTimer *time.Timer
 	idleGen   uint64
 
 	runHook func(started bool)
 
-	histMu            sync.Mutex
-	syncedTip         string
-	historyReconciled bool
-	historyDisabled   bool
-
-	historyFailures     int
-	historyRetryAt      time.Time
-	historyAuthAttempts int
-
+	eng           *engine
+	unsubscribe   func()
 	historyCancel context.CancelFunc
-}
 
-type response struct {
-	Success bool
-	Error   string
-	Data    json.RawMessage
+	catalogFn func(ctx context.Context) *modelCatalog
+
+	restoredProjection    coding.BranchProjection
+	hasRestoredProjection bool
+	historyRaw            []string
+	pushed                int
+
+	stateRevision int64
+	eventSeq      int64
+
+	transcriptMu sync.Mutex
+
+	flushMu sync.Mutex
+
+	eventsMu      sync.Mutex
+	pendingEvents []TaskEventRecord
+
+	eventRetryAt time.Time
+	eventBackoff time.Duration
+
+	modelProvider string
+	thinkingLevel string
+
+	progress             Progress
+	progressTouchedRun   bool
+	progressSettleNudges int
+
+	progressPlanOnly     bool
+	progressPlanCovers   bool
+	progressCoveredBlock *ai.AssistantMessage
+
+	requiredTools        []string
+	requiredSatisfied    bool
+	requiredGateBlocks   int
+	requiredSettleNudges int
+	requiredBatch        *ai.AssistantMessage
+	requiredBatchBlocked bool
+
+	dialogs map[string]chan ExtensionResponse
+
+	liveInput      int64
+	liveOutput     int64
+	liveCacheRead  int64
+	liveCacheWrite int64
+	liveCost       float64
+
+	recordedInput      int64
+	recordedOutput     int64
+	recordedCacheRead  int64
+	recordedCacheWrite int64
+	recordedCost       float64
+
+	pluginToolDefs []PluginTool
 }
 
 type extensionUIRequest struct {
@@ -248,50 +286,24 @@ type QuestionnaireAnswer struct {
 	Answer   string
 }
 
-type record struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Success *bool           `json:"success"`
-	Error   string          `json:"error"`
-	Data    json.RawMessage `json:"data"`
-
-	AssistantMessageEvent json.RawMessage `json:"assistantMessageEvent"`
-	Message               json.RawMessage `json:"message"`
-
-	FinalError string `json:"finalError"`
-
-	Attempt      uint32 `json:"attempt"`
-	MaxAttempts  uint32 `json:"maxAttempts"`
-	ErrorMessage string `json:"errorMessage"`
-
-	Reason string `json:"reason"`
-
-	Steering []string `json:"steering"`
-
-	ToolCallID    string          `json:"toolCallId"`
-	ToolName      string          `json:"toolName"`
-	Args          json.RawMessage `json:"args"`
-	PartialResult json.RawMessage `json:"partialResult"`
-	Result        json.RawMessage `json:"result"`
-	IsError       bool            `json:"isError"`
-}
-
 func newSession(
 	cfg Config,
 	st store.Store,
-	id, workspace, piSessionID string,
+	id, workspace, sessionID string,
 	interactive bool,
 ) *Session {
 	return &Session{
-		cfg:         cfg,
-		store:       st,
-		ID:          id,
-		Workspace:   workspace,
-		PiSessionID: piSessionID,
-		interactive: interactive,
-		pendingExt:  map[string]extensionUIRequest{},
-		openTools:   map[string]time.Time{},
-		subs:        map[chan Event]struct{}{},
+		cfg:            cfg,
+		store:          st,
+		ID:             id,
+		Workspace:      workspace,
+		SessionID:      sessionID,
+		interactive:    interactive,
+		pendingExt:     map[string]extensionUIRequest{},
+		openTools:      map[string]time.Time{},
+		toolCancels:    map[string]context.CancelFunc{},
+		toolInterrupts: map[string]string{},
+		subs:           map[chan Event]struct{}{},
 	}
 }
 
@@ -323,152 +335,69 @@ func (s *Session) promptConfigured(
 
 	s.discardWaitingForNewRun(ctx)
 
-	if err := s.ensureRunningLocked(ctx); err != nil {
+	if err := s.selectModel(ctx, provider, modelID, level); err != nil {
 		return err
 	}
 
-	if provider != "" || modelID != "" {
-		if _, err := s.send(ctx, "set_model", map[string]any{
-			"provider": provider,
-			"modelId":  modelID,
-		}); err != nil {
-			return err
-		}
-
-		s.mu.Lock()
-		s.model = modelID
-		s.provider = provider
-		s.mu.Unlock()
+	if err := s.ensureEngineLocked(ctx); err != nil {
+		return err
 	}
 
-	if level != "" {
-		if _, err := s.send(ctx, "set_thinking_level", map[string]any{
-			"level": level,
-		}); err != nil {
+	return s.promptEngine(ctx, text, images)
+}
+
+func (s *Session) selectModel(
+	ctx context.Context,
+	provider, modelID, level string,
+) error {
+	if provider != "" && modelID == "" {
+		return fmt.Errorf(
+			"model %s has no id: give it one in the agency's model catalog",
+			provider,
+		)
+	}
+	if provider == "" && modelID != "" {
+		return ErrInvalidModel
+	}
+	var model *ai.Model
+	if provider != "" {
+		resolved, err := resolveModel(s.catalog(ctx), provider, modelID)
+		if err != nil {
 			return err
 		}
+		model = resolved
 	}
 
 	s.mu.Lock()
-	running := s.running
+	if model != nil {
+		s.modelProvider = provider
+		s.model = modelID
+	}
+	if level != "" {
+		s.thinkingLevel = level
+	}
+	eng := s.eng
 	s.mu.Unlock()
 
-	held := s.takeHeldQueue()
-	opening := QueuedPrompt{Text: text}
-	openingImages := images
-	var following []pendingDelivery
-	if len(held) > 0 {
-
-		opening = held[0].entry
-		openingImages = reloadImages(held[0].images)
-		following = append(following, held[1:]...)
-		following = append(following, pendingDelivery{
-			entry:  QueuedPrompt{Text: text},
-			images: images,
-		})
-	}
-
-	now := time.Now().UnixMilli()
-	if err := s.store.SetSessionPendingPrompt(ctx, sqlitedb.SetSessionPendingPromptParams{
-		PendingPrompt: sql.NullString{String: opening.Text, Valid: true},
-		UpdatedAt:     now,
-		ID:            s.ID,
-	}); err != nil {
-
-		s.restoreHeld(held)
-		return err
-	}
-
-	fields := map[string]any{"message": opening.Text}
-	if len(openingImages) > 0 {
-		fields["images"] = imageParts(openingImages)
-	}
-
-	if running {
-
-		fields["streamingBehavior"] = "steer"
-	}
-
-	var openingEntry QueuedPrompt
-	if running {
-		openingEntry = s.mirrorQueued(opening, openingImages)
-	}
-
-	if _, err := s.send(ctx, "prompt", fields); err != nil {
-
-		if running {
-			s.forgetQueued(openingEntry.ID)
+	if eng != nil {
+		if model != nil {
+			eng.sess.SetModel(model)
 		}
-		s.restoreHeld(held)
-		return err
-	}
-
-	slog.Info("prompt sent",
-		"session_id", s.ID,
-		"task_id", s.agencyTaskID,
-		"steer", running,
-		"images", len(images),
-		"held", len(following),
-	)
-
-	s.setRunning(true)
-
-	for i, delivery := range following {
-		if err := s.steerQueued(ctx, delivery.entry, delivery.images); err != nil {
-			s.restoreHeld(following[i:])
-			return err
+		if level != "" {
+			eng.sess.SetThinkingLevel(agent.ThinkingLevel(level))
 		}
 	}
 	return nil
 }
 
-type pendingDelivery struct {
-	entry  QueuedPrompt
-	images []imageAttachment
-}
-
-func imageParts(images []imageAttachment) []map[string]any {
-	parts := make([]map[string]any, 0, len(images))
-	for _, image := range images {
-		parts = append(parts, map[string]any{
-			"type":     "image",
-			"data":     base64.StdEncoding.EncodeToString(image.data),
-			"mimeType": image.mimeType,
-		})
+func (s *Session) resumeSelection(ctx context.Context, model ModelSelection) error {
+	s.mu.Lock()
+	selected := s.modelProvider != "" || s.model != ""
+	s.mu.Unlock()
+	if selected {
+		return nil
 	}
-	return parts
-}
-
-func (s *Session) childEnv(ctx context.Context) []string {
-	env := append(os.Environ(), s.cfg.PiEnv...)
-
-	if s.cfg.AgencyURL != "" {
-		env = append(env, "CHERRYPI_AGENCY_URL="+s.cfg.AgencyURL)
-	}
-	if s.cfg.AgentTokenFile != "" {
-		env = append(env, "CHERRYPI_AGENT_TOKEN_FILE="+s.cfg.AgentTokenFile)
-	}
-	if len(s.pluginTools) > 0 {
-		if raw, err := json.Marshal(s.pluginTools); err == nil {
-			env = append(env, "CHERRYPI_PLUGIN_TOOLS="+string(raw))
-		}
-	}
-
-	taskID := s.agencyTaskID
-	if s.agencyProjectID != "" && s.agencySeq > 0 && s.cfg.ResolveTaskID != nil {
-		if fresh, err := s.cfg.ResolveTaskID(
-			ctx,
-			s.agencyProjectID,
-			s.agencySeq,
-		); err == nil && fresh != "" {
-			taskID = fresh
-		}
-	}
-	if taskID == "" {
-		return env
-	}
-
-	return append(env, "CHERRYPI_TASK_ID="+taskID)
+	return s.selectModel(ctx, model.Provider, model.ModelID, model.ThinkingLevel)
 }
 
 func (s *Session) setAgencyRef(ctx context.Context, projectID string, seq int64) {
@@ -491,10 +420,33 @@ func (s *Session) setAgencyRef(ctx context.Context, projectID string, seq int64)
 	}
 }
 
-func (s *Session) agencyRef() (string, int64) {
+func (s *Session) ensureAgencyTaskID(ctx context.Context) string {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.agencyProjectID, s.agencySeq
+	id := s.agencyTaskID
+	projectID, seq := s.agencyProjectID, s.agencySeq
+	resolve := s.cfg.ResolveTaskID
+	s.mu.Unlock()
+	if id != "" || resolve == nil || projectID == "" || seq <= 0 {
+		return id
+	}
+	resolved, err := resolve(ctx, projectID, seq)
+	if err != nil || resolved == "" {
+		if err != nil {
+			slog.Debug("resolve task id", "session_id", s.ID, "error", err)
+		}
+		return id
+	}
+	s.mu.Lock()
+	s.agencyTaskID = resolved
+	s.mu.Unlock()
+	return resolved
+}
+
+func (s *Session) catalog(ctx context.Context) *modelCatalog {
+	if s.catalogFn == nil {
+		return buildCatalog(s.cfg, AgencyModels{}, s.agencyTaskID)
+	}
+	return s.catalogFn(ctx)
 }
 
 func (s *Session) setRunning(v bool) {
@@ -503,6 +455,7 @@ func (s *Session) setRunning(v bool) {
 	s.running = v
 	if changed {
 		if v {
+			s.stopRequested = false
 			s.runStartedAt = time.Now()
 			s.runWaitAccum = 0
 			s.waitStartedAt = time.Time{}
@@ -513,6 +466,13 @@ func (s *Session) setRunning(v bool) {
 			s.requestStartedAt = time.Time{}
 			s.compactionStartedAt = time.Time{}
 			s.openTools = map[string]time.Time{}
+			s.toolMu.Lock()
+			s.stopActor = ""
+			s.toolCancels = map[string]context.CancelFunc{}
+			s.toolInterrupts = map[string]string{}
+			s.toolMu.Unlock()
+			s.thinkingStartedAt = time.Time{}
+			s.thinkingChars = 0
 		} else {
 			s.runStartedAt = time.Time{}
 		}
@@ -531,132 +491,7 @@ func (s *Session) ensureRunning(ctx context.Context) error {
 }
 
 func (s *Session) ensureRunningLocked(ctx context.Context) error {
-	s.mu.Lock()
-	if s.cmd != nil {
-		s.mu.Unlock()
-		return nil
-	}
-	s.mu.Unlock()
-
-	if !s.probe && s.historyEnabled() {
-		s.resetHistorySync()
-		s.syncHistory(ctx, true)
-	}
-
-	args := []string{"--mode", "rpc"}
-	if s.probe {
-		args = append(args, "--no-session")
-	} else {
-		args = append(args, "--session-id", s.PiSessionID)
-		if s.cfg.PiSessionDir != "" {
-			args = append(args, "--session-dir", s.cfg.PiSessionDir)
-		}
-	}
-	args = append(args, s.cfg.PiArgs...)
-
-	if s.appendSystemPrompt != "" {
-		args = append(args, "--append-system-prompt", s.appendSystemPrompt)
-	}
-
-	cmd := exec.Command(s.cfg.PiBin, args...)
-	cmd.Dir = s.Workspace
-	cmd.Env = s.childEnv(ctx)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start %s: %w", s.cfg.PiBin, err)
-	}
-
-	slog.Info("pi started",
-		"session_id", s.ID,
-		"task_id", s.agencyTaskID,
-		"pid", pidOf(cmd),
-		"bin", s.cfg.PiBin,
-	)
-
-	s.mu.Lock()
-	s.cmd = cmd
-	s.stdin = stdin
-	s.exited = make(chan struct{})
-	s.stopping = false
-	s.pending = map[string]chan response{}
-	first := !s.started
-	s.started = true
-	s.mu.Unlock()
-
-	go s.readStdout(stdout)
-	go s.readStderr(stderr)
-	go s.reap(cmd)
-
-	if !s.probe {
-		s.startHistoryWatch()
-	}
-
-	if !s.probe {
-		now := time.Now().UnixMilli()
-		if err := s.store.SetSessionPid(ctx, sqlitedb.SetSessionPidParams{
-			Pid:       pidOf(cmd),
-			UpdatedAt: now,
-			ID:        s.ID,
-		}); err != nil {
-			log.Printf("[session %s] record pid: %v", s.ID, err)
-		}
-
-		if first {
-			s.loadInitialState(ctx)
-		}
-	}
-
-	return nil
-}
-
-func pidOf(cmd *exec.Cmd) sql.NullInt64 {
-	if cmd.Process == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: int64(cmd.Process.Pid), Valid: true}
-}
-
-type stateData struct {
-	Model struct {
-		Provider string `json:"provider"`
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-	} `json:"model"`
-}
-
-func (s *Session) loadInitialState(ctx context.Context) {
-	if data, err := s.send(ctx, "get_state", nil); err == nil {
-		var st stateData
-		if json.Unmarshal(data, &st) == nil {
-			model := st.Model.ID
-			if model == "" {
-				model = st.Model.Name
-			}
-			s.mu.Lock()
-			s.model = model
-			s.provider = st.Model.Provider
-			s.mu.Unlock()
-		}
-	}
-
-	if row, err := s.store.SumUsageBySession(ctx, s.ID); err == nil {
-		s.mu.Lock()
-		s.lastUse = row
-		s.mu.Unlock()
-	}
+	return s.ensureEngineLocked(ctx)
 }
 
 type ModelInfo struct {
@@ -678,157 +513,46 @@ type SessionConfig struct {
 	ThinkingLevels []string
 }
 
-type availableModelsData struct {
-	Models []struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Provider string `json:"provider"`
-
-		Reasoning bool `json:"reasoning"`
-
-		ThinkingLevelMap map[string]*string `json:"thinkingLevelMap"`
-	} `json:"models"`
-}
-
-var baseThinkingLevels = []string{"off", "minimal", "low", "medium", "high"}
-
-var extendedThinkingLevels = []string{"xhigh", "max"}
-
-func modelThinkingLevels(reasoning bool, levelMap map[string]*string) []string {
-	if !reasoning {
-		return []string{"off"}
-	}
-	levels := make([]string, 0, len(baseThinkingLevels)+len(extendedThinkingLevels))
-	for _, level := range baseThinkingLevels {
-		if value, ok := levelMap[level]; ok && value == nil {
-			continue
-		}
-		levels = append(levels, level)
-	}
-	for _, level := range extendedThinkingLevels {
-		if value, ok := levelMap[level]; ok && value != nil {
-			levels = append(levels, level)
-		}
-	}
-	return levels
-}
-
-type thinkingLevelsData struct {
-	Levels []string `json:"levels"`
-}
-
-type configState struct {
-	Model struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Provider string `json:"provider"`
-	} `json:"model"`
-	ThinkingLevel string `json:"thinkingLevel"`
-}
-
 func (s *Session) Config(ctx context.Context) (SessionConfig, error) {
-	if err := s.ensureRunningForConfig(ctx); err != nil {
-		return SessionConfig{}, err
-	}
-
-	if !s.probe {
-		defer s.scheduleIdleReap()
-	}
-
-	var cfg SessionConfig
-	if data, err := s.send(ctx, "get_state", nil); err == nil {
-		var st configState
-		if json.Unmarshal(data, &st) == nil {
-			cfg.ModelProvider = st.Model.Provider
-			cfg.ModelID = st.Model.ID
-			cfg.ModelName = st.Model.Name
-			cfg.ThinkingLevel = st.ThinkingLevel
-		}
-	}
-
-	if data, err := s.send(ctx, "get_available_models", nil); err == nil {
-		var models availableModelsData
-		if json.Unmarshal(data, &models) == nil {
-			for _, m := range models.Models {
-				cfg.Models = append(cfg.Models, ModelInfo{
-					Provider:       m.Provider,
-					ID:             m.ID,
-					Name:           m.Name,
-					Reasoning:      m.Reasoning,
-					ThinkingLevels: modelThinkingLevels(m.Reasoning, m.ThinkingLevelMap),
-				})
-			}
-		}
-	}
-
-	if data, err := s.send(ctx, "get_available_thinking_levels", nil); err == nil {
-		var levels thinkingLevelsData
-		if json.Unmarshal(data, &levels) == nil {
-			cfg.ThinkingLevels = levels.Levels
-		}
-	}
-
-	s.setModel(cfg)
-	return cfg, nil
+	s.mu.Lock()
+	provider, modelID, level := s.modelProvider, s.model, s.thinkingLevel
+	s.mu.Unlock()
+	return s.configFromRegistry(ctx, provider, modelID, level), nil
 }
 
 func (s *Session) SetModel(ctx context.Context, provider, modelID string) (SessionConfig, error) {
 	if provider == "" || modelID == "" {
 		return SessionConfig{}, ErrInvalidModel
 	}
-	if err := s.ensureRunningForConfig(ctx); err != nil {
+	model, err := resolveModel(s.catalog(ctx), provider, modelID)
+	if err != nil {
 		return SessionConfig{}, err
 	}
-	if _, err := s.send(ctx, "set_model", map[string]any{
-		"provider": provider,
-		"modelId":  modelID,
-	}); err != nil {
-		return SessionConfig{}, err
+	s.mu.Lock()
+	s.modelProvider = provider
+	s.model = modelID
+	eng := s.eng
+	level := s.thinkingLevel
+	s.mu.Unlock()
+	if eng != nil {
+		eng.sess.SetModel(model)
 	}
-	return s.Config(ctx)
+	return s.configFromRegistry(ctx, provider, modelID, level), nil
 }
 
 func (s *Session) SetThinkingLevel(ctx context.Context, level string) (SessionConfig, error) {
 	if level == "" {
 		return SessionConfig{}, ErrInvalidThinkingLevel
 	}
-	if err := s.ensureRunningForConfig(ctx); err != nil {
-		return SessionConfig{}, err
-	}
-	if _, err := s.send(ctx, "set_thinking_level", map[string]any{"level": level}); err != nil {
-		return SessionConfig{}, err
-	}
-	return s.Config(ctx)
-}
-
-func (s *Session) ensureRunningForConfig(ctx context.Context) error {
-	return s.ensureRunning(ctx)
-}
-
-func (s *Session) setModel(cfg SessionConfig) {
-	model := cfg.ModelID
-	if model == "" {
-		model = cfg.ModelName
-	}
 	s.mu.Lock()
-	s.provider = cfg.ModelProvider
-	if model != "" {
-		s.model = model
-	}
+	s.thinkingLevel = level
+	provider, modelID := s.modelProvider, s.model
+	eng := s.eng
 	s.mu.Unlock()
-}
-
-type sessionStats struct {
-	Tokens struct {
-		Input  int64 `json:"input"`
-		Output int64 `json:"output"`
-	} `json:"tokens"`
-	Cost float64 `json:"cost"`
-
-	ContextUsage *struct {
-		Tokens        *int64 `json:"tokens"`
-		ContextWindow int64  `json:"contextWindow"`
-	} `json:"contextUsage"`
+	if eng != nil {
+		eng.sess.SetThinkingLevel(agent.ThinkingLevel(level))
+	}
+	return s.configFromRegistry(ctx, provider, modelID, level), nil
 }
 
 func (s *Session) settle(errMsg string) {
@@ -837,22 +561,6 @@ func (s *Session) settle(errMsg string) {
 
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-
-	s.mu.Lock()
-	running := s.cmd != nil
-	s.mu.Unlock()
-	if !running {
-		return
-	}
-
-	if data, err := s.send(ctx, "get_session_stats", nil); err == nil {
-		var st sessionStats
-		if json.Unmarshal(data, &st) == nil {
-			s.recordUsage(ctx, st)
-		}
-	} else {
-		log.Printf("[session %s] get_session_stats: %v", s.ID, err)
-	}
 
 	if errMsg == "" {
 		if err := s.store.ClearSessionPendingPrompt(ctx, sqlitedb.ClearSessionPendingPromptParams{
@@ -865,7 +573,6 @@ func (s *Session) settle(errMsg string) {
 
 	s.setRunning(false)
 
-	s.clearWaiting()
 	s.clearWaitingStore(ctx)
 	if errMsg != "" {
 		slog.Error("run failed", "session_id", s.ID, "task_id", s.agencyTaskID, "error", errMsg)
@@ -881,54 +588,62 @@ func (s *Session) settle(errMsg string) {
 
 const stopSettleTimeout = 10 * time.Second
 
-func (s *Session) Stop(ctx context.Context) error {
-	s.opMu.Lock()
-
+func (s *Session) Stop(ctx context.Context, actor string) error {
 	s.mu.Lock()
+	eng := s.eng
 	running := s.running
-	s.mu.Unlock()
-	if !running {
-
-		err := s.foldInterruptedRun(ctx)
-		s.opMu.Unlock()
-		return err
-	}
-
-	s.mu.Lock()
 	s.stopRequested = true
 	s.mu.Unlock()
+	if actor = strings.TrimSpace(actor); actor == "" {
+		actor = "an operator"
+	}
+	s.toolMu.Lock()
+	s.stopActor = actor
+	s.toolMu.Unlock()
+	if !running || eng == nil {
+		return s.foldInterruptedRun(ctx)
+	}
 
 	s.holdQueue()
 
-	abortCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	_, err := s.send(abortCtx, "abort", nil)
-	cancel()
-	if err != nil {
-		log.Printf("[session %s] abort: %v", s.ID, err)
-		s.finishStoppedRun(ctx)
-		s.opMu.Unlock()
-		return nil
-	}
-	s.opMu.Unlock()
-
+	eng.sess.Abort()
 	if s.waitSettled(ctx, stopSettleTimeout) {
 		return nil
 	}
-
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-	s.mu.Lock()
-	running = s.running
-	s.mu.Unlock()
-	if running {
-		log.Printf(
-			"[session %s] abort did not settle within %s; folding into done",
-			s.ID,
-			stopSettleTimeout,
-		)
-		s.finishStoppedRun(ctx)
-	}
+	s.finishStoppedRun(ctx)
 	return nil
+}
+
+func (s *Session) InterruptToolCall(ctx context.Context, callID, actor string) error {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return ErrToolCallNotRunning
+	}
+	if actor = strings.TrimSpace(actor); actor == "" {
+		actor = "an operator"
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.toolMu.Lock()
+		cancel, ok := s.toolCancels[callID]
+		if ok {
+			s.toolInterrupts[callID] = actor
+		}
+		s.toolMu.Unlock()
+		if ok {
+			cancel()
+			return nil
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return ErrToolCallNotRunning
+		}
+		select {
+		case <-ctx.Done():
+			return ErrToolCallNotRunning
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func (s *Session) waitSettled(ctx context.Context, timeout time.Duration) bool {
@@ -955,14 +670,11 @@ func (s *Session) waitSettled(ctx context.Context, timeout time.Duration) bool {
 
 func (s *Session) foldInterruptedRun(ctx context.Context) error {
 	s.mu.Lock()
-	s.stopRequested = true
+	eng := s.eng
 	s.mu.Unlock()
-
-	s.holdQueue()
-
-	abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	_, _ = s.send(abortCtx, "abort", nil)
-	cancel()
+	if eng != nil {
+		eng.sess.Agent.ClearAllQueues()
+	}
 
 	row, err := s.store.GetSession(ctx, s.ID)
 	if err != nil {
@@ -971,7 +683,7 @@ func (s *Session) foldInterruptedRun(ctx context.Context) error {
 	if !row.PendingPrompt.Valid || row.PendingPrompt.String == "" {
 		return nil
 	}
-	log.Printf("[session %s] folding interrupted run into done", s.ID)
+	slog.Info("folding interrupted run into done", "session_id", s.ID)
 	s.finishStoppedRun(ctx)
 	return nil
 }
@@ -983,6 +695,8 @@ func (s *Session) finishStoppedRun(ctx context.Context) {
 	}); err != nil {
 		log.Printf("[session %s] clear pending prompt: %v", s.ID, err)
 	}
+
+	s.recordUsage(ctx)
 	s.setRunning(false)
 	s.clearWaiting()
 	s.clearWaitingStore(ctx)
@@ -992,14 +706,6 @@ func (s *Session) finishStoppedRun(ctx context.Context) {
 	s.scheduleIdleReap()
 }
 
-func (s *Session) ClearQueue(ctx context.Context) error {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-
-	s.clearQueued()
-	return nil
-}
-
 func (s *Session) RemoveQueued(ctx context.Context, id string) (bool, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -1007,326 +713,20 @@ func (s *Session) RemoveQueued(ctx context.Context, id string) (bool, error) {
 	return s.dropQueued(id), nil
 }
 
-func (s *Session) Restart() error {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-
-	s.mu.Lock()
-	hasProcess := s.cmd != nil
-	busy := s.running || s.waiting
-	s.mu.Unlock()
-	if busy {
-		return ErrSessionBusy
-	}
-	if !hasProcess {
-		return nil
-	}
-
-	s.stopProcess()
+func (s *Session) ClearQueue(ctx context.Context) error {
+	s.clearQueued()
 	return nil
 }
 
-func (s *Session) recordUsage(ctx context.Context, st sessionStats) {
-	now := time.Now()
+func (s *Session) Restart() error {
 	s.mu.Lock()
-	model := s.model
-	provider := s.provider
-	prev := s.lastUse
-
-	s.closeRunTimingLocked(now)
-	activeMs := s.runActiveDurationLocked(now).Milliseconds()
-	toolMs := s.runToolDuration.Milliseconds()
-	modelWaitMs := s.runModelWaitDuration.Milliseconds()
-	ttftMs := s.runTTFTDuration.Milliseconds()
+	running := s.running
 	s.mu.Unlock()
-
-	deltaIn := max(st.Tokens.Input-prev.InputTokens, 0)
-	deltaOut := max(st.Tokens.Output-prev.OutputTokens, 0)
-	deltaCost := max(st.Cost-prev.Cost, 0)
-
-	if deltaIn == 0 && deltaOut == 0 && deltaCost == 0 && activeMs <= 0 {
-		return
+	if running {
+		return ErrSessionBusy
 	}
-
-	err := s.store.InsertUsage(ctx, sqlitedb.InsertUsageParams{
-		SessionID:    s.ID,
-		Provider:     provider,
-		Model:        model,
-		InputTokens:  deltaIn,
-		OutputTokens: deltaOut,
-		Cost:         deltaCost,
-		ActiveMs:     activeMs,
-		ToolMs:       toolMs,
-		ModelWaitMs:  modelWaitMs,
-		TtftMs:       ttftMs,
-		At:           now.UnixMilli(),
-	})
-	if err != nil {
-		log.Printf("[session %s] insert usage: %v", s.ID, err)
-		return
-	}
-
-	s.notify("usage", map[string]any{
-		"provider":      provider,
-		"model":         model,
-		"input_tokens":  deltaIn,
-		"output_tokens": deltaOut,
-		"cost":          deltaCost,
-		"active_ms":     activeMs,
-		"tool_ms":       toolMs,
-		"model_wait_ms": modelWaitMs,
-		"ttft_ms":       ttftMs,
-		"at":            now.UnixMilli(),
-	})
-
-	s.mu.Lock()
-	s.lastUse = sqlitedb.SumUsageBySessionRow{
-		InputTokens:  prev.InputTokens + deltaIn,
-		OutputTokens: prev.OutputTokens + deltaOut,
-		Cost:         prev.Cost + deltaCost,
-		ActiveMs:     prev.ActiveMs + activeMs,
-		ToolMs:       prev.ToolMs + toolMs,
-		ModelWaitMs:  prev.ModelWaitMs + modelWaitMs,
-		TtftMs:       prev.TtftMs + ttftMs,
-		TtftRuns:     prev.TtftRuns + boolToInt64(ttftMs > 0),
-	}
-	s.mu.Unlock()
-}
-
-func (s *Session) failPendingLocked(reason string) {
-	for id, ch := range s.pending {
-		select {
-		case ch <- response{Success: false, Error: reason}:
-		default:
-		}
-		delete(s.pending, id)
-	}
-}
-
-func (s *Session) send(
-	ctx context.Context,
-	cmdType string,
-	fields map[string]any,
-) (json.RawMessage, error) {
-	s.mu.Lock()
-	if s.stdin == nil {
-		s.mu.Unlock()
-		return nil, errors.New("pi process is not running")
-	}
-	s.reqID++
-	id := strconv.FormatUint(s.reqID, 10)
-	ch := make(chan response, 1)
-	s.pending[id] = ch
-	stdin := s.stdin
-	s.mu.Unlock()
-
-	cmd := map[string]any{"id": id, "type": cmdType}
-	for k, v := range fields {
-		cmd[k] = v
-	}
-	payload, err := json.Marshal(cmd)
-	if err != nil {
-		s.dropPending(id)
-		return nil, err
-	}
-	payload = append(payload, '\n')
-
-	s.writeMu.Lock()
-	_, err = stdin.Write(payload)
-	s.writeMu.Unlock()
-	if err != nil {
-		s.dropPending(id)
-		return nil, fmt.Errorf("write %s: %w", cmdType, err)
-	}
-
-	select {
-	case resp := <-ch:
-		if !resp.Success {
-			return nil, fmt.Errorf("%s: %s", cmdType, resp.Error)
-		}
-		return resp.Data, nil
-	case <-ctx.Done():
-		s.dropPending(id)
-		return nil, ctx.Err()
-	}
-}
-
-func (s *Session) dropPending(id string) {
-	s.mu.Lock()
-	delete(s.pending, id)
-	s.mu.Unlock()
-}
-
-func (s *Session) readStdout(r io.Reader) {
-
-	reader := bufio.NewReaderSize(r, 64*1024)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			s.handleRecord(bytes.TrimSuffix(line, []byte{'\n'}))
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
-func (s *Session) handleRecord(b []byte) {
-	var rec record
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return
-	}
-
-	switch rec.Type {
-	case "response":
-		s.mu.Lock()
-		ch := s.pending[rec.ID]
-		delete(s.pending, rec.ID)
-		s.mu.Unlock()
-		if ch != nil {
-			ch <- response{
-				Success: rec.Success == nil || *rec.Success,
-				Error:   rec.Error,
-				Data:    rec.Data,
-			}
-		}
-
-	case "agent_start":
-		s.setRunning(true)
-		s.mu.Lock()
-		s.stopRequested = false
-		s.mu.Unlock()
-		slog.Info("run started", "session_id", s.ID, "task_id", s.agencyTaskID)
-		s.emit(Event{Kind: EventRunStarted})
-		s.notifyAgentState("run_started", StatusInProgress)
-
-	case "message_end":
-		s.trackRunError(rec.Message)
-
-	case "auto_retry_end":
-
-		if rec.Success != nil {
-			s.setRunFailure(*rec.Success, rec.FinalError)
-		}
-
-		s.emitPending(nil)
-
-	case "turn_start":
-
-		s.startRequest(time.Now())
-		s.emitPending(&PendingActivityEvent{Kind: PendingModelRequest})
-
-	case "auto_retry_start":
-		s.emitPending(&PendingActivityEvent{
-			Kind:        PendingRetry,
-			Error:       rec.ErrorMessage,
-			Attempt:     rec.Attempt,
-			MaxAttempts: rec.MaxAttempts,
-		})
-
-	case "compaction_start":
-		s.startCompaction(time.Now())
-		s.emitPending(&PendingActivityEvent{Kind: PendingCompaction, Reason: rec.Reason})
-
-	case "compaction_end":
-		s.finishCompaction(time.Now())
-		s.emitPending(nil)
-
-	case "agent_settled":
-		s.mu.Lock()
-
-		errMsg := s.runFailure
-		if s.stopRequested {
-			errMsg = ""
-		}
-		s.runFailure = ""
-		s.stopRequested = false
-		s.mu.Unlock()
-		if errMsg != "" {
-
-			go s.settle(errMsg)
-			return
-		}
-		s.emit(Event{Kind: EventRunSettled})
-
-		s.emitPending(nil)
-		go s.settle("")
-
-	case "message_update":
-		var ev struct {
-			Type  string `json:"type"`
-			Delta string `json:"delta"`
-		}
-		if json.Unmarshal(rec.AssistantMessageEvent, &ev) != nil {
-			return
-		}
-
-		switch ev.Type {
-		case "text_start", "text_delta", "thinking_start", "thinking_delta",
-			"toolcall_start", "toolcall_delta":
-			s.firstToken(time.Now())
-
-			s.clearPending(PendingModelRequest)
-		}
-		if ev.Delta == "" {
-			return
-		}
-		switch ev.Type {
-		case "text_delta":
-			s.emit(Event{Kind: EventText, Delta: ev.Delta})
-		case "thinking_delta":
-			s.emit(Event{Kind: EventThinking, Delta: ev.Delta})
-		}
-
-	case "message_start":
-
-		if text := userMessageText(rec.Message); text != "" {
-			s.emit(Event{Kind: EventUser, Text: text})
-		}
-
-	case "queue_update":
-		s.setQueue(rec.Steering)
-
-	case "tool_execution_start":
-
-		s.clearPending(PendingModelRequest)
-		s.startTool(rec.ToolCallID, time.Now())
-		s.emit(toolEvent(rec, ToolStarted))
-	case "tool_execution_update":
-		s.emit(toolEvent(rec, ToolUpdated))
-	case "tool_execution_end":
-		s.finishTool(rec.ToolCallID, time.Now())
-		s.emit(toolEvent(rec, ToolFinished))
-
-	case "entry_appended":
-		s.handleEntryAppended(b)
-
-	case "extension_ui_request":
-		s.handleExtensionUI(b)
-	}
-}
-
-func toolEvent(rec record, phase ToolPhase) Event {
-	result := rec.Result
-	if phase == ToolUpdated {
-		result = rec.PartialResult
-	}
-	details := ""
-	if phase == ToolFinished {
-		details = resultDetails(rec.Result)
-	}
-	return Event{
-		Kind: EventTool,
-		Tool: &ToolEvent{
-			CallID:      rec.ToolCallID,
-			Name:        rec.ToolName,
-			Phase:       phase,
-			ArgsJSON:    rawString(rec.Args),
-			ResultJSON:  rawString(result),
-			DetailsJSON: details,
-			IsError:     rec.IsError,
-		},
-	}
+	s.stopEngine()
+	return nil
 }
 
 func resultDetails(result json.RawMessage) string {
@@ -1347,268 +747,6 @@ func rawString(raw json.RawMessage) string {
 		return ""
 	}
 	return string(raw)
-}
-
-const (
-	taskURLsCustomType      = "cherrypi_task_urls"
-	taskArtifactsCustomType = "cherrypi_task_artifacts"
-	taskProgressCustomType  = "cherrypi_task_progress"
-)
-
-func (s *Session) handleEntryAppended(b []byte) {
-	var rec struct {
-		Entry struct {
-			Type       string          `json:"type"`
-			CustomType string          `json:"customType"`
-			Data       json.RawMessage `json:"data"`
-		} `json:"entry"`
-	}
-	if json.Unmarshal(b, &rec) != nil || rec.Entry.Type != "custom" {
-		return
-	}
-
-	switch rec.Entry.CustomType {
-	case taskURLsCustomType:
-		s.handleTaskURLsEntry(rec.Entry.Data)
-	case taskArtifactsCustomType:
-		s.handleTaskArtifactsEntry(rec.Entry.Data)
-	case taskProgressCustomType:
-		s.handleTaskProgressEntry(rec.Entry.Data)
-	case modelWaitCustomType:
-		s.handleModelWaitEntry(rec.Entry.Data)
-	case thinkingSpanCustomType:
-		s.handleThinkingSpanEntry(rec.Entry.Data)
-	}
-}
-
-func (s *Session) handleModelWaitEntry(raw json.RawMessage) {
-	wait, ok := parseModelWait(raw)
-	if !ok {
-		return
-	}
-	s.emit(Event{Kind: EventModelWait, ModelWait: wait})
-}
-
-func (s *Session) handleThinkingSpanEntry(raw json.RawMessage) {
-	span, ok := parseThinkingSpan(raw)
-	if !ok {
-		return
-	}
-	s.emit(Event{Kind: EventThinkingSpan, ThinkingSpan: span})
-}
-
-func (s *Session) handleTaskURLsEntry(raw json.RawMessage) {
-	var data struct {
-		URLs []struct {
-			URL   string `json:"url"`
-			Label string `json:"label"`
-		} `json:"urls"`
-	}
-	if json.Unmarshal(raw, &data) != nil {
-		return
-	}
-
-	links := make([]map[string]any, 0, len(data.URLs))
-	for _, u := range data.URLs {
-		if u.URL == "" {
-			continue
-		}
-		links = append(links, map[string]any{"url": u.URL, "label": u.Label})
-	}
-	s.notify("task_link", map[string]any{"links": links})
-}
-
-func (s *Session) handleTaskProgressEntry(raw json.RawMessage) {
-	var data struct {
-		Summary string `json:"summary"`
-		Todos   []struct {
-			Text   string `json:"text"`
-			Status string `json:"status"`
-		} `json:"todos"`
-	}
-	if json.Unmarshal(raw, &data) != nil {
-		return
-	}
-
-	todos := make([]map[string]any, 0, len(data.Todos))
-	for _, item := range data.Todos {
-		if item.Text == "" {
-			continue
-		}
-		todos = append(todos, map[string]any{
-			"text":   item.Text,
-			"status": item.Status,
-		})
-	}
-	s.notify("task_progress", map[string]any{
-		"summary": data.Summary,
-		"todos":   todos,
-	})
-}
-
-func (s *Session) handleTaskArtifactsEntry(raw json.RawMessage) {
-	var data struct {
-		Replace   bool             `json:"replace"`
-		Artifacts []map[string]any `json:"artifacts"`
-	}
-	if json.Unmarshal(raw, &data) != nil {
-		return
-	}
-	s.notify("task_artifact", map[string]any{
-		"replace":   data.Replace,
-		"artifacts": data.Artifacts,
-	})
-}
-
-func (s *Session) readStderr(r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		s.mu.Lock()
-		s.logRing = append(s.logRing, line)
-		if len(s.logRing) > logRingMax {
-			s.logRing = s.logRing[len(s.logRing)-logRingMax:]
-		}
-		s.mu.Unlock()
-
-		logging.Local().Info(line, "session_id", s.ID)
-		s.emit(Event{Kind: EventLog, Line: line})
-	}
-}
-
-func (s *Session) reap(cmd *exec.Cmd) {
-	err := cmd.Wait()
-
-	s.mu.Lock()
-	expected := s.stopping || s.cmd != cmd
-	if s.cmd == cmd {
-		s.cmd = nil
-		s.stdin = nil
-		s.failPendingLocked("pi process exited")
-	}
-	exited := s.exited
-	s.mu.Unlock()
-
-	select {
-	case <-exited:
-	default:
-		close(exited)
-	}
-
-	s.stopHistoryWatch()
-
-	if expected {
-		slog.Info("pi exited", "session_id", s.ID)
-		return
-	}
-
-	msg := "pi process exited unexpectedly"
-	if err != nil {
-		msg = err.Error()
-	}
-	slog.Warn("pi exited unexpectedly",
-		"session_id", s.ID,
-		"task_id", s.agencyTaskID,
-		"reason", msg,
-	)
-	go s.fail(msg)
-}
-
-func (s *Session) stopProcess() {
-	s.cancelIdle()
-
-	s.mu.Lock()
-	cmd := s.cmd
-	stdin := s.stdin
-	exited := s.exited
-	s.cmd = nil
-	s.stdin = nil
-	s.failPendingLocked("session stopped")
-	s.stopping = true
-	s.mu.Unlock()
-
-	s.markQueueHeld()
-	s.persistQueue()
-
-	defer s.clearPid()
-
-	if stdin != nil {
-		_ = stdin.Close()
-	}
-	if cmd == nil || cmd.Process == nil || exited == nil {
-		return
-	}
-
-	select {
-	case <-exited:
-	case <-time.After(s.cfg.EndGrace):
-		_ = cmd.Process.Kill()
-		<-exited
-	}
-}
-
-func (s *Session) clearPid() {
-	if s.probe {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := s.store.SetSessionPid(ctx, sqlitedb.SetSessionPidParams{
-		UpdatedAt: time.Now().UnixMilli(),
-		ID:        s.ID,
-	}); err != nil {
-		log.Printf("[session %s] clear pid: %v", s.ID, err)
-	}
-}
-
-func (s *Session) forceStop() {
-	s.cancelIdle()
-
-	s.mu.Lock()
-	cmd := s.cmd
-	s.cmd = nil
-	s.stdin = nil
-	s.failPendingLocked("session stopped")
-	s.stopping = true
-	s.mu.Unlock()
-
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-}
-
-func (s *Session) trackRunError(raw json.RawMessage) {
-	var msg struct {
-		Role         string `json:"role"`
-		StopReason   string `json:"stopReason"`
-		ErrorMessage string `json:"errorMessage"`
-	}
-	if len(raw) == 0 || json.Unmarshal(raw, &msg) != nil || msg.Role != "assistant" {
-		return
-	}
-	s.setRunFailure(msg.StopReason != "error", msg.ErrorMessage)
-}
-
-func (s *Session) setRunFailure(ok bool, errMsg string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ok {
-		s.runFailure = ""
-		return
-	}
-	if strings.TrimSpace(errMsg) == "" {
-		errMsg = "model request failed"
-	}
-
-	if errMsg == "Retry cancelled" {
-		s.runFailure = ""
-		return
-	}
-	s.runFailure = errMsg
 }
 
 func (s *Session) markFailed(ctx context.Context, msg string) {
@@ -1658,8 +796,8 @@ func (s *Session) historyHasPrompt(prompt string) bool {
 }
 
 func (s *Session) historyHasUserMessage() bool {
-	for _, entry := range s.readHistory() {
-		if entry.event.Kind == EventUser {
+	for _, h := range s.readHistory() {
+		if h.event.Kind == EventUser {
 			return true
 		}
 	}
@@ -1687,117 +825,6 @@ func contentText(raw json.RawMessage) string {
 	return out
 }
 
-func (s *Session) writeRaw(v any) error {
-	payload, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	payload = append(payload, '\n')
-
-	s.mu.Lock()
-	stdin := s.stdin
-	s.mu.Unlock()
-	if stdin == nil {
-		return errors.New("pi process is not running")
-	}
-
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	_, err = stdin.Write(payload)
-	return err
-}
-
-func (s *Session) handleExtensionUI(raw []byte) {
-	var req extensionUIRequest
-	if json.Unmarshal(raw, &req) != nil || req.ID == "" {
-		return
-	}
-	req.RawJSON = string(raw)
-
-	if !isDialogMethod(req.Method) {
-		s.emit(Event{Kind: EventExtensionUI, Extension: extensionEvent(req)})
-		return
-	}
-
-	s.mu.Lock()
-	answer := s.savedAnswer
-	interactive := s.interactive
-	if answer != nil {
-		s.savedAnswer = nil
-
-		s.savedDialog = ""
-	} else if interactive {
-		s.pendingExt[req.ID] = req
-		if !s.waiting {
-			s.waitStartedAt = time.Now()
-		}
-		s.waiting = true
-		s.lastDialogJSON = req.RawJSON
-	}
-	s.mu.Unlock()
-
-	if answer != nil {
-
-		s.writeExtensionResponse(req.ID, *answer)
-		s.clearWaitingStore(context.Background())
-		s.notifyAgentState("waiting_resolved", StatusInProgress)
-		return
-	}
-
-	if !interactive {
-
-		s.writeExtensionResponse(req.ID, nonInteractiveDialogResponse(req))
-		return
-	}
-
-	s.persistWaiting(req.RawJSON)
-	payload := map[string]any{
-		"request_id": req.ID,
-		"method":     req.Method,
-		"title":      req.Title,
-		"message":    req.Message,
-		"options":    req.Options,
-	}
-
-	if questions := questionnaireQuestions(req); questions != nil {
-		payload["questions"] = questions
-	}
-	s.notify("user_input_requested", payload)
-	s.notifyAgentState("waiting_for_input", StatusWaitingInput)
-	s.emit(Event{Kind: EventExtensionUI, Extension: extensionEvent(req)})
-}
-
-func nonInteractiveDialogResponse(req extensionUIRequest) ExtensionResponse {
-	if questionnaireQuestions(req) == nil {
-		return ExtensionResponse{Kind: ExtensionResponseCancelled}
-	}
-
-	payload, err := json.Marshal(map[string]string{
-		"kind":    questionnaireUnavailableKind,
-		"message": questionnaireUnavailableMessage,
-	})
-	if err != nil {
-		return ExtensionResponse{Kind: ExtensionResponseCancelled}
-	}
-
-	return ExtensionResponse{Kind: ExtensionResponseValue, Value: string(payload)}
-}
-
-func questionnaireQuestions(req extensionUIRequest) []map[string]any {
-	if req.Method != "editor" || req.Prefill == "" {
-		return nil
-	}
-	var payload struct {
-		Kind      string           `json:"kind"`
-		Questions []map[string]any `json:"questions"`
-	}
-	if json.Unmarshal([]byte(req.Prefill), &payload) != nil ||
-		payload.Kind != "cherrypi.questionnaire" {
-		return nil
-	}
-	return payload.Questions
-}
-
 func extensionEvent(req extensionUIRequest) *ExtensionUIEvent {
 	return &ExtensionUIEvent{
 		RequestID:   req.ID,
@@ -1812,118 +839,36 @@ func extensionEvent(req extensionUIRequest) *ExtensionUIEvent {
 	}
 }
 
-func (s *Session) writeExtensionResponse(requestID string, resp ExtensionResponse) {
-	fields := map[string]any{"type": "extension_ui_response", "id": requestID}
-	switch resp.Kind {
-	case ExtensionResponseValue:
-		fields["value"] = resp.Value
-	case ExtensionResponseConfirmed:
-		fields["confirmed"] = resp.Confirmed
-	default:
-		fields["cancelled"] = true
-	}
-	if err := s.writeRaw(fields); err != nil {
-		log.Printf("[session %s] extension response: %v", s.ID, err)
-	}
-}
-
 func (s *Session) respondExtensionUI(
 	ctx context.Context,
 	requestID string,
 	resp ExtensionResponse,
 ) error {
-	s.mu.Lock()
-	_, live := s.pendingExt[requestID]
-	if live {
-		delete(s.pendingExt, requestID)
-		if len(s.pendingExt) == 0 {
-			s.waiting = false
-			s.lastDialogJSON = ""
-			s.accumulateWaitLocked(time.Now())
-		}
-	}
-	saved := s.savedDialog != ""
-	question := savedDialogTitle(s.savedDialog)
-	if !live && saved {
-		s.savedDialog = ""
-		answer := resp
-		s.savedAnswer = &answer
-	}
-	s.mu.Unlock()
-
-	if live {
-		s.writeExtensionResponse(requestID, resp)
+	if s.answerLocalDialog(requestID, resp) {
 		s.clearWaitingStore(ctx)
 		s.notifyAgentState("waiting_resolved", StatusInProgress)
 		return nil
 	}
 
-	if saved {
-		s.clearWaitingStore(ctx)
-		go s.resumeAfterRestart(question, resp)
-		return nil
+	s.mu.Lock()
+	saved := s.savedDialog
+	question := savedDialogTitle(saved)
+	if saved != "" {
+		s.savedDialog = ""
+		s.waiting = false
+		s.accumulateWaitLocked(time.Now())
 	}
-
-	return ErrNoPendingDialog
-}
-
-func (s *Session) resumeAfterRestart(question string, resp ExtensionResponse) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if err := s.prompt(ctx, resumeDialogNudge(question, resp)); err != nil {
-		log.Printf("[session %s] resume for dialog: %v", s.ID, err)
+	s.mu.Unlock()
+	if saved == "" {
+		return ErrNoPendingDialog
 	}
-}
-
-func resumeDialogNudge(question string, resp ExtensionResponse) string {
-	if len(resp.Questionnaire) > 0 {
-		return fmt.Sprintf(
-			"The user answered your questions before the restart: %s. Continue from where you left off and finish the task.",
-			formatQuestionnaire(resp.Questionnaire),
-		)
+	s.clearWaitingStore(ctx)
+	answer := resp.Value
+	if resp.Kind == ExtensionResponseCancelled {
+		answer = "The user cancelled the questionnaire."
 	}
-
-	answer := ""
-	switch resp.Kind {
-	case ExtensionResponseValue:
-		answer = fmt.Sprintf("%q", resp.Value)
-	case ExtensionResponseConfirmed:
-		if resp.Confirmed {
-			answer = "yes"
-		} else {
-			answer = "no"
-		}
-	default:
-		answer = "no answer (declined)"
-	}
-
-	if question == "" {
-		return fmt.Sprintf(
-			"The user answered your pending question: %s. Continue from where you left off and finish the task.",
-			answer,
-		)
-	}
-	return fmt.Sprintf(
-		"The user answered your pending question %q: %s. Continue from where you left off and finish the task.",
-		question,
-		answer,
-	)
-}
-
-func formatQuestionnaire(answers []QuestionnaireAnswer) string {
-	segments := make([]string, 0, len(answers))
-	for _, qa := range answers {
-		segments = append(segments, fmt.Sprintf("%q=%q", qa.Question, qa.Answer))
-	}
-	return strings.Join(segments, "; ")
-}
-
-func savedDialogTitle(raw string) string {
-	var req extensionUIRequest
-	if json.Unmarshal([]byte(raw), &req) != nil {
-		return ""
-	}
-	return req.Title
+	s.resumeWithDialogAnswer(question, answer)
+	return nil
 }
 
 func (s *Session) persistWaiting(dialogJSON string) {
@@ -1948,13 +893,22 @@ func (s *Session) clearWaitingStore(ctx context.Context) {
 }
 
 func (s *Session) notify(event string, payload map[string]any) {
-	if s.cfg.Notify == nil {
-		return
-	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
 	payload["session_id"] = s.ID
+
+	switch event {
+	case "task_progress":
+		s.enqueueEvent(DomainEventProto("plan", payload), "plan")
+	case "task_artifact":
+		s.enqueueEvent(DomainEventProto("artifact", payload), "artifact")
+	case "task_link":
+		s.enqueueEvent(DomainEventProto("link", payload), "link")
+	}
+	if s.cfg.Notify == nil {
+		return
+	}
 	s.cfg.Notify(event, payload)
 }
 
@@ -1968,6 +922,12 @@ func (s *Session) notifyAgentFailure(errMsg string) {
 		"status": int64(StatusFailed),
 		"error":  errMsg,
 	})
+}
+
+func (s *Session) busy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running || s.waiting || len(s.dialogs) > 0
 }
 
 func (s *Session) scheduleIdleReap() {
@@ -1991,13 +951,13 @@ func (s *Session) reapIdle(gen uint64) {
 	defer s.opMu.Unlock()
 
 	s.mu.Lock()
-	stale := gen != s.idleGen || s.running || s.cmd == nil
+	stale := gen != s.idleGen || s.running || s.eng == nil
 	s.mu.Unlock()
 	if stale {
 		return
 	}
 
-	s.stopProcess()
+	s.stopEngine()
 }
 
 func (s *Session) cancelIdle() {
@@ -2047,7 +1007,6 @@ func (s *Session) clearWaiting() {
 	s.pendingExt = map[string]extensionUIRequest{}
 	s.lastDialogJSON = ""
 	s.savedDialog = ""
-	s.savedAnswer = nil
 	s.accumulateWaitLocked(time.Now())
 	s.mu.Unlock()
 }
@@ -2100,18 +1059,26 @@ func (s *Session) startRequest(now time.Time) {
 	s.mu.Unlock()
 }
 
-func (s *Session) firstToken(now time.Time) {
+func (s *Session) firstToken(now time.Time) ModelWaitEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.requestStartedAt.IsZero() {
-		return
+		return ModelWaitEvent{}
 	}
-	if wait := now.Sub(s.requestStartedAt); wait > 0 {
-		s.runModelWaitDuration += wait
+	waited := now.Sub(s.requestStartedAt)
+	if waited > 0 {
+		s.runModelWaitDuration += waited
 	}
 	s.requestStartedAt = time.Time{}
+	event := ModelWaitEvent{
+		Kind:       PendingModelRequest,
+		Provider:   s.modelProvider,
+		Model:      s.model,
+		DurationMs: waited.Milliseconds(),
+	}
 	if s.runFirstToken {
-		return
+
+		return event
 	}
 	s.runFirstToken = true
 	if !s.runStartedAt.IsZero() {
@@ -2119,30 +1086,45 @@ func (s *Session) firstToken(now time.Time) {
 			s.runTTFTDuration = ttft
 		}
 	}
+	return event
 }
 
-func (s *Session) startCompaction(now time.Time) {
+func (s *Session) beginCompaction(now time.Time) {
 	s.mu.Lock()
+	s.requestStartedAt = time.Time{}
 	if s.compactionStartedAt.IsZero() {
 		s.compactionStartedAt = now
 	}
 	s.mu.Unlock()
+
+	s.emitPending(&PendingActivityEvent{Kind: PendingCompaction, Reason: "threshold"})
 }
 
 func (s *Session) finishCompaction(now time.Time) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.foldCompactionLocked(now)
-}
-
-func (s *Session) foldCompactionLocked(now time.Time) {
-	if s.compactionStartedAt.IsZero() {
-		return
-	}
-	if wait := now.Sub(s.compactionStartedAt); wait > 0 {
-		s.runModelWaitDuration += wait
-	}
+	started := s.compactionStartedAt
 	s.compactionStartedAt = time.Time{}
+	s.requestStartedAt = now
+	waited := time.Duration(0)
+	if !started.IsZero() {
+		waited = now.Sub(started)
+		if waited > 0 {
+			s.runModelWaitDuration += waited
+		}
+	}
+	provider, model := s.modelProvider, s.model
+	s.mu.Unlock()
+	if waited > 0 {
+		s.emit(Event{Kind: EventModelWait, At: now, ModelWait: &ModelWaitEvent{
+			Kind:       PendingCompaction,
+			Provider:   provider,
+			Model:      model,
+			DurationMs: waited.Milliseconds(),
+
+			Reason: "threshold",
+		}})
+	}
+	s.emitPending(&PendingActivityEvent{Kind: PendingModelRequest})
 }
 
 func (s *Session) startTool(callID string, now time.Time) {
@@ -2169,14 +1151,25 @@ func (s *Session) finishTool(callID string, now time.Time) {
 	}
 }
 
+func (s *Session) closeRunTiming() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeRunTimingLocked(time.Now())
+}
+
 func (s *Session) closeRunTimingLocked(now time.Time) {
+	if !s.compactionStartedAt.IsZero() {
+		if wait := now.Sub(s.compactionStartedAt); wait > 0 {
+			s.runModelWaitDuration += wait
+		}
+		s.compactionStartedAt = time.Time{}
+	}
 	if !s.requestStartedAt.IsZero() {
 		if wait := now.Sub(s.requestStartedAt); wait > 0 {
 			s.runModelWaitDuration += wait
 		}
 		s.requestStartedAt = time.Time{}
 	}
-	s.foldCompactionLocked(now)
 	for callID, started := range s.openTools {
 		if d := now.Sub(started); d > 0 {
 			s.runToolDuration += d
@@ -2192,22 +1185,18 @@ func (s *Session) runThinkingLocked(now time.Time) time.Duration {
 			tool += d
 		}
 	}
-	if thinking := s.runActiveDurationLocked(now) - tool; thinking > 0 {
+	wait := s.runModelWaitDuration
+	for _, started := range [...]time.Time{s.requestStartedAt, s.compactionStartedAt} {
+		if started.IsZero() {
+			continue
+		}
+		if d := now.Sub(started); d > 0 {
+			wait += d
+		}
+	}
+	thinking := s.runActiveDurationLocked(now) - tool - wait
+	if thinking > 0 {
 		return thinking
-	}
-	return 0
-}
-
-func thinkingMs(activeMs, toolMs int64) int64 {
-	if active := activeMs - toolMs; active > 0 {
-		return active
-	}
-	return 0
-}
-
-func boolToInt64(v bool) int64 {
-	if v {
-		return 1
 	}
 	return 0
 }
@@ -2215,93 +1204,72 @@ func boolToInt64(v bool) int64 {
 func (s *Session) processRunning() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cmd != nil
+	return s.eng != nil
 }
 
 func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
-	data, err := s.send(ctx, "get_session_stats", nil)
-	if err != nil {
-		return Usage{}, false
-	}
-	var st sessionStats
-	if json.Unmarshal(data, &st) != nil {
-		return Usage{}, false
-	}
-
 	s.mu.Lock()
+	eng := s.eng
+
+	input := s.liveInput - s.recordedInput
+	output := s.liveOutput - s.recordedOutput
+	cacheRead := s.liveCacheRead - s.recordedCacheRead
+	cacheWrite := s.liveCacheWrite - s.recordedCacheWrite
+	cost := s.liveCost - s.recordedCost
 	running := s.running
 	started := s.runStartedAt
-	base := s.lastUse
 	now := time.Now()
+
 	active := s.runActiveDurationLocked(now)
 	thinking := s.runThinkingLocked(now)
+	tool := s.runToolDuration
 	modelWait := s.runModelWaitDuration
-	if !s.requestStartedAt.IsZero() {
-		modelWait += now.Sub(s.requestStartedAt)
-	}
-	if !s.compactionStartedAt.IsZero() {
-		modelWait += now.Sub(s.compactionStartedAt)
-	}
-	toolDuration := s.runToolDuration
 	ttft := s.runTTFTDuration
+	firstToken := s.runFirstToken
+	window := 0
+	if eng != nil && eng.sess.Model != nil {
+		window = eng.sess.Model.ContextWindow
+	}
 	s.mu.Unlock()
+	if eng == nil {
+		return Usage{}, false
+	}
 
 	out := Usage{
-		InputTokens:  st.Tokens.Input,
-		OutputTokens: st.Tokens.Output,
-		Cost:         st.Cost,
-		ActiveMs:     base.ActiveMs,
-		ThinkingMs:   thinkingMs(base.ActiveMs, base.ToolMs),
-		ModelWaitMs:  base.ModelWaitMs,
-		ToolMs:       base.ToolMs,
-		TTFTMs:       base.TtftMs,
-		TTFTRuns:     base.TtftRuns,
+		InputTokens:      input,
+		OutputTokens:     output,
+		CacheReadTokens:  cacheRead,
+		CacheWriteTokens: cacheWrite,
+		Cost:             cost,
+		ActiveMs:         active.Milliseconds(),
+		ThinkingMs:       thinking.Milliseconds(),
+		ToolMs:           tool.Milliseconds(),
+		ModelWaitMs:      modelWait.Milliseconds(),
+		TTFTMs:           ttft.Milliseconds(),
 	}
-
-	if st.ContextUsage != nil &&
-		st.ContextUsage.Tokens != nil &&
-		st.ContextUsage.ContextWindow > 0 {
-		out.ContextTokens = *st.ContextUsage.Tokens
-		out.ContextWindow = st.ContextUsage.ContextWindow
+	if firstToken {
+		out.TTFTRuns = 1
+	}
+	if window > 0 {
+		out.ContextWindow = int64(window)
+		out.ContextTokens = int64(estimateContextTokens(eng))
 	}
 	if running && !started.IsZero() {
-		out.ActiveMs += active.Milliseconds()
-		out.ThinkingMs += thinking.Milliseconds()
-		out.ModelWaitMs += modelWait.Milliseconds()
-		out.ToolMs += toolDuration.Milliseconds()
-		out.TTFTMs += ttft.Milliseconds()
-		if ttft > 0 {
-			out.TTFTRuns++
+		if seconds := time.Since(started).Seconds(); seconds > 0 {
+			out.TokensPerSecond = float64(input+output) / seconds
+			out.CostPerHour = cost / seconds * 3600
 		}
-		out.TokensPerSecond, out.CostPerHour = runRates(
-			st, base, active, thinking, modelWait,
-		)
 	}
 	return out, true
-}
-
-func runRates(
-	st sessionStats,
-	base sqlitedb.SumUsageBySessionRow,
-	active, thinking, modelWait time.Duration,
-) (tokensPerSecond, costPerHour float64) {
-	generation := (thinking - modelWait).Seconds()
-	if generation <= 0 {
-		return 0, 0
-	}
-	tokens := float64(st.Tokens.Output - base.OutputTokens)
-	cost := st.Cost - base.Cost
-	seconds := active.Seconds()
-	if seconds > 0 {
-		costPerHour = math.Max(cost, 0) / seconds * 3600
-	}
-	return math.Max(tokens, 0) / generation, costPerHour
 }
 
 type Usage struct {
 	InputTokens  int64
 	OutputTokens int64
-	Cost         float64
+
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	Cost             float64
 
 	ActiveMs int64
 
@@ -2323,6 +1291,11 @@ func (s *Session) emit(ev Event) {
 		ev.At = time.Now()
 	}
 
+	switch ev.Kind {
+	case EventStatus, EventRunStarted, EventRunSettled, EventThinkingSpan:
+		s.enqueueEvent(TaskEventProto(s.ID, ev), eventKind(ev))
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.subs {
@@ -2341,7 +1314,7 @@ func (s *Session) emitPending(pending *PendingActivityEvent) {
 			pending.Model = s.model
 		}
 		if pending.Provider == "" {
-			pending.Provider = s.provider
+			pending.Provider = s.modelProvider
 		}
 		s.mu.Unlock()
 	}
@@ -2360,19 +1333,6 @@ func (s *Session) emitPending(pending *PendingActivityEvent) {
 	s.mu.Unlock()
 
 	s.emit(ev)
-}
-
-func (s *Session) clearPending(kind PendingKind) {
-	s.mu.Lock()
-	if s.pendingActivity == nil || s.pendingActivity.Pending == nil ||
-		s.pendingActivity.Pending.Kind != kind {
-		s.mu.Unlock()
-		return
-	}
-	s.pendingActivity = nil
-	s.mu.Unlock()
-
-	s.emit(Event{Kind: EventPending, At: time.Now()})
 }
 
 func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func()) {
@@ -2416,32 +1376,27 @@ func (s *Session) subscribe(initial Event, history ...Event) (<-chan Event, func
 	}
 }
 
-func userMessageText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
+func (s *Session) waitIdle(ctx context.Context, timeout time.Duration) {
+	s.mu.Lock()
+	eng := s.eng
+	s.mu.Unlock()
+	if eng == nil {
+		return
 	}
-
-	var msg struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-	}
-	if json.Unmarshal(raw, &msg) != nil || msg.Role != "user" {
-		return ""
-	}
-
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(msg.Content, &parts) != nil {
-		return ""
-	}
-
-	var b strings.Builder
-	for _, part := range parts {
-		if part.Type == "text" {
-			b.WriteString(part.Text)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if !eng.sess.Agent.State().IsStreaming {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-ticker.C:
 		}
 	}
-	return b.String()
 }

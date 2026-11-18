@@ -98,22 +98,23 @@ function toastBody(n: AttentionNotification, open: () => void): VNode {
   return h(
     "div",
     {
-      class: "flex cursor-pointer flex-col gap-0.5",
+      class: "flex min-w-0 cursor-pointer flex-col gap-0.5",
       role: hint ? "button" : undefined,
       tabindex: hint ? 0 : undefined,
       "aria-label": hint ? `${hint}: ${n.title}` : undefined,
       onKeydown: (event: KeyboardEvent) => {
-        if (!hint || (event.key !== "Enter" && event.key !== " ")) return;
+        if (!hint || event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         open();
       },
     },
     [
-      h("span", { class: "font-medium" }, n.title),
+      h("span", { class: "font-medium break-words" }, n.title),
       n.body
         ? h(
             "span",
-            { class: "text-muted-foreground text-sm" },
+            { class: "text-muted-foreground text-sm break-words" },
             plainNotificationText(n.body),
           )
         : null,

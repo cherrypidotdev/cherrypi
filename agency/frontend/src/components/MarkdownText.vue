@@ -43,6 +43,7 @@ import {
   ref,
   watch,
 } from "vue";
+import { useI18n } from "vue-i18n";
 import type { Router } from "vue-router";
 
 // as line breaks. Streaming works because the parent re-renders on every delta
@@ -102,6 +103,8 @@ function insideLink(tokens: { type: string }[], idx: number): boolean {
   }
   return false;
 }
+
+const { t } = useI18n();
 
 const md = createMarkdown(true);
 
@@ -172,9 +175,14 @@ function onReferenceClick(event: MouseEvent) {
   void router.push(href);
 }
 
+function codeBlockFor(target: Element | null): HTMLElement | null {
+  return target?.closest<HTMLElement>("pre.md-copyable") ?? null;
+}
+
 function onClick(event: MouseEvent) {
   onReferenceClick(event);
-  if (event.defaultPrevented || !props.zoomable) return;
+  if (event.defaultPrevented) return;
+
   if (
     event.button !== 0 ||
     event.metaKey ||
@@ -185,6 +193,13 @@ function onClick(event: MouseEvent) {
     return;
   }
   const target = event.target as Element | null;
+
+  const codeBlock = codeBlockFor(target);
+  if (codeBlock && !window.getSelection()?.toString()) {
+    void copyCodeBlock(codeBlock);
+    return;
+  }
+  if (!props.zoomable) return;
 
   const wrapper = target?.closest<HTMLElement>(".md-image");
   const img = target?.closest<HTMLImageElement>("img");
@@ -205,9 +220,22 @@ function onClick(event: MouseEvent) {
   });
 }
 
+let codeCopyTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copyCodeBlock(block: HTMLElement) {
+  try {
+    await navigator.clipboard.writeText(block.textContent ?? "");
+    block.classList.add("md-code-copied");
+    clearTimeout(codeCopyTimer);
+    codeCopyTimer = setTimeout(() => {
+      block.classList.remove("md-code-copied");
+    }, 900);
+  } catch {}
+}
+
 function onKeydown(event: KeyboardEvent) {
-  if (!props.zoomable) return;
   if (event.key !== "Enter" && event.key !== " ") return;
+  if (!props.zoomable) return;
   const target = event.target as Element | null;
   const wrapper = target?.closest<HTMLElement>(".md-image");
   if (!wrapper) return;
@@ -276,14 +304,60 @@ function scheduleMermaid() {
   timer = setTimeout(() => void renderMermaid(), 200);
 }
 
-watch(html, scheduleMermaid, { flush: "post" });
-onMounted(scheduleMermaid);
+function decorateCodeBlocks() {
+  const blocks = root.value?.querySelectorAll<HTMLElement>(
+    "pre:not(.mermaid):not(.jinja-code)",
+  );
+  if (!blocks) return;
+  for (const block of blocks) {
+    block.classList.add("md-copyable");
+    block.title = t("markdownText.copyCodeBlockHint");
+    if (block.querySelector(":scope > .md-code-copy")) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "md-code-copy";
+    button.setAttribute("aria-label", t("markdownText.copyCode"));
+    button.title = t("markdownText.copyCodeButtonHint");
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void copyCodeBlock(block);
+    });
+    block.appendChild(button);
+  }
+}
+
+watch(
+  html,
+  () => {
+    decorateCodeBlocks();
+    scheduleMermaid();
+  },
+  { flush: "post" },
+);
+onMounted(() => {
+  decorateCodeBlocks();
+  scheduleMermaid();
+});
 onBeforeUnmount(() => {
   if (timer !== undefined) {
     clearTimeout(timer);
   }
+  clearTimeout(codeCopyTimer);
 });
 </script>
+
+<i18n lang="yaml">
+en:
+  markdownText:
+    copyCode: "Copy code"
+    copyCodeBlockHint: "Click to copy"
+    copyCodeButtonHint: "Copy code"
+ru:
+  markdownText:
+    copyCode: "Скопировать код"
+    copyCodeBlockHint: "Нажмите, чтобы скопировать"
+    copyCodeButtonHint: "Скопировать код"
+</i18n>
 
 <style scoped>
 :deep(.md-table) {
@@ -335,5 +409,42 @@ onBeforeUnmount(() => {
 
 :deep(.md-zoomable img) {
   cursor: zoom-in;
+}
+
+:deep(pre.md-copyable) {
+  position: relative;
+  cursor: copy;
+  transition: outline-color 150ms;
+  outline: 2px solid transparent;
+}
+
+:deep(pre.md-code-copied) {
+  outline-color: var(--ring);
+}
+
+:deep(.md-code-copy) {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm);
+  background-color: rgb(0 0 0 / 0.45);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='14' height='14' x='8' y='8' rx='2' ry='2'/%3E%3Cpath d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.875rem;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+
+:deep(pre.md-copyable:hover .md-code-copy),
+:deep(.md-code-copy:focus-visible) {
+  opacity: 1;
+}
+
+:deep(.md-code-copy:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 </style>

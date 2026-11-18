@@ -94,3 +94,9 @@ DELETE FROM actors WHERE id = sqlc.arg(actor_id) AND kind = 'agent';
 
 -- name: TouchAgentSeen :exec
 UPDATE agents SET last_seen_at = sqlc.arg(last_seen_at) WHERE id = sqlc.arg(id);
+
+-- name: SetAgentLastOnline :exec
+
+
+
+UPDATE agents SET last_online_at = sqlc.arg(last_online_at) WHERE id = sqlc.arg(id);

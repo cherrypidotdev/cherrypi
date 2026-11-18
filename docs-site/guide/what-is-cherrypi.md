@@ -33,7 +33,7 @@ flowchart TB
 
   subgraph Worker["Agent host"]
     AG["cherrypi-agent"]
-    PI["pi --mode rpc"]
+    PI["Pi runtime (in-process)"]
     PTY["Terminals"]
     AG --> PI
     AG --> PTY
@@ -46,8 +46,8 @@ flowchart TB
 | Piece | What it is | Where it runs |
 | --- | --- | --- |
 | **Agency** | Go server + dashboard + scheduler + storage | A VPS, usually behind TLS |
-| **Agent** | Headless worker that spawns Pi sessions and PTYs | Any machine that can reach the agency |
-| **Pi** | The coding-agent harness the worker drives | Inside the agent's runtime |
+| **Agent** | Headless worker that runs Pi sessions and PTYs | Any machine that can reach the agency |
+| **Pi** | The coding-agent harness, embedded as a Go library | Inside the agent's process |
 | **Project** | A grouping of tasks with its own prompt and access rules | Agency |
 | **Task** | One unit of work with a prompt, state, history and artifacts | Agency (executed on an agent) |
 | **Team** | A group of users and agents; the primary way access is granted | Agency |

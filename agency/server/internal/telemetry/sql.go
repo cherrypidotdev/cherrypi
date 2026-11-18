@@ -95,9 +95,22 @@ func sqlOptions(
 
 		otelsql.WithSpanOptions(otelsql.SpanOptions{
 			OmitConnResetSession: true,
-			RowsChildOfQuery:     true,
+			OmitRows:             true,
+			DisableQuery:         true,
+			SpanFilter:           sqlSpanFilter,
 		}),
 	}
+}
+
+func sqlSpanFilter(
+	_ context.Context, method otelsql.Method, _ string, _ []driver.NamedValue,
+) bool {
+	switch method {
+	case otelsql.MethodConnBeginTx, otelsql.MethodTxCommit:
+		return false
+	}
+
+	return true
 }
 
 func sqlSpanName(_ context.Context, method otelsql.Method, query string) string {

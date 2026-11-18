@@ -98,7 +98,7 @@ message TaskTemplateContent {
   TaskSize default_size = 5;
   repeated string default_tag_ids = 6;
   repeated int32 default_team_ids = 7;
-  repeated string default_lead_actor_ids = 8;
+  string default_leader_actor_id = 8;
 }
 
 
@@ -251,7 +251,7 @@ message RenderTaskTemplateResponse {
   TaskSize size = 7;
   repeated string tag_ids = 8;
   repeated int32 team_ids = 9;
-  repeated string lead_actor_ids = 10;
+  string leader_actor_id = 10;
   
   string args_json = 11;
 }

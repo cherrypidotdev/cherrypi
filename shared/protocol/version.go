@@ -18,9 +18,18 @@ package protocol
 
 import "golang.org/x/mod/semver"
 
-const Version = "v0.1.10"
+const Version = "v0.3.5"
 
 const TaskInputAnswersVersion = "v0.1.7"
+
+const AutomatedTasksVersion = "v0.3.0"
+
+func AtLeast(agent, want string) bool {
+	if !semver.IsValid(agent) || !semver.IsValid(want) {
+		return false
+	}
+	return semver.Compare(agent, want) >= 0
+}
 
 type Compatibility int64
 

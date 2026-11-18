@@ -57,7 +57,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   main.flex.min-w-0.flex-1.flex-col
     header.flex.flex-wrap.items-center.gap-x-4.gap-y-2.border-b.px-4.py-2
       .flex.min-w-0.flex-1.flex-col
-        p.text-muted-foreground.text-xs {{ item.blurb }}
         h2.flex.items-center.gap-1.text-sm.font-semibold
           span {{ item.name }}
           span.text-muted-foreground /

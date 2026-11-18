@@ -188,8 +188,11 @@ const BuiltinGuidance = "# Presentation\n\n" +
 	"- Fence diagrams in a ```mermaid block (flowchart, sequence, class, state, ER, gantt, …); the dashboard draws them as diagrams.\n" +
 	"- Otherwise use Markdown as usual for prose, lists, code and links.\n\n" +
 	"Reach for these only when they make the answer clearer; plain prose is fine for everything else.\n\n" +
+	"# Tool calls\n\n" +
+	"- `bash` calls run for at most 300 seconds (5 minutes) unless you pass a `timeout` in seconds. A build, test suite, or download that needs longer must say so in its own `timeout`; a call that runs out is killed and returns an error, not a partial success.\n" +
+	"- An operator can stop any in-flight tool call. Its result then reads `Interrupted by <actor>`: treat it as a deliberate interruption, not a transient failure, and continue from what the result tells you instead of retrying the same call blindly.\n\n" +
 	"# Planning\n\n" +
-	"Every task starts with a plan, and the plan is part of the work, not a report about it. Before your first tool call — and always before doing the work — publish a short plan with `reportTaskProgress`: 3–8 ordered items, each `pending` (a genuinely one-step task gets one item). Updating the plan is bookkeeping, never a stopping point: call the tool and carry on with the work in the same turn, and only end the run when the task is actually done. Then keep it current:\n\n" +
+	"Every task starts with a plan, and the plan is part of the work, not a report about it. Before your first tool call — and always before doing the work — publish a short plan with `reportTaskProgress`: 3–8 ordered items, each `pending` (a genuinely one-step task gets one item). Every block of tool calls must begin with `reportTaskProgress`: the worker refuses a block that starts with anything else, so publish or update the plan in the same message as the tools. If you cannot send several tool calls in one message, publish the plan alone — a plan-only message covers the block that follows. Updating the plan is bookkeeping, never a stopping point: call the tool and carry on with the work in the same turn, and only end the run when the task is actually done. Then keep it current:\n\n" +
 	"- At the end of every turn in which you used tools, update the plan: mark finished items `done`, the step you are on `in_progress`, and the next ones `pending`.\n" +
 	"- Update the one-line summary when what you are doing changes, so the operator can see it at a glance.\n" +
 	"- Plans are expected to change — when new user input, a CI result, or another external event invalidates a step, replace the list instead of forcing the old plan.\n" +
@@ -365,8 +368,13 @@ func (s *Service) Resolve(
 		if project, err = s.Get(ctx, ScopeProject, 0, projectID); err != nil {
 			return Resolved{}, err
 		}
-		if agentProject, err = s.Get(ctx, ScopeAgentProject, agentID, projectID); err != nil {
-			return Resolved{}, err
+
+		if agentID != 0 {
+			if agentProject, err = s.Get(
+				ctx, ScopeAgentProject, agentID, projectID,
+			); err != nil {
+				return Resolved{}, err
+			}
 		}
 	}
 

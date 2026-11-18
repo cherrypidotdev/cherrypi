@@ -88,6 +88,8 @@ export interface UsageTaskRow {
   archived: boolean;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   cost: number;
   activeMs: number;
 
@@ -295,6 +297,7 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
         thinkingOf({
           activeMs: Number(bucket.activeMs),
           toolMs: Number(bucket.toolMs),
+          modelWaitMs: Number(bucket.modelWaitMs),
         }),
       0,
     );
@@ -310,6 +313,8 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       cost: usage.value?.cost ?? 0,
       inputTokens: Number(usage.value?.inputTokens ?? 0),
       outputTokens: Number(usage.value?.outputTokens ?? 0),
+      cacheReadTokens: Number(usage.value?.cacheReadTokens ?? 0),
+      cacheWriteTokens: Number(usage.value?.cacheWriteTokens ?? 0),
       activeMs,
       runs,
       tasks: buckets.length,
@@ -348,11 +353,14 @@ export function useUsageAnalytics(options: UsageAnalyticsOptions) {
       archived: task?.archived ?? false,
       inputTokens: bucket.inputTokens,
       outputTokens: bucket.outputTokens,
+      cacheReadTokens: bucket.cacheReadTokens,
+      cacheWriteTokens: bucket.cacheWriteTokens,
       cost: bucket.cost,
       activeMs: bucket.activeMs,
       thinkingMs: thinkingOf({
         activeMs: bucket.activeMs,
         toolMs: bucket.toolMs,
+        modelWaitMs: bucket.modelWaitMs,
       }),
       toolMs: bucket.toolMs,
       modelWaitMs: bucket.modelWaitMs,

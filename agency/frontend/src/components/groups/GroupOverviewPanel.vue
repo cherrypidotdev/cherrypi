@@ -32,6 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TableRow
               TableHead {{ t("groups.memberColumn") }}
               TableHead {{ t("common.status") }}
+              TableHead {{ t("agentConcurrency.title") }}
               TableHead {{ t("groups.overview.lastSeen") }}
           TableBody
             TableRow(v-for="member in members" :key="member.agentId")
@@ -47,6 +48,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   :variant="isOnline(member.agentId) ? 'secondary' : 'outline'"
                 )
                   | {{ isOnline(member.agentId) ? t("nav.online") : t("nav.offline") }}
+              TableCell
+                ConcurrencyTrack(
+                  v-if="fleetStat(member.agentId)"
+                  :label="member.agent?.name || member.agent?.username || ''"
+                  size="sm"
+                  :used="fleetStat(member.agentId)?.used ?? 0"
+                  :cap="fleetStat(member.agentId)?.cap ?? 1"
+                  :waiting="fleetStat(member.agentId)?.waiting ?? 0"
+                )
+                span.text-muted-foreground.text-2xs(v-else) —
               TableCell.text-muted-foreground
                 | {{ formatTimestamp(member.lastSeenAt) }}
 
@@ -85,6 +96,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import ActorBadge from "@/components/ActorBadge.vue";
+import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -104,6 +116,7 @@ import {
 } from "@/components/ui/table";
 import { useAgentGroups } from "@/composables/useAgentGroups";
 import { useAgents } from "@/composables/useAgents";
+import { useGroupMemberConcurrency } from "@/composables/useGroupMemberConcurrency";
 import { formatTimestamp } from "@/lib/format";
 import type { AgentGroupMember, AgentGroupProject } from "@cherrypi/sdk";
 import { AgentStatus } from "@cherrypi/sdk";
@@ -118,6 +131,7 @@ const { agents, loadAgents } = useAgents();
 
 const members = ref<AgentGroupMember[]>([]);
 const projects = ref<AgentGroupProject[]>([]);
+const { fleetStat } = useGroupMemberConcurrency(members);
 
 const slug = computed(() => String(route.params.slug ?? ""));
 const group = computed(() => groupBySlug(slug.value));

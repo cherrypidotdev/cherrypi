@@ -76,6 +76,12 @@ message TaskUsage {
   
   int64 ttft_ms = 14;
   int64 ttft_runs = 15;
+  
+  
+  
+  
+  int64 cache_read_tokens = 16;
+  int64 cache_write_tokens = 17;
 }
 
 
@@ -109,6 +115,8 @@ message GetUsageResponse {
   repeated TaskUsage tasks = 4;
   
   repeated UsageDay days = 5;
+  int64 cache_read_tokens = 6;
+  int64 cache_write_tokens = 7;
 }
 
 
@@ -118,4 +126,6 @@ message UsageDay {
   int64 input_tokens = 2;
   int64 output_tokens = 3;
   double cost = 4;
+  int64 cache_read_tokens = 5;
+  int64 cache_write_tokens = 6;
 }

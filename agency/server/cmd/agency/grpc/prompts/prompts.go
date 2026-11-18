@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/actorid"
@@ -59,7 +60,14 @@ func (s *PromptServer) GetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
+	target, err := s.targetForCaller(
+		ctx,
+		req.Scope,
+		req.AgentId,
+		req.TeamId,
+		req.GroupId,
+		req.ProjectId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +95,14 @@ func (s *PromptServer) SetPrompt(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
+	target, err := s.targetForCaller(
+		ctx,
+		req.Scope,
+		req.AgentId,
+		req.TeamId,
+		req.GroupId,
+		req.ProjectId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +121,14 @@ func (s *PromptServer) ListPromptVersions(
 	ctx context.Context,
 	req *agencyv1.ListPromptVersionsRequest,
 ) (*agencyv1.ListPromptVersionsResponse, error) {
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
+	target, err := s.targetForCaller(
+		ctx,
+		req.Scope,
+		req.AgentId,
+		req.TeamId,
+		req.GroupId,
+		req.ProjectId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +188,14 @@ func (s *PromptServer) CreatePromptProposal(
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetFromProto(req.Scope, req.AgentId, req.TeamId, req.GroupId, req.ProjectId)
+	target, err := s.targetForCaller(
+		ctx,
+		req.Scope,
+		req.AgentId,
+		req.TeamId,
+		req.GroupId,
+		req.ProjectId,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +233,8 @@ func (s *PromptServer) ListPromptProposals(
 		Before: req.BeforeId,
 	}
 	if !req.Mine {
-		target, err := targetFromProto(
+		target, err := s.targetForCaller(
+			ctx,
 			req.Scope,
 			req.AgentId,
 			req.TeamId,
@@ -608,6 +638,35 @@ func targetFromProto(
 		GroupID:   groupID,
 		ProjectID: projectID,
 	}, nil
+}
+
+func (s *PromptServer) targetForCaller(
+	ctx context.Context,
+	scope agencyv1.PromptScope,
+	agentID string, teamID, groupID int64, projectID string,
+) (promptaccess.Target, error) {
+	if strings.TrimSpace(agentID) == "" &&
+		(scope == agencyv1.PromptScope_PROMPT_SCOPE_AGENT ||
+			scope == agencyv1.PromptScope_PROMPT_SCOPE_AGENT_PROJECT) {
+		if identity, ok := auth.IdentityFrom(ctx); ok && identity.Kind == "agent" {
+
+			if s.Agents == nil {
+				return promptaccess.Target{}, connect.NewError(
+					connect.CodeUnavailable,
+					errors.New("the agent registry is unavailable"),
+				)
+			}
+			agent, err := s.Agents.GetByActor(ctx, identity.ActorID)
+			if err != nil {
+				return promptaccess.Target{}, connect.NewError(
+					connect.CodeNotFound,
+					errors.New("agent not found"),
+				)
+			}
+			agentID = actorid.Format(agent.ID)
+		}
+	}
+	return targetFromProto(scope, agentID, teamID, groupID, projectID)
 }
 
 func (s *PromptServer) promptToProto(ctx context.Context, p prompts.Prompt) *agencyv1.Prompt {

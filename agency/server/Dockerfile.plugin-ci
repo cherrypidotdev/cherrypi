@@ -66,6 +66,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
   --mount=type=cache,target=/root/.cache/go-build \
   cd agency/server && go run ./internal/store/gen
 
+# These are the release binaries with `-tags dev`, so keep DWARF and the
+# symbol table here too: the external debugger path (gdb/delve) maps an address
+# back to the Go source through them, and a core dump is useless without them.
+# Runtime stack traces do not depend on it. Never add `-s`/`-w`.
 RUN --mount=type=cache,target=/go/pkg/mod \
   --mount=type=cache,target=/root/.cache/go-build \
   cd agency/server \
@@ -89,12 +93,14 @@ FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 ENV NVM_DIR=/opt/nvm
-ENV NODE_VERSION=22.21.1
+ENV NODE_VERSION=26.13.1
 
+# The runtime must carry libatomic: Node 26's official linux-x64 build links
+# it, and the ubuntu:24.04 base image does not ship it.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   apt-get update && apt-get install -y --no-install-recommends \
-  wget ca-certificates curl git openssh-client
+  wget ca-certificates curl git libatomic1 openssh-client
 
 RUN mkdir -p "$NVM_DIR" \
   && curl --silent -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash \

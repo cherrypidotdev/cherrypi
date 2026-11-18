@@ -31,6 +31,12 @@ RETURNING *;
 -- name: GetTeam :one
 SELECT * FROM teams WHERE id = sqlc.arg(id);
 
+-- name: ListTeamsByIDs :many
+
+
+SELECT * FROM teams
+WHERE id = ANY (string_to_array(sqlc.arg(ids)::text, ',')::bigint[]);
+
 -- name: GetTeamByName :one
 SELECT * FROM teams WHERE lower(name) = lower(sqlc.arg(name));
 

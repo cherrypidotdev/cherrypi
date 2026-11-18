@@ -258,6 +258,10 @@ message ListAgentProjectsResponse {
 }
 
 message ListAgentMembershipsRequest {
+  
+  
+  
+  
   string agent_id = 1;
 }
 

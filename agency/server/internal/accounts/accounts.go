@@ -294,6 +294,21 @@ func (s *Service) GetActor(ctx context.Context, id ids.ActorID) (Actor, error) {
 	return actorFromRows(row, user), nil
 }
 
+func (s *Service) ActorsByIDs(
+	ctx context.Context,
+	ids []ids.ActorID,
+) ([]Actor, error) {
+	rows, err := s.store.ListActorsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Actor, len(rows))
+	for i, row := range rows {
+		out[i] = actorFromRows(row, nil)
+	}
+	return out, nil
+}
+
 func (s *Service) GetUserByUsername(ctx context.Context, username string) (Actor, error) {
 	row, err := s.store.GetUserByUsername(ctx, username)
 	if err != nil {

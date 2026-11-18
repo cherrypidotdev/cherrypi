@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { createResizablePane } from "@/composables/usePaneWidth";
 import { ref } from "vue";
 
 const STORAGE_KEY = "cherrypi.task.details";
@@ -28,6 +29,13 @@ function load(): boolean {
 }
 
 const open = ref(load());
+
+const pane = createResizablePane("cherrypi.task.details-width", {
+  fallback: 320,
+  min: 240,
+  max: 640,
+  edge: "left",
+});
 
 function persist() {
   try {
@@ -53,6 +61,12 @@ export function useTaskDetails() {
     open,
     toggle: toggleTaskDetails,
     setOpen: setTaskDetailsOpen,
+    width: pane.width,
+    resizing: pane.dragging,
+    minWidth: pane.min,
+    maxWidth: pane.max,
+    startResize: pane.startResize,
+    resizeByKey: pane.resizeByKey,
     reload,
   };
 }

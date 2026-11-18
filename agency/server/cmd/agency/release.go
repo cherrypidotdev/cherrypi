@@ -36,6 +36,11 @@ var _ string
 //go:embed frontenddist/*
 var frontendDistFs embed.FS
 
+// The SPA always ships source maps (agency/frontend/vite.config.ts), and the
+
+//go:embed frontenddist/assets/*.map
+var _ embed.FS
+
 func frontendFS() (fs.FS, error) {
 	return fs.Sub(frontendDistFs, "frontenddist")
 }

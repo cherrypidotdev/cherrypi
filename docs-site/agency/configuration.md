@@ -31,6 +31,7 @@ they are stored in the database and apply immediately.
 | `CHERRYPI_ATTACHMENT_MAX_BYTES` | `26214400` (25 MiB) | Per-file upload limit. |
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Attachments per message. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Process-log files to retain. |
+| `CHERRYPI_SECRET_KEY` | — | Base64 32-byte key that seals agency-held provider keys. A wrong length stops the boot. See [provider secrets](/reference/environment#provider-secrets). |
 | `CHERRYPI_H2C` | off | Serve cleartext HTTP/2. Diagnostic/direct-agent use only. |
 | `CHERRYPI_OTEL_ENABLED` | auto | Enable OTLP traces, metrics and logs. Auto-on when an OTLP endpoint is set. |
 | `CHERRYPI_FRONTEND_PROXY_URL` | — | Development only: proxy the SPA to Vite. |
@@ -130,6 +131,7 @@ the `minio-init` service creates it.
 | Section | What you configure |
 | --- | --- |
 | General | The read-only public URL (from `CHERRYPI_PUBLIC_URL`), agency name, logo, favicon, primary color, the default Overview widget layouts, and the automatic task-archive policy. |
+| Models | Providers, their sealed keys, models and grants. Requires `CHERRYPI_SECRET_KEY`. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |
@@ -139,19 +141,55 @@ the `minio-init` service creates it.
 
 See [Authentication and teams](/agency/authentication) for the identity model.
 
+### Models, pricing and usage
+
+**Settings → Models** holds the providers the agency proxies: the base URL, the
+wire API, the sealed key, the models, and who may use them. These are the only
+models an agent offers: it keeps no model configuration of its own, so an
+unconfigured provider contributes nothing to a task's picker, however many models
+it ships in its catalog.
+
+A provider such as OpenRouter serves thousands of models, so the editor pages
+through them twenty at a time (the page size is selectable) and filters by model
+id or display name; **Fetch models** still stores every returned model, and
+saving always writes the whole list, not just the visible page.
+
+**OAuth logins are not supported.** The agency holds one API key per provider and
+implements no OAuth flow, so a Claude Pro/Max, Codex or Copilot subscription
+cannot be used. Configure an API key on the provider page instead.
+
+Each model carries per-million-token prices — input, output, cached input and
+cache write. **Fetch models** fills them from the provider's own `/models`
+response when it publishes pricing (OpenRouter does) and from the built-in
+models.dev snapshot otherwise; a value neither source knows stays zero and can
+be corrected by hand. The agency stores these rates and delivers them to the
+agent with the catalog.
+
+Usage is priced by the agent as it runs, from those rates: every request's input,
+output, cached-input and cache-write tokens are multiplied by the model's prices,
+and the totals are pushed to the agency, where **Usage** shows spend per task,
+agent and model. The cached-input and cache-write counts are stored beside the
+cost, so a model that caches shows how much of its input came from the cache (the
+providers that report caching differ, and a provider that reports none leaves
+both at zero). A wrong rate therefore shows up as wrong spend, which is why the
+prices are editable on the provider page. A model the catalog does not price
+records tokens with a zero cost.
+
 ### Automatic archive
 
 Completed and cancelled tasks leave the active lists after **30 days** by
 default. **Settings → General → Automatic archive** changes the delay (1–3650
 days) or switches the policy off. Archiving also deletes the task's agent-side
-Pi session and workspace; when the agent is offline, the cleanup stays pending
-and can be retried from the task.
+session and workspace; when the agent is offline, that workspace cleanup stays
+pending and can be retried from the task. The conversation stays stored in the
+agency, so an unarchive resumes from it.
 
 A project owner may override the policy in **Project settings → Tasks**: follow
 the organization's policy, use the project's own delay, or never auto-archive
 that project's tasks. The archive is reversible: an archived task keeps its
-state, can be unarchived, and a follow-up prompt (from the console, a plugin or
-a review wake) brings it back to the active lists and runs it.
+prompt, links, artifacts, logs and conversation and can be unarchived. A
+follow-up prompt (from the console, a plugin or a review wake) brings it back to
+the active lists and resumes it.
 
 ### Overview widget layouts
 

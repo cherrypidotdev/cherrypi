@@ -17,9 +17,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.flex-col.border-l(
+aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-col.border-l(
   v-if="open && task"
+  :style="{ width: `${width}px` }"
 )
+  .group.absolute.inset-y-0.-left-1.z-20.w-2.cursor-col-resize.touch-none(
+    role="separator"
+    aria-orientation="vertical"
+    tabindex="0"
+    class="focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+    :aria-label="$t('taskDetails.resize')"
+    :title="$t('taskDetails.resize')"
+    :aria-valuenow="width"
+    :aria-valuemin="minWidth"
+    :aria-valuemax="maxWidth"
+    @pointerdown="startResize"
+    @keydown="onResizeKey"
+    data-testid="task-details-resize"
+  )
+    .mx-auto.h-full.w-px.transition-colors(
+      :class="resizing ? 'bg-primary' : 'bg-transparent group-hover:bg-border'"
+    )
   .no-scrollbar.flex.h-11.shrink-0.items-center.gap-1.overflow-x-auto.border-b.px-4
     button.flex.items-center.rounded-md.px-2.py-1.text-xs.font-medium.whitespace-nowrap(
       v-for="option in detailsTabs"
@@ -64,9 +82,9 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
         template(v-else)
           .flex.items-center.gap-2(v-if="task.assigneeActorId")
             RouterLink.flex.items-center.gap-2(
-              v-if="usernameFor(task.assigneeActorId)"
+              v-if="agentUsername(task.assigneeActorId)"
               class="hover:underline"
-              :to="{ name: 'agent', params: { username: usernameFor(task.assigneeActorId) } }"
+              :to="{ name: 'agent', params: { username: agentUsername(task.assigneeActorId) } }"
             )
               span.size-5.shrink-0(
                 :innerHTML="agentAvatar(task.assigneeActorId)"
@@ -152,28 +170,20 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
             :to="{ name: 'project', params: { slug: projectSlug(task.projectId) } }"
           ) {{ projectName(task.projectId) }}
           span.text-muted-foreground.text-sm(v-else) {{ $t("taskDetails.noProject") }}
-      .flex.flex-col(v-if="!task.interactive" class="gap-0.5")
+      .flex.flex-col(v-if="task.automated" class="gap-0.5")
         span.text-muted-foreground.text-xs {{ $t("taskDetails.mode") }}
         span.inline-flex.w-fit.items-center.gap-1.rounded-full.border.px-2.text-xs(
           class="py-0.5"
-          :title="$t('taskDetails.nonInteractiveHint')"
-          data-testid="task-non-interactive-detail"
+          :title="$t('taskDetails.automatedHint')"
+          data-testid="task-automated-detail"
         )
-          MessageSquareOffIcon.size-3
-          | {{ $t("tasksTable.nonInteractive") }}
+          CogIcon.size-3
+          | {{ $t("tasksTable.automated") }}
 
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs {{ $t("taskDetails.taskId") }}
         span.font-mono.text-xs.break-all(:title="task.id") {{ task.id }}
-      .flex.flex-col(v-if="task.parentTaskId" class="gap-0.5")
-        span.text-muted-foreground.text-xs {{ $t("taskLog.kind.parent") }}
-        RouterLink.font-mono.text-xs(
-          class="hover:underline"
-          :to="{ name: 'task', params: { id: task.parentTaskId } }"
-          :title="$t('taskDetails.subTaskOf')"
-          data-testid="task-parent-breadcrumb"
-        ) {{ task.parentTaskId }}
       .flex.flex-col(
         v-if="task.originTaskId"
         class="gap-0.5"
@@ -257,43 +267,28 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 @select.prevent
               ) {{ team.team_name }}
       .flex.flex-col(class="gap-0.5")
-        span.text-muted-foreground.text-xs {{ $t("domainLog.kind.leads") }}
+        span.text-muted-foreground.text-xs {{ $t("taskDetails.leader") }}
         .flex.flex-wrap.items-center.gap-1
-          span.inline-flex.items-center.gap-1.rounded-full.border.pr-2.pl-1.text-xs(
-            v-for="lead in task.leads"
-            :key="lead.actorId"
-            class="py-0.5"
-          )
-            ActorAvatar(
-              :src="lead.pictureUrl"
-              :name="lead.name"
-              :username="lead.username"
-              :size="16"
-            )
-            span {{ lead.name || lead.username || lead.actorId }}
-            button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
-              v-if="canRemoveLead"
-              type="button"
-              class="p-0.5 hover:opacity-100"
-              :title="$t('express.removeLead')"
-              @click="$emit('toggle-lead', lead.actorId)"
-              :disabled="saving.leads"
-            )
-              XIcon.size-3
-          span.text-muted-foreground.text-xs(v-if="!task.leads.length")
-            | {{ $t("taskDetails.noLead") }}
           DropdownMenu
             DropdownMenuTrigger(as-child)
-              Button(
+              button.inline-flex.items-center.gap-1.rounded-full.border.px-1.text-xs(
                 type="button"
-                variant="ghost"
-                size="icon-sm"
-                :title="$t('taskDetails.editLeads')"
-                :disabled="saving.leads"
+                class="hover:bg-muted/60 py-0.5 disabled:opacity-60"
+                :title="$t('taskDetails.changeLeader')"
+                :disabled="saving.leader"
               )
-                PlusIcon.size-3
+                template(v-if="task.leader")
+                  ActorAvatar(
+                    :src="task.leader.pictureUrl"
+                    :name="task.leader.name"
+                    :username="task.leader.username"
+                    :size="16"
+                  )
+                  span {{ task.leader.name || task.leader.username || task.leader.actorId }}
+                span.text-muted-foreground(v-else) {{ $t("taskDetails.noLeader") }}
+                ChevronDownIcon.text-muted-foreground.size-3
             DropdownMenuContent.w-56(align="start")
-              DropdownMenuLabel {{ $t("domainLog.kind.leads") }}
+              DropdownMenuLabel {{ $t("taskDetails.leader") }}
               DropdownMenuFilter(
                 v-model="leadSearch"
                 :placeholder="$t('express.searchMembers')"
@@ -304,20 +299,32 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
                 v-if="!filteredLeadCandidates.length"
               )
                 | {{ $t("express.noMembers") }}
-              DropdownMenuCheckboxItem(
-                v-for="candidate in filteredLeadCandidates"
-                :key="candidate.actor_id"
-                :model-value="leadIds.includes(candidate.actor_id)"
-                @update:model-value="$emit('toggle-lead', candidate.actor_id)"
-                @select.prevent
+              DropdownMenuRadioGroup(
+                :model-value="leaderChoice"
+                @update:model-value="pickLeader"
               )
-                ActorAvatar(
-                  :src="candidate.picture_url"
-                  :name="candidate.name"
-                  :username="candidate.username"
-                  :size="18"
+                DropdownMenuRadioItem(v-if="canRemoveLead" :value="NO_LEADER") {{ $t("taskDetails.noLeader") }}
+                DropdownMenuRadioItem(
+                  v-for="candidate in filteredLeadCandidates"
+                  :key="candidate.actor_id"
+                  :value="candidate.actor_id"
                 )
-                span {{ candidate.name || candidate.username }}
+                  ActorAvatar(
+                    :src="candidate.picture_url"
+                    :name="candidate.name"
+                    :username="candidate.username"
+                    :size="18"
+                  )
+                  span {{ candidate.name || candidate.username }}
+          button.inline-flex.shrink-0.items-center.rounded-full.opacity-60.transition-opacity(
+            v-if="canRemoveLead && task.leader"
+            type="button"
+            class="p-0.5 hover:opacity-100"
+            :title="$t('express.removeLead')"
+            @click="$emit('set-leader', '')"
+            :disabled="saving.leader"
+          )
+            XIcon.size-3
       .flex.flex-col(class="gap-0.5")
         span.text-muted-foreground.text-xs {{ $t("account.tabs.notifications") }}
         Button(
@@ -421,30 +428,6 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       )
 
     .flex.flex-col.gap-1(
-      v-if="detailsTab === 'general' && task.childTasks.length"
-      data-testid="task-subtasks"
-    )
-      .flex.items-center.justify-between.gap-2
-        span.text-muted-foreground.text-xs {{ $t("taskDetails.subTasks") }}
-        span.text-muted-foreground.text-xs
-          | {{ $t("taskDetails.openChildren", { count: task.pendingChildren }) }}
-      .flex.flex-col.gap-1
-        RouterLink.flex.items-center.gap-2.rounded-md.border.px-2.py-1.text-xs(
-          v-for="child in task.childTasks"
-          :key="child.id"
-          class="hover:bg-muted/50"
-          :to="{ name: 'task', params: { id: child.id } }"
-          :title="child.name || child.prompt || child.id"
-        )
-          component.text-muted-foreground.size-3.shrink-0(
-            :is="taskStateIcon(child.state)"
-          )
-          span.shrink-0.font-mono {{ child.id }}
-          span.truncate {{ child.name || child.prompt || "Untitled" }}
-          span.text-muted-foreground.ml-auto.shrink-0
-            | {{ $t(taskStateKey(child.state)) }}
-
-    .flex.flex-col.gap-1(
       v-if="detailsTab === 'general' && task.holds.length"
       data-testid="task-holds"
     )
@@ -521,6 +504,12 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           Skeleton.h-3.w-24(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else)
             | {{ $t("usage.kpis.inOutCounts", { in: formatTokens(taskUsage.inputTokens), out: formatTokens(taskUsage.outputTokens) }) }}
+        .flex.items-baseline.justify-between.gap-3(v-if="cacheTokens > 0")
+          span.text-muted-foreground(
+            :title="$t('taskDetails.usage.cacheHint')"
+          ) {{ $t("taskDetails.usage.cache") }}
+          span.font-medium.tabular-nums
+            | {{ $t("taskDetails.usage.cacheDetail", { read: formatTokens(Number(taskUsage?.cacheReadTokens ?? 0)), write: formatTokens(Number(taskUsage?.cacheWriteTokens ?? 0)) }) }}
         .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground {{ $t("taskDetails.usage.totalCost") }}
           Skeleton.h-3.w-16(v-if="!taskUsage")
@@ -565,6 +554,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
       TaskComments(
         :task-id="task.id"
         :project-id="task.projectId"
+        :preview="commentsPreview"
         @read="$emit('comments-read')"
         @open-attachment="$emit('open-attachment', $event)"
       )
@@ -597,43 +587,20 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.w-80.shrink-0.fl
           :data-testid="`logs-tab-${option.value}`"
         ) {{ $t(option.labelKey) }}
       TaskLogs(v-if="logsTab === 'activity'" :logs="task.logs")
-      TaskToolCalls(v-else v-model:names="toolFilter" :task-id="task.id")
+      TaskToolCalls(
+        v-else
+        v-model:names="toolFilter"
+        :task-id="task.id"
+        :preview="toolCallsPreview"
+      )
 
     .flex.flex-col.gap-3(v-if="detailsTab === 'system'")
-      TaskTools(:task-id="task.id" @filter="filterToolCalls")
-
-      Disclosure(v-slot="{ open }")
-        DisclosureButton.group.flex.w-full.items-center.gap-1.text-left
-          ChevronRightIcon.size-3.shrink-0.transition-transform(
-            :class="open ? 'rotate-90' : ''"
-          )
-          span.text-muted-foreground.text-xs {{ $t("taskDetails.systemPrompt") }}
-        DisclosurePanel.mt-2.flex.flex-col.gap-1
-          p.text-muted-foreground.text-xs(v-if="!systemPrompt.length") —
-          template(
-            v-for="section in systemPrompt"
-            :key="`${section.scope}:${section.groupId ?? ''}:${section.teamId ?? ''}`"
-          )
-            Disclosure.overflow-hidden.rounded-md.border(
-              as="div"
-              v-slot="{ open: sectionOpen }"
-            )
-              DisclosureButton.flex.w-full.items-center.gap-1.px-2.text-left(
-                class="hover:bg-muted/60 py-1.5"
-              )
-                ChevronRightIcon.size-3.shrink-0.transition-transform(
-                  :class="sectionOpen ? 'rotate-90' : ''"
-                )
-                span.text-xs {{ sectionLabel(section) }}
-              DisclosurePanel.border-t.px-2.py-2
-                pre.text-muted-foreground.font-sans.text-xs.break-words.whitespace-pre-wrap(
-                  v-if="section.content"
-                ) {{ section.content }}
-                span.text-muted-foreground.text-xs.italic(v-else) {{ $t("taskDetails.noPrompt") }}
-          p.text-muted-foreground.text-xs.italic(v-if="systemPromptPreview")
-            | {{ $t("taskDetails.promptPinnedHint") }}
-          p.text-muted-foreground.text-xs.italic(v-if="!task.assigneeActorId")
-            | {{ $t("taskDetails.groupPromptUnassigned") }}
+      TaskSystemPanel(
+        :task-id="task.id"
+        :preview="toolsPreview"
+        :sections="systemPrompt"
+        @filter="filterToolCalls"
+      )
 
     .bg-border.h-px(v-if="detailsTab === 'general'")
     .flex.flex-col.gap-2(v-if="detailsTab === 'general'")
@@ -784,8 +751,8 @@ import TaskComments from "@/components/tasks/TaskComments.vue";
 import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
 import TaskReferences from "@/components/tasks/TaskReferences.vue";
+import TaskSystemPanel from "@/components/tasks/TaskSystemPanel.vue";
 import TaskToolCalls from "@/components/tasks/TaskToolCalls.vue";
-import TaskTools from "@/components/tasks/TaskTools.vue";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
@@ -795,6 +762,8 @@ import {
   DropdownMenuFilter,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -809,6 +778,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgents } from "@/composables/useAgents";
 import { useProjects } from "@/composables/useProjects";
+import { useTaskDetails } from "@/composables/useTaskDetails";
 import {
   formatBytes,
   formatCost,
@@ -819,6 +789,7 @@ import {
 } from "@/lib/format";
 import type { LightboxItem } from "@/lib/lightbox";
 import type { LeadCandidate, ProjectTeamLink } from "@/lib/projectAccess";
+import type { DetailsPreview } from "@/lib/task";
 import {
   NEW_TASK_RELATIONS,
   newTaskRelationIcon,
@@ -827,14 +798,12 @@ import {
   TASK_SIZES,
   taskStateClassFor,
   taskStateIcon,
-  taskStateKey,
   taskStateKeyFor,
   type NewTaskRelation,
 } from "@/lib/task";
 import { formatArgValue, parseArgsJSON } from "@/lib/taskTemplates";
 import { tickUsage } from "@/lib/usage";
 import {
-  PromptScope,
   TaskPriority,
   TaskSize,
   TaskState,
@@ -854,14 +823,15 @@ import {
   ArrowLeftRightIcon,
   ArrowRightIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
+  CogIcon,
   EraserIcon,
   ExternalLinkIcon,
   FileCodeIcon,
   InboxIcon,
   LockIcon,
   LockOpenIcon,
-  MessageSquareOffIcon,
   PauseIcon,
   PencilIcon,
   PinIcon,
@@ -880,6 +850,13 @@ import { RouterLink } from "vue-router";
 
 const { t } = useI18n();
 
+const { width, resizing, minWidth, maxWidth, startResize, resizeByKey } =
+  useTaskDetails();
+
+function onResizeKey(event: KeyboardEvent) {
+  if (resizeByKey(event)) event.preventDefault();
+}
+
 type SavingState = {
   assignee: boolean;
   priority: boolean;
@@ -888,7 +865,7 @@ type SavingState = {
   tags: boolean;
   links: boolean;
   teams: boolean;
-  leads: boolean;
+  leader: boolean;
   subscription: boolean;
   favorite: boolean;
   model: boolean;
@@ -912,6 +889,8 @@ const props = defineProps<{
   actionBusy: boolean;
   stopping: boolean;
   canCompose: boolean;
+
+  preview?: DetailsPreview;
 }>();
 
 const emit = defineEmits<{
@@ -921,7 +900,7 @@ const emit = defineEmits<{
   (e: "size-change", value: unknown): void;
   (e: "project-change", value: unknown): void;
   (e: "toggle-team", id: number): void;
-  (e: "toggle-lead", id: string): void;
+  (e: "set-leader", id: string): void;
   (e: "toggle-tag", tag: Tag): void;
   (e: "toggle-subscription"): void;
   (e: "reference-change", task: Task): void;
@@ -943,6 +922,22 @@ const emit = defineEmits<{
   (e: "delete"): void;
   (e: "create-related", relation: NewTaskRelation): void;
 }>();
+
+const commentsPreview = computed(() =>
+  props.preview
+    ? (props.preview.comments ?? { comments: [], unread: 0 })
+    : undefined,
+);
+const toolsPreview = computed(() =>
+  props.preview
+    ? (props.preview.tools ?? { tools: [], recorded: false })
+    : undefined,
+);
+const toolCallsPreview = computed(() =>
+  props.preview
+    ? (props.preview.toolCalls ?? { calls: [], total: 0, names: [] })
+    : undefined,
+);
 
 const { agents, usernameFor, agentIdForActor } = useAgents();
 const { active: allProjects } = useProjects();
@@ -1071,6 +1066,12 @@ const ttcMs = computed(() => {
 const timingMeasured = computed(
   () => Number(props.taskUsage?.activeMs ?? 0) > 0,
 );
+
+const cacheTokens = computed(
+  () =>
+    Number(props.taskUsage?.cacheReadTokens ?? 0) +
+    Number(props.taskUsage?.cacheWriteTokens ?? 0),
+);
 const thinkingMs = computed(() => Number(props.taskUsage?.thinkingMs ?? 0));
 
 const usageFetchedAt = ref(Date.now());
@@ -1116,7 +1117,7 @@ const modelWaitMs = computed(() => Number(props.taskUsage?.modelWaitMs ?? 0));
 const generationLabel = computed(() => {
   const usage = props.taskUsage;
   if (!usage) return "—";
-  const seconds = (thinkingMs.value - modelWaitMs.value) / 1000;
+  const seconds = thinkingMs.value / 1000;
   if (seconds <= 0) return "—";
   const rate = Number(usage.outputTokens) / seconds;
   return rate > 0 ? formatRate(rate) : "—";
@@ -1146,7 +1147,7 @@ const restartTitle = computed(() => {
   if (isInput.value) {
     return "Answer or decline the questionnaire before restarting Pi";
   }
-  return "Restart Pi so it reloads the agent's models.json";
+  return "Restart the runtime so it reloads the agent's model catalog";
 });
 
 const canRework = computed(
@@ -1178,7 +1179,9 @@ const canArchive = computed(
 
 const assigneeChoice = computed(() => {
   const actorId = props.task?.assigneeActorId;
-  return actorId ? agentIdForActor(actorId) : AUTO;
+  if (!actorId) return AUTO;
+
+  return findAgent(actorId)?.id ?? agentIdForActor(actorId);
 });
 const priorityChoice = computed(
   () => props.task?.priority || TaskPriority.NORMAL,
@@ -1188,15 +1191,18 @@ const projectChoice = computed(() => props.task?.projectId ?? "");
 const teamIds = computed(() =>
   (props.task?.teams ?? []).map((team) => team.id),
 );
-const leadIds = computed(() =>
-  (props.task?.leads ?? []).map((lead) => lead.actorId),
-);
+
+const NO_LEADER = "__none__";
+const leaderChoice = computed(() => props.task?.leader?.actorId ?? NO_LEADER);
 
 const canRemoveLead = computed(() => {
   const state = props.task?.state;
-  const leadless = state === TaskState.BACKLOG || state === TaskState.CANCELLED;
-  return leadless || leadIds.value.length > 1;
+  return state === TaskState.BACKLOG || state === TaskState.CANCELLED;
 });
+function pickLeader(value: unknown): void {
+  if (typeof value !== "string") return;
+  emit("set-leader", value === NO_LEADER ? "" : value);
+}
 const teamSearch = ref("");
 const leadSearch = ref("");
 const filteredProjectTeams = computed(() => {
@@ -1221,46 +1227,36 @@ const projectComboboxOptions = computed<ComboboxOption[]>(() =>
   })),
 );
 
-const systemPromptPreview = computed(
-  () => props.systemPrompt.length > 0 && !props.systemPrompt[0]?.pinned,
-);
+function findProject(id: string): Project | undefined {
+  return (
+    props.projectOptions.find((project) => project.id === id) ??
+    allProjects.value.find((project) => project.id === id)
+  );
+}
 
-const PROMPT_SCOPE_LABELS: Record<number, string> = {
-  [PromptScope.ORG]: "Organization Prompt",
-  [PromptScope.AGENT]: "Agent Prompt",
-  [PromptScope.PROJECT]: "Project Prompt",
-  [PromptScope.AGENT_PROJECT]: "Agent-Project prompt",
-  [PromptScope.TEAM]: "Team Prompt",
-  [PromptScope.TEAM_PROJECT]: "Team-Project prompt",
-  [PromptScope.GROUP]: "Group Prompt",
-  [PromptScope.GROUP_PROJECT]: "Group-Project prompt",
-  [PromptScope.GROUP_TEAM]: "Group-Team prompt",
-  [PromptScope.BUILTIN]: "Built-in guidance",
-};
-
-function sectionLabel(section: SystemPromptSection): string {
-  const base = PROMPT_SCOPE_LABELS[section.scope] ?? "Prompt";
-  const owner = section.owner ? ` (${section.owner})` : "";
-  const version = section.version > 0 ? `Version ${section.version}` : "Unset";
-  return `${base}${owner} -- ${version}`;
+function findAgent(id: string): Agent | undefined {
+  return (
+    props.assigneeOptions.find(
+      (item) => item.id === id || item.actorId === id,
+    ) ?? agents.value.find((item) => item.id === id || item.actorId === id)
+  );
 }
 
 function projectName(id: string): string {
-  return (
-    allProjects.value.find((project) => project.id === id)?.name ??
-    id.slice(0, 8)
-  );
+  return findProject(id)?.name ?? id.slice(0, 8);
 }
 
 function projectSlug(id: string): string {
-  return allProjects.value.find((project) => project.id === id)?.slug ?? "";
+  return findProject(id)?.slug ?? "";
 }
 
 function agentName(id: string): string {
-  const item = agents.value.find(
-    (item) => item.id === id || item.actorId === id,
-  );
+  const item = findAgent(id);
   return item?.displayName || item?.username || id.slice(0, 8);
+}
+
+function agentUsername(id: string): string {
+  return findAgent(id)?.username ?? usernameFor(id);
 }
 
 function agentAvatar(id: string): string {
@@ -1273,6 +1269,7 @@ function agentAvatar(id: string): string {
 <i18n lang="yaml">
 en:
   taskDetails:
+    resize: "Resize task details"
     holdsSlot: "holds the agent's slot"
     noProject: "No project"
     mode: "Mode"
@@ -1280,14 +1277,18 @@ en:
     origin: "Origin"
     originDescription: "The task this one was created from."
     creator: "Creator"
-    noLead: "No lead yet — a task needs someone responsible before it runs"
+    leader: "Leader"
+    noLeader: "No leader"
+    changeLeader: "Change leader"
     noArguments: "No arguments."
     attachments: "Attachments"
     attachmentsHint: "Attach files to a message below."
-    subTasks: "Sub-tasks"
     holds: "Holds"
     usage:
       title: "Token usage"
+      cache: "Cache"
+      cacheDetail: "{read} read · {write} written"
+      cacheHint: "Input served from the provider's prompt cache and input written into it. Priced by the model's cache rates and already part of the total cost, so they are not counted again in the input/output line."
       totalCost: "Total cost"
       ttc: "Time till completion"
       active: "Active time"
@@ -1297,14 +1298,10 @@ en:
       workspace: "Workspace size"
       ttcHint: "Time from the first queue to completion. Keeps counting while the task is open and stops in backlog."
       activeHint: "The agent's work time: idle gaps and user-input waits excluded, tool calls included."
-      thinkingHint: "The model's own working time: active time minus tool calls, model waits included."
-      modelWaitHint: "The part of the thinking time spent waiting for a provider response."
-      speedHint: "Output tokens over the time the model spent generating them: thinking time minus model waits."
+      thinkingHint: "The model's own working time: active time minus tool calls and provider waits."
+      modelWaitHint: "The time spent waiting for a provider response."
+      speedHint: "Output tokens over the time the model spent generating them: thinking time."
     artifacts: "Artifacts"
-    systemPrompt: "System Prompt"
-    noPrompt: "No prompt set."
-    promptPinnedHint: "Showing the latest versions; the task pins them when it starts."
-    groupPromptUnassigned: "Group prompts resolve when an agent is assigned."
     queue: "Queue task"
     stop: "Stop run"
     restartSession: "Restart Pi session"
@@ -1316,11 +1313,9 @@ en:
     changePriority: "Change priority"
     changeSize: "Change size"
     changeProject: "Change project"
-    nonInteractiveHint: "The agent cannot show questionnaires or extension dialogs"
-    subTaskOf: "Sub-task of this task"
+    automatedHint: "Authored by the system or a plugin: no leader and no user-input tools"
     originHint: "Set once when the task was created and never changed"
     editTeams: "Edit owning teams"
-    editLeads: "Edit leads"
     removeTag: "Remove tag"
     releaseHold: "Release this hold"
     changeOutcomeHint: "Switch between completed and cancelled"
@@ -1339,7 +1334,6 @@ en:
     teamFallback: "Team {id}"
     createdFromTemplate: "Created from template version {version}"
     argumentsCount: "{count} argument | {count} arguments"
-    openChildren: "{count} open"
     pendingHolds: "{count} pending"
     heldSince: "Held since {at}"
     releaseHoldAria: "Release the {plugin} hold {key}"
@@ -1358,10 +1352,9 @@ en:
     blocksHint: "This task waits for the new one to be completed."
     supersedes: "Supersedes this task"
     supersedesHint: "The new task replaces this one and cancels it."
-    parent: "Sub-task"
-    parentHint: "The new task nests under this one."
 ru:
   taskDetails:
+    resize: "Изменить ширину подробностей"
     holdsSlot: "занимает слот агента"
     noProject: "Без проекта"
     mode: "Режим"
@@ -1369,14 +1362,18 @@ ru:
     origin: "Источник"
     originDescription: "Задача, из которой создана эта."
     creator: "Создатель"
-    noLead: "Руководителя пока нет — до запуска задаче нужен ответственный"
+    leader: "Руководитель"
+    noLeader: "Без руководителя"
+    changeLeader: "Изменить руководителя"
     noArguments: "Аргументов нет."
     attachments: "Вложения"
     attachmentsHint: "Прикрепляйте файлы к сообщению ниже."
-    subTasks: "Подзадачи"
     holds: "Удержания"
     usage:
       title: "Использование токенов"
+      cache: "Кэш"
+      cacheDetail: "{read} прочитано · {write} записано"
+      cacheHint: "Вход, прочитанный из кэша провайдера, и вход, записанный в него. Считается по ценам кэша модели и уже входит в общую стоимость, поэтому не дублируется в строке вход/выход."
       totalCost: "Общая стоимость"
       ttc: "Время до завершения"
       active: "Активное время"
@@ -1386,14 +1383,10 @@ ru:
       workspace: "Размер рабочего пространства"
       ttcHint: "Время от первой постановки в очередь до завершения. Считается, пока задача открыта, и останавливается в бэклоге."
       activeHint: "Рабочее время агента: без простоев и ожидания пользователя, включая вызовы инструментов."
-      thinkingHint: "Собственное рабочее время модели: активное время минус вызовы инструментов, включая ожидание модели."
-      modelWaitHint: "Часть времени размышления, потраченная на ожидание ответа провайдера."
-      speedHint: "Выходные токены за время генерации: время размышления минус ожидание модели."
+      thinkingHint: "Собственное рабочее время модели: активное время минус вызовы инструментов и ожидание провайдера."
+      modelWaitHint: "Время, потраченное на ожидание ответа провайдера."
+      speedHint: "Выходные токены за время генерации: время размышления."
     artifacts: "Артефакты"
-    systemPrompt: "Системный промпт"
-    noPrompt: "Промпт не задан."
-    promptPinnedHint: "Показаны последние версии; задача фиксирует их при запуске."
-    groupPromptUnassigned: "Промпты групп определяются при назначении агента."
     queue: "Поставить в очередь"
     stop: "Остановить запуск"
     restartSession: "Перезапустить сеанс Pi"
@@ -1405,11 +1398,9 @@ ru:
     changePriority: "Изменить приоритет"
     changeSize: "Изменить размер"
     changeProject: "Изменить проект"
-    nonInteractiveHint: "Агент не может показывать опросники и диалоги расширений"
-    subTaskOf: "Подзадача этой задачи"
+    automatedHint: "Создана системой или плагином: без руководителя и без инструментов ввода"
     originHint: "Задаётся при создании задачи и больше не меняется"
     editTeams: "Изменить команды-владельцы"
-    editLeads: "Изменить руководителей"
     removeTag: "Убрать тег"
     releaseHold: "Снять это удержание"
     changeOutcomeHint: "Переключить между «выполнено» и «отменено»"
@@ -1428,7 +1419,6 @@ ru:
     teamFallback: "Команда {id}"
     createdFromTemplate: "Создано из версии шаблона {version}"
     argumentsCount: "{count} аргумент | {count} аргумента | {count} аргументов"
-    openChildren: "открыто: {count}"
     pendingHolds: "{count} в ожидании"
     heldSince: "Удерживается с {at}"
     releaseHoldAria: "Снять удержание {plugin} {key}"
@@ -1447,6 +1437,4 @@ ru:
     blocksHint: "Эта задача ждёт завершения новой."
     supersedes: "Заменяет эту задачу"
     supersedesHint: "Новая задача заменяет эту и отменяет её."
-    parent: "Подзадача"
-    parentHint: "Новая задача вкладывается в эту."
 </i18n>

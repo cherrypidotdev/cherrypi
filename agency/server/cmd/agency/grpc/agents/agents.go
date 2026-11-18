@@ -76,6 +76,9 @@ func (s *AgentServer) ListAgentLogs(
 	ctx context.Context,
 	req *agencyv1.ListAgentLogsRequest,
 ) (*agencyv1.ListAgentLogsResponse, error) {
+	if err := s.requireLogReader(ctx); err != nil {
+		return nil, err
+	}
 	if s.Logs == nil {
 		return &agencyv1.ListAgentLogsResponse{}, nil
 	}
@@ -107,6 +110,26 @@ func (s *AgentServer) ListAgentLogs(
 		out[i] = toProtoAgentLog(row)
 	}
 	return &agencyv1.ListAgentLogsResponse{Logs: out}, nil
+}
+
+func (s *AgentServer) requireLogReader(ctx context.Context) error {
+	identity, ok := auth.IdentityFrom(ctx)
+	if !ok {
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("not authenticated"))
+	}
+	if identity.Kind != accounts.KindAgent {
+		return nil
+	}
+	if s.Agents != nil {
+		caller, err := s.Agents.GetByActor(ctx, identity.ActorID)
+		if err == nil && caller.Role == agents.RoleAdmin {
+			return nil
+		}
+	}
+	return connect.NewError(
+		connect.CodePermissionDenied,
+		errors.New("the admin agent role is required"),
+	)
 }
 
 func agentLogLevel(level agencyv1.AgentLogLevel) int {

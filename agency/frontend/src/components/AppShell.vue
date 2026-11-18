@@ -18,9 +18,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .bg-background.text-foreground.flex.h-screen
-  aside#agency-sidebar.bg-sidebar.text-sidebar-foreground.flex.shrink-0.flex-col.border-r.duration-200.ease-out(
-    class="transition-[width] motion-reduce:transition-none"
-    :class="collapsed ? 'w-14' : 'w-56'"
+  aside#agency-sidebar.bg-sidebar.text-sidebar-foreground.relative.flex.shrink-0.flex-col.border-r.ease-out(
+    :class="[collapsed ? 'w-14' : '', resizing ? '' : 'duration-200 transition-[width] motion-reduce:transition-none']"
+    :style="collapsed ? undefined : { width: `${sidebarWidth}px` }"
   )
     header.flex.shrink-0.items-center.gap-1.border-b(
       :class="collapsed ? 'flex-col gap-1 px-1.5 py-2' : 'h-14 px-2'"
@@ -155,11 +155,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     :username="member.agent?.username"
                     :size="20"
                   )
-                  span.border-sidebar.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
-                    :class="agentOnline(member.agentId) ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-                    :title="agentOnline(member.agentId) ? $t('nav.online') : $t('nav.offline')"
+                  AgentStatusDot(
+                    border-class="border-sidebar"
+                    :status="agentStatus(member.agentId)"
+                    :running="fleetStat(member.agentId)?.running ?? 0"
                   )
                 span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ member.agent?.name || member.agent?.username }}
+                span.ml-auto.inline-flex.shrink-0.items-center(
+                  v-if="!collapsed && fleetStat(member.agentId)"
+                  class="gap-1.5"
+                  :title="fleetTitle(member.agentId)"
+                )
+                  span.text-3xs.min-w-3.text-right.font-mono.text-amber-600(
+                    v-if="fleetStat(member.agentId)?.waiting"
+                    class="dark:text-amber-400"
+                  ) {{ fleetStat(member.agentId)?.waiting }}
+                  ConcurrencyTrack.w-10(
+                    :label="member.agent?.name || member.agent?.username || ''"
+                    size="sm"
+                    :used="fleetStat(member.agentId)?.used ?? 0"
+                    :cap="fleetStat(member.agentId)?.cap ?? 1"
+                    :waiting="0"
+                    :show-count="false"
+                    :show-waiting="false"
+                  )
           RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
             v-for="item in ungroupedAgents"
             :key="item.id"
@@ -174,9 +193,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :alt="item.displayName || item.username"
               )
               span.block.size-5(v-else :innerHTML="avatar(item)")
-              span.border-sidebar.absolute.-right-0.-bottom-0.size-2.rounded-full.border(
-                :class="item.status === AgentStatus.ONLINE ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-                :title="item.status === AgentStatus.ONLINE ? $t('nav.online') : $t('nav.offline')"
+              AgentStatusDot(
+                border-class="border-sidebar"
+                :status="item.status"
+                :running="fleetStat(item.id)?.running ?? 0"
               )
             span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ item.displayName || item.username }}
             span.ml-auto.inline-flex.shrink-0.items-center(
@@ -351,6 +371,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       )
         MoonIcon(v-if="isDark")
         SunIcon(v-else)
+
+    .group.absolute.inset-y-0.-right-1.z-20.w-2.cursor-col-resize.touch-none(
+      v-if="!collapsed"
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+      class="focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+      :aria-label="$t('nav.resizeSidebar')"
+      :title="$t('nav.resizeSidebar')"
+      :aria-valuenow="sidebarWidth"
+      :aria-valuemin="sidebarMinWidth"
+      :aria-valuemax="sidebarMaxWidth"
+      @pointerdown="startResize"
+      @keydown="onSidebarResizeKey"
+      data-testid="sidebar-resize"
+    )
+      .mx-auto.h-full.w-px.transition-colors(
+        :class="resizing ? 'bg-primary' : 'bg-transparent group-hover:bg-border'"
+      )
   .flex.flex-1.flex-col.overflow-hidden
     main.flex-1.overflow-auto
       RouterView(v-slot="{ Component }")
@@ -363,6 +402,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
+import AgentStatusDot from "@/components/AgentStatusDot.vue";
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import LanguageSwitcher from "@/components/LanguageSwitcher.vue";
 import ProjectsNav from "@/components/ProjectsNav.vue";
@@ -438,7 +478,22 @@ const router = useRouter();
 bindAttentionNavigation((to) => void router.push(to));
 
 const { settings, loadSettings } = useSettings();
-const { collapsed, toggle, isSectionOpen, toggleSection } = useSidebar();
+const {
+  collapsed,
+  toggle,
+  isSectionOpen,
+  toggleSection,
+  width: sidebarWidth,
+  resizing,
+  minWidth: sidebarMinWidth,
+  maxWidth: sidebarMaxWidth,
+  startResize,
+  resizeByKey: resizeSidebarByKey,
+} = useSidebar();
+
+function onSidebarResizeKey(event: KeyboardEvent) {
+  if (resizeSidebarByKey(event)) event.preventDefault();
+}
 
 const newTaskOpen = ref(false);
 const { projectId: pageProjectId, resolve: resolvePageProject } =
@@ -476,11 +531,8 @@ async function ensureGroupMembers(id: bigint) {
   groupMembers.value[key] = await loadGroupMembers(id);
 }
 
-function agentOnline(agentId: string): boolean {
-  return (
-    agents.value.find((agent) => agent.id === agentId)?.status ===
-    AgentStatus.ONLINE
-  );
+function agentStatus(agentId: string): AgentStatus | undefined {
+  return agents.value.find((agent) => agent.id === agentId)?.status;
 }
 
 function groupLogo(group: { name: string }): string {
@@ -608,7 +660,17 @@ watch(sidebarGroups, () => {
   });
 });
 
-const { stats: fleetStats } = useFleetConcurrency(() => sidebarAgents.value);
+const fleetAgents = computed(() => {
+  const byID = new Map(sidebarAgents.value.map((agent) => [agent.id, agent]));
+  for (const members of Object.values(groupMembers.value)) {
+    for (const member of members) {
+      const agent = agents.value.find((item) => item.id === member.agentId);
+      if (agent && !byID.has(agent.id)) byID.set(agent.id, agent);
+    }
+  }
+  return [...byID.values()];
+});
+const { stats: fleetStats } = useFleetConcurrency(() => fleetAgents.value);
 
 function fleetStat(agentId: string) {
   return fleetStats.value[agentId];
@@ -819,6 +881,7 @@ en:
     newTask: "New task"
     expandSidebar: "Expand sidebar"
     collapseSidebar: "Collapse sidebar"
+    resizeSidebar: "Resize sidebar"
     appVersion: "App version"
     online: "Online"
     offline: "Offline"
@@ -860,6 +923,9 @@ en:
     priority: "Priority"
     size: "Size"
     assignee: "Assignee"
+    creator: "Creator"
+    leader: "Leader"
+    teams: "Teams"
     cost: "Cost"
     progressHint: "The agent's reported plan: completed steps out of total"
     badgesHint: "Status an installed plugin reports for the task (the pull request, CI)"
@@ -1028,6 +1094,7 @@ en:
     resetPassword: "Reset password"
     acceptInvitation: "Accept invitation"
     orgSettings: "Organization settings"
+    provider: "Provider"
     agents: "Agents"
     tasks: "Tasks"
     task: "Task"
@@ -1133,6 +1200,7 @@ ru:
     newTask: "Новая задача"
     expandSidebar: "Развернуть панель"
     collapseSidebar: "Свернуть панель"
+    resizeSidebar: "Изменить ширину панели"
     appVersion: "Версия приложения"
     online: "В сети"
     offline: "Не в сети"
@@ -1174,6 +1242,9 @@ ru:
     priority: "Приоритет"
     size: "Размер"
     assignee: "Исполнитель"
+    creator: "Создатель"
+    leader: "Руководитель"
+    teams: "Команды"
     cost: "Стоимость"
     progressHint: "План, опубликованный агентом: выполненные шаги из общего числа"
     badgesHint: "Статус, который установленный плагин сообщает для задачи (pull request, CI)"
@@ -1342,6 +1413,7 @@ ru:
     resetPassword: "Сброс пароля"
     acceptInvitation: "Принятие приглашения"
     orgSettings: "Настройки организации"
+    provider: "Провайдер"
     agents: "Агенты"
     tasks: "Задачи"
     task: "Задача"

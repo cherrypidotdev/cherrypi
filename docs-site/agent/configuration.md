@@ -22,8 +22,7 @@ working directory (loaded automatically). Flags override the environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHERRYPI_AGENCY_URL` | — | Agency URL (required). |
-| `CHERRYPI_AGENT_TOKEN` | — | Personal access token (`pat_…`). `--token` overrides it; it wins over the cached file for the agent and the bundled Pi tools alike. |
-| `CHERRYPI_AGENT_TOKEN_FILE` | `$CHERRYPI_DIR/agent.token` | Cached token file, re-read by the bundled Pi tools on every call as the fallback to `CHERRYPI_AGENT_TOKEN`. |
+| `CHERRYPI_AGENT_TOKEN` | — | Personal access token (`pat_…`). `--token` overrides it. |
 | `CHERRYPI_DIR` | `~/.cherrypi` | Data directory: SQLite database, token, per-task workspaces. |
 | `CHERRYPI_DATABASE_DSN` | `$CHERRYPI_DIR/cherrypi.sqlite3` | Local agent database. |
 | `CHERRYPI_AGENT_TUNNEL_TRANSPORT` | `auto` | `auto`, `http2` or `websocket`. Diagnostic only. |
@@ -32,10 +31,6 @@ working directory (loaded automatically). Flags override the environment.
 | `CHERRYPI_LOG_FILE` | `$CHERRYPI_DIR/logs/agent.log` | Durable copy of the process log; empty disables it. |
 | `CHERRYPI_LOG_FILE_MAX_MB` | `8` | Size at which the log file rotates. |
 | `CHERRYPI_LOG_FILES` | `3` | Rotated log files kept (`agent.log.1` …). |
-| `PI_BIN` | `pi` | Pi executable. |
-| `PI_ARGS` | — | Extra space-separated arguments passed to Pi after `--mode rpc --session-id`. |
-| `PI_SESSION_DIR` | Pi's default | Override Pi's session storage. |
-| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's agent directory: memory, `settings.json`, provider credentials. |
 | `DISPLAY` | — | X display for the desktop bridge. |
 | `XAUTHORITY` | — | X authority file. |
 | `SHELL_BIN` | `$SHELL`, then `/bin/bash` | Shell used for root terminals. |
@@ -47,67 +42,49 @@ working directory (loaded automatically). Flags override the environment.
 
 ## Tokens
 
-A personal access token is the agent's only credential. There are two sources,
-in order of preference:
+A personal access token is the agent's only credential, and it comes from
+`--token` or `CHERRYPI_AGENT_TOKEN` on every start. Nothing is written to disk,
+so rotating a token means restarting the agent with the new value.
 
-1. **`--token` / `CHERRYPI_AGENT_TOKEN`** — an explicit token. The agent and
-   every bundled Pi tool prefer it over the cached file, so a stale file can
-   never mask a working environment token. Restart the agent to apply a new
-   token.
-2. **Cached token** — `CHERRYPI_AGENT_TOKEN_FILE`, default
-   `$CHERRYPI_DIR/agent.token`. The agent validates it at startup and discards
-   it if the agency rejects it. The bundled Pi tools re-read it on every call,
-   so an operator-written file reaches a running session without a Pi respawn.
-
-Both sides read the same two credentials in the same order. When the agency
-answers `401` to the preferred one, the bundled tools retry once with the
-other and name the rejected credential in the tool result, so a stale file or
-environment token is visible instead of looking like an outage.
-
-There is no username/password fallback. If both sources are missing, the agent
+There is no username/password fallback. If neither source is set, the agent
 exits with instructions.
-
-Treat the data directory as a secret: the cached token grants agent access.
 
 ## Data directory
 
 ```text
 $CHERRYPI_DIR/
   cherrypi.sqlite3        # local task/usage cache
-  agent.token             # cached personal access token (0600)
   sessions/<task id>/     # per-task workspaces and attachments
 ```
 
 Per-task workspaces can grow large. Put `CHERRYPI_DIR` on a disk with room for
-repositories, dependencies and build output. The agency stores the Pi session
-history, so a workspace can be recreated by re-running a task; but uncommitted
+repositories, dependencies and build output. The agency stores the task's
+session history, so a workspace can be recreated by re-running a task; but uncommitted
 files that are not attached or published as artifacts will be lost if the
 directory is deleted.
 
-## Pi configuration
+## Model configuration
 
-The agent does not configure models. Pi does, through
-`PI_CODING_AGENT_DIR` (default `~/.pi/agent`). In the container, mount that
-directory from the host so model credentials and Pi memory survive restarts.
+The agent configures no models of its own. An administrator declares the
+providers and models in the agency's **Settings → Models**; the agency seals each
+provider key and proxies every request, so the worker holds no credential and the
+declared models (narrowed by grants) are the only ones a task can choose. An
+agent with no declared model offers nothing and its tasks fail with "no models
+are available".
 
-```sh
--v /srv/cherrypi/pi:/root/.pi/agent
-```
+**OAuth logins are not supported.** The agency stores one API key per provider,
+and no OAuth flow is implemented, so a Claude Pro/Max, Codex or Copilot
+subscription cannot be used. Configure an API key on the provider page instead.
 
-The image already installs the Pi extensions CherryPi expects. If you run the
-binary yourself, install a compatible Pi version and the extensions listed in
-the release notes.
+An edited catalog reaches a running agent:
 
-Pi reads `models.json` once, when its process starts. The agency therefore keeps
-offering the catalog a warm process reported until that process restarts:
-
-- **Reset models** in **Agents → Tasks**, next to the model default, re-probes
-  the agent and shows an edited `models.json` in that dropdown (the task composer
-  picks it up the next time it opens).
-- **Restart Pi session** in a task's details drawer drops the task's warm Pi
-  process, so its next read reloads `models.json`. It is disabled while a run is
-  in flight or a questionnaire waits for an answer, because restarting would drop
-  that work.
+- **Reset models** in **Agents → Tasks**, next to the model default, re-reads
+  the catalog and shows it in that dropdown (the task composer picks it up the
+  next time it opens).
+- **Restart Pi session** in a task's details drawer drops the task's warm
+  runtime, so its next run starts from a freshly read catalog. It is disabled
+  while a run is in flight or a questionnaire waits for an answer, because
+  restarting would drop that work.
 
 ## Health sampling
 

@@ -31,9 +31,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :alt="$t('settings.auth.namePlaceholderPath')"
           )
           span.block.size-10(v-else :innerHTML="avatar")
-          span.border-background.absolute.-right-0.-bottom-0.size-3.rounded-full.border(
-            :class="online ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
-            :title="online ? $t('agentView.online') : $t('agentView.offline')"
+          AgentStatusDot(
+            size="md"
+            :status="item?.status"
+            :running="fleetStat(currentAgentId)?.running ?? 0"
           )
         .flex.min-w-0.flex-col
           h1.truncate.text-lg.font-semibold {{ name }}
@@ -154,6 +155,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import AgentStatusDot from "@/components/AgentStatusDot.vue";
 import BackButton from "@/components/BackButton.vue";
 import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
@@ -167,6 +169,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UsageDashboard from "@/components/usage/UsageDashboard.vue";
 import { useAgentAccess } from "@/composables/useAgentAccess";
 import { useAgents } from "@/composables/useAgents";
+import { useFleetConcurrency } from "@/composables/useFleetConcurrency";
 import { setPageTitle } from "@/composables/usePageTitle";
 import {
   agentStatusClass,
@@ -179,7 +182,7 @@ import {
 import type { KpiPageContext } from "@/lib/kpiWidgets";
 import { agency, currentAgentId, currentAgentUsername } from "@/lib/sdk";
 import { agentTeamApi, type Team } from "@/lib/team";
-import { AgentStatus, AgentVersionStatus, type Project } from "@cherrypi/sdk";
+import { AgentVersionStatus, type Project } from "@cherrypi/sdk";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
@@ -228,7 +231,13 @@ const name = computed(
     item.value?.username ||
     t("admin.agents.columnAgent"),
 );
-const online = computed(() => item.value?.status === AgentStatus.ONLINE);
+const { stats: fleetStats } = useFleetConcurrency(() =>
+  item.value ? [item.value] : [],
+);
+
+function fleetStat(agentId: string | undefined) {
+  return agentId ? fleetStats.value[agentId] : undefined;
+}
 const avatar = computed(() => toSvg(currentAgentId.value || "agent", 40));
 
 const canUseTerminals = computed(
@@ -279,8 +288,6 @@ en:
     oldBuild: "This agent is running a build older than the agency's. Rebuild and redeploy the agent image to update it."
     incompatible: "This agent's protocol is incompatible with the agency, so its tunnel is refused. Rebuild and redeploy the agent image."
     noTeams: "No teams"
-    online: "Online"
-    offline: "Offline"
 ru:
   agentView:
     tabs:
@@ -292,6 +299,4 @@ ru:
     oldBuild: "Агент работает на сборке старше, чем у агентства. Пересоберите и разверните образ агента, чтобы обновить его."
     incompatible: "Протокол агента несовместим с агентством, поэтому туннель отклонён. Пересоберите и разверните образ агента."
     noTeams: "Команд нет"
-    online: "В сети"
-    offline: "Не в сети"
 </i18n>

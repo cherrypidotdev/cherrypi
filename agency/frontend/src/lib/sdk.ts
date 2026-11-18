@@ -43,7 +43,7 @@ import {
   type QuestionnaireAnswerInput,
   type ReleaseTaskHoldInput,
   type ReopenTaskOptions,
-  type SetTaskLeadsInput,
+  type SetTaskLeaderInput,
   type SetTaskModelInput,
   type SetTaskSubscriptionInput,
   type SetTaskTeamsInput,
@@ -131,11 +131,11 @@ export const agent = {
     input: SetTaskTeamsInput,
     o?: CallOptions,
   ): Promise<Task> => agency.setTaskTeams(id, input, o),
-  setTaskLeads: (
+  setTaskLeader: (
     id: string,
-    input: SetTaskLeadsInput,
+    input: SetTaskLeaderInput,
     o?: CallOptions,
-  ): Promise<Task> => agency.setTaskLeads(id, input, o),
+  ): Promise<Task> => agency.setTaskLeader(id, input, o),
   setTaskSubscription: (
     id: string,
     input: SetTaskSubscriptionInput,
@@ -167,6 +167,11 @@ export const agent = {
   ): Promise<string> => agency.addToTask(id, prompt, o),
   stopTask: (id: string, o?: CallOptions): Promise<void> =>
     agency.stopTask(id, o),
+  interruptTaskToolCall: (
+    id: string,
+    toolCallId: string,
+    o?: CallOptions,
+  ): Promise<void> => agency.interruptTaskToolCall(id, toolCallId, o),
   watchTask: (
     id: string,
     onEvent: (event: TaskEvent) => void,

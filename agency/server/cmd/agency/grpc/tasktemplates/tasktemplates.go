@@ -21,7 +21,6 @@ import (
 	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/actorid"
-	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/tasks"
 	"cherrypi.vladfaust.com/agency/internal/templates"
@@ -185,17 +184,17 @@ func (s *Server) RenderTaskTemplate(
 		return nil, mapError(err)
 	}
 	return &agencyv1.RenderTaskTemplateResponse{
-		TemplateId:   rendered.TemplateID,
-		TemplateName: rendered.TemplateName,
-		Version:      rendered.Version,
-		Prompt:       rendered.Prompt,
-		Title:        rendered.Title,
-		Priority:     priorityToProto(rendered.Priority),
-		Size:         sizeToProto(rendered.Size),
-		TagIds:       rendered.TagIDs,
-		TeamIds:      int64sToInt32s(rendered.TeamIDs),
-		LeadActorIds: actorIDStrings(rendered.LeadActorIDs),
-		ArgsJson:     rendered.ArgsJSON,
+		TemplateId:    rendered.TemplateID,
+		TemplateName:  rendered.TemplateName,
+		Version:       rendered.Version,
+		Prompt:        rendered.Prompt,
+		Title:         rendered.Title,
+		Priority:      priorityToProto(rendered.Priority),
+		Size:          sizeToProto(rendered.Size),
+		TagIds:        rendered.TagIDs,
+		TeamIds:       int64sToInt32s(rendered.TeamIDs),
+		LeaderActorId: actorid.Format(rendered.LeaderActorID),
+		ArgsJson:      rendered.ArgsJSON,
 	}, nil
 }
 
@@ -204,13 +203,13 @@ func contentFromProto(in *agencyv1.TaskTemplateContent) templates.Content {
 		return templates.Content{}
 	}
 	out := templates.Content{
-		Body:                in.Body,
-		TitleTemplate:       in.TitleTemplate,
-		DefaultPriority:     priorityFromProto(in.DefaultPriority),
-		DefaultSize:         sizeFromProto(in.DefaultSize),
-		DefaultTagIDs:       in.DefaultTagIds,
-		DefaultTeamIDs:      int32sToInt64s(in.DefaultTeamIds),
-		DefaultLeadActorIDs: actorIDsFromStrings(in.DefaultLeadActorIds),
+		Body:                 in.Body,
+		TitleTemplate:        in.TitleTemplate,
+		DefaultPriority:      priorityFromProto(in.DefaultPriority),
+		DefaultSize:          sizeFromProto(in.DefaultSize),
+		DefaultTagIDs:        in.DefaultTagIds,
+		DefaultTeamIDs:       int32sToInt64s(in.DefaultTeamIds),
+		DefaultLeaderActorID: actorid.ParseActor(in.DefaultLeaderActorId),
 	}
 	for _, arg := range in.Args {
 		options := make([]templates.ArgOption, len(arg.Options))
@@ -269,14 +268,14 @@ func versionToProto(v templates.Version) *agencyv1.TaskTemplateVersion {
 	out := &agencyv1.TaskTemplateVersion{
 		Version: v.Version,
 		Content: &agencyv1.TaskTemplateContent{
-			Body:                v.Body,
-			TitleTemplate:       v.TitleTemplate,
-			Args:                args,
-			DefaultPriority:     priorityToProto(v.DefaultPriority),
-			DefaultSize:         sizeToProto(v.DefaultSize),
-			DefaultTagIds:       v.DefaultTagIDs,
-			DefaultTeamIds:      int64sToInt32s(v.DefaultTeamIDs),
-			DefaultLeadActorIds: actorIDStrings(v.DefaultLeadActorIDs),
+			Body:                 v.Body,
+			TitleTemplate:        v.TitleTemplate,
+			Args:                 args,
+			DefaultPriority:      priorityToProto(v.DefaultPriority),
+			DefaultSize:          sizeToProto(v.DefaultSize),
+			DefaultTagIds:        v.DefaultTagIDs,
+			DefaultTeamIds:       int64sToInt32s(v.DefaultTeamIDs),
+			DefaultLeaderActorId: actorid.Format(v.DefaultLeaderActorID),
 		},
 		CreatedAt:        timestamppb.New(v.CreatedAt),
 		CreatedByActorId: actorid.Format(v.CreatedByActorID),
@@ -378,24 +377,6 @@ func int64sToInt32s(in []int64) []int32 {
 	out := make([]int32, len(in))
 	for i, value := range in {
 		out[i] = int32(value)
-	}
-	return out
-}
-
-func actorIDsFromStrings(in []string) []ids.ActorID {
-	out := make([]ids.ActorID, 0, len(in))
-	for _, value := range in {
-		if id := actorid.Parse(value); id != 0 {
-			out = append(out, ids.ActorID(id))
-		}
-	}
-	return out
-}
-
-func actorIDStrings(in []ids.ActorID) []string {
-	out := make([]string, len(in))
-	for i, id := range in {
-		out[i] = actorid.Format(id)
 	}
 	return out
 }

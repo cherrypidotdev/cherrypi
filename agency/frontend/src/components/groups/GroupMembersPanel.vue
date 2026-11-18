@@ -57,6 +57,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TableRow
             TableHead {{ t("groups.members.agent") }}
             TableHead {{ t("common.status") }}
+            TableHead {{ t("agentConcurrency.title") }}
             TableHead {{ t("groups.members.addedBy") }}
             TableHead
         TableBody
@@ -73,6 +74,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :variant="isOnline(member.agentId) ? 'secondary' : 'outline'"
               )
                 | {{ isOnline(member.agentId) ? t("nav.online") : t("nav.offline") }}
+            TableCell
+              ConcurrencyTrack(
+                v-if="fleetStat(member.agentId)"
+                :label="member.agent?.name || member.agent?.username || ''"
+                size="sm"
+                :used="fleetStat(member.agentId)?.used ?? 0"
+                :cap="fleetStat(member.agentId)?.cap ?? 1"
+                :waiting="fleetStat(member.agentId)?.waiting ?? 0"
+              )
+              span.text-muted-foreground.text-2xs(v-else) —
             TableCell.text-muted-foreground
               ActorBadge(
                 v-if="member.addedBy?.username"
@@ -133,6 +144,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import ActorBadge from "@/components/ActorBadge.vue";
+import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -161,6 +173,7 @@ import {
 } from "@/components/ui/table";
 import { useAgentGroups } from "@/composables/useAgentGroups";
 import { useAgents } from "@/composables/useAgents";
+import { useGroupMemberConcurrency } from "@/composables/useGroupMemberConcurrency";
 import { formatTimestamp } from "@/lib/format";
 import { agency } from "@/lib/sdk";
 import type { AgentGroupMember, AgentGroupMemberRequest } from "@cherrypi/sdk";
@@ -178,6 +191,7 @@ const { agents, loadAgents } = useAgents();
 
 const members = ref<AgentGroupMember[]>([]);
 const requests = ref<AgentGroupMemberRequest[]>([]);
+const { fleetStat } = useGroupMemberConcurrency(members);
 const selectedAgent = ref("");
 const adding = ref(false);
 const addError = ref("");

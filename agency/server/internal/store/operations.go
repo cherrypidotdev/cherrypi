@@ -33,37 +33,47 @@ type RegisterAgentParams struct {
 	UpdatedAt int64
 }
 
-type TaskEvent string
+type PutTaskSessionStateParams struct {
+	TaskID           string
+	ExpectedRevision int64
+	ModelProvider    sql.NullString
+	ModelID          sql.NullString
+	ThinkingLevel    sql.NullString
+	EntriesJSON      string
+	UpdatedAt        int64
+}
+
+type TaskTransition string
 
 const (
-	TaskQueue  TaskEvent = "queue"
-	TaskWait   TaskEvent = "block"
-	TaskUnwait TaskEvent = "unblock"
+	TaskQueue  TaskTransition = "queue"
+	TaskWait   TaskTransition = "block"
+	TaskUnwait TaskTransition = "unblock"
 
-	TaskWakeWaiting TaskEvent = "wake_waiting"
-	TaskDequeue     TaskEvent = "dequeue"
-	TaskArchive     TaskEvent = "archive"
-	TaskUnarchive   TaskEvent = "unarchive"
-	TaskSettle      TaskEvent = "settle"
+	TaskWakeWaiting TaskTransition = "wake_waiting"
+	TaskDequeue     TaskTransition = "dequeue"
+	TaskArchive     TaskTransition = "archive"
+	TaskUnarchive   TaskTransition = "unarchive"
+	TaskSettle      TaskTransition = "settle"
 
-	TaskReleaseSettle     TaskEvent = "release_settle"
-	TaskReleaseQueue      TaskEvent = "release_queue"
-	TaskInput             TaskEvent = "input"
-	TaskClearInput        TaskEvent = "clear_input"
-	TaskResume            TaskEvent = "resume"
-	TaskComplete          TaskEvent = "complete"
-	TaskCancel            TaskEvent = "cancel"
-	TaskReopen            TaskEvent = "reopen"
-	TaskClaim             TaskEvent = "claim"
-	TaskFail              TaskEvent = "fail"
-	TaskFailResting       TaskEvent = "fail_resting"
-	TaskFailBySession     TaskEvent = "fail_by_session"
-	TaskRequeue           TaskEvent = "requeue"
-	TaskRequeueWithPrompt TaskEvent = "requeue_with_prompt"
+	TaskReleaseSettle     TaskTransition = "release_settle"
+	TaskReleaseQueue      TaskTransition = "release_queue"
+	TaskInput             TaskTransition = "input"
+	TaskClearInput        TaskTransition = "clear_input"
+	TaskResume            TaskTransition = "resume"
+	TaskComplete          TaskTransition = "complete"
+	TaskCancel            TaskTransition = "cancel"
+	TaskReopen            TaskTransition = "reopen"
+	TaskClaim             TaskTransition = "claim"
+	TaskFail              TaskTransition = "fail"
+	TaskFailResting       TaskTransition = "fail_resting"
+	TaskFailBySession     TaskTransition = "fail_by_session"
+	TaskRequeue           TaskTransition = "requeue"
+	TaskRequeueWithPrompt TaskTransition = "requeue_with_prompt"
 )
 
 type TransitionTaskParams struct {
-	Event TaskEvent
+	Event TaskTransition
 	ID    string
 
 	UpdatedAt  int64

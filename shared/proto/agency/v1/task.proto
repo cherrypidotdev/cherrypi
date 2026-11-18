@@ -123,7 +123,7 @@ service TaskService {
   
   
   
-  rpc SetTaskLeads(SetTaskLeadsRequest) returns (SetTaskLeadsResponse);
+  rpc SetTaskLeader(SetTaskLeaderRequest) returns (SetTaskLeaderResponse);
   
   
   
@@ -155,6 +155,10 @@ service TaskService {
   
   rpc AddToTask(AddToTaskRequest) returns (AddToTaskResponse);
   rpc StopTask(StopTaskRequest) returns (StopTaskResponse);
+  
+  
+  
+  rpc InterruptTaskToolCall(InterruptTaskToolCallRequest) returns (InterruptTaskToolCallResponse);
   rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
   rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
   rpc GetTaskHistory(GetTaskHistoryRequest) returns (GetTaskHistoryResponse);
@@ -174,6 +178,31 @@ service TaskService {
   
   
   rpc ListTaskTools(ListTaskToolsRequest) returns (ListTaskToolsResponse);
+  
+  
+  
+  
+  
+  rpc GetTaskInput(GetTaskInputRequest) returns (GetTaskInputResponse);
+  
+  
+  rpc RespondToTaskInput(RespondToTaskInputRequest) returns (RespondToTaskInputResponse);
+  
+  
+  
+  
+  rpc ResolveTaskRef(ResolveTaskRefRequest) returns (ResolveTaskRefResponse);
+  
+  
+  
+  rpc GetTaskSessionState(GetTaskSessionStateRequest) returns (GetTaskSessionStateResponse);
+  
+  
+  
+  rpc PutTaskSessionState(PutTaskSessionStateRequest) returns (PutTaskSessionStateResponse);
+  
+  
+  rpc AppendTaskEvents(AppendTaskEventsRequest) returns (AppendTaskEventsResponse);
   rpc GetTaskConfig(GetTaskConfigRequest) returns (GetTaskConfigResponse);
   
   
@@ -268,7 +297,8 @@ message TaskTeam {
 
 
 
-message TaskLead {
+
+message TaskLeader {
   string actor_id = 1;
   string username = 2;
   string name = 3;
@@ -331,9 +361,8 @@ message Task {
   string thinking_level = 15;
   
   
-  
-  
-  bool interactive = 16;
+  bool automated = 74;
+  reserved 16; 
   string workspace = 17;
   bool auto_title = 18;
   google.protobuf.Timestamp queued_at = 19;
@@ -408,6 +437,10 @@ message Task {
   
   string creator_picture_url = 51;
   
+  
+  string creator_username = 75;
+  string creator_kind = 76;
+  
   string pending_prompt_actor_id = 46;
   
   string pending_prompt_actor_name = 47;
@@ -416,7 +449,7 @@ message Task {
   repeated TaskTeam teams = 48;
   
   
-  repeated TaskLead leads = 49;
+  TaskLeader leader = 49;
   
   
   bool subscribed = 50;
@@ -446,15 +479,10 @@ message Task {
   
   
   bool can_close_out = 57;
-  
-  
-  string parent_task_id = 58;
+  reserved 58; 
   reserved 59; 
-  
-  repeated TaskReference child_tasks = 60;
-  
-  
-  int32 pending_children = 61;
+  reserved 60; 
+  reserved 61; 
   
   
   string pending_steering = 62;
@@ -484,6 +512,14 @@ message Task {
   string origin_task_id = 67;
   
   
+  string leader_actor_id = 71;
+  
+  
+  string needs_operator = 72;
+  
+  int32 reaction_reminders = 73;
+  
+  
   
   repeated TaskReference origin_chain = 68;
 }
@@ -503,6 +539,13 @@ message TaskHold {
   string reason = 4;
   
   google.protobuf.Timestamp created_at = 5;
+  
+  
+  string url = 6;
+  
+  
+  
+  string plugin_icon_url = 7;
 }
 
 
@@ -526,6 +569,9 @@ message TaskBadge {
   string tone = 6;
   
   string url = 7;
+  
+  
+  string plugin_icon_url = 8;
 }
 
 
@@ -677,7 +723,20 @@ message TaskReference {
   
   string prompt = 4;
   
+  
+  bool wake_on_resolve_when_many = 6;
+  
   TaskReferenceKind kind = 5;
+  
+  
+  TaskPriority priority = 7;
+  TaskSize size = 8;
+  
+  
+  reserved 9;
+  
+  
+  repeated Tag tags = 10;
 }
 
 
@@ -686,6 +745,10 @@ message TaskReference {
 message TaskReferenceInput {
   string referenced_task_id = 1;
   TaskReferenceKind kind = 2;
+  
+  
+  
+  bool wake_on_resolve_when_many = 3;
 }
 
 
@@ -771,7 +834,9 @@ message ListTasksRequest {
   TaskPriority priority = 11;
   reserved 12; 
   
-  string parent_task_id = 13;
+  
+  
+  optional bool automated = 13;
   
   
   
@@ -806,9 +871,7 @@ message CreateTaskRequest {
   string thinking_level = 9;
   
   
-  
-  
-  optional bool interactive = 10;
+  optional bool automated = 10;
   string workspace = 11;
   bool auto_title = 12;
   
@@ -827,7 +890,7 @@ message CreateTaskRequest {
   repeated int32 team_ids = 18;
   
   
-  repeated string lead_actor_ids = 19;
+  string leader_actor_id = 19;
   
   
   string template_id = 20;
@@ -840,9 +903,7 @@ message CreateTaskRequest {
   
   
   bool template_prompt_override = 23;
-  
-  
-  string parent_task_id = 24;
+  reserved 24; 
   reserved 25; 
   
   
@@ -896,6 +957,7 @@ message UpdateTaskRequest {
   
   
   optional string set_prompt = 19;
+  
   
   
   
@@ -1074,13 +1136,14 @@ message SetTaskTeamsResponse {
   Task task = 1;
 }
 
-message SetTaskLeadsRequest {
+message SetTaskLeaderRequest {
   string id = 1;
   
   
-  repeated string lead_actor_ids = 2;
+  
+  string leader_actor_id = 2;
 }
-message SetTaskLeadsResponse {
+message SetTaskLeaderResponse {
   Task task = 1;
 }
 
@@ -1190,6 +1253,15 @@ message StopTaskRequest {
 }
 message StopTaskResponse {}
 
+message InterruptTaskToolCallRequest {
+  
+  string id = 1;
+  
+  
+  string tool_call_id = 2;
+}
+message InterruptTaskToolCallResponse {}
+
 message RetryTaskRequest {
   string id = 1;
 }
@@ -1210,6 +1282,11 @@ message GetTaskHistoryRequest {
   string id = 1;
   string before = 2;
   uint32 limit = 3;
+  
+  
+  
+  
+  bool model_facing = 4;
 }
 message GetTaskHistoryResponse {
   repeated agent.v1.TaskEvent events = 1;
@@ -1329,6 +1406,143 @@ message TaskToolCallDetail {
   bool args_truncated = 14;
   bool result_truncated = 15;
   bool details_truncated = 16;
+}
+
+
+
+
+message TaskInput {
+  string task_id = 1;
+  string state = 2;
+  bool waiting = 3;
+  
+  
+  string request_id = 4;
+  
+  string method = 5;
+  string title = 6;
+  string message = 7;
+  string placeholder = 8;
+  repeated string options = 9;
+  uint32 timeout = 10;
+  
+  string questionnaire_json = 11;
+  
+  string raw = 12;
+  // hint is the one-line instruction for the model: how to answer this dialog,
+  
+  string hint = 13;
+}
+message GetTaskInputRequest {
+  string id = 1;
+}
+message GetTaskInputResponse {
+  TaskInput input = 1;
+}
+
+
+
+message TaskInputAnswer {
+  
+  string request_id = 1;
+  
+  
+  
+  string answers_json = 2;
+  
+  string note = 3;
+  
+  string value = 4;
+  
+  optional bool confirmed = 5;
+  
+  bool cancelled = 6;
+}
+message RespondToTaskInputRequest {
+  string id = 1;
+  TaskInputAnswer answer = 2;
+}
+message RespondToTaskInputResponse {
+  string task_id = 1;
+  bool answered = 2;
+  bool cancelled = 3;
+  string state = 4;
+  
+  string hint = 5;
+}
+
+
+
+message ResolveTaskRefRequest {
+  string project_id = 1;
+  int64 seq = 2;
+}
+message ResolveTaskRefResponse {
+  
+  string task_id = 1;
+}
+
+
+
+
+
+message TaskSessionState {
+  string task_id = 1;
+  
+  int64 revision = 2;
+  string model_provider = 3;
+  string model_id = 4;
+  string thinking_level = 5;
+  string entries_json = 6;
+  reserved 7;
+  reserved "usage_json";
+  int64 updated_at = 8;
+  
+  
+  int64 last_event_seq = 9;
+}
+message GetTaskSessionStateRequest {
+  string id = 1;
+}
+message GetTaskSessionStateResponse {
+  
+  
+  bool found = 1;
+  TaskSessionState state = 2;
+}
+message PutTaskSessionStateRequest {
+  string id = 1;
+  reserved 7;
+  reserved "usage_json";
+  
+  
+  int64 expected_revision = 2;
+  string model_provider = 3;
+  string model_id = 4;
+  string thinking_level = 5;
+  string entries_json = 6;
+}
+message PutTaskSessionStateResponse {
+  int64 revision = 1;
+}
+
+
+
+
+
+message TaskEventRecord {
+  int64 seq = 1;
+  int64 at = 2;
+  string kind = 3;
+  string payload_json = 4;
+}
+message AppendTaskEventsRequest {
+  string id = 1;
+  repeated TaskEventRecord events = 2;
+}
+message AppendTaskEventsResponse {
+  int64 appended = 1;
+  int64 last_seq = 2;
 }
 
 message GetTaskConfigRequest {

@@ -154,18 +154,20 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 
 	case "usage":
 		_ = c.Store.InsertAgentUsage(ctx, store.InsertAgentUsageParams{
-			AgentID:      sql.NullInt64{Int64: int64(agentID), Valid: true},
-			SessionID:    sessionID,
-			Provider:     stringValue(msg.Payload["provider"]),
-			Model:        stringValue(msg.Payload["model"]),
-			InputTokens:  int64Value(msg.Payload["input_tokens"]),
-			OutputTokens: int64Value(msg.Payload["output_tokens"]),
-			Cost:         floatValue(msg.Payload["cost"]),
-			ActiveMs:     int64Value(msg.Payload["active_ms"]),
-			ToolMs:       int64Value(msg.Payload["tool_ms"]),
-			ModelWaitMs:  int64Value(msg.Payload["model_wait_ms"]),
-			TtftMs:       int64Value(msg.Payload["ttft_ms"]),
-			At:           int64Value(msg.Payload["at"]),
+			AgentID:          sql.NullInt64{Int64: int64(agentID), Valid: true},
+			SessionID:        sessionID,
+			Provider:         stringValue(msg.Payload["provider"]),
+			Model:            stringValue(msg.Payload["model"]),
+			InputTokens:      int64Value(msg.Payload["input_tokens"]),
+			OutputTokens:     int64Value(msg.Payload["output_tokens"]),
+			CacheReadTokens:  int64Value(msg.Payload["cache_read_tokens"]),
+			CacheWriteTokens: int64Value(msg.Payload["cache_write_tokens"]),
+			Cost:             floatValue(msg.Payload["cost"]),
+			ActiveMs:         int64Value(msg.Payload["active_ms"]),
+			ToolMs:           int64Value(msg.Payload["tool_ms"]),
+			ModelWaitMs:      int64Value(msg.Payload["model_wait_ms"]),
+			TtftMs:           int64Value(msg.Payload["ttft_ms"]),
+			At:               int64Value(msg.Payload["at"]),
 		})
 		c.Realtime.Publish(agencyv1.RealtimeKind_REALTIME_KIND_USAGE)
 
@@ -217,6 +219,20 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				progressItemsValue(msg.Payload["todos"]),
 			); err != nil {
 				log.Printf("[events %d] set task progress %s: %v", agentID, sessionID, err)
+			}
+		}
+		c.Realtime.PublishTask(c.taskID(ctx, agentID, sessionID))
+
+	case "task_required_tool":
+
+		if c.Tasks != nil {
+			if err := c.Tasks.ClearRequiredToolsBySession(
+				ctx, agentID, sessionID,
+			); err != nil {
+				log.Printf(
+					"[events %d] clear required tools %s: %v",
+					agentID, sessionID, err,
+				)
 			}
 		}
 		c.Realtime.PublishTask(c.taskID(ctx, agentID, sessionID))
@@ -347,17 +363,26 @@ func (c *Consumer) notifyTask(
 	agentID ids.AgentID,
 	taskID, kind, severity, title, body string,
 ) {
-	var recipients []ids.ActorID
-	if c.Tasks != nil && taskID != "" {
-		recipients, _ = c.Tasks.Recipients(ctx, taskID)
+	if c.Tasks == nil || taskID == "" {
+		return
 	}
-	_ = c.Notifications.CreateForTask(ctx, taskID, recipients, notifications.Notification{
-		AgentID:  agentID,
-		Kind:     kind,
-		Severity: severity,
-		Title:    title,
-		Body:     body,
-	})
+	recipients, broadcast, err := c.Tasks.NotificationRecipients(ctx, taskID)
+	if err != nil {
+		return
+	}
+	_ = c.Notifications.CreateForTask(
+		ctx,
+		taskID,
+		recipients,
+		broadcast,
+		notifications.Notification{
+			AgentID:  agentID,
+			Kind:     kind,
+			Severity: severity,
+			Title:    title,
+			Body:     body,
+		},
+	)
 }
 
 func (c *Consumer) taskID(ctx context.Context, agentID ids.AgentID, sessionID string) string {

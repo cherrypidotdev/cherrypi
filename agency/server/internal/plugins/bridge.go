@@ -60,7 +60,7 @@ type Bridge interface {
 	AttachTools(ctx context.Context, taskID string, tools []Tool) error
 	TaskPlugin(ctx context.Context, taskID string) (TaskPlugin, bool, error)
 
-	AddTaskMessage(ctx context.Context, taskID, text string) error
+	AddTaskMessage(ctx context.Context, taskID, text string, opts AddMessageOptions) error
 
 	RespondTaskInput(ctx context.Context, taskID, requestID string, answer TaskInputAnswer) error
 
@@ -75,6 +75,8 @@ type Bridge interface {
 	TaskHolds(ctx context.Context, taskID string) ([]tasks.TaskHold, error)
 	Settings(ctx context.Context, scope, target string) (Settings, error)
 	ListSettings(ctx context.Context, scope string) ([]Settings, error)
+
+	UpdateSettings(ctx context.Context, scope, target string, values map[string]any) error
 	Team(ctx context.Context, id int64) (map[string]any, error)
 	Log(ctx context.Context, invocation, level, message string, data any, surfaces []LogSurface)
 }
@@ -82,6 +84,15 @@ type Bridge interface {
 type serviceBridge struct {
 	svc      *Service
 	pluginID string
+
+	plugin Plugin
+}
+
+func (b serviceBridge) pluginRow(ctx context.Context) (Plugin, error) {
+	if b.plugin.ID != "" {
+		return b.plugin, nil
+	}
+	return b.svc.Get(ctx, b.pluginID)
 }
 
 func (b serviceBridge) Org(ctx context.Context) (map[string]any, error) {
@@ -123,7 +134,7 @@ func (b serviceBridge) ProjectSettings(
 	if err != nil {
 		return row, err
 	}
-	if p, err := b.svc.Get(ctx, b.pluginID); err == nil {
+	if p, err := b.pluginRow(ctx); err == nil {
 		row.Values = p.Manifest.ApplySettingsDefaults(ScopeProject, row.Values)
 	}
 	return row, nil
@@ -234,8 +245,12 @@ func (b serviceBridge) TaskPlugin(
 	return row, ok, err
 }
 
-func (b serviceBridge) AddTaskMessage(ctx context.Context, taskID, text string) error {
-	return b.svc.AddTaskMessage(ctx, b.pluginID, taskID, text)
+func (b serviceBridge) AddTaskMessage(
+	ctx context.Context,
+	taskID, text string,
+	opts AddMessageOptions,
+) error {
+	return b.svc.AddTaskMessage(ctx, b.pluginID, taskID, text, opts)
 }
 
 func (b serviceBridge) RespondTaskInput(
@@ -293,7 +308,7 @@ func (b serviceBridge) Settings(
 	if err != nil {
 		return row, err
 	}
-	if p, err := b.svc.Get(ctx, b.pluginID); err == nil {
+	if p, err := b.pluginRow(ctx); err == nil {
 		row.Values = p.Manifest.ApplySettingsDefaults(scope, row.Values)
 	}
 	return row, nil
@@ -307,7 +322,7 @@ func (b serviceBridge) ListSettings(
 	if err != nil {
 		return nil, err
 	}
-	p, err := b.svc.Get(ctx, b.pluginID)
+	p, err := b.pluginRow(ctx)
 	if err != nil {
 		return rows, nil
 	}
@@ -315,6 +330,14 @@ func (b serviceBridge) ListSettings(
 		rows[i].Values = p.Manifest.ApplySettingsDefaults(scope, rows[i].Values)
 	}
 	return rows, nil
+}
+
+func (b serviceBridge) UpdateSettings(
+	ctx context.Context,
+	scope, target string,
+	values map[string]any,
+) error {
+	return b.svc.UpdateSettingsAsPlugin(ctx, b.pluginID, scope, target, values)
 }
 
 func (b serviceBridge) Team(ctx context.Context, id int64) (map[string]any, error) {

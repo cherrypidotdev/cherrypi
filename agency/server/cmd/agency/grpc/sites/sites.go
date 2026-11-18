@@ -105,19 +105,20 @@ func (s *SiteServer) toProto(
 	identity auth.Identity,
 ) *agencyv1.Site {
 	out := &agencyv1.Site{
-		Id:                 site.ID,
-		Title:              site.Title,
-		Description:        site.Description,
-		OnlyCreatorMayEdit: site.OnlyCreatorMayEdit,
-		AgencyWide:         site.AgencyWide,
-		CreatorActorId:     actorid.Format(site.CreatorActorID),
-		OriginTaskId:       site.OriginTaskID,
-		Url:                sites.URLFor(site.ID),
-		ContentUrl:         sites.ContentURLFor(site.ID),
-		CreatedAt:          timestamppb.New(site.CreatedAt),
-		UpdatedAt:          timestamppb.New(site.UpdatedAt),
-		CanEdit:            s.Sites.CanEdit(ctx, site, identity),
-		CanDelete:          s.Sites.CanEdit(ctx, site, identity),
+		Id:                    site.ID,
+		Title:                 site.Title,
+		Description:           site.Description,
+		OnlyCreatorMayEdit:    site.OnlyCreatorMayEdit,
+		AgencyWide:            site.AgencyWide,
+		CreatorActorId:        actorid.Format(site.CreatorActorID),
+		OriginTaskId:          site.OriginTaskID,
+		Url:                   sites.URLFor(site.ID),
+		ContentUrl:            sites.ContentURLFor(site.ID),
+		CreatedAt:             timestamppb.New(site.CreatedAt),
+		UpdatedAt:             timestamppb.New(site.UpdatedAt),
+		CanEdit:               s.Sites.CanEdit(ctx, site, identity),
+		CanDelete:             s.Sites.CanEdit(ctx, site, identity),
+		SourceZipAttachmentId: site.AttachmentID,
 	}
 	if s.Accounts != nil {
 		if creator, err := s.Accounts.GetActor(ctx, site.CreatorActorID); err == nil {

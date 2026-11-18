@@ -52,16 +52,18 @@ func (d *DashboardServer) GetUsage(
 	order := make([]string, 0, len(rows))
 	for _, row := range rows {
 		buckets[row.SessionID] = &agentv1.TaskUsage{
-			TaskId:       row.SessionID,
-			InputTokens:  row.InputTokens,
-			OutputTokens: row.OutputTokens,
-			Cost:         row.Cost,
-			ActiveMs:     row.ActiveMs,
-			ThinkingMs:   thinkingMs(row.ActiveMs, row.ToolMs),
-			ToolMs:       row.ToolMs,
-			ModelWaitMs:  row.ModelWaitMs,
-			TtftMs:       row.TtftMs,
-			TtftRuns:     row.TtftRuns,
+			TaskId:           row.SessionID,
+			InputTokens:      row.InputTokens,
+			OutputTokens:     row.OutputTokens,
+			CacheReadTokens:  row.CacheReadTokens,
+			CacheWriteTokens: row.CacheWriteTokens,
+			Cost:             row.Cost,
+			ActiveMs:         row.ActiveMs,
+			ThinkingMs:       thinkingMs(row.ActiveMs, row.ToolMs, row.ModelWaitMs),
+			ToolMs:           row.ToolMs,
+			ModelWaitMs:      row.ModelWaitMs,
+			TtftMs:           row.TtftMs,
+			TtftRuns:         row.TtftRuns,
 		}
 		order = append(order, row.SessionID)
 	}
@@ -69,9 +71,12 @@ func (d *DashboardServer) GetUsage(
 	liveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	for id, usage := range d.Tasks.LiveUsage(liveCtx) {
-		if _, ok := buckets[id]; !ok {
-			order = append(order, id)
+		if existing, ok := buckets[id]; ok {
+
+			buckets[id] = mergeBucket(existing, id, usage)
+			continue
 		}
+		order = append(order, id)
 		buckets[id] = liveBucket(id, usage)
 	}
 
@@ -81,6 +86,8 @@ func (d *DashboardServer) GetUsage(
 		resp.Tasks = append(resp.Tasks, bucket)
 		resp.InputTokens += bucket.InputTokens
 		resp.OutputTokens += bucket.OutputTokens
+		resp.CacheReadTokens += bucket.CacheReadTokens
+		resp.CacheWriteTokens += bucket.CacheWriteTokens
 		resp.Cost += bucket.Cost
 	}
 
@@ -92,10 +99,12 @@ func (d *DashboardServer) GetUsage(
 	resp.Days = make([]*agentv1.UsageDay, len(days))
 	for i, day := range days {
 		resp.Days[i] = &agentv1.UsageDay{
-			Day:          timestamppb.New(time.UnixMilli(day.Day * dayMs)),
-			InputTokens:  day.InputTokens,
-			OutputTokens: day.OutputTokens,
-			Cost:         day.Cost,
+			Day:              timestamppb.New(time.UnixMilli(day.Day * dayMs)),
+			InputTokens:      day.InputTokens,
+			OutputTokens:     day.OutputTokens,
+			CacheReadTokens:  day.CacheReadTokens,
+			CacheWriteTokens: day.CacheWriteTokens,
+			Cost:             day.Cost,
 		}
 	}
 
@@ -112,56 +121,78 @@ func (d *DashboardServer) taskUsage(
 	}
 
 	bucket := &agentv1.TaskUsage{
-		TaskId:       id,
-		InputTokens:  sum.InputTokens,
-		OutputTokens: sum.OutputTokens,
-		Cost:         sum.Cost,
-		ActiveMs:     sum.ActiveMs,
-		ThinkingMs:   thinkingMs(sum.ActiveMs, sum.ToolMs),
-		ToolMs:       sum.ToolMs,
-		ModelWaitMs:  sum.ModelWaitMs,
-		TtftMs:       sum.TtftMs,
-		TtftRuns:     sum.TtftRuns,
+		TaskId:           id,
+		InputTokens:      sum.InputTokens,
+		OutputTokens:     sum.OutputTokens,
+		CacheReadTokens:  sum.CacheReadTokens,
+		CacheWriteTokens: sum.CacheWriteTokens,
+		Cost:             sum.Cost,
+		ActiveMs:         sum.ActiveMs,
+		ThinkingMs:       thinkingMs(sum.ActiveMs, sum.ToolMs, sum.ModelWaitMs),
+		ToolMs:           sum.ToolMs,
+		ModelWaitMs:      sum.ModelWaitMs,
+		TtftMs:           sum.TtftMs,
+		TtftRuns:         sum.TtftRuns,
 	}
 
 	liveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if usage, ok := d.Tasks.LiveUsageFor(liveCtx, id); ok {
-		bucket = liveBucket(id, usage)
+
+		bucket = mergeBucket(bucket, id, usage)
 	}
 
 	return &agentv1.GetUsageResponse{
-		InputTokens:  bucket.InputTokens,
-		OutputTokens: bucket.OutputTokens,
-		Cost:         bucket.Cost,
-		Tasks:        []*agentv1.TaskUsage{bucket},
+		InputTokens:      bucket.InputTokens,
+		OutputTokens:     bucket.OutputTokens,
+		CacheReadTokens:  bucket.CacheReadTokens,
+		CacheWriteTokens: bucket.CacheWriteTokens,
+		Cost:             bucket.Cost,
+		Tasks:            []*agentv1.TaskUsage{bucket},
 	}, nil
 }
 
-func thinkingMs(activeMs, toolMs int64) int64 {
-	if thinking := activeMs - toolMs; thinking > 0 {
+func thinkingMs(activeMs, toolMs, modelWaitMs int64) int64 {
+	if thinking := activeMs - toolMs - modelWaitMs; thinking > 0 {
 		return thinking
 	}
 	return 0
 }
 
+func mergeBucket(
+	persisted *agentv1.TaskUsage,
+	id string,
+	usage session.Usage,
+) *agentv1.TaskUsage {
+	merged := liveBucket(id, usage)
+	merged.InputTokens += persisted.GetInputTokens()
+	merged.OutputTokens += persisted.GetOutputTokens()
+	merged.CacheReadTokens += persisted.GetCacheReadTokens()
+	merged.CacheWriteTokens += persisted.GetCacheWriteTokens()
+	merged.Cost += persisted.GetCost()
+	merged.ActiveMs += persisted.GetActiveMs()
+	return merged
+}
+
 func liveBucket(id string, usage session.Usage) *agentv1.TaskUsage {
 	return &agentv1.TaskUsage{
-		TaskId:          id,
-		InputTokens:     usage.InputTokens,
-		OutputTokens:    usage.OutputTokens,
-		Cost:            usage.Cost,
-		Live:            true,
-		TokensPerSecond: usage.TokensPerSecond,
-		CostPerHour:     usage.CostPerHour,
-		ActiveMs:        usage.ActiveMs,
-		ThinkingMs:      usage.ThinkingMs,
-		ToolMs:          usage.ToolMs,
-		ModelWaitMs:     usage.ModelWaitMs,
-		TtftMs:          usage.TTFTMs,
-		TtftRuns:        usage.TTFTRuns,
-		ContextTokens:   usage.ContextTokens,
-		ContextWindow:   usage.ContextWindow,
+		TaskId:           id,
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		CacheReadTokens:  usage.CacheReadTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
+		Cost:             usage.Cost,
+		Live:             true,
+		TokensPerSecond:  usage.TokensPerSecond,
+		CostPerHour:      usage.CostPerHour,
+		ActiveMs:         usage.ActiveMs,
+		ThinkingMs:       usage.ThinkingMs,
+		ToolMs:           usage.ToolMs,
+		ModelWaitMs:      usage.ModelWaitMs,
+		TtftMs:           usage.TTFTMs,
+		TtftRuns:         usage.TTFTRuns,
+		ContextTokens:    usage.ContextTokens,
+		ContextWindow:    usage.ContextWindow,
 	}
 }
 

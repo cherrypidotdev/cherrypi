@@ -184,7 +184,11 @@ import {
 } from "@/lib/format";
 import { agency } from "@/lib/sdk";
 import { toolView } from "@/lib/toolPresentation";
-import type { TaskToolCall, TaskToolCallDetail } from "@cherrypi/sdk";
+import type {
+  ListTaskToolCallsResult,
+  TaskToolCall,
+  TaskToolCallDetail,
+} from "@cherrypi/sdk";
 import { ToolPhase } from "@cherrypi/sdk";
 import {
   ChevronRightIcon,
@@ -208,6 +212,8 @@ import {
 
 const props = defineProps<{
   taskId: string;
+
+  preview?: ListTaskToolCallsResult;
 
   names?: string[];
 }>();
@@ -268,6 +274,13 @@ function clearNames() {
 }
 
 async function fetchCalls(offset: number) {
+  if (props.preview) {
+    calls.value = props.preview.calls;
+    total.value = props.preview.total;
+    names.value = props.preview.names;
+    loading.value = false;
+    return;
+  }
   const gen = ++generation;
   loading.value = true;
   error.value = "";

@@ -100,6 +100,8 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
           :question="question"
           :answer="answerAt(index)"
           :readonly="locked"
+          :task-id="taskId"
+          :project-id="projectId"
           @toggle="toggleOption(question, index, $event)"
           @toggle-custom="toggleCustom(index)"
           @notes="setNotes(index, $event)"
@@ -111,6 +113,8 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
       :question="single"
       :answer="answerAt(0)"
       :readonly="locked"
+      :task-id="taskId"
+      :project-id="projectId"
       @toggle="toggleOption(single, 0, $event)"
       @toggle-custom="toggleCustom(0)"
       @notes="setNotes(0, $event)"
@@ -148,10 +152,21 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
               v-model:resize-height="finalNoteHeight"
               :placeholder="$t('questionnaire.finalNotePlaceholder')"
               resizable
+              references
               test-id="final-note"
+              :reference-project-id="projectId"
+              :reference-task-id="taskId"
               :aria-label="$t('questionnaire.finalNote')"
               :disabled="submitting"
             )
+            .flex.items-center.gap-2
+              AttachmentUploadButton(
+                v-if="taskId"
+                :label="$t('questionnaire.attach')"
+                :task-id="taskId"
+                :title="$t('questionnaire.attachHint')"
+                @uploaded="appendFinalAttachment"
+              )
 
     .flex.flex-wrap.items-center.justify-between.gap-2.border-t.p-3
       button.d-btn.d-btn-ghost.d-btn-sm(
@@ -193,11 +208,13 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
 </template>
 
 <script setup lang="ts">
+import AttachmentUploadButton from "@/components/attachments/AttachmentUploadButton.vue";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
 import TaskModelPicker from "@/components/tasks/TaskModelPicker.vue";
 import { useSessionEditorHeight } from "@/composables/useEditorHeight";
+import { attachmentMarkdownLink } from "@/lib/attachments";
 import type { MessageSender as ChatSender } from "@/lib/console";
 import {
   COMPACT_EDITOR_HEIGHT,
@@ -261,9 +278,15 @@ const props = withDefaults(
     modelSelection?: TaskModelSelection;
 
     modelDisabled?: boolean;
+
+    taskId?: string;
+
+    projectId?: string;
   }>(),
   {
     agentId: "",
+    taskId: "",
+    projectId: "",
     answeredBy: undefined,
     answeredByPicture: undefined,
     answeredAt: undefined,
@@ -517,6 +540,12 @@ function setNotes(index: number, value: string) {
   }
 }
 
+function appendFinalAttachment(attachment: Attachment) {
+  const current = finalNote.value.trimEnd();
+  const link = attachmentMarkdownLink(attachment);
+  finalNote.value = current ? `${current}\n${link}` : link;
+}
+
 function toggleCustom(index: number) {
   if (disabled.value) {
     return;
@@ -613,6 +642,8 @@ en:
     finalNoteOptional: "Final note (optional)"
     added: "added"
     finalNote: "Final note"
+    attach: "Attach"
+    attachHint: "Attach a file to the final note; a Markdown link is added to the note text"
     answered: "Questions answered"
     finalNotePlaceholder: "Anything not tied to a single answer… Markdown supported."
     decline: "Decline"
@@ -634,6 +665,8 @@ ru:
     finalNoteOptional: "Итоговая заметка (необязательно)"
     added: "добавлено"
     finalNote: "Итоговая заметка"
+    attach: "Прикрепить"
+    attachHint: "Прикрепить файл к итоговой заметке; в текст добавится ссылка Markdown"
     answered: "Ответы отправлены"
     finalNotePlaceholder: "Всё, что не относится к одному ответу… Поддерживается Markdown."
     decline: "Отклонить"

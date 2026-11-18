@@ -21,9 +21,16 @@ import {
   TaskReferenceKind,
   TaskSize,
   TaskState,
+  type Agent,
+  type ListTaskCommentsResult,
+  type ListTaskToolCallsResult,
+  type Project,
+  type Tag,
   type Task,
+  type TaskHold,
   type TaskProgress,
   type TaskReference,
+  type TaskTool,
 } from "@cherrypi/sdk";
 import {
   ArrowRightLeftIcon,
@@ -34,7 +41,6 @@ import {
   InboxIcon,
   InfoIcon,
   LinkIcon,
-  ListTreeIcon,
   LockIcon,
   MessageSquareIcon,
   PauseIcon,
@@ -196,10 +202,23 @@ export function taskBlockersReasonPrefix(): string {
 
 export type WaitingReasonPart =
   | { kind: "text"; text: string }
-  | { kind: "id"; id: string };
+  | { kind: "id"; id: string }
+  | {
+      kind: "hold";
+      plugin: string;
+      pluginName: string;
+      reason: string;
+      url: string;
+      pluginIconUrl: string;
+    };
 
-export function waitingReasonParts(reason: string): WaitingReasonPart[] {
+export function waitingReasonParts(
+  reason: string,
+  holds: TaskHold[] = [],
+): WaitingReasonPart[] {
   const parts: WaitingReasonPart[] = [];
+
+  const unused = [...holds];
 
   function text(value: string) {
     const last = parts.at(-1);
@@ -209,6 +228,20 @@ export function waitingReasonParts(reason: string): WaitingReasonPart[] {
 
   reason.split("; ").forEach((segment, index) => {
     if (index > 0) text("; ");
+    const holdIndex = unused.findIndex((hold) => holdClause(hold) === segment);
+    if (holdIndex >= 0) {
+      const hold = unused.splice(holdIndex, 1)[0]!;
+      text("Waiting for ");
+      parts.push({
+        kind: "hold",
+        plugin: hold.plugin,
+        pluginName: hold.pluginName || hold.plugin,
+        reason: hold.reason,
+        url: hold.url,
+        pluginIconUrl: hold.pluginIconUrl,
+      });
+      return;
+    }
     const ids = segment
       .slice(taskBlockersReasonPrefix().length)
       .split(",")
@@ -225,6 +258,13 @@ export function waitingReasonParts(reason: string): WaitingReasonPart[] {
     });
   });
   return parts;
+}
+
+function holdClause(hold: TaskHold): string {
+  const name = hold.pluginName || hold.plugin;
+  return hold.reason
+    ? `Waiting for ${name}: ${hold.reason}`
+    : `Waiting for ${name}`;
 }
 
 export function taskIncompleteBlockers(
@@ -374,8 +414,7 @@ export type NewTaskRelation =
   | "informational"
   | "blocked_by"
   | "blocks"
-  | "supersedes"
-  | "parent";
+  | "supersedes";
 
 export const NEW_TASK_RELATIONS: {
   value: NewTaskRelation;
@@ -402,19 +441,12 @@ export const NEW_TASK_RELATIONS: {
     labelKey: "newTaskRelation.supersedes",
     descriptionKey: "newTaskRelation.supersedesHint",
   },
-  {
-    value: "parent",
-    labelKey: "newTaskRelation.parent",
-    descriptionKey: "newTaskRelation.parentHint",
-  },
 ];
 
 export function newTaskReferenceKind(
   relation: NewTaskRelation | null | undefined,
-): TaskReferenceKind | null {
+): TaskReferenceKind {
   switch (relation) {
-    case "informational":
-      return TaskReferenceKind.INFORMATIONAL;
     case "blocked_by":
       return TaskReferenceKind.BLOCKED_BY;
     case "blocks":
@@ -422,15 +454,14 @@ export function newTaskReferenceKind(
     case "supersedes":
       return TaskReferenceKind.SUPERSEDES;
     default:
-      return null;
+      return TaskReferenceKind.INFORMATIONAL;
   }
 }
 
 export function newTaskRelationIcon(
   relation: NewTaskRelation | undefined,
 ): LucideIcon {
-  if (relation === "parent") return ListTreeIcon;
-  return taskReferenceKindIcon(newTaskReferenceKind(relation) ?? undefined);
+  return taskReferenceKindIcon(newTaskReferenceKind(relation));
 }
 
 export function newTaskRelationNote(
@@ -446,8 +477,6 @@ export function newTaskRelationNote(
       return `${taskID} cannot be queued until the new task is completed.`;
     case "supersedes":
       return `The new task replaces ${taskID}, which is cancelled when it is in backlog, queued, or failed.`;
-    case "parent":
-      return `${taskID} becomes the parent of the new task.`;
     default:
       return "";
   }
@@ -779,6 +808,25 @@ export function taskProgressInProgress(
       (item) => item.status === TaskProgressItemStatus.IN_PROGRESS,
     ),
   );
+}
+
+export interface ComposerPreview {
+  projects: Project[];
+  agents: Agent[];
+  tags: Tag[];
+}
+
+export interface TaskPickerPreview {
+  tasks: Task[];
+  projects: Project[];
+  agents: Agent[];
+  tags: Tag[];
+}
+
+export interface DetailsPreview {
+  comments?: ListTaskCommentsResult;
+  tools?: { tools: TaskTool[]; recorded: boolean };
+  toolCalls?: ListTaskToolCallsResult;
 }
 
 export function taskProgressCurrent(

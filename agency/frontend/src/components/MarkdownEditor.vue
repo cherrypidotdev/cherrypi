@@ -290,6 +290,35 @@ function inCode(state: EditorState, position: number): boolean {
   return false;
 }
 
+/**
+ * Whether an unmatched opening backtick on the hash's line puts it inside
+ * inline code that is still being typed. The Markdown parser only marks a
+ * closed pair as `InlineCode`, but a `#` after a lone opening backtick is code
+ * in progress, and a task picker there would be in the way.
+ */
+function inUnclosedInlineCode(state: EditorState, position: number): boolean {
+  const line = state.doc.lineAt(position);
+  const text = state.sliceDoc(line.from, position);
+  let open = 0;
+  for (let index = 0; index < text.length; ) {
+    if (text[index] !== "`") {
+      index += 1;
+      continue;
+    }
+    let run = 0;
+    while (index + run < text.length && text[index + run] === "`") run += 1;
+    if (open === 0 && isEscaped(text, index)) {
+      index += run;
+      continue;
+    }
+
+    if (open === 0) open = run;
+    else if (run === open) open = 0;
+    index += run;
+  }
+  return open > 0;
+}
+
 function taskQuerySearch(query: string): string | null {
   let search = "";
   let quoted = false;
@@ -323,7 +352,7 @@ function taskQueryAt(
   if (hash > 0 && before[hash - 1] === "#") return null;
 
   if (isEscaped(before, hash)) return null;
-  if (inCode(state, hash)) return null;
+  if (inCode(state, hash) || inUnclosedInlineCode(state, hash)) return null;
   const search = taskQuerySearch(before.slice(hash + 1));
   if (search === null) return null;
   return { from: hash, search };
@@ -344,6 +373,23 @@ function hashWasTyped(update: ViewUpdate): boolean {
       }
     });
     if (insertedHash) return true;
+  }
+  return false;
+}
+
+function querySpaceWasDeleted(update: ViewUpdate): boolean {
+  if (!update.state.selection.main.empty) return false;
+  const head = update.state.selection.main.head;
+  for (const transaction of update.transactions) {
+    let deleted = false;
+    transaction.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+      if (inserted.length > 0 || fromB !== toB || toB !== head) return;
+      if (toA - fromA !== 1) return;
+      const removed = transaction.startState.sliceDoc(fromA, toA);
+      if (removed !== " " && removed !== "\t") return;
+      deleted = true;
+    });
+    if (deleted) return true;
   }
   return false;
 }
@@ -431,7 +477,9 @@ function syncTaskPicker(update: ViewUpdate) {
     return;
   }
   if (!taskPickerState.open) {
-    if (!props.referenceProjectId || !hashWasTyped(update)) return;
+    if (!props.referenceProjectId) return;
+
+    if (!hashWasTyped(update) && !querySpaceWasDeleted(update)) return;
     taskPickerState.from = match.from;
     taskPickerState.open = true;
     if (view.value) closeCompletion(view.value);

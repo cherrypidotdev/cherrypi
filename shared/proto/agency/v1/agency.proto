@@ -1,0 +1,97 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+
+
+
+
+service AgencyService {
+  
+  
+  rpc GetMetadata(GetAgencyMetadataRequest) returns (GetAgencyMetadataResponse);
+  
+  
+  rpc ReadLogs(ReadAgencyLogsRequest) returns (ReadAgencyLogsResponse);
+  
+  
+  
+  
+  rpc ListAgents(ListAgencyAgentsRequest) returns (ListAgencyAgentsResponse);
+}
+
+message ListAgencyAgentsRequest {}
+message ListAgencyAgentsResponse {
+  repeated AgencyAgent agents = 1;
+}
+
+message GetAgencyMetadataRequest {}
+
+message GetAgencyMetadataResponse {
+  
+  AgencyProcess agency = 1;
+  // caller is the agent that asked, so a log line can be attributed.
+  AgencyAgent caller = 2;
+}
+
+
+message AgencyProcess {
+  string version = 1;
+  
+  string file = 2;
+  string dir = 3;
+  
+  string started_at = 4;
+  int32 pid = 5;
+  int64 uptime_ms = 6;
+  
+  int32 keep = 7;
+}
+
+
+
+message AgencyAgent {
+  string id = 1;
+  string actor_id = 2;
+  string username = 3;
+  string display_name = 4;
+  string description = 5;
+  
+  string role = 6;
+  
+  string status = 7;
+  string version = 8;
+  string protocol_version = 9;
+  string remote_addr = 10;
+  
+  string last_seen_at = 11;
+}
+
+message ReadAgencyLogsRequest {
+  
+  uint32 lines = 1;
+}
+
+message ReadAgencyLogsResponse {
+  AgencyProcess meta = 1;
+  repeated string lines = 2;
+  
+  
+  int64 offset = 3;
+}

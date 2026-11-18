@@ -44,8 +44,6 @@ export interface StudioComponent {
   name: string;
 
   source: string;
-  /** One line about what the component is for. */
-  blurb: string;
   component: Component;
   scenarios: StudioScenario[];
 }

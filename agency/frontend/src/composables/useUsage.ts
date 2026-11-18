@@ -32,6 +32,9 @@ export interface UsageBucket {
   taskId: string;
   inputTokens: number;
   outputTokens: number;
+
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   cost: number;
 
   activeMs: number;
@@ -91,6 +94,8 @@ export function useUsage(
         taskId: bucket.taskId,
         inputTokens: Number(bucket.inputTokens),
         outputTokens: Number(bucket.outputTokens),
+        cacheReadTokens: Number(bucket.cacheReadTokens ?? 0),
+        cacheWriteTokens: Number(bucket.cacheWriteTokens ?? 0),
         cost: bucket.cost,
         activeMs: Number(bucket.activeMs),
         toolMs: Number(bucket.toolMs ?? 0),

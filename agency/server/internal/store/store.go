@@ -18,9 +18,12 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
 )
+
+var ErrTaskSessionStateConflict = errors.New("task session state revision conflict")
 
 type AgentRow struct {
 	ID                  ids.AgentID

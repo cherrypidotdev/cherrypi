@@ -19,11 +19,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import type { Site } from "@cherrypi/sdk";
 import { GlobeIcon, MessageSquareIcon } from "@lucide/vue";
+import type { StyleValue } from "vue";
 
 defineProps<{
   taskSites: Site[];
   activeTaskTab: String;
-  detailsOpen: Boolean;
+
+  detailsStyle?: StyleValue;
 }>();
 
 defineEmits<{
@@ -33,9 +35,11 @@ defineEmits<{
 </script>
 
 <template lang="pug">
-.bg-base-200.px-2.pt-2
-  .d-tabs.d-tabs-lift(role="tablist")
-    button.d-tab._tab(
+.bg-base-200.px-2.pt-2(:style="detailsStyle" data-testid="task-tabs")
+  .d-tabs.d-tabs-lift.flex.w-full.min-w-0.flex-nowrap.overflow-hidden(
+    role="tablist"
+  )
+    button.d-tab._tab.shrink-0(
       type="button"
       role="tab"
       :title="$t('taskTabs.chatTitle')"
@@ -43,7 +47,7 @@ defineEmits<{
       @click="$emit('selectChat')"
     )
       MessageSquareIcon.size-4(:stroke-width="2")
-      span {{ $t("taskTabs.chat") }}
+      span.truncate {{ $t("taskTabs.chat") }}
 
     button.d-tab._tab(
       v-for="site in taskSites"
@@ -55,14 +59,14 @@ defineEmits<{
       @click="$emit('selectSiteTab', site)"
     )
       GlobeIcon.size-4(:stroke-width="2")
-      span {{ site.title || site.id }}
+      span.truncate {{ site.title || site.id }}
 </template>
 
 <style lang="postcss" scoped>
 @reference '#style.css';
 
 ._tab {
-  @apply gap-2 px-4 text-sm font-semibold;
+  @apply min-w-0 gap-2 overflow-hidden px-4 text-sm font-semibold;
 }
 </style>
 

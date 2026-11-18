@@ -26,8 +26,10 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
+	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
+	"cherrypi.vladfaust.com/agency/internal/modelrouting"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/tags"
@@ -52,6 +54,8 @@ type ProjectServer struct {
 	Scheduler *scheduler.Scheduler
 
 	KpiLayouts *kpilayout.Service
+
+	ModelRouting *modelrouting.Service
 }
 
 func (s *ProjectServer) ListProjects(
@@ -217,6 +221,10 @@ func (s *ProjectServer) DeleteProject(
 			ID:   req.Id,
 		})
 	}
+
+	if s.ModelRouting != nil {
+		_ = s.ModelRouting.ForgetProject(ctx, req.Id)
+	}
 	return &agencyv1.DeleteProjectResponse{}, nil
 }
 
@@ -281,17 +289,48 @@ func (s *ProjectServer) ListAgentProjects(
 	return &agencyv1.ListAgentProjectsResponse{Projects: out}, nil
 }
 
+func (s *ProjectServer) membershipAgent(
+	ctx context.Context,
+	requested string,
+) (ids.AgentID, error) {
+	if strings.TrimSpace(requested) != "" {
+		return actorid.ParseAgent(requested), nil
+	}
+	if s.Agents == nil {
+		return 0, connect.NewError(
+			connect.CodeUnavailable,
+			errors.New("the agent registry is unavailable"),
+		)
+	}
+	identity, ok := auth.IdentityFrom(ctx)
+	if !ok || identity.Kind != "agent" {
+		return 0, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("agent_id is required"),
+		)
+	}
+	agent, err := s.Agents.GetByActor(ctx, identity.ActorID)
+	if err != nil {
+		return 0, connect.NewError(connect.CodeNotFound, errors.New("agent not found"))
+	}
+	return agent.ID, nil
+}
+
 func (s *ProjectServer) ListAgentMemberships(
 	ctx context.Context,
 	req *agencyv1.ListAgentMembershipsRequest,
 ) (*agencyv1.ListAgentMembershipsResponse, error) {
-	if _, err := s.Agents.Get(ctx, actorid.ParseAgent(req.AgentId)); err != nil {
+	agentID, err := s.membershipAgent(ctx, req.GetAgentId())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.Agents.Get(ctx, agentID); err != nil {
 		if errors.Is(err, agents.ErrAgentMissing) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	list, err := s.Projects.ListAgentMemberships(ctx, actorid.ParseAgent(req.AgentId))
+	list, err := s.Projects.ListAgentMemberships(ctx, agentID)
 	if err != nil {
 		return nil, mapError(err)
 	}

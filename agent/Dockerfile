@@ -76,28 +76,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV NVM_DIR=/opt/nvm
-ENV NODE_VERSION=22.21.1
-
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   apt-get update && apt-get install -y --no-install-recommends \
-  wget ca-certificates curl git openssh-client gnupg \
+  ca-certificates curl git openssh-client gnupg \
   x11vnc x11-utils xauth
-
-
-RUN mkdir -p "$NVM_DIR" \
-  && curl --silent -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash \
-  && . "$NVM_DIR/nvm.sh" \
-  && nvm install "$NODE_VERSION" \
-  && nvm alias default "$NODE_VERSION" \
-  && nvm use default
-
-ENV PATH=$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
-
-
-RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.99.1 \
-  && pi --version
 
 COPY --from=backend /out/cherrypi-agent /usr/local/bin/cherrypi-agent
 

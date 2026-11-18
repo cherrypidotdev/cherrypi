@@ -71,9 +71,16 @@ func newSqliteStore(dsn string, foreignKeys bool) (Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to agency SQLite: %w", err)
 	}
+	configureSQLitePool(db)
 	telemetry.RegisterDBStats(db, dsn, semconv.DBSystemNameSQLite)
 
 	return &SqliteStore{db: db, q: sqlitedb.New(db)}, nil
+}
+
+const sqliteIdleConns = 8
+
+func configureSQLitePool(db *sql.DB) {
+	db.SetMaxIdleConns(sqliteIdleConns)
 }
 
 func checkSqliteForeignKeys(db *sql.DB) error {
@@ -1355,4 +1362,116 @@ func NewSqliteStoreForTest(t interface{ Fatalf(string, ...any) }, dsn string) St
 		t.Fatalf("open: %v", err)
 	}
 	return st
+}
+
+func (s *SqliteStore) GetTaskSessionState(
+	ctx context.Context,
+	taskID string,
+) (TaskSessionState, error) {
+	row, err := s.q.GetTaskSessionState(ctx, taskID)
+	if err != nil {
+		return TaskSessionState{}, err
+	}
+	return fromSqliteTaskSessionState(row), nil
+}
+
+func (s *SqliteStore) PutTaskSessionState(
+	ctx context.Context,
+	p PutTaskSessionStateParams,
+) (int64, error) {
+	if p.ExpectedRevision == 0 {
+		n, err := s.q.CreateTaskSessionState(ctx, sqlitedb.CreateTaskSessionStateParams{
+			TaskID:        p.TaskID,
+			ModelProvider: p.ModelProvider,
+			ModelID:       p.ModelID,
+			ThinkingLevel: p.ThinkingLevel,
+			EntriesJson:   p.EntriesJSON,
+			UpdatedAt:     p.UpdatedAt,
+		})
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return 0, ErrTaskSessionStateConflict
+		}
+		return 1, nil
+	}
+	n, err := s.q.UpdateTaskSessionState(ctx, sqlitedb.UpdateTaskSessionStateParams{
+		ModelProvider:    p.ModelProvider,
+		ModelID:          p.ModelID,
+		ThinkingLevel:    p.ThinkingLevel,
+		EntriesJson:      p.EntriesJSON,
+		UpdatedAt:        p.UpdatedAt,
+		TaskID:           p.TaskID,
+		ExpectedRevision: p.ExpectedRevision,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, ErrTaskSessionStateConflict
+	}
+	return p.ExpectedRevision + 1, nil
+}
+
+func (s *SqliteStore) AppendTaskEvents(
+	ctx context.Context,
+	events []AppendTaskEventParams,
+) (int64, error) {
+	var appended int64
+	err := s.tx(ctx, func(q *sqlitedb.Queries) error {
+		for _, p := range events {
+			n, err := q.AppendTaskEvent(ctx, sqlitedb.AppendTaskEventParams(p))
+			if err != nil {
+				return err
+			}
+			appended += n
+		}
+		return nil
+	})
+	return appended, err
+}
+
+func (s *SqliteStore) ListTaskEvents(ctx context.Context, taskID string) ([]TaskEvent, error) {
+	rows, err := s.q.ListTaskEvents(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskEventSlice(rows), nil
+}
+
+func (s *SqliteStore) PageTaskEvents(
+	ctx context.Context,
+	taskID string,
+	before int64,
+	limit int,
+) ([]TaskEvent, error) {
+	params := sqlitedb.PageTaskEventsParams{
+		TaskID:    taskID,
+		PageLimit: int64(limit),
+	}
+	if before > 0 {
+		params.Before = sql.NullInt64{Int64: before, Valid: true}
+	}
+	rows, err := s.q.PageTaskEvents(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskEventSlice(rows), nil
+}
+
+func (s *SqliteStore) LastTaskEventSeq(ctx context.Context, taskID string) (int64, error) {
+	return s.q.LastTaskEventSeq(ctx, taskID)
+}
+
+func (s *SqliteStore) DeleteTaskSessionData(ctx context.Context, taskID string) error {
+	return s.tx(ctx, func(q *sqlitedb.Queries) error {
+		if err := q.DeleteTaskSessionState(ctx, taskID); err != nil {
+			return err
+		}
+		if err := q.DeleteTaskEventsForTask(ctx, taskID); err != nil {
+			return err
+		}
+		return q.DeleteTaskSessionEntriesForTask(ctx, taskID)
+	})
 }

@@ -29,6 +29,8 @@ import (
 type HoldInput struct {
 	Key    string
 	Reason string
+
+	URL string
 }
 
 type ReleaseOptions struct {
@@ -54,6 +56,7 @@ func (s *Service) HoldTask(
 	return s.Tasks.Hold(ctx, taskID, p.ID, tasks.HoldInput{
 		Key:    in.Key,
 		Reason: in.Reason,
+		URL:    in.URL,
 	})
 }
 
@@ -116,6 +119,7 @@ func HoldReleaseEvent(release tasks.HoldRelease) Event {
 			"plugin_name": release.PluginName,
 			"key":         release.Key,
 			"reason":      release.Reason,
+			"url":         release.URL,
 			"mode":        string(release.Mode),
 			"applied":     release.Applied,
 			"cause":       string(release.Cause),

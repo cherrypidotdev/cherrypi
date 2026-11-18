@@ -135,10 +135,14 @@ func (s *Service) CreateForTask(
 	ctx context.Context,
 	taskID string,
 	recipients []ids.ActorID,
+	broadcast bool,
 	n Notification,
 ) error {
 	n.TaskID = taskID
 	if len(recipients) == 0 {
+		if !broadcast {
+			return nil
+		}
 		return s.Create(ctx, n)
 	}
 	for _, recipient := range recipients {

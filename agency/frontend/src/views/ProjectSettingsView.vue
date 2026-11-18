@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsList
       TabsTrigger(value="general") {{ $t("settings.tabs.general") }}
       TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
+      TabsTrigger(value="models") {{ $t("projectSettings.tabs.models") }}
       TabsTrigger(value="templates") {{ $t("projectSettings.tabs.templates") }}
       TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
       TabsTrigger(value="access") {{ $t("domainLog.kind.access") }}
@@ -256,6 +257,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CardDescription {{ $t("projectSettings.tags.description") }}
           CardContent
             TagsPanel(:project-id="project?.id ?? ''")
+
+    TabsContent(value="models")
+      ModelRoutingPanel(
+        scope="project"
+        :project-id="project?.id"
+        :can-edit="canManageProject"
+      )
 
     TabsContent(value="templates")
       Card
@@ -573,6 +581,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
+import ModelRoutingPanel from "@/components/settings/ModelRoutingPanel.vue";
 import ProjectGroupsPanel from "@/components/settings/ProjectGroupsPanel.vue";
 import ProjectPluginsPanel from "@/components/settings/ProjectPluginsPanel.vue";
 import TagsPanel from "@/components/settings/TagsPanel.vue";
@@ -652,7 +661,15 @@ const route = useRoute();
 const router = useRouter();
 const { refresh: refreshProjects } = useProjects();
 
-const TABS = ["general", "tasks", "templates", "plugins", "access", "danger"];
+const TABS = [
+  "general",
+  "tasks",
+  "models",
+  "templates",
+  "plugins",
+  "access",
+  "danger",
+];
 const tab = ref(
   typeof props.tab === "string" && TABS.includes(props.tab)
     ? props.tab
@@ -1351,6 +1368,7 @@ en:
       updated: "Project updated"
       prefixUpdated: "Task prefix updated"
     tabs:
+      models: "Models"
       templates: "Templates"
     invitationFrom: "Invitation from {project}"
     invitedBy: "Invited by {'@'}{username}"
@@ -1445,6 +1463,7 @@ ru:
       updated: "Проект обновлён"
       prefixUpdated: "Префикс задач обновлён"
     tabs:
+      models: "Модели"
       templates: "Шаблоны"
     invitationFrom: "Приглашение от {project}"
     invitedBy: "Приглашение от {'@'}{username}"

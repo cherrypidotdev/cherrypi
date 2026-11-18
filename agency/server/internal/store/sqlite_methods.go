@@ -32,6 +32,28 @@ func (s *SqliteStore) GetActorByID(ctx context.Context, id ids.ActorID) (Actor, 
 	return fromSqliteActor(row), nil
 }
 
+func (s *SqliteStore) ListActorsByIDs(
+	ctx context.Context,
+	ids []ids.ActorID,
+) ([]Actor, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	raw := make([]int64, len(ids))
+	for i, id := range ids {
+		raw[i] = int64(id)
+	}
+	rows, err := s.q.ListActorsByIDs(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Actor, len(rows))
+	for i, row := range rows {
+		out[i] = fromSqliteActor(row)
+	}
+	return out, nil
+}
+
 func (s *SqliteStore) GetActorByUsername(
 	ctx context.Context,
 	username string,
@@ -1207,6 +1229,28 @@ func (s *SqliteStore) ListTasks(
 	ctx context.Context,
 	p ListTasksParams,
 ) ([]Task, error) {
+
+	if p.Search.Valid && p.Search.String != "" {
+		rows, err := s.q.ListTasksRanked(ctx, sqlitedb.ListTasksRankedParams{
+			ProjectID:          p.ProjectID,
+			AgentID:            p.AgentID,
+			State:              p.State,
+			Archived:           p.Archived,
+			IncludeArchived:    p.IncludeArchived,
+			Automated:          p.Automated,
+			TagID:              p.TagID,
+			Search:             p.Search,
+			Size:               p.Size,
+			Priority:           p.Priority,
+			ReferenceProjectID: p.ReferenceProjectID,
+			PageOffset:         p.PageOffset,
+			PageLimit:          p.PageLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return fromSqliteTaskSlice(rows), nil
+	}
 	rows, err := s.q.ListTasks(ctx, sqlitedb.ListTasksParams(p))
 	if err != nil {
 		return nil, err
@@ -1442,32 +1486,57 @@ func (s *SqliteStore) RenameTask(
 	return fromSqliteTask(row), nil
 }
 
-func (s *SqliteStore) ListTaskChildren(
+func (s *SqliteStore) SetTaskNeedsOperator(
 	ctx context.Context,
-	parentTaskID string,
+	p SetTaskNeedsOperatorParams,
+) (int64, error) {
+	return s.q.SetTaskNeedsOperator(ctx, sqlitedb.SetTaskNeedsOperatorParams(p))
+}
+
+func (s *SqliteStore) SetTaskReactionReminders(
+	ctx context.Context,
+	p SetTaskReactionRemindersParams,
+) (int64, error) {
+	return s.q.SetTaskReactionReminders(ctx, sqlitedb.SetTaskReactionRemindersParams(p))
+}
+
+func (s *SqliteStore) ListLiveReactionTasksByOrigin(
+	ctx context.Context,
+	originID string,
 ) ([]Task, error) {
-	rows, err := s.q.ListTaskChildren(ctx, sql.NullString{String: parentTaskID, Valid: true})
+	rows, err := s.q.ListLiveReactionTasksByOrigin(
+		ctx,
+		sql.NullString{String: originID, Valid: originID != ""},
+	)
 	if err != nil {
 		return nil, err
 	}
 	return fromSqliteTaskSlice(rows), nil
 }
 
-func (s *SqliteStore) CountIncompleteChildTasks(
+func (s *SqliteStore) ListStalledReactionTasks(
 	ctx context.Context,
-	parentTaskID string,
-) (int64, error) {
-	return s.q.CountIncompleteChildTasks(
+	cutoffMs int64,
+) ([]Task, error) {
+	rows, err := s.q.ListStalledReactionTasks(
 		ctx,
-		sql.NullString{String: parentTaskID, Valid: true},
+		sql.NullInt64{Int64: cutoffMs, Valid: true},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteTaskSlice(rows), nil
 }
 
-func (s *SqliteStore) DetachTaskChildren(
+func (s *SqliteStore) SetAgentLastOnline(
 	ctx context.Context,
-	p DetachTaskChildrenParams,
+	id ids.AgentID,
+	at int64,
 ) error {
-	return s.q.DetachTaskChildren(ctx, sqlitedb.DetachTaskChildrenParams(p))
+	return s.q.SetAgentLastOnline(ctx, sqlitedb.SetAgentLastOnlineParams{
+		LastOnlineAt: sql.NullInt64{Int64: at, Valid: at != 0},
+		ID:           int64(id),
+	})
 }
 
 func (s *SqliteStore) SetTaskPendingSteering(
@@ -1720,6 +1789,35 @@ func (s *SqliteStore) ListTaskReferencedBy(
 	return fromSqliteTaskSlice(rows), nil
 }
 
+func (s *SqliteStore) ListBlockedEdgesByBlocker(
+	ctx context.Context,
+	blockerID string,
+) ([]ListBlockedEdgesByBlockerRow, error) {
+	rows, err := s.q.ListBlockedEdgesByBlocker(ctx, blockerID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListBlockedEdgesByBlockerRow, len(rows))
+	for i, row := range rows {
+		out[i] = fromSqliteListBlockedEdgesByBlockerRow(row)
+	}
+	return out, nil
+}
+
+func (s *SqliteStore) ListPendingSteeringTasks(
+	ctx context.Context,
+) ([]ListPendingSteeringTasksRow, error) {
+	rows, err := s.q.ListPendingSteeringTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ListPendingSteeringTasksRow, len(rows))
+	for i, row := range rows {
+		out[i] = fromSqliteListPendingSteeringTasksRow(row)
+	}
+	return out, nil
+}
+
 func (s *SqliteStore) ListTaskReferenceIDs(ctx context.Context, taskID string) ([]string, error) {
 	return s.q.ListTaskReferenceIDs(ctx, taskID)
 }
@@ -1751,14 +1849,26 @@ func (s *SqliteStore) ListTaskReferenceRefs(
 	return fromSqliteListTaskReferenceRefsRowSlice(rows), nil
 }
 
-func (s *SqliteStore) ListTaskReferencedByRefs(
+func (s *SqliteStore) ListTaskReferenceRefsByTask(
 	ctx context.Context,
-) ([]ListTaskReferencedByRefsRow, error) {
-	rows, err := s.q.ListTaskReferencedByRefs(ctx)
+	taskID string,
+) ([]ListTaskReferenceRefsByTaskRow, error) {
+	rows, err := s.q.ListTaskReferenceRefsByTask(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
-	return fromSqliteListTaskReferencedByRefsRowSlice(rows), nil
+	return fromSqliteListTaskReferenceRefsByTaskRowSlice(rows), nil
+}
+
+func (s *SqliteStore) ListTaskReferencedByRefsByTask(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskReferencedByRefsByTaskRow, error) {
+	rows, err := s.q.ListTaskReferencedByRefsByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListTaskReferencedByRefsByTaskRowSlice(rows), nil
 }
 
 func (s *SqliteStore) CreateTag(
@@ -2704,6 +2814,21 @@ func (s *SqliteStore) GetTeam(ctx context.Context, id int64) (Team, error) {
 		return Team{}, err
 	}
 	return fromSqliteTeam(row), nil
+}
+
+func (s *SqliteStore) ListTeamsByIDs(ctx context.Context, ids []int64) ([]Team, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListTeamsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Team, len(rows))
+	for i, row := range rows {
+		out[i] = fromSqliteTeam(row)
+	}
+	return out, nil
 }
 
 func (s *SqliteStore) GetTeamByName(ctx context.Context, name string) (Team, error) {

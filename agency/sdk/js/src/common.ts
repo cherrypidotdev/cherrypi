@@ -154,7 +154,7 @@ export interface ListTasksFilter {
 
   offset?: number;
 
-  parentTaskId?: string;
+  automated?: boolean;
 }
 
 export interface ReopenTaskOptions {
@@ -198,7 +198,7 @@ export interface CreateTaskInput {
 
   teamIds?: number[];
 
-  leadActorIds?: string[];
+  leaderActorId?: string;
 
   modelProvider?: string;
 
@@ -212,9 +212,7 @@ export interface CreateTaskInput {
 
   state?: TaskState;
 
-  parentTaskId?: string;
-
-  interactive?: boolean;
+  automated?: boolean;
 
   originTaskId?: string;
 }
@@ -330,7 +328,7 @@ export interface TaskTemplateContentInput {
   defaultSize?: TaskSize;
   defaultTagIds?: string[];
   defaultTeamIds?: number[];
-  defaultLeadActorIds?: string[];
+  defaultLeaderActorId?: string;
 }
 
 export interface CreateTaskTemplateInput {
@@ -370,8 +368,8 @@ export interface SetTaskTeamsInput {
   teamIds: number[];
 }
 
-export interface SetTaskLeadsInput {
-  leadActorIds: string[];
+export interface SetTaskLeaderInput {
+  leaderActorId: string;
 }
 
 export interface SetTaskSubscriptionInput {

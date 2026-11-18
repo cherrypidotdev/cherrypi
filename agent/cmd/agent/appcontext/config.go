@@ -32,17 +32,9 @@ type Config struct {
 
 	DatabaseDSN string
 
-	PiBin string
-
-	PiSessionDir string
-
-	PiArgs []string
-
 	WorkspaceRoot string
 
 	Shell string
-
-	PiAgentDir string
 
 	Display string
 
@@ -53,10 +45,6 @@ type Config struct {
 	TunnelTransport string
 
 	AgentToken string
-
-	AgentTokenFixed bool
-
-	AgentTokenFile string
 
 	LogFormat string
 
@@ -102,17 +90,7 @@ func ParseConfig() Config {
 	}
 	cfg.DatabaseDSN = databaseDSN
 
-	cfg.PiBin = os.Getenv("PI_BIN")
-	cfg.PiSessionDir = os.Getenv("PI_SESSION_DIR")
-	cfg.PiArgs = strings.Fields(os.Getenv("PI_ARGS"))
 	cfg.Shell = os.Getenv("SHELL_BIN")
-
-	cfg.PiAgentDir = os.Getenv("PI_CODING_AGENT_DIR")
-	if cfg.PiAgentDir == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			cfg.PiAgentDir = filepath.Join(home, ".pi", "agent")
-		}
-	}
 
 	cfg.Display = os.Getenv("DISPLAY")
 	cfg.XAuthority = os.Getenv("XAUTHORITY")
@@ -150,11 +128,6 @@ func ParseConfig() Config {
 		cfg.AgentToken = rawToken
 	} else if rawToken != "" {
 		log.Printf("Ignoring CHERRYPI_AGENT_TOKEN: expected a personal access token (pat_…)")
-	}
-	cfg.AgentTokenFixed = cfg.AgentToken != ""
-	cfg.AgentTokenFile = os.Getenv("CHERRYPI_AGENT_TOKEN_FILE")
-	if cfg.AgentTokenFile == "" {
-		cfg.AgentTokenFile = filepath.Join(cfg.Dir, "agent.token")
 	}
 
 	cfg.HealthInterval = parseHealthInterval(os.Getenv("CHERRYPI_HEALTH_INTERVAL"))

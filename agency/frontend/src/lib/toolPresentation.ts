@@ -53,6 +53,56 @@ export interface ToolView {
   sections: ToolSection[];
 }
 
+export interface PlanCallStep {
+  text: string;
+  status: "pending" | "in_progress" | "done";
+}
+
+export interface PlanCall {
+  summary: string;
+  steps: PlanCallStep[];
+  done: number;
+  total: number;
+  percent: number;
+}
+
+export function planCall(argsRaw: string): PlanCall | null {
+  const args = parseObject(argsRaw);
+  if (!args || !("todos" in args)) return null;
+  const raw = args["todos"];
+  const steps: PlanCallStep[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const fields = entry as Record<string, unknown>;
+      const text = typeof fields["text"] === "string" ? fields["text"] : "";
+      if (!text.trim()) continue;
+      const status =
+        fields["status"] === "done"
+          ? "done"
+          : fields["status"] === "in_progress"
+            ? "in_progress"
+            : "pending";
+      steps.push({ text, status });
+    }
+  }
+  const done = steps.filter((step) => step.status === "done").length;
+  const total = steps.length;
+  return {
+    summary: typeof args["summary"] === "string" ? args["summary"] : "",
+    steps,
+    done,
+    total,
+    percent: total === 0 ? 0 : Math.round((done / total) * 100),
+  };
+}
+
+export function interruptedBy(item: Pick<ToolItem, "details">): string {
+  const details = parseObject(item.details);
+  const value = details?.["interruptedBy"];
+  return typeof value === "string" ? value : "";
+}
+
 export function parseObject(raw: string): Record<string, unknown> | null {
   if (!raw.trim()) return null;
   try {

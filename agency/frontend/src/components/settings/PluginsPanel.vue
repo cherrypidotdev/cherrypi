@@ -28,7 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           | {{ $t("plugins.back") }}
         h2.flex.items-center.gap-2.text-base.font-semibold
-          PlugIcon.size-5
+          PluginIcon(:src="plugin?.iconUrl" size="size-5")
           | {{ plugin?.name || selectedId }}
           Badge(
             v-if="plugin"
@@ -215,7 +215,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               | {{ $t("plugins.fileSize", { name: selectedFile.name, size: Math.ceil(selectedFile.size / 1024) }) }}
           template(v-else)
             .flex.flex-col.gap-1
-              h3.text-base.font-semibold
+              h3.flex.items-center.gap-2.text-base.font-semibold
+                PluginIcon(:src="preview?.iconDataUrl" size="size-5")
                 | {{ preview.name }}
                 span.text-muted-foreground v{{ preview.version }}
               p.text-muted-foreground.text-sm
@@ -281,7 +282,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       Card.flex.flex-col(v-for="item in plugins" :key="item.id")
         CardHeader
           CardTitle.flex.items-center.gap-2
-            PlugIcon.size-4
+            PluginIcon(:src="item.plugin.iconUrl")
             Button.text-primary.px-0.text-left(
               variant="link"
               @click="openDetail(item.id)"
@@ -322,6 +323,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import PluginIcon from "@/components/plugins/PluginIcon.vue";
 import PluginLogData from "@/components/plugins/PluginLogData.vue";
 import PluginLogLoadMore from "@/components/plugins/PluginLogLoadMore.vue";
 import PluginRuntimeLogs from "@/components/plugins/PluginRuntimeLogs.vue";
@@ -376,7 +378,7 @@ import type {
   PluginPreview,
   PluginSettings,
 } from "@cherrypi/sdk";
-import { PlugIcon, PlusIcon, SearchIcon, UploadIcon } from "@lucide/vue";
+import { PlusIcon, SearchIcon, UploadIcon } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 

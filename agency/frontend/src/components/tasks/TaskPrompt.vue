@@ -17,19 +17,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-.relative.flex.flex-col(:class="compact ? '' : 'min-h-0 flex-1'")
-  .relative.flex.flex-col(
-    :class="compact ? '' : 'min-h-0 flex-1 overflow-auto p-4'"
-  )
+.relative.flex.min-h-0.flex-1.flex-col
+  .relative.flex.min-h-0.flex-1.flex-col.overflow-auto.p-4
     .flex.w-full.flex-col.gap-3
       .flex.flex-wrap.items-center.gap-2(v-if="showModelPicker")
-        span.text-muted-foreground.text-xs(v-if="!agentId")
-          | {{ $t("taskPrompt.assignAgentForModel") }}
         TaskModelPicker.ml-auto(
           :agent-id="agentId"
           :selection="modelSelection"
+          :routing="routingContext"
           @change="onModelChange"
-          :disabled="savingModel || !agentId"
+          :disabled="savingModel"
         )
 
       template(v-if="!editing")
@@ -50,10 +47,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :style="inheritProse"
               :text="value"
             )
-          div(
-            v-if="showAttachments && task.attachments.length"
-            data-testid="prompt-attachments"
-          )
+          div(v-if="task.attachments.length" data-testid="prompt-attachments")
             AttachmentList(
               compact
               :removable="editable"
@@ -110,7 +104,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :text="draft"
               )
 
-          .flex.flex-wrap.items-center.gap-2(v-if="showAttachments")
+          .flex.flex-wrap.items-center.gap-2
             AttachmentUploadButton(
               :label="$t('taskPrompt.attach')"
               :title="$t('taskPrompt.attachAria')"
@@ -135,10 +129,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             span.text-muted-foreground.text-xs(v-if="uploading")
               | {{ $t("taskPrompt.uploading") }}
 
-          div(
-            v-if="showAttachments && task.attachments.length"
-            data-testid="prompt-attachments"
-          )
+          div(v-if="task.attachments.length" data-testid="prompt-attachments")
             AttachmentList(
               removable
               sketchable
@@ -214,20 +205,11 @@ const props = withDefaults(
     editable?: boolean;
     hint?: string;
 
-    text?: string;
-
-    field?: "prompt" | "pendingPrompt";
-
-    compact?: boolean;
-
     agentId?: string;
   }>(),
   {
     editable: false,
     hint: "",
-    text: undefined,
-    field: "prompt",
-    compact: false,
     agentId: "",
   },
 );
@@ -241,20 +223,17 @@ const emit = defineEmits<{
   openAttachment: [attachment: Attachment];
 }>();
 
-const value = computed(() => props.text ?? props.task.prompt);
-
-const showAttachments = computed(() => props.field === "prompt");
+const value = computed(() => props.task.prompt);
 
 const hintText = computed(
   () => props.hint || (props.editable ? t("taskPrompt.unsentHint") : ""),
 );
 
-const previewClass = computed(() => [
+const previewClass = computed(() =>
   props.editable
     ? "cursor-text border-dashed hover:border-primary/60"
     : "border-solid",
-  props.compact ? "max-h-[40vh] overflow-y-auto" : "",
-]);
+);
 
 const inheritProse = {
   "--tw-prose-body": "currentColor",
@@ -275,11 +254,16 @@ const inheritProse = {
   "--tw-prose-td-borders": "currentColor",
 };
 
-const showModelPicker = computed(
-  () => props.editable && !props.compact && props.field === "prompt",
-);
+const showModelPicker = computed(() => props.editable);
 const modelSelection = ref<TaskModelSelection>(selectionFromTask(props.task));
 const savingModel = ref(false);
+
+const routingContext = computed(() => ({
+  projectId: props.task.projectId,
+  priority: props.task.priority,
+  size: props.task.size,
+  tags: props.task.tags.map((tag) => tag.name),
+}));
 
 function selectionFromTask(task: Task): TaskModelSelection {
   return {
@@ -415,7 +399,6 @@ function cancel() {
 }
 
 async function onPaste(event: ClipboardEvent) {
-  if (!showAttachments.value) return;
   const files: File[] = [];
   for (const item of event.clipboardData?.items ?? []) {
     if (item.kind !== "file") continue;
@@ -447,7 +430,6 @@ function onDragLeave() {
 async function onDrop(event: DragEvent) {
   dragDepth = 0;
   dragging.value = false;
-  if (!showAttachments.value) return;
   await stage(event.dataTransfer?.files ?? []);
 }
 
@@ -467,12 +449,7 @@ async function save() {
   saving.value = true;
   error.value = "";
   try {
-    let next: Task;
-    if (props.field === "pendingPrompt") {
-      next = await agency.updateTask(current.id, { setPendingPrompt: prompt });
-    } else {
-      next = await agency.updateTask(current.id, { setPrompt: prompt });
-    }
+    const next = await agency.updateTask(current.id, { setPrompt: prompt });
     editing.value = false;
     emit("saved", next);
     toast.success(t("taskPrompt.toasts.updated"));
@@ -495,7 +472,6 @@ en:
     aria: "Task prompt"
     attachAria: "Attach files to the task"
     sketchAria: "Draw a sketch"
-    assignAgentForModel: "Assign an agent to choose a model"
     attachmentsHint: "Paste, drop, or pick files to attach them to the prompt"
     uploading: "Uploading…"
     shortcutsShort: "Ctrl+Enter to save · Tab indents"
@@ -513,7 +489,6 @@ ru:
     aria: "Промпт задачи"
     attachAria: "Прикрепить файлы к задаче"
     sketchAria: "Нарисовать набросок"
-    assignAgentForModel: "Назначьте агента, чтобы выбрать модель"
     attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы прикрепить их к промпту"
     uploading: "Загрузка…"
     shortcutsShort: "Ctrl+Enter — сохранить · Tab — отступ"

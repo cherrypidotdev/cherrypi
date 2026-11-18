@@ -67,11 +67,7 @@ const durationLabel = computed(() =>
 const rateLabel = computed(() => {
   const usage = props.usage;
   if (!usage) return "";
-  const rate = generationRate(
-    usage.outputTokens,
-    usage.thinkingMs,
-    usage.modelWaitMs,
-  );
+  const rate = generationRate(usage.outputTokens, usage.thinkingMs);
   return rate > 0 ? formatRate(rate) : "";
 });
 const title = computed(() => {
@@ -81,6 +77,12 @@ const title = computed(() => {
     `${formatCount(usage.inputTokens)} in · ${formatCount(usage.outputTokens)} out`,
     modelLabel.value,
   ];
+  if (usage.cacheReadTokens > 0 || usage.cacheWriteTokens > 0) {
+    parts.push(
+      `cache ${formatCount(usage.cacheReadTokens)} read · ` +
+        `${formatCount(usage.cacheWriteTokens)} written`,
+    );
+  }
   parts.push(`thinking ${formatDuration(usage.thinkingMs)}`);
   if (usage.modelWaitMs > 0) {
     parts.push(`waiting ${formatDuration(usage.modelWaitMs)}`);

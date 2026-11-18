@@ -104,6 +104,16 @@ import {
   type TaskAutoArchive,
   type VoiceInput,
 } from "./gen/buf/agency/v1/settings_pb.js";
+import {
+  ModelRoutingService,
+  OrganizationModelRoutingSchema,
+  ProjectModelRoutingSchema,
+  type ModelRoute,
+  type ModelSelection,
+  type OrganizationModelRouting,
+  type ProjectModelRouting,
+  type RoutingModel,
+} from "./gen/buf/agency/v1/model_routing_pb.js";
 import { TerminalService as AgencyTerminalService } from "./gen/buf/agency/v1/terminal_pb.js";
 import { DesktopService as AgencyDesktopService } from "./gen/buf/agency/v1/desktop_pb.js";
 import {
@@ -185,7 +195,7 @@ import {
   type ReleaseTaskHoldInput,
   type SetTaskModelInput,
   type TaskLinkInput,
-  type SetTaskLeadsInput,
+  type SetTaskLeaderInput,
   type SetTaskFavoriteInput,
   type SetTaskSubscriptionInput,
   type SetTaskTeamsInput,
@@ -280,6 +290,95 @@ export interface AgencySettingsInput {
   voiceInputApiKey?: string;
 
   clearApiKey?: boolean;
+}
+
+export interface ModelSelectionInput {
+  provider: string;
+  modelId: string;
+  modelName?: string;
+  thinkingLevel?: string;
+}
+
+export interface ModelRouteInput {
+  priority?: TaskPriority;
+  size?: TaskSize;
+  tag?: string;
+  model: ModelSelectionInput;
+}
+
+export interface OrganizationModelRoutingInput {
+  defaultModel?: ModelSelectionInput;
+  routes?: ModelRouteInput[];
+}
+
+export interface ProjectModelRoutingInput {
+  defaultModel?: ModelSelectionInput;
+  tagPins?: ModelRouteInput[];
+  routes?: ModelRouteInput[];
+}
+
+export interface RoutingModelOption {
+  provider: string;
+  modelId: string;
+  name: string;
+
+  thinkingLevels: string[];
+}
+
+export interface PreviewModelRoutingInput {
+  projectId: string;
+  priority?: TaskPriority;
+  size?: TaskSize;
+  tags?: string[];
+}
+
+export interface ModelRoutingPreview {
+  model?: ModelSelectionInput;
+  scope: string;
+  rule: number;
+}
+
+function selectionInit(value: ModelSelectionInput): ModelSelection {
+  return {
+    $typeName: "agency.v1.ModelSelection",
+    provider: value.provider,
+    modelId: value.modelId,
+    modelName: value.modelName ?? "",
+    thinkingLevel: value.thinkingLevel ?? "",
+  };
+}
+
+function routeInit(value: ModelRouteInput): ModelRoute {
+  return {
+    $typeName: "agency.v1.ModelRoute",
+    priority: value.priority ?? TaskPriority.UNSPECIFIED,
+    size: value.size ?? TaskSize.UNSPECIFIED,
+    tag: value.tag ?? "",
+    model: selectionInit(value.model),
+  };
+}
+
+function modelRoutingInit(
+  value: OrganizationModelRoutingInput,
+): OrganizationModelRouting {
+  return create(OrganizationModelRoutingSchema, {
+    defaultModel: value.defaultModel
+      ? selectionInit(value.defaultModel)
+      : undefined,
+    routes: (value.routes ?? []).map(routeInit),
+  });
+}
+
+function projectRoutingInit(
+  value: ProjectModelRoutingInput,
+): ProjectModelRouting {
+  return create(ProjectModelRoutingSchema, {
+    defaultModel: value.defaultModel
+      ? selectionInit(value.defaultModel)
+      : undefined,
+    tagPins: (value.tagPins ?? []).map(routeInit),
+    routes: (value.routes ?? []).map(routeInit),
+  });
 }
 
 export interface TranscribeAudioInput {
@@ -446,6 +545,7 @@ export class AgencyClient {
 
   private readonly agents: Client<typeof AgentService>;
   private readonly settings: Client<typeof SettingsService>;
+  private readonly modelRouting: Client<typeof ModelRoutingService>;
   private readonly kpiLayouts: Client<typeof KpiLayoutService>;
   private readonly tasks: Client<typeof AgencyTaskService>;
   private readonly tags: Client<typeof TagService>;
@@ -481,6 +581,7 @@ export class AgencyClient {
 
     this.agents = createClient(AgentService, transport);
     this.settings = createClient(SettingsService, transport);
+    this.modelRouting = createClient(ModelRoutingService, transport);
     this.kpiLayouts = createClient(KpiLayoutService, transport);
     this.tasks = createClient(AgencyTaskService, transport);
     this.tags = createClient(TagService, transport);
@@ -634,6 +735,94 @@ export class AgencyClient {
     }
     const payload = (await res.json()) as { actor?: { username?: string } };
     return payload.actor?.username ?? "";
+  }
+
+  async getOrganizationModelRouting(
+    options?: CallOptions,
+  ): Promise<OrganizationModelRouting> {
+    const res = await this.modelRouting.getOrganizationModelRouting(
+      {},
+      options,
+    );
+    return res.routing ?? create(OrganizationModelRoutingSchema);
+  }
+
+  async updateOrganizationModelRouting(
+    routing: OrganizationModelRoutingInput,
+    options?: CallOptions,
+  ): Promise<OrganizationModelRouting> {
+    const res = await this.modelRouting.updateOrganizationModelRouting(
+      { routing: modelRoutingInit(routing) },
+      options,
+    );
+    return res.routing ?? create(OrganizationModelRoutingSchema);
+  }
+
+  async getProjectModelRouting(
+    projectId: string,
+    options?: CallOptions,
+  ): Promise<ProjectModelRouting> {
+    const res = await this.modelRouting.getProjectModelRouting(
+      { projectId },
+      options,
+    );
+    return res.routing ?? create(ProjectModelRoutingSchema);
+  }
+
+  async updateProjectModelRouting(
+    projectId: string,
+    routing: ProjectModelRoutingInput,
+    options?: CallOptions,
+  ): Promise<ProjectModelRouting> {
+    const res = await this.modelRouting.updateProjectModelRouting(
+      { projectId, routing: projectRoutingInit(routing) },
+      options,
+    );
+    return res.routing ?? create(ProjectModelRoutingSchema);
+  }
+
+  async listRoutingModels(
+    projectId = "",
+    options?: CallOptions,
+  ): Promise<RoutingModelOption[]> {
+    const res = await this.modelRouting.listRoutingModels(
+      { projectId },
+      options,
+    );
+    return res.models.map((model: RoutingModel) => ({
+      provider: model.provider,
+      modelId: model.modelId,
+      name: model.name,
+      thinkingLevels: [...model.thinkingLevels],
+    }));
+  }
+
+  async previewModelRouting(
+    input: PreviewModelRoutingInput,
+    options?: CallOptions,
+  ): Promise<ModelRoutingPreview> {
+    const res = await this.modelRouting.previewModelRouting(
+      {
+        projectId: input.projectId,
+        priority: input.priority ?? TaskPriority.UNSPECIFIED,
+        size: input.size ?? TaskSize.UNSPECIFIED,
+        tags: input.tags ?? [],
+      },
+      options,
+    );
+    const model = res.model;
+    return {
+      model: model
+        ? {
+            provider: model.provider,
+            modelId: model.modelId,
+            modelName: model.modelName,
+            thinkingLevel: model.thinkingLevel,
+          }
+        : undefined,
+      scope: res.scope,
+      rule: res.rule,
+    };
   }
 
   async listProjects(options?: CallOptions): Promise<Project[]> {
@@ -1284,7 +1473,7 @@ export class AgencyClient {
     size: TaskSize;
     tagIds: string[];
     teamIds: number[];
-    leadActorIds: string[];
+    leaderActorId: string;
     argsJson: string;
   }> {
     const res = await this.taskTemplates.renderTaskTemplate(
@@ -1307,7 +1496,7 @@ export class AgencyClient {
       size: res.size,
       tagIds: res.tagIds,
       teamIds: res.teamIds,
-      leadActorIds: res.leadActorIds,
+      leaderActorId: res.leaderActorId,
       argsJson: res.argsJson,
     };
   }
@@ -1638,7 +1827,7 @@ export class AgencyClient {
         priority: filter?.priority ?? TaskPriority.UNSPECIFIED,
         archived: filter?.archived ?? false,
         includeArchived: filter?.includeArchived ?? false,
-        parentTaskId: filter?.parentTaskId ?? "",
+        automated: filter?.automated,
         referenceProjectId: filter?.referenceProjectId ?? "",
         limit: filter?.limit ?? 0,
         offset: filter?.offset ?? 0,
@@ -1677,15 +1866,14 @@ export class AgencyClient {
         autoTitle: input.autoTitle ?? false,
         state: input.state ?? TaskState.UNSPECIFIED,
         teamIds: input.teamIds ?? [],
-        leadActorIds: input.leadActorIds ?? [],
+        leaderActorId: input.leaderActorId ?? "",
         templateId: input.templateId ?? "",
         templateVersion: BigInt(input.templateVersion ?? 0),
         templateArgsJson: input.templateArgs
           ? JSON.stringify(input.templateArgs)
           : "",
         templatePromptOverride: input.templatePromptOverride ?? false,
-        parentTaskId: input.parentTaskId ?? "",
-        interactive: input.interactive,
+        automated: input.automated,
         originTaskId: input.originTaskId ?? "",
       },
       options,
@@ -1883,13 +2071,13 @@ export class AgencyClient {
     return res.task!;
   }
 
-  async setTaskLeads(
+  async setTaskLeader(
     id: string,
-    input: SetTaskLeadsInput,
+    input: SetTaskLeaderInput,
     options?: CallOptions,
   ): Promise<Task> {
-    const res = await this.tasks.setTaskLeads(
-      { id, leadActorIds: input.leadActorIds },
+    const res = await this.tasks.setTaskLeader(
+      { id, leaderActorId: input.leaderActorId },
       options,
     );
     return res.task!;
@@ -2088,6 +2276,14 @@ export class AgencyClient {
 
   async stopTask(id: string, options?: CallOptions): Promise<void> {
     await this.tasks.stopTask({ id }, options);
+  }
+
+  async interruptTaskToolCall(
+    id: string,
+    toolCallId: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.tasks.interruptTaskToolCall({ id, toolCallId }, options);
   }
 
   async retryTask(id: string, options?: CallOptions): Promise<Task> {
@@ -3104,6 +3300,6 @@ function templateContent(input: TaskTemplateContentInput): TaskTemplateContent {
     defaultSize: input.defaultSize,
     defaultTagIds: input.defaultTagIds ?? [],
     defaultTeamIds: input.defaultTeamIds ?? [],
-    defaultLeadActorIds: input.defaultLeadActorIds ?? [],
+    defaultLeaderActorId: input.defaultLeaderActorId ?? "",
   } as TaskTemplateContent;
 }

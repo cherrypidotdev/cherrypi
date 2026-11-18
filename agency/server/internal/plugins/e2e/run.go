@@ -502,22 +502,23 @@ func callPluginTool(
 	args any,
 ) (string, error) {
 	raw, err := json.Marshal(map[string]any{
-		"task_id": taskID,
-		"tool":    tool,
-		"args":    args,
+		"task_id":   taskID,
+		"tool":      tool,
+		"args_json": string(mustJSON(args)),
 	})
 	if err != nil {
 		return "", err
 	}
 	req, err := http.NewRequest(
 		http.MethodPost,
-		agency.URL+"/api/rest/agent-tools/plugin-tools",
+		agency.URL+"/api/grpc/agency.v1.PluginService/InvokePluginTool",
 		bytes.NewReader(raw),
 	)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
 	req.Header.Set("Authorization", "Bearer "+token)
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -536,6 +537,14 @@ func callPluginTool(
 		return "", err
 	}
 	return out.Text, nil
+}
+
+func mustJSON(value any) []byte {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return []byte("{}")
+	}
+	return raw
 }
 
 func diffTasks(after, before []Task) []Task {

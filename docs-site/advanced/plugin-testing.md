@@ -136,6 +136,7 @@ t.equal(#t.http_calls(), 1)
 | `t.update_settings(scope, target, values)` | Runs the bundle's `update_settings` hook the way the agency does: the stored row of that surface as `previous`, a stored secret filled into a blank field, and the return checked by `parseSettingErrors`. Returns the `{path, errorText}` list (empty when the bundle defines no hook); a malformed return raises, as production treats it as a hook bug. `t.update_settings(scope, values)` uses the untargeted row of whichever scope you pass. It only drives the hook — nothing is stored. A hook that raises raises here too, so wrap it in `pcall`. |
 | `t.task_tools(task_id)` | Runs the bundle's `handle_task_tools` hook and checks its return the way the scheduler does. Returns the project tool names the task may use (every declared tool unless the manifest declares the `task_tools` handler); a malformed return or a raising hook raises here too. |
 | `t.created_tasks()` | The `create_task` calls, with `project`, `tags`, `tools`, `assignee`, `state`, `interactive`. |
+| `t.project_settings(project_id)` | The project's plugin row after a write: `enabled`, `allow_task_creation`, `max_priority`, and `settings`. Use it to assert what `cherrypi.update_settings` stored. |
 | `t.holds(task_id)` | The plugin's holds on a task (`plugin`, `plugin_name`, `key`, `reason`, `created_at`), oldest first. |
 | `t.releases(task_id)` | The `release_task` calls (`key`, `mode`, `prompt`), in call order. |
 | `t.http_calls()` | Outbound calls (`method`, `url`, `path`, `body`). |
@@ -355,7 +356,7 @@ fixes the timestamp `handle_tick` receives.
   agent-tool route directly, so the task must be assigned to the seeded agent.
 - **With an agent** (`--with-agent`): boots the real agent and a mock LLM whose
   first turn calls the bundle's first tool. This exercises the whole path —
-  scheduler, Pi, the bundled tool extension, the agency route, and
+  scheduler, the task runtime, the tool, the agency route, and
   `handle_tool_call`. The scenario's `agent.tool_args` become the tool
   arguments.
 

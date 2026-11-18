@@ -31,6 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     Tabs(v-model="tab")
       TabsList
         TabsTrigger(value="general") {{ $t("settings.tabs.general") }}
+        TabsTrigger(value="models") {{ $t("settings.tabs.models") }}
         TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
         TabsTrigger(value="auth") {{ $t("account.tabs.auth") }}
         TabsTrigger(value="integrations") {{ $t("settings.tabs.integrations") }}
@@ -194,6 +195,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
               TaskColumnsPanel
 
+      TabsContent(value="models")
+        .flex.flex-col.gap-6
+          AgentModelsPanel
+          ModelRoutingPanel(scope="org" :can-edit="isAdmin")
+
       TabsContent(value="plugins")
         PluginsPanel
 
@@ -222,8 +228,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import AdminPanel from "@/components/settings/AdminPanel.vue";
+import AgentModelsPanel from "@/components/settings/AgentModelsPanel.vue";
 import AuthProvidersPanel from "@/components/settings/AuthProvidersPanel.vue";
 import KpiLayoutDefaultsPanel from "@/components/settings/KpiLayoutDefaultsPanel.vue";
+import ModelRoutingPanel from "@/components/settings/ModelRoutingPanel.vue";
 import PluginsPanel from "@/components/settings/PluginsPanel.vue";
 import ProcessLogsPanel from "@/components/settings/ProcessLogsPanel.vue";
 import SMTPSettingsPanel from "@/components/settings/SMTPSettingsPanel.vue";
@@ -406,6 +414,7 @@ en:
   settings:
     tabs:
       general: "General"
+      models: "Models"
       integrations: "Integrations"
       admin: "Admin"
       logs: "Logs"
@@ -454,6 +463,7 @@ ru:
   settings:
     tabs:
       general: "Общие"
+      models: "Модели"
       integrations: "Интеграции"
       admin: "Администрирование"
       logs: "Журналы"

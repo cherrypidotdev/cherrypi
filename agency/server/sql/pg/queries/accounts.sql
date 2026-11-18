@@ -39,6 +39,15 @@ RETURNING id;
 -- name: GetActorByID :one
 SELECT * FROM actors WHERE id = sqlc.arg(id);
 
+-- name: ListActorsByIDs :many
+
+
+
+
+
+SELECT * FROM actors
+WHERE id = ANY (string_to_array(sqlc.arg(ids)::text, ',')::bigint[]);
+
 -- name: GetActorByUsername :one
 SELECT * FROM actors WHERE username = sqlc.arg(username);
 

@@ -57,18 +57,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :value="option.value"
           ) {{ $t(option.labelKey) }}
     label.inline-flex.cursor-pointer.items-center.gap-2.text-xs(
-      :title="$t('tasks.interactiveHint')"
-      data-testid="task-non-interactive-filter"
+      :title="$t('tasks.automatedHint')"
+      data-testid="task-automated-filter"
     )
-      Switch(
-        v-model="showNonInteractive"
-        :aria-label="$t('tasks.showNonInteractive')"
-      )
-      span {{ $t("tasks.showNonInteractiveShort") }}
+      Switch(v-model="showAutomated" :aria-label="$t('tasks.showAutomated')")
+      span {{ $t("tasks.showAutomatedShort") }}
       span.text-muted-foreground(
-        v-if="!showNonInteractive && hiddenNonInteractive.length"
+        v-if="!showAutomated && hiddenAutomated.length"
       )
-        | ({{ hiddenNonInteractive.length }})
+        | ({{ hiddenAutomated.length }})
     slot(name="actions")
 
   .bg-card.sticky.top-0.z-20.flex.flex-wrap.items-center.gap-2.rounded-xl.border.px-3.py-2.shadow-sm(
@@ -239,14 +236,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     )
 
     button.text-muted-foreground.flex.w-full.items-center.justify-center.gap-1.border-t.px-3.py-2.text-xs.transition-colors(
-      v-if="!showNonInteractive && hiddenNonInteractive.length"
+      v-if="!showAutomated && hiddenAutomated.length"
       type="button"
       class="hover:bg-muted/50 hover:text-foreground"
-      @click="showNonInteractive = true"
-      data-testid="task-reveal-non-interactive"
+      @click="showAutomated = true"
+      data-testid="task-reveal-automated"
     )
       EyeIcon.size-3.shrink-0
-      | {{ $t("tasks.reveal", { count: hiddenLabel(hiddenNonInteractive.length) }) }}
+      | {{ $t("tasks.reveal", { count: hiddenLabel(hiddenAutomated.length) }) }}
 
   .bg-card.overflow-hidden.rounded-xl.border(
     v-if="archivedTasks.length || archivedLoading"
@@ -263,9 +260,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       span.text-muted-foreground
         | {{ archivedTasks.length }}
       span.text-muted-foreground(
-        v-if="!showNonInteractive && archivedNonInteractiveCount"
+        v-if="!showAutomated && archivedAutomatedCount"
       )
-        | {{ $t("tasks.hiddenNonInteractive", { count: archivedNonInteractiveCount }) }}
+        | {{ $t("tasks.hiddenAutomated", { count: archivedAutomatedCount }) }}
     .border-t(v-if="showArchived")
       .bg-card.sticky.top-0.z-20.flex.flex-wrap.items-center.gap-2.border-b.px-3.py-2(
         v-if="archivedSelectedTasks.length"
@@ -413,14 +410,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :loading="archivedLoading"
         )
         button.text-muted-foreground.flex.w-full.items-center.justify-center.gap-1.border-t.px-3.py-2.text-xs.transition-colors(
-          v-if="!showNonInteractive && archivedHiddenNonInteractive"
+          v-if="!showAutomated && archivedHiddenAutomated"
           type="button"
           class="hover:bg-muted/50 hover:text-foreground"
-          @click="showNonInteractive = true"
-          data-testid="task-archive-reveal-non-interactive"
+          @click="showAutomated = true"
+          data-testid="task-archive-reveal-automated"
         )
           EyeIcon.size-3.shrink-0
-          | {{ $t("tasks.reveal", { count: hiddenLabel(archivedHiddenNonInteractive) }) }}
+          | {{ $t("tasks.reveal", { count: hiddenLabel(archivedHiddenAutomated) }) }}
 
   ArchiveTaskDialog(
     :open="archiveDialog"
@@ -556,10 +553,7 @@ function scopeTasks(list: Task[]): Task[] {
     ) {
       return false;
     }
-    if (
-      props.leadActorId &&
-      !task.leads.some((lead) => lead.actorId === props.leadActorId)
-    ) {
+    if (props.leadActorId && task.leader?.actorId !== props.leadActorId) {
       return false;
     }
     return true;
@@ -602,26 +596,26 @@ const archivedTabTasks = computed(() => {
   return archivedTasks.value.filter((task) => task.state === tab.state);
 });
 
-const showNonInteractive = ref(false);
-const archivedNonInteractiveCount = computed(
-  () => archivedTasks.value.filter((task) => !task.interactive).length,
+const showAutomated = ref(false);
+const archivedAutomatedCount = computed(
+  () => archivedTasks.value.filter((task) => task.automated).length,
 );
 
-const archivedHiddenNonInteractive = computed(
-  () => archivedTabTasks.value.filter((task) => !task.interactive).length,
+const archivedHiddenAutomated = computed(
+  () => archivedTabTasks.value.filter((task) => task.automated).length,
 );
 const archivedVisibleTasks = computed(() =>
-  showNonInteractive.value
+  showAutomated.value
     ? archivedTabTasks.value
-    : archivedTabTasks.value.filter((task) => task.interactive),
+    : archivedTabTasks.value.filter((task) => !task.automated),
 );
 const archivedEmptyMessage = computed(() => {
   const tab = ARCHIVED_TABS.find((item) => item.key === archivedTab.value);
   if (
-    !showNonInteractive.value &&
-    archivedTabTasks.value.some((task) => !task.interactive)
+    !showAutomated.value &&
+    archivedTabTasks.value.some((task) => task.automated)
   ) {
-    return t("tasks.empty.archivedInteractive");
+    return t("tasks.empty.archivedAutomated");
   }
   return tab?.state
     ? t("tasks.empty.archivedState", {
@@ -684,10 +678,10 @@ const sizeFilterActive = computed(
   () => sizeFilter.value !== TaskSize.UNSPECIFIED,
 );
 const emptyMessage = computed(() => {
-  if (!showNonInteractive.value && hiddenNonInteractive.value.length) {
+  if (!showAutomated.value && hiddenAutomated.value.length) {
     return searchActive.value || sizeFilterActive.value
-      ? t("tasks.empty.filteredInteractive")
-      : t("tasks.empty.tabInteractive");
+      ? t("tasks.empty.filteredAutomated")
+      : t("tasks.empty.tabAutomated");
   }
   if (searchActive.value) return t("tasks.empty.search");
   if (sizeFilterActive.value) return t("tasks.empty.sizeFilter");
@@ -793,14 +787,14 @@ const tabTasks = computed(() => {
     ? tasks.value
     : tasks.value.filter((task) => task.state === tab.state);
 });
-const hiddenNonInteractive = computed(() =>
-  tabTasks.value.filter((task) => !task.interactive),
+const hiddenAutomated = computed(() =>
+  tabTasks.value.filter((task) => task.automated),
 );
 const visibleTasks = computed(() =>
   sortTasks(
-    showNonInteractive.value
+    showAutomated.value
       ? tabTasks.value
-      : tabTasks.value.filter((task) => task.interactive),
+      : tabTasks.value.filter((task) => !task.automated),
   ),
 );
 
@@ -1330,7 +1324,7 @@ en:
     filter:
       anySize: "Any size"
       size: "Filter by size"
-    showNonInteractiveShort: "Show non-interactive"
+    showAutomatedShort: "Show automated"
     merge: "Merge"
     setPriority: "Set priority"
     setSize: "Set size"
@@ -1341,8 +1335,8 @@ en:
     removeTags: "Remove tags"
     noTagsOnSelection: "No tags on the selection"
     searchPlaceholder: "Search title or prompt…"
-    interactiveHint: "Non-interactive tasks never surface questionnaires or extension dialogs"
-    showNonInteractive: "Show non-interactive tasks"
+    automatedHint: "Automated tasks are authored by the system or a plugin: they never surface questionnaires and never name a leader"
+    showAutomated: "Show automated tasks"
     toasts:
       retried: "Task retried"
       sessionCleaned: "Session cleaned up"
@@ -1364,16 +1358,16 @@ en:
     empty:
       sizeFilter: "No tasks match the size filter."
       search: "No tasks match your search."
-      tabInteractive: "No interactive tasks in this tab."
-      filteredInteractive: "No interactive tasks match the current filters."
+      tabAutomated: "No manual tasks in this tab."
+      filteredAutomated: "No manual tasks match the current filters."
       archived: "No archived tasks."
-      archivedInteractive: "No interactive archived tasks in this tab."
+      archivedAutomated: "No manual archived tasks in this tab."
       archivedState: "No archived {state} tasks."
       none: "No tasks."
     selectOneProject: "Select tasks from one project"
     selected: "{count} selected"
     reveal: "Reveal {count}"
-    hiddenNonInteractive: "· {count} non-interactive hidden"
+    hiddenAutomated: "· {count} automated hidden"
 ru:
   tasks:
     state:
@@ -1385,7 +1379,7 @@ ru:
     filter:
       anySize: "Любой размер"
       size: "Фильтр по размеру"
-    showNonInteractiveShort: "Показывать неинтерактивные"
+    showAutomatedShort: "Показывать автоматические"
     merge: "Объединить"
     setPriority: "Задать приоритет"
     setSize: "Задать размер"
@@ -1396,8 +1390,8 @@ ru:
     removeTags: "Убрать теги"
     noTagsOnSelection: "У выбранных задач нет тегов"
     searchPlaceholder: "Поиск по названию или промпту…"
-    interactiveHint: "Неинтерактивные задачи никогда не показывают опросники и диалоги расширений"
-    showNonInteractive: "Показывать неинтерактивные задачи"
+    automatedHint: "Автоматические задачи создаются системой или плагином: они не показывают опросники и не имеют руководителя"
+    showAutomated: "Показывать автоматические задачи"
     toasts:
       retried: "Задача перезапущена"
       sessionCleaned: "Сеанс очищен"
@@ -1419,14 +1413,14 @@ ru:
     empty:
       sizeFilter: "Нет задач, подходящих под фильтр размера."
       search: "Нет задач, подходящих под поиск."
-      tabInteractive: "В этой вкладке нет интерактивных задач."
-      filteredInteractive: "Нет интерактивных задач, подходящих под текущие фильтры."
+      tabAutomated: "В этой вкладке нет ручных задач."
+      filteredAutomated: "Нет ручных задач, подходящих под текущие фильтры."
       archived: "Архивных задач нет."
-      archivedInteractive: "В этой вкладке нет интерактивных архивных задач."
+      archivedAutomated: "В этой вкладке нет ручных архивных задач."
       archivedState: "Нет архивных задач в состоянии «{state}»."
       none: "Задач нет."
     selectOneProject: "Выберите задачи из одного проекта"
     selected: "выбрано: {count}"
     reveal: "Показать {count}"
-    hiddenNonInteractive: "· {count} неинтерактивных скрыто"
+    hiddenAutomated: "· {count} автоматических скрыто"
 </i18n>

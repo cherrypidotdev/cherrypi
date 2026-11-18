@@ -191,7 +191,7 @@ strict undefined, без include, макросов, импортов и насл
   "id": "acme-git-reviewer",
   "name": "AcmeGit Reviewer",
   "version": "0.1.0",
-  "requires_agency": ">=0.2.2 <0.3.0",
+  "requires_agency": ">=0.3.0 <0.4.0",
   "description": "Turns review events into review tasks.",
   "runtime": "lua",
   "entry": "main.lua",
@@ -248,16 +248,17 @@ strict undefined, без include, макросов, импортов и насл
 | `limits` | Уменьшить таймаут, размер ответа/запроса или конкурентность. |
 
 `requires_agency` — диапазон plugin API, который поддерживает бандл. Текущий
-API — `0.2.7`: он добавил событие `task_input_answered` поверх
-`cherrypi.respond_task_input` и полей диалога в `task_requested_input` из
-`0.2.6`, шаблонных настроек, `x-groups` и
+API — `0.2.8`: он добавил `cherrypi.update_settings` поверх события
+`task_input_answered` из `0.2.7`, `cherrypi.respond_task_input` и полей диалога
+в `task_requested_input` из `0.2.6`, шаблонных настроек, `x-groups` и
 `cherrypi.template.render(source, vars)` из `0.2.5`, необязательного блока
 `setup` и `get_org().url` из `0.2.4`, обработчика `task_tools` из `0.2.3`, поля
 `schedule` и `handle_tick` из `0.2.2` и события `task_hold_released` из `0.2.1`.
 Бандл, использующий шаблонные настройки или `x-groups`, объявляет
 `>=0.2.5 <0.3.0`; отвечающий на диалог — `>=0.2.6 <0.3.0`; подписанный на
-`task_input_answered` — `>=0.2.7 <0.3.0`. Это patch-версии, поэтому бандлы,
-уже принимающие линию `0.2.x`, продолжают работать.
+`task_input_answered` — `>=0.2.7 <0.3.0`; записывающий свои строки настроек —
+`>=0.2.8 <0.3.0`. Это patch-версии, поэтому бандлы, уже принимающие линию
+`0.2.x`, продолжают работать.
 
 ### Allowlist сети
 
@@ -421,7 +422,7 @@ end
   (fail open); `handle_tool_call` всё равно проверяет свои предусловия.
 - Инструменты задачи, прикреплённые через `create_task`, не фильтруются: хук
   сужает только инструменты проекта.
-- Фильтр вычисляется, когда планировщик создаёт Pi-сессию задачи, — это
+- Фильтр вычисляется, когда планировщик создаёт рантайм задачи, — это
   единственный стартовый payload, который несёт инструменты. Задача,
   продолженная на тёплой сессии (settle и следующий follow-up или retry живой
   сессии), сохраняет список инструментов, с которым стартовала, поэтому
@@ -442,14 +443,15 @@ end
 | `cherrypi.get_user(id_or_username)` | Метаданные пользователя. Нужно, чтобы пользователь включил плагин. |
 | `cherrypi.get_task(id)` | Снимок задачи. Нужна созданная плагином задача или включённый проект. |
 | `cherrypi.get_project_tasks(project_id, opts)` | Задачи проекта (`limit`, `state`, `search`, `archived`). |
-| `cherrypi.get_task_history(task_id, opts)` | Сохранённые записи Pi-сессии. |
-| `cherrypi.create_task(input)` | Создать задачу в очереди. См. ниже. |
+| `cherrypi.get_task_history(task_id, opts)` | Сохранённая переписка задачи. |
+| `cherrypi.create_task(input)` | Создать задачу. `automated = true` создаёт автоматическую задачу (в очереди, без руководителя и без инструментов ввода); иначе нужно явно указать `leader`. См. ниже. |
 | `cherrypi.hold_task(task_id, hold)` | Удержать задачу, пока плагин не проверит её результат (`key`, `reason`). Идемпотентно по ключу, не более 8 удержаний на задачу. См. [Удержания задач](#удержания-задач). |
 | `cherrypi.release_task(task_id, key, options)` | Снять одно удержание. `options.mode` — `settle`, `queue` или `complete`; для `queue` нужен `prompt`. |
 | `cherrypi.list_task_holds(task_id)` | Удержания задачи, от старых к новым. |
-| `cherrypi.respond_task_input(task_id, request_id, answer)` | Ответить на ожидающий диалог задачи в состоянии `input`: `{ value }`, `{ confirmed }` или `{ cancelled }`. Для пакетной анкеты `value` — это wire JSON расширения (`{"answers":[{"index":0,"options":[1]}]}`, индексы с нуля), а `{ questionnaire = { { question, answer }, ... } }` добавляет пары для resume-промпта. Плагин должен быть лидом задачи; `create_task` делает его лидом. Ответ снимает `input` тем же путём, что и ответ из консоли. |
+| `cherrypi.respond_task_input(task_id, request_id, answer)` | Ответить на ожидающий диалог задачи в состоянии `input`: `{ value }`, `{ confirmed }` или `{ cancelled }`. Для пакетной анкеты `value` — это wire JSON расширения (`{"answers":[{"index":0,"options":[1]}]}`, индексы с нуля), а `{ questionnaire = { { question, answer }, ... } }` добавляет пары для resume-промпта. Плагин должен быть руководителем задачи. Ответ снимает `input` тем же путём, что и ответ из консоли. |
 | `cherrypi.list_agents()` | Агенты, включившие плагин, с их настройками агента. |
 | `cherrypi.list_settings(scope)` | Собственные строки настроек плагина для поверхности. |
+| `cherrypi.update_settings(scope, target_id, values)` | Записать одну из собственных строк настроек плагина. Поверхность должна быть объявлена в бандле; для проекта нужны включённый плагин и членство плагина в проекте, для агента или пользователя — включённая поверхность цели. Значения проверяет собственный хук `update_settings`; `values` заменяет строку целиком, поэтому опущенное поле удаляется. Agency их не интерпретирует. Хук — отдельный вызов, поэтому бандлу нужен свободный слот `max_concurrent` (по умолчанию 2). |
 
 `create_task` принимает:
 
@@ -462,6 +464,8 @@ end
   assignee = "agent-actor-id",   -- агент, являющийся участником проекта
   size = "medium",               -- small | medium | big | epic
   priority = "normal",           -- low | normal | high | critical
+  automated = true,              -- задача принадлежит плагину: без руководителя и без инструментов ввода
+  leader = "actor-id",           -- обязателен, если automated = false
   task_references = {            -- informational, если kind = "blocking"
     "PROJ-1",
     { task_id = "PROJ-2", kind = "blocking" },
@@ -502,7 +506,7 @@ cherrypi.release_task(task_id, "ci", {
   агентство шлёт событие `task_held` вместо `task_settled`. `task_settled`
   по-прежнему значит, что задача действительно завершилась.
 - Оператор может снять одно удержание из панели задачи (`ReleaseTaskHold`):
-  лид или администратор выбирает режим, а удержание, которого уже нет,
+  руководитель или администратор выбирает режим, а удержание, которого уже нет,
   отклоняется вместо применения устаревшего режима.
 - Каждое удержание, покинувшее задачу без снятия плагином, шлёт
   `task_hold_released` с `plugin`, `key`, `reason`, `mode`, `applied` и `cause`

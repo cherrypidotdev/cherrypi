@@ -17,7 +17,6 @@
 package session
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -26,7 +25,6 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,9 +32,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sky-valley/pi/agent"
+	"github.com/sky-valley/pi/coding"
+
 	sqlitedb "cherrypi.vladfaust.com/agent/internal/gen/sqlc"
 	"cherrypi.vladfaust.com/agent/internal/store"
 )
+
+const followUpIdleTimeout = 5 * time.Second
 
 const resumeNudge = "Your previous run was interrupted by a server restart. Continue from where you left off and finish the task."
 
@@ -81,23 +84,50 @@ type Manager struct {
 	mu   sync.Mutex
 	byID map[string]*Session
 
+	lastUsed map[string]time.Time
+
 	runs atomic.Int64
+
+	catalogs map[string]*catalogEntry
+
+	catalogMu sync.Mutex
 }
 
+type catalogEntry struct {
+	built *modelCatalog
+
+	revision string
+
+	declared AgencyModels
+
+	fetchedAt time.Time
+
+	retryAt time.Time
+
+	lastUsed time.Time
+}
+
+const catalogIdleTTL = time.Hour
+
+const catalogRefreshInterval = 30 * time.Second
+
+const catalogRetryInterval = 15 * time.Second
+
+const catalogFetchTimeout = 10 * time.Second
+
 func NewManager(cfg Config, st store.Store) *Manager {
-	if cfg.PiBin == "" {
-		cfg.PiBin = "pi"
-	}
 	if cfg.WorkspaceRoot == "" {
 		cfg.WorkspaceRoot = "./sessions"
-	}
-	if cfg.EndGrace <= 0 {
-		cfg.EndGrace = 5 * time.Second
 	}
 	if cfg.TitleTimeout <= 0 {
 		cfg.TitleTimeout = titleTimeout
 	}
-	return &Manager{cfg: cfg, store: st, byID: map[string]*Session{}}
+	return &Manager{
+		cfg:      cfg,
+		store:    st,
+		byID:     map[string]*Session{},
+		lastUsed: map[string]time.Time{},
+	}
 }
 
 type CreateOptions struct {
@@ -126,6 +156,15 @@ type CreateOptions struct {
 	Sender *PromptSender
 
 	PluginTools []PluginTool
+
+	RequiredTools []string
+}
+
+func interactiveValue(interactive bool) int64 {
+	if interactive {
+		return 1
+	}
+	return 0
 }
 
 type AddOptions struct {
@@ -137,6 +176,16 @@ type AddOptions struct {
 	AgencySeq       int64
 
 	Sender *PromptSender
+
+	RequiredTools []string
+
+	Model ModelSelection
+}
+
+type ModelSelection struct {
+	Provider      string
+	ModelID       string
+	ThinkingLevel string
 }
 
 func (m *Manager) Create(
@@ -191,8 +240,8 @@ func (m *Manager) Create(
 		Prompt:             prompt,
 		Name:               name,
 		Workspace:          ws,
-		PiSessionID:        id,
-		Interactive:        boolToInt64(interactive),
+		SessionID:          id,
+		Interactive:        interactiveValue(interactive),
 		AppendSystemPrompt: opts.AppendSystemPrompt,
 		AgencyProjectID:    opts.AgencyProjectID,
 		AgencyTaskSeq:      opts.AgencySeq,
@@ -219,7 +268,9 @@ func (m *Manager) Create(
 	envelope := BuildPromptEnvelope(prompt, attachments, opts.Sender)
 
 	s := m.sessionFor(row)
+	s.setRequiredTools(opts.RequiredTools)
 	s.agencyTaskID = opts.AgencyTaskID
+	s.setAgencyRef(ctx, opts.AgencyProjectID, opts.AgencySeq)
 	if err := s.promptConfigured(
 		ctx,
 		envelope,
@@ -240,8 +291,14 @@ func (m *Manager) Create(
 	}
 
 	if autoTitle {
-
-		go m.autoTitle(id, prompt, opts.ModelProvider, opts.ModelID, opts.ThinkingLevel)
+		go m.autoTitle(
+			id,
+			opts.AgencyTaskID,
+			prompt,
+			opts.ModelProvider,
+			opts.ModelID,
+			opts.ThinkingLevel,
+		)
 	}
 
 	return row, nil
@@ -255,12 +312,14 @@ const maxTitlePromptLen = 4000
 
 const titleInstruction = "Generate a short, descriptive title (at most 6 words) for a coding session that starts with the user prompt below. Reply with only the title, no quotes, labels, or trailing punctuation.\n\nUser prompt:\n\n%s"
 
-func (m *Manager) autoTitle(sessionID, prompt, provider, modelID, level string) {
+func (m *Manager) autoTitle(
+	sessionID, taskID, prompt, provider, modelID, level string,
+) {
 	genCtx, genCancel := context.WithTimeout(
 		context.Background(),
 		m.cfg.TitleTimeout,
 	)
-	title, err := m.titleGenerator(genCtx, prompt, provider, modelID, level)
+	title, err := m.titleGenerator(genCtx, taskID, prompt, provider, modelID, level)
 	genCancel()
 	if err != nil {
 		log.Printf("[session %s] auto-title: %v", sessionID, err)
@@ -297,72 +356,59 @@ func (m *Manager) autoTitle(sessionID, prompt, provider, modelID, level string) 
 
 func (m *Manager) titleGenerator(
 	ctx context.Context,
-	prompt, provider, modelID, level string,
+	taskID, prompt, provider, modelID, level string,
 ) (string, error) {
 	if m.cfg.TitleGenerator != nil {
 		return m.cfg.TitleGenerator(ctx, prompt, provider, modelID, level)
 	}
-	return m.runPiTitle(ctx, prompt, provider, modelID, level)
+	return m.runTitle(ctx, taskID, prompt, provider, modelID, level)
 }
 
-// context disabled, and parses the first line of its output as the title.
-func (m *Manager) runPiTitle(
+func (m *Manager) runTitle(
 	ctx context.Context,
-	prompt, provider, modelID, level string,
+	taskID, prompt, provider, modelID, level string,
 ) (string, error) {
 	instruction := fmt.Sprintf(
 		titleInstruction,
 		truncateRunes(strings.TrimSpace(prompt), maxTitlePromptLen),
 	)
 
-	args := []string{
-		"--print",
-		"--no-session",
-		"--no-tools",
-		"--no-context-files",
-		"--no-skills",
-		"--no-prompt-templates",
-		"--no-extensions",
-	}
-
-	args = append(args, withoutExtensionArgs(m.cfg.PiArgs)...)
-	if provider != "" && modelID != "" {
-		args = append(args, "--model", provider+"/"+modelID)
-	}
-	if level != "" {
-		args = append(args, "--thinking", level)
-	}
-	args = append(args, instruction)
-
-	cmd := exec.CommandContext(ctx, m.cfg.PiBin, args...)
-	cmd.Dir = os.TempDir()
-	if len(m.cfg.PiEnv) > 0 {
-		cmd.Env = append(os.Environ(), m.cfg.PiEnv...)
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("title pi: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return parseTitle(string(out)), nil
-}
-
-func withoutExtensionArgs(args []string) []string {
-	out := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; {
-		case arg == "--extension" || arg == "-e":
-
-			i++
-		case strings.HasPrefix(arg, "--extension="), strings.HasPrefix(arg, "-e="):
-
-		default:
-			out = append(out, arg)
+	var catalog *modelCatalog
+	model := m.cfg.Model
+	if model == nil {
+		catalog = m.modelsRegistry(ctx, taskID)
+		resolved, err := resolveModel(catalog, provider, modelID)
+		if err != nil {
+			resolved, err = resolveModel(catalog, "", "")
+			if err != nil {
+				return "", err
+			}
 		}
+		model = resolved
 	}
-	return out
+	dir, err := os.MkdirTemp("", "cherrypi-title-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	opts := coding.SessionOptions{
+		Model:         model,
+		Cwd:           dir,
+		NoTools:       coding.NoToolsAll,
+		ThinkingLevel: agent.ThinkingLevel(level),
+	}
+	if catalog != nil {
+		opts.Models = catalog.models
+	}
+	sess, err := coding.NewSession(opts)
+	if err != nil {
+		return "", err
+	}
+	result, err := sess.Run(ctx, instruction)
+	if err != nil {
+		return "", err
+	}
+	return parseTitle(result.Text), nil
 }
 
 // parseTitle extracts the first non-empty line of a model's reply and strips
@@ -401,10 +447,15 @@ func (m *Manager) Add(ctx context.Context, id, prompt string, opts AddOptions) e
 	}
 
 	s := m.sessionFor(row)
+	s.setRequiredTools(opts.RequiredTools)
 	if opts.AgencyTaskID != "" {
 		s.agencyTaskID = opts.AgencyTaskID
 	}
 	s.setAgencyRef(ctx, opts.AgencyProjectID, opts.AgencySeq)
+
+	if err := s.resumeSelection(ctx, opts.Model); err != nil {
+		return err
+	}
 	if Terminal(Status(row.Status)) {
 		if err := m.reactivate(ctx, s); err != nil {
 			return err
@@ -416,6 +467,8 @@ func (m *Manager) Add(ctx context.Context, id, prompt string, opts AddOptions) e
 		return err
 	}
 	envelope := BuildPromptEnvelope(prompt, attachments, opts.Sender)
+
+	s.waitIdle(ctx, followUpIdleTimeout)
 
 	slog.Info("task prompt added",
 		"session_id", id,
@@ -443,7 +496,7 @@ func (m *Manager) End(ctx context.Context, id string) (sqlitedb.Task, error) {
 	return m.end(ctx, id)
 }
 
-func (m *Manager) Stop(ctx context.Context, id string) error {
+func (m *Manager) Stop(ctx context.Context, id, actor string) error {
 	row, err := m.store.GetSession(ctx, id)
 	if err != nil {
 		return err
@@ -459,11 +512,42 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 		}
 		s = m.sessionFor(row)
 	}
-	if err := s.Stop(ctx); err != nil {
+	if err := s.Stop(ctx, actor); err != nil {
 		slog.Error("task stop failed", "session_id", id, "error", err)
 		return err
 	}
 	slog.Info("task stopped", "session_id", id)
+	return nil
+}
+
+func (m *Manager) InterruptToolCall(
+	ctx context.Context,
+	id, toolCallID, actor string,
+) error {
+	row, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if Terminal(Status(row.Status)) {
+		return ErrToolCallNotRunning
+	}
+	s := m.get(id)
+	if s == nil {
+		return ErrToolCallNotRunning
+	}
+	if err := s.InterruptToolCall(ctx, toolCallID, actor); err != nil {
+		slog.Info("tool call interrupt failed",
+			"session_id", id,
+			"tool_call_id", toolCallID,
+			"error", err,
+		)
+		return err
+	}
+	slog.Info("tool call interrupted",
+		"session_id", id,
+		"tool_call_id", toolCallID,
+		"actor", actor,
+	)
 	return nil
 }
 
@@ -523,18 +607,10 @@ func (m *Manager) end(ctx context.Context, id string) (sqlitedb.Task, error) {
 	if s := m.get(id); s != nil {
 		s.opMu.Lock()
 		s.mu.Lock()
-		running := s.running
 		s.stopRequested = true
 		s.mu.Unlock()
 
-		s.holdQueue()
-		if running {
-
-			abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, _ = s.send(abortCtx, "abort", nil)
-			cancel()
-		}
-		s.stopProcess()
+		s.stopEngine()
 		s.setRunning(false)
 		s.clearWaiting()
 		s.opMu.Unlock()
@@ -565,15 +641,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 
 	if s := m.get(id); s != nil {
 		s.opMu.Lock()
-		s.mu.Lock()
-		running := s.running
-		s.mu.Unlock()
-		if running {
-			abortCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_, _ = s.send(abortCtx, "abort", nil)
-			cancel()
-		}
-		s.stopProcess()
+		s.stopEngine()
 		s.setRunning(false)
 		s.opMu.Unlock()
 		m.forget(id)
@@ -582,13 +650,6 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if m.cfg.WorkspaceRoot != "" && withinDir(m.cfg.WorkspaceRoot, row.Workspace) {
 		if err := os.RemoveAll(row.Workspace); err != nil {
 			return fmt.Errorf("remove workspace: %w", err)
-		}
-	}
-
-	if row.PiSessionID != "" {
-		probe := &Session{cfg: m.cfg, PiSessionID: row.PiSessionID, Workspace: row.Workspace}
-		if path := probe.sessionFilePath(); path != "" {
-			_ = os.Remove(path)
 		}
 	}
 
@@ -621,7 +682,13 @@ func withinDir(dir, path string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func (m *Manager) Retry(ctx context.Context, id, projectID string, seq int64) error {
+func (m *Manager) Retry(
+	ctx context.Context,
+	id, projectID string,
+	seq int64,
+	requiredTools []string,
+	model ModelSelection,
+) error {
 	row, err := m.store.GetSession(ctx, id)
 	if err != nil {
 		return err
@@ -636,7 +703,13 @@ func (m *Manager) Retry(ctx context.Context, id, projectID string, seq int64) er
 	}
 
 	s := m.sessionFor(row)
+	s.setRequiredTools(requiredTools)
 	s.setAgencyRef(ctx, projectID, seq)
+
+	if err := s.resumeSelection(ctx, model); err != nil {
+		slog.Error("task resume model", "session_id", id, "task_id", s.agencyTaskID, "error", err)
+		return err
+	}
 	if Terminal(Status(row.Status)) {
 		if err := m.reactivate(ctx, s); err != nil {
 			return err
@@ -804,8 +877,11 @@ func (m *Manager) History(
 
 func (m *Manager) Defaults(ctx context.Context) (SessionConfig, error) {
 	s := newSession(m.cfg, m.store, "", os.TempDir(), "", false)
+	s.catalogFn = func(ctx context.Context) *modelCatalog {
+		return m.modelsRegistry(ctx, "")
+	}
 	s.probe = true
-	defer s.stopProcess()
+	defer s.stopEngine()
 
 	return s.Config(ctx)
 }
@@ -917,7 +993,7 @@ func (m *Manager) stopWaiting() {
 
 	for _, s := range sessions {
 		if waiting, _ := s.waitingForInput(); waiting {
-			s.forceStop()
+			s.forceStopEngine()
 			s.setRunning(false)
 			s.clearWaiting()
 		}
@@ -933,7 +1009,7 @@ func (m *Manager) Kill() {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
-		s.forceStop()
+		s.forceStopEngine()
 		s.setRunning(false)
 	}
 }
@@ -953,7 +1029,7 @@ func (m *Manager) stopAll() {
 			defer wg.Done()
 			s.opMu.Lock()
 			defer s.opMu.Unlock()
-			s.stopProcess()
+			s.stopEngine()
 			s.setRunning(false)
 		}(s)
 	}
@@ -976,23 +1052,68 @@ func (m *Manager) get(id string) *Session {
 
 func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if s := m.byID[row.ID]; s != nil {
+		m.lastUsed[row.ID] = time.Now()
+		m.mu.Unlock()
 		return s
 	}
-	s := newSession(m.cfg, m.store, row.ID, row.Workspace, row.PiSessionID, row.Interactive != 0)
+	s := newSession(
+		m.cfg,
+		m.store,
+		row.ID,
+		row.Workspace,
+		row.SessionID,
+		row.Interactive != 0,
+	)
+	s.catalogFn = func(ctx context.Context) *modelCatalog {
+		return m.modelsRegistry(ctx, s.agencyTaskID)
+	}
 	s.appendSystemPrompt = row.AppendSystemPrompt
 	s.loadQueue(row.PendingQueue)
 	s.agencyProjectID = row.AgencyProjectID
 	s.agencySeq = row.AgencyTaskSeq
 	if row.PluginTools != "" {
-		_ = json.Unmarshal([]byte(row.PluginTools), &s.pluginTools)
+		_ = json.Unmarshal([]byte(row.PluginTools), &s.pluginToolDefs)
 	}
 	if row.WaitingForInput != 0 && row.PendingDialog.Valid {
 		s.savedDialog = row.PendingDialog.String
 	}
 	s.runHook = m.runHook
 	m.byID[row.ID] = s
+	m.lastUsed[row.ID] = time.Now()
+	evicted := m.evictLocked()
+	m.mu.Unlock()
+
+	for _, victim := range evicted {
+		victim.stopEngine()
+	}
 	return s
+}
+
+const maxLiveSessions = 256
+
+func (m *Manager) evictLocked() []*Session {
+	var evicted []*Session
+	for len(m.byID) > maxLiveSessions {
+		var oldestID string
+		var oldest time.Time
+		for id, s := range m.byID {
+			if s.busy() {
+				continue
+			}
+			used := m.lastUsed[id]
+			if oldestID == "" || used.Before(oldest) {
+				oldestID, oldest = id, used
+			}
+		}
+		if oldestID == "" {
+			return evicted
+		}
+		if s := m.byID[oldestID]; s != nil {
+			evicted = append(evicted, s)
+		}
+		delete(m.byID, oldestID)
+		delete(m.lastUsed, oldestID)
+	}
+	return evicted
 }

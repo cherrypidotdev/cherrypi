@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { createResizablePane } from "@/composables/usePaneWidth";
 import { ref } from "vue";
 
 const STORAGE_KEY = "cherrypi.sidebar.collapsed";
@@ -30,6 +31,13 @@ function load(): boolean {
 }
 
 const collapsed = ref(load());
+
+const pane = createResizablePane("cherrypi.sidebar.width", {
+  fallback: 224,
+  min: 176,
+  max: 420,
+  edge: "right",
+});
 
 function persist() {
   try {
@@ -103,6 +111,12 @@ export function useSidebar() {
     collapsed,
     toggle: toggleSidebar,
     setCollapsed: setSidebarCollapsed,
+    width: pane.width,
+    resizing: pane.dragging,
+    minWidth: pane.min,
+    maxWidth: pane.max,
+    startResize: pane.startResize,
+    resizeByKey: pane.resizeByKey,
     sections,
     isSectionOpen,
     setSection,

@@ -59,46 +59,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
       template(v-for="group in groups" :key="groupKey(group)")
         template(v-if="group.kind === 'single'")
-          .flex.w-full(
+          .d-chat.d-chat-start(
             v-if="group.item.kind === 'user' && group.item.system === true"
             :data-item-id="group.id"
             data-testid="system-turn"
           )
-            ConsoleNotice(
-              :label="$t('taskLog.system')"
-              :icon="SparklesIcon"
-              :at="group.item.at"
-            )
-              MarkdownText.prose.prose-sm.max-w-none(
-                class="prose-p:my-1 prose-pre:my-2"
-                zoomable
-                :style="INHERIT_PROSE"
-                :text="group.item.text"
-                @open-image="emit('openImage', $event)"
-                @open-diagram="emit('openDiagram', $event)"
-              )
-              AttachmentChips(
-                v-if="group.item.attachmentIds.length"
-                :attachments="attachmentsFor(group.item.attachmentIds)"
-                @open="emit('openAttachment', $event)"
-              )
-              .flex.justify-end
-                button.text-muted-foreground.rounded-md.p-1(
-                  type="button"
-                  class="hover:bg-muted hover:text-foreground"
-                  :aria-label="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
-                  :title="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyMessage')"
-                  @click="copyResponse(group.item.text, group.id)"
-                )
-                  CheckIcon(v-if="copiedId === group.id" class="size-3.5")
-                  CopyIcon(v-else class="size-3.5")
-
-          .d-chat.d-chat-end(
-            v-else-if="group.item.kind === 'user'"
-            :data-item-id="group.id"
-          )
             ChatAvatar(
-              v-if="group.item.sender"
               :sender="group.item.sender"
               :picture="pictureFor(group.item.sender)"
             )
@@ -106,7 +72,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             .d-chat-header.mb-1
               MessageSender(:sender="group.item.sender" :avatar="false")
 
-            .d-chat-bubble.d-chat-bubble-primary(class="max-w-[80%]")
+            .d-chat-bubble(class="max-w-[80%]")
               MarkdownText.prose.prose-sm.max-w-none(
                 class="prose-p:my-1 prose-pre:my-2"
                 zoomable
@@ -139,133 +105,52 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 CheckIcon(v-if="copiedId === group.id" class="size-3.5")
                 CopyIcon(v-else class="size-3.5")
 
-          .d-chat.d-chat-start(
-            v-else-if="group.item.kind === 'text'"
+          ConsoleUserMessage(
+            v-else-if="group.item.kind === 'user'"
+            :item="group.item"
+            :picture="pictureFor(group.item.sender)"
+            :attachments="attachmentsFor(group.item.attachmentIds)"
+            :copied="copiedId === group.id"
+            @copy="copyResponse(group.item.text, group.id)"
+            @open-attachment="emit('openAttachment', $event)"
+            @open-image="emit('openImage', $event)"
+            @open-diagram="emit('openDiagram', $event)"
             :data-item-id="group.id"
           )
-            ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
-            .d-chat-header.mb-1(v-if="agentSender")
-              MessageSender(:sender="agentSender" :avatar="false")
-
-            .d-chat-bubble
-              MarkdownText.prose.prose-sm(
-                class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
-                zoomable
-                :text="group.item.text"
-                @open-image="emit('openImage', $event)"
-                @open-diagram="emit('openDiagram', $event)"
-              )
-
-            .d-chat-footer.mt-1.items-center.gap-2
-              time.text-muted-foreground(
-                v-if="group.item.at"
-                :datetime="isoAt(group.item.at)"
-                :title="fullAt(group.item.at)"
-              ) {{ clockAt(group.item.at) }}
-              RunUsageLabel(
-                v-if="runUsageByItem.get(group.item.id)"
-                :usage="runUsageByItem.get(group.item.id)"
-              )
-              button.text-muted-foreground.rounded-md.p-1(
-                type="button"
-                class="hover:bg-muted hover:text-foreground"
-                :aria-label="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyResponse')"
-                :title="copiedId === group.id ? $t('taskConsole.copied') : $t('taskConsole.copyResponse')"
-                @click="copyResponse(group.item.text, group.id)"
-              )
-                CheckIcon(v-if="copiedId === group.id" class="size-3.5")
-                CopyIcon(v-else class="size-3.5")
+          ConsoleAgentMessage(
+            v-else-if="group.item.kind === 'text'"
+            :item="group.item"
+            :sender="agentSender"
+            :picture="agentPicture"
+            :usage="runUsageByItem.get(group.item.id)"
+            :copied="copiedId === group.id"
+            @copy="copyResponse(group.item.text, group.id)"
+            @open-image="emit('openImage', $event)"
+            @open-diagram="emit('openDiagram', $event)"
+            :data-item-id="group.id"
+          )
 
           p.text-muted-foreground.pl-11.text-xs.whitespace-pre-wrap(
             v-else
             :data-item-id="group.id"
           ) {{ group.item.text }}
 
-        .d-chat.d-chat-start.max-w-full.overflow-hidden(
+        ConsoleActivity(
           v-else-if="group.kind === 'activity'"
+          :group="group"
+          :run="runState"
+          :now="activityClock"
+          :sender="agentSender"
+          :picture="agentPicture"
+          :model-name="modelName"
+          :model-provider="modelProvider"
+          :can-interrupt="canInterrupt"
+          :interrupting="interrupting"
+          @toggle="onActivityToggle(group.id, $event)"
+          @interrupt="interruptToolCall($event)"
           :data-item-id="group.id"
         )
-          ChatAvatar(:sender="agentSender" :picture="agentPicture")
-
-          details.bg-card.w-full.overflow-hidden.rounded-lg.border(
-            class="group/activity"
-            @toggle="onActivityToggle(group.id, $event)"
-            :data-activity-id="group.id"
-          )
-            summary.flex.cursor-pointer.items-center.gap-2.px-3.py-2.text-xs.select-none
-              ChevronRightIcon.text-muted-foreground.size-3.shrink-0.transition-transform(
-                class="group-open/activity:rotate-90"
-              )
-              Spinner.size-3.shrink-0(
-                v-if="group.running"
-                data-testid="activity-running"
-              )
-              CheckIcon.size-3.shrink-0.text-emerald-600(
-                v-else
-                class="dark:text-emerald-400"
-                data-testid="activity-done"
-              )
-              span {{ workedLabel(group) }}
-              span.text-muted-foreground(
-                v-if="actionCount(group)"
-                data-testid="activity-actions"
-              ) · {{ actionCount(group) }}
-              span.text-muted-foreground(
-                v-if="waitingLabel(group)"
-                :title="waitingHint(group)"
-                data-testid="activity-waiting"
-              ) · {{ waitingLabel(group) }}
-
-            .flex.flex-col.gap-2.px-3.pb-3
-              template(v-for="child in group.items" :key="child.id")
-                ThinkingBlock(
-                  v-if="child.kind === 'thinking'"
-                  :text="child.text"
-                  :started-at="child.startedAt"
-                  :ended-at="child.endedAt"
-                  :duration-ms="child.durationMs"
-                  :estimated="child.estimated === true"
-                  :running="isThinkingRunning(child)"
-                )
-
-                ActivityWait(
-                  v-else-if="child.kind === 'wait'"
-                  :kind="child.waitKind"
-                  :model="child.model"
-                  :provider="child.provider"
-                  :duration-ms="child.durationMs"
-                  :error="child.error"
-                  :attempt="child.attempt"
-                  :reason="child.reason"
-                  :fallback-provider="modelProvider ?? ''"
-                  :fallback-model="modelName ?? ''"
-                )
-
-                ToolCall(
-                  v-else
-                  :item="child"
-                  :running="isInFlight(child)"
-                  :interrupted="isInterrupted(child)"
-                  :duration="childDuration(child)"
-                )
-
-              ActivityWait(
-                v-if="group.pending"
-                live
-                :kind="group.pending.kind"
-                :since="group.pending.since"
-                :model="group.pending.model"
-                :provider="group.pending.provider"
-                :error="group.pending.error"
-                :attempt="group.pending.attempt"
-                :max-attempts="group.pending.maxAttempts"
-                :reason="group.pending.reason"
-                :fallback-provider="modelProvider ?? ''"
-                :fallback-model="modelName ?? ''"
-              )
-
-              ChangedFiles(:files="changesFor(group)")
 
         .flex.w-full(
           v-else-if="group.kind === 'state'"
@@ -295,7 +180,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 data-testid="state-change-actor"
               ) {{ stateChangeKindLabel(group.change) }}
 
-        .d-chat.d-chat-start(v-else-if="group.kind === 'questionnaire-live'")
+        .d-chat.d-chat-start(
+          v-else-if="group.kind === 'questionnaire-live'"
+          data-testid="questionnaire-live"
+        )
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
           QuestionnaireWizard.w-full(
@@ -320,6 +208,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :model-config="modelConfig"
             :model-selection="modelSelection"
             :model-disabled="modelDisabled"
+            :task-id="id"
+            :project-id="projectId"
             @submit="submitWizard"
             @decline="declineWizard"
             @model-change="emit('modelChange', $event)"
@@ -374,8 +264,50 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @respond="(response) => answer(dialog, response)"
           )
 
+      .d-chat.d-chat-end(
+        v-for="item in unsent"
+        :key="item.key"
+        :data-unsent-key="item.key"
+        data-testid="unsent-message"
+      )
+        ChatAvatar(
+          v-if="item.sender"
+          :sender="item.sender"
+          :picture="pictureFor(item.sender)"
+        )
+        .d-chat-header.mb-1(v-if="item.sender")
+          MessageSender(:sender="item.sender" :avatar="false")
+        .d-chat-bubble.border.border-dashed(class="bg-muted/60 max-w-[80%]")
+          MarkdownText.prose.prose-sm.max-w-none(
+            class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
+            zoomable
+            :text="item.text"
+            @open-image="emit('openImage', $event)"
+            @open-diagram="emit('openDiagram', $event)"
+          )
+        .d-chat-footer.mt-1.items-center.gap-2
+          AttachmentChips(
+            v-if="item.attachmentIds.length"
+            :attachments="attachmentsFor(item.attachmentIds)"
+            @open="emit('openAttachment', $event)"
+          )
+
+          Button(
+            v-if="item.cancellable"
+            variant="ghost"
+            size="xs"
+            :aria-label="$t('taskConsole.cancelUnsentTitle')"
+            :title="$t('taskConsole.cancelUnsentTitle')"
+            @click="emit('cancelUnsent', item)"
+            :disabled="item.busy"
+            data-testid="unsent-cancel"
+          )
+            Spinner(v-if="item.busy" data-icon="inline-start")
+            XIcon(v-else data-icon="inline-start")
+            span {{ $t("taskConsole.cancelUnsent") }}
+
       .flex.flex-col.items-center.gap-3.py-10(
-        v-if="!items.length && !groups.length && !error"
+        v-if="!items.length && !groups.length && !unsent.length && !error"
       )
         Spinner.text-muted-foreground.size-5(v-if="busy")
         p.text-muted-foreground.text-sm {{ busy ? "The agent is starting…" : "Waiting for events…" }}
@@ -419,15 +351,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
-import ActivityWait from "@/components/tasks/ActivityWait.vue";
-import ChangedFiles from "@/components/tasks/ChangedFiles.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
+import ConsoleActivity from "@/components/tasks/ConsoleActivity.vue";
+import ConsoleAgentMessage from "@/components/tasks/ConsoleAgentMessage.vue";
 import ConsoleNotice from "@/components/tasks/ConsoleNotice.vue";
+import ConsoleUserMessage from "@/components/tasks/ConsoleUserMessage.vue";
 import ExtensionUiPrompt from "@/components/tasks/ExtensionUiPrompt.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
-import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
-import ThinkingBlock from "@/components/tasks/ThinkingBlock.vue";
-import ToolCall from "@/components/tasks/ToolCall.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -435,12 +365,12 @@ import { namedSender } from "@/lib/actors";
 import {
   activeQuestionnaire,
   applyThinkingSpan,
+  blockWaiting,
   findTool,
-  groupElapsed,
   groupItems,
-  groupWaitingMs,
   isBlankDelta,
-  itemElapsed,
+  isThinkingStreaming,
+  isToolInFlight,
   mergeStateChanges,
   mergeTool,
   newItem,
@@ -456,16 +386,14 @@ import {
   type Group,
   type Item,
   type NewItem,
+  type PendingStep,
+  type RenderActivity,
+  type RunState,
   type RunUsage,
   type StateChange,
+  type UnsentMessage,
 } from "@/lib/console";
-import {
-  formatClock,
-  formatDuration,
-  formatElapsed,
-  formatInstant,
-  isoInstant,
-} from "@/lib/format";
+import { formatClock, formatInstant, isoInstant } from "@/lib/format";
 import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import { INHERIT_PROSE } from "@/lib/markdown";
 import {
@@ -484,9 +412,7 @@ import {
   taskStateKey,
   type TaskModelSelection,
 } from "@/lib/task";
-import { groupChangedFiles, type ChangedFile } from "@/lib/toolPresentation";
 import {
-  ModelWait_Kind,
   PendingActivity_Kind,
   ToolPhase,
   type Agent,
@@ -508,7 +434,6 @@ import {
   ChevronUpIcon,
   CopyIcon,
   InfoIcon,
-  SparklesIcon,
   XIcon,
 } from "@lucide/vue";
 import {
@@ -528,6 +453,8 @@ const { t } = useI18n();
 const props = withDefaults(
   defineProps<{
     id: string;
+
+    projectId?: string;
     busy?: boolean;
 
     waitingForInput?: boolean;
@@ -559,8 +486,15 @@ const props = withDefaults(
     runOver?: boolean;
 
     canAnswer?: boolean;
+
+    canInterrupt?: boolean;
+
+    unsent?: UnsentMessage[];
+
+    history?: TaskEvent[];
   }>(),
   {
+    projectId: "",
     waitingForInput: undefined,
     attachments: () => [],
     actorPictures: () => new Map<string, Attachment>(),
@@ -576,6 +510,8 @@ const props = withDefaults(
     stateChanges: () => [],
     runOver: false,
     canAnswer: true,
+    unsent: () => [],
+    history: undefined,
   },
 );
 
@@ -650,6 +586,8 @@ function attachmentsFor(ids: string[]): Attachment[] {
 
 const emit = defineEmits<{
   queue: [steering: { id: string; text: string }[]];
+
+  cancelUnsent: [item: UnsentMessage];
 
   openAttachment: [attachment: Attachment];
 
@@ -787,23 +725,6 @@ watch(
   { flush: "sync" },
 );
 
-interface RenderActivity extends Extract<Group, { kind: "activity" }> {
-  running: boolean;
-
-  pending?: PendingState;
-
-  waiting: WaitTotals;
-
-  span: ActivityItem[];
-}
-
-interface WaitTotals {
-  ms: number;
-  requests: number;
-  retries: number;
-  compactions: number;
-}
-
 interface RenderQuestionnaire {
   id: number;
   kind: "questionnaire-live";
@@ -841,7 +762,7 @@ const groups = computed<RenderGroup[]>(() => {
           ...group,
           items,
           span: group.items,
-          waiting: waitTotals(group.items),
+          waiting: blockWaiting(group.items),
           running: isRunning(group, index === raw.length - 1),
         },
       ];
@@ -903,6 +824,8 @@ const runs = computed<RunUsage[]>(() =>
     model: run.model,
     inputTokens: Number(run.inputTokens),
     outputTokens: Number(run.outputTokens),
+    cacheReadTokens: Number(run.cacheReadTokens),
+    cacheWriteTokens: Number(run.cacheWriteTokens),
     cost: run.cost,
     activeMs: Number(run.activeMs),
     thinkingMs: Number(run.thinkingMs),
@@ -945,28 +868,33 @@ const waitingCutoff = computed(() => {
   return lastItemAt(last) ?? waitStartedAt.value;
 });
 
+const runState = computed<RunState>(() => ({
+  live: live.value,
+  waitingForInput: waitingForInput.value,
+  pending: pending.value !== null,
+  newestId: items.value[items.value.length - 1]?.id,
+}));
+
 function isInFlight(item: Item): boolean {
-  if (item.kind !== "tool") return false;
-  if (item.phase === ToolPhase.FINISHED || item.interrupted) return false;
-  if (!live.value || waitingForInput.value) return false;
-  return items.value[items.value.length - 1]?.id === item.id;
+  return isToolInFlight(item, runState.value);
+}
+
+const interrupting = reactive(new Set<string>());
+
+async function interruptToolCall(item: ActivityItem) {
+  if (item.kind !== "tool" || interrupting.has(item.callId)) return;
+  interrupting.add(item.callId);
+  try {
+    await agent.interruptTaskToolCall(props.id, item.callId);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    interrupting.delete(item.callId);
+  }
 }
 
 function isThinkingRunning(item: ActivityItem): boolean {
-  if (item.kind !== "thinking") return false;
-
-  if (!live.value || waitingForInput.value || pending.value !== null) {
-    return false;
-  }
-  return items.value[items.value.length - 1]?.id === item.id;
-}
-
-function isInterrupted(item: ActivityItem): boolean {
-  return (
-    item.kind === "tool" &&
-    item.phase !== ToolPhase.FINISHED &&
-    !isInFlight(item)
-  );
+  return isThinkingStreaming(item, runState.value);
 }
 
 function interruptOpenTools(at?: number) {
@@ -1008,87 +936,6 @@ function isRunning(
   );
 }
 
-function elapsedLabel(ms: number | undefined, precise = false): string {
-  if (ms === undefined) return "";
-  if (precise) return formatElapsed(ms);
-  return ms >= 1000 ? formatDuration(ms) : "";
-}
-
-const clock = ref(Date.now());
-
-const clockNow = computed(() => {
-  if (waitingForInput.value) return waitingCutoff.value;
-  return live.value ? clock.value : undefined;
-});
-let clockTimer: ReturnType<typeof setInterval> | undefined;
-
-function workedLabel(group: RenderActivity): string {
-  let elapsed = groupElapsed(group.span, clockNow.value);
-
-  if (group.pending && live.value) {
-    const from = group.span.reduce<number | undefined>(
-      (start, item) =>
-        item.startedAt !== undefined &&
-        (start === undefined || item.startedAt < start)
-          ? item.startedAt
-          : start,
-      undefined,
-    );
-    elapsed = Math.max(
-      clock.value - (from ?? group.pending.since),
-      elapsed ?? 0,
-    );
-  }
-  const verb = group.running ? "Working" : "Worked";
-  if (elapsed === undefined) return verb;
-  return `${verb} for ${elapsed >= 1000 ? formatDuration(elapsed) : "<1s"}`;
-}
-
-function actionCount(group: RenderActivity): string {
-  const count = group.items.filter((item) => item.kind !== "wait").length;
-  if (!count) return "";
-  return `${count} ${count === 1 ? "action" : "actions"}`;
-}
-
-function waitingLabel(group: RenderActivity): string {
-  return group.waiting.ms > 0
-    ? `${formatElapsed(group.waiting.ms)} waiting`
-    : "";
-}
-
-function waitingHint(group: RenderActivity): string {
-  const { requests, retries, compactions } = group.waiting;
-  return [
-    `${requests} model request${requests === 1 ? "" : "s"}`,
-    `${retries} retr${retries === 1 ? "y" : "ies"}`,
-    `${compactions} compaction${compactions === 1 ? "" : "s"}`,
-  ].join(" · ");
-}
-
-function changesFor(group: RenderActivity): ChangedFile[] {
-  return groupChangedFiles(group.items);
-}
-
-function childDuration(item: ActivityItem): string {
-  return elapsedLabel(itemElapsed(item, clockNow.value), item.kind === "tool");
-}
-
-function waitTotals(items: ActivityItem[]): WaitTotals {
-  const totals: WaitTotals = {
-    ms: groupWaitingMs(items),
-    requests: 0,
-    retries: 0,
-    compactions: 0,
-  };
-  for (const item of items) {
-    if (item.kind !== "wait" || item.durationMs < WAIT_RENDER_MS) continue;
-    if (item.waitKind === ModelWait_Kind.RETRY) totals.retries++;
-    else if (item.waitKind === ModelWait_Kind.COMPACTION) totals.compactions++;
-    else totals.requests++;
-  }
-  return totals;
-}
-
 const hasRunningTool = computed(() => items.value.some(isInFlight));
 
 const hasRunningThinking = computed(() =>
@@ -1097,19 +944,15 @@ const hasRunningThinking = computed(() =>
   ),
 );
 
-interface PendingState {
-  kind: PendingActivity_Kind;
+const clock = ref(Date.now());
+let clockTimer: ReturnType<typeof setInterval> | undefined;
 
-  since: number;
-  model: string;
-  provider: string;
-  error: string;
-  attempt: number;
-  maxAttempts: number;
-  reason: string;
-}
+const activityClock = computed(() => {
+  if (waitingForInput.value) return waitingCutoff.value;
+  return live.value ? clock.value : undefined;
+});
 
-const pending = ref<PendingState | null>(null);
+const pending = ref<PendingStep | null>(null);
 
 watch(pending, (step) => {
   if (step === null) reservedId = undefined;
@@ -1596,15 +1439,27 @@ function dropDeltas() {
 async function scrollToBottom() {
   stickToBottom.value = true;
   await nextTick();
-  pinToBottom();
+  pinToBottom(true);
   updatePinnedUser();
 }
 
-function pinToBottom() {
+function pinToBottom(force = false) {
   const el = scroller.value;
-  if (el) {
-    el.scrollTop = el.scrollHeight;
+  if (!el) return;
+  if (!force && wizardActive.value) {
+    el.scrollTop = questionnaireTop(el);
+    return;
   }
+  el.scrollTop = el.scrollHeight;
+}
+
+function questionnaireTop(el: HTMLElement): number {
+  const node = el.querySelector<HTMLElement>(
+    '[data-testid="questionnaire-live"]',
+  );
+  if (!node) return el.scrollHeight;
+  const atBottom = node.offsetTop + node.offsetHeight - el.clientHeight;
+  return node.offsetHeight <= el.clientHeight ? atBottom : node.offsetTop - 8;
 }
 
 function onScroll() {
@@ -1626,10 +1481,27 @@ function scrollToUser(id: number) {
 }
 
 function onActivityToggle(id: number, event: Event) {
-  if ((event.target as HTMLDetailsElement).open) {
+  const activity = event.target as HTMLDetailsElement;
+  if (activity.open) {
     openActivities.add(id);
+
+    activity
+      .querySelectorAll<HTMLDetailsElement>(
+        'details[data-testid="thinking-block"]',
+      )
+      .forEach((block) => {
+        block.open = block.dataset.thinkingRunning === "true";
+      });
   } else {
     openActivities.delete(id);
+
+    activity
+      .querySelectorAll<HTMLDetailsElement>(
+        'details[data-testid="thinking-block"]',
+      )
+      .forEach((block) => {
+        block.open = false;
+      });
   }
 }
 
@@ -2101,6 +1973,19 @@ function declineWizard() {
   }
 }
 
+async function seedHistory(events: TaskEvent[]) {
+  historyLoaded.value = true;
+  for (const event of events) {
+    applyEvent(event);
+  }
+  flushDeltas();
+  if (!live.value) {
+    interruptOpenTools(lastItemAt(items.value[items.value.length - 1]));
+  }
+  derivePending();
+  await scrollToBottom();
+}
+
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
     if (stickToBottom.value) {
@@ -2110,6 +1995,10 @@ onMounted(() => {
   });
   if (content.value) {
     resizeObserver.observe(content.value);
+  }
+  if (props.history) {
+    void seedHistory(props.history);
+    return;
   }
 
   startStream();
@@ -2142,10 +2031,9 @@ en:
     collapseReasoning: "Collapse reasoning"
     previousItem: "Previous item"
     nextItem: "Next item"
+    cancelUnsent: "Cancel"
+    cancelUnsentTitle: "Cancel this message: the agent has not read it yet"
     scrollToBottom: "Scroll to bottom"
-    copied: "Copied"
-    copyMessage: "Copy message"
-    copyResponse: "Copy response"
 ru:
   taskConsole:
     stoppedBy: "остановлено пользователем"
@@ -2157,8 +2045,7 @@ ru:
     collapseReasoning: "Свернуть рассуждение"
     previousItem: "Предыдущий элемент"
     nextItem: "Следующий элемент"
+    cancelUnsent: "Отменить"
+    cancelUnsentTitle: "Отменить это сообщение: агент его ещё не прочитал"
     scrollToBottom: "Прокрутить вниз"
-    copied: "Скопировано"
-    copyMessage: "Скопировать сообщение"
-    copyResponse: "Скопировать ответ"
 </i18n>

@@ -271,7 +271,7 @@ en:
       clamped: "Task costs are clamped to the selected time range."
       searchPlaceholder: "Search tasks"
       ttcTitle: "Time from the first queue to completion"
-      thinkingTitle: "The model's own working time: active time minus tool calls"
+      thinkingTitle: "The model's own working time: active time minus tool calls and provider waits"
       showing: "Showing {visible} of {total} tasks"
     state:
       completed: "Completed"
@@ -287,7 +287,7 @@ ru:
       clamped: "Стоимость задач ограничена выбранным диапазоном."
       searchPlaceholder: "Поиск задач"
       ttcTitle: "Время от первой постановки в очередь до завершения"
-      thinkingTitle: "Собственное рабочее время модели: активное время минус вызовы инструментов"
+      thinkingTitle: "Собственное рабочее время модели: активное время минус вызовы инструментов и ожидание провайдера"
       showing: "Показано {visible} из {total} задач"
     state:
       completed: "Завершённые"

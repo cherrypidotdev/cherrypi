@@ -255,6 +255,21 @@ func (s *Service) Name(ctx context.Context, teamID int64) (string, error) {
 	return team.Name, nil
 }
 
+func (s *Service) NamesByIDs(
+	ctx context.Context,
+	ids []int64,
+) (map[int64]string, error) {
+	rows, err := s.store.ListTeamsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]string, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row.Name
+	}
+	return out, nil
+}
+
 func (s *Service) Update(
 	ctx context.Context,
 	teamID int64,

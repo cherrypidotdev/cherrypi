@@ -157,7 +157,8 @@ func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
-		resource.WithProcess(),
+		resource.WithProcessRuntimeName(),
+		resource.WithProcessRuntimeVersion(),
 		resource.WithHost(),
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),

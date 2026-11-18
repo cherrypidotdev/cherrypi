@@ -23,11 +23,13 @@ import (
 	"net/http"
 
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
+	agencygrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agency"
 	agentgroupsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agentgroups"
 	agentsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agents"
 	dashboardgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/desktop"
 	kpigrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/kpi"
+	modelroutinggrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/modelrouting"
 	notificationsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/notifications"
 	pluginsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/plugins"
 	projectsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/projects"
@@ -40,6 +42,7 @@ import (
 	tasktemplatesgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/tasktemplates"
 	terminalgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/terminal"
 	webhookgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/webhook"
+	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -88,6 +91,38 @@ func pluginInputRequest(
 	return req, nil
 }
 
+func taskActorInterceptor() connect.UnaryInterceptorFunc {
+	return connect.UnaryInterceptorFunc(
+		func(next connect.UnaryFunc) connect.UnaryFunc {
+			return func(
+				ctx context.Context,
+				req connect.AnyRequest,
+			) (connect.AnyResponse, error) {
+				ctx = tasks.WithActor(ctx, taskActorFrom(ctx))
+				if actorID, ok := auth.ActorID(ctx); ok {
+					ctx = tasks.WithActorID(ctx, actorID)
+				}
+				return next(ctx, req)
+			}
+		},
+	)
+}
+
+func taskActorFrom(ctx context.Context) tasks.Actor {
+	identity, ok := auth.IdentityFrom(ctx)
+	if !ok {
+		return tasks.ActorUser
+	}
+	switch identity.Kind {
+	case accounts.KindAgent:
+		return tasks.ActorAgent
+	case "plugin":
+		return tasks.ActorPlugin
+	default:
+		return tasks.ActorUser
+	}
+}
+
 func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	var telemetryInterceptor *otelconnect.Interceptor
 	if telemetry.Enabled() {
@@ -126,6 +161,13 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler := agencyv1connect.NewAgentServiceHandler(agentService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	agencyService := &agencygrpc.Server{
+		Agents:      appCtx.Agents,
+		ProcessLogs: appCtx.ProcessLogs,
+	}
+	path, handler = agencyv1connect.NewAgencyServiceHandler(agencyService)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
 	settingsService := &settingsgrpc.SettingsServer{
 		Settings:    appCtx.Settings,
 		Attachments: appCtx.Attachments,
@@ -142,6 +184,17 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	path, handler = agencyv1connect.NewKpiLayoutServiceHandler(kpiService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	modelRoutingService := &modelroutinggrpc.Server{
+		Routing:  appCtx.ModelRouting,
+		Projects: appCtx.Projects,
+		Catalog:  appCtx.AgentConfig,
+	}
+	path, handler = agencyv1connect.NewModelRoutingServiceHandler(
+		modelRoutingService,
+		handlerOptions()...,
+	)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
 	siteService := &sitesgrpc.SiteServer{
 		Sites:       appCtx.Sites,
 		Accounts:    appCtx.Accounts,
@@ -151,14 +204,15 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	projectService := &projectsgrpc.ProjectServer{
-		Projects:    appCtx.Projects,
-		KpiLayouts:  appCtx.KpiLayouts,
-		Agents:      appCtx.Agents,
-		Hub:         appCtx.Hub,
-		Attachments: appCtx.Attachments,
-		Limits:      appCtx.Limits,
-		Tags:        appCtx.Tags,
-		Scheduler:   appCtx.Scheduler,
+		Projects:     appCtx.Projects,
+		KpiLayouts:   appCtx.KpiLayouts,
+		Agents:       appCtx.Agents,
+		Hub:          appCtx.Hub,
+		Attachments:  appCtx.Attachments,
+		Limits:       appCtx.Limits,
+		Tags:         appCtx.Tags,
+		Scheduler:    appCtx.Scheduler,
+		ModelRouting: appCtx.ModelRouting,
 	}
 	path, handler = agencyv1connect.NewProjectServiceHandler(projectService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
@@ -192,6 +246,17 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	actorAttribution := func(actor accounts.Actor) taskgrpc.ActorInfo {
+		info := taskgrpc.ActorInfo{
+			Username: actor.Username,
+			Name:     actor.Name,
+			Kind:     actor.Kind,
+		}
+		if actor.PictureAttachmentID > 0 {
+			info.PictureURL = attachments.URLFor(actor.PictureAttachmentID)
+		}
+		return info
+	}
 	taskService := &taskgrpc.TaskServer{
 		Tasks:       appCtx.Tasks,
 		Tags:        appCtx.Tags,
@@ -207,18 +272,25 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 			if err != nil {
 				return taskgrpc.ActorInfo{}, err
 			}
-			info := taskgrpc.ActorInfo{
-				Username: actor.Username,
-				Name:     actor.Name,
-				Kind:     actor.Kind,
-			}
-			if actor.PictureAttachmentID > 0 {
-				info.PictureURL = attachments.URLFor(actor.PictureAttachmentID)
-			}
-			return info, nil
+			return actorAttribution(actor), nil
 		},
-		TeamName: appCtx.Teams.Name,
-		Input:    appCtx.Input,
+		ActorsByIDs: func(
+			ctx context.Context,
+			actorIDs []ids.ActorID,
+		) (map[ids.ActorID]taskgrpc.ActorInfo, error) {
+			actors, err := appCtx.Accounts.ActorsByIDs(ctx, actorIDs)
+			if err != nil {
+				return nil, err
+			}
+			out := make(map[ids.ActorID]taskgrpc.ActorInfo, len(actors))
+			for _, actor := range actors {
+				out[actor.ID] = actorAttribution(actor)
+			}
+			return out, nil
+		},
+		TeamName:       appCtx.Teams.Name,
+		TeamNamesByIDs: appCtx.Teams.NamesByIDs,
+		Input:          appCtx.Input,
 	}
 
 	appCtx.Plugins.RespondInput = func(
@@ -244,24 +316,9 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		_, err = taskService.RespondToExtensionUi(ctx, inner)
 		return err
 	}
-
-	actorInterceptor := connect.UnaryInterceptorFunc(
-		func(next connect.UnaryFunc) connect.UnaryFunc {
-			return func(
-				ctx context.Context,
-				req connect.AnyRequest,
-			) (connect.AnyResponse, error) {
-				ctx = tasks.WithActor(ctx, tasks.ActorUser)
-				if actorID, ok := auth.ActorID(ctx); ok {
-					ctx = tasks.WithActorID(ctx, actorID)
-				}
-				return next(ctx, req)
-			}
-		},
-	)
 	path, handler = agencyv1connect.NewTaskServiceHandler(
 		taskService,
-		handlerOptions(connect.WithInterceptors(actorInterceptor))...,
+		handlerOptions(connect.WithInterceptors(taskActorInterceptor()))...,
 	)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
@@ -318,6 +375,7 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		Projects: appCtx.Projects,
 		Agents:   appCtx.Agents,
 		Accounts: appCtx.Accounts,
+		Tasks:    appCtx.Tasks,
 	}
 	path, handler = agencyv1connect.NewPluginServiceHandler(pluginService, handlerOptions()...)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))

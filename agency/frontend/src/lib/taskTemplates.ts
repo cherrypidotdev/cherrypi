@@ -32,7 +32,7 @@ export function emptyTemplateContent(): TaskTemplateContentInput {
     defaultSize: TaskSize.MEDIUM,
     defaultTagIds: [],
     defaultTeamIds: [],
-    defaultLeadActorIds: [],
+    defaultLeaderActorId: "",
   };
 }
 
@@ -59,7 +59,7 @@ export function templateContentInput(
     defaultSize: content.defaultSize,
     defaultTagIds: [...content.defaultTagIds],
     defaultTeamIds: [...content.defaultTeamIds],
-    defaultLeadActorIds: [...content.defaultLeadActorIds],
+    defaultLeaderActorId: content.defaultLeaderActorId,
   };
 }
 

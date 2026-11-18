@@ -32,13 +32,13 @@ Combobox(
     ActorAvatar(
       :src="actor(option)?.picture"
       :name="option.label"
-      :username="option.value"
+      :username="actor(option)?.username || option.value"
       :size="18"
     )
     span.flex.min-w-0.flex-col
       span.truncate {{ option.label }}
       span.text-muted-foreground.truncate.text-xs
-        | @{{ option.value }}
+        | @{{ actor(option)?.username }}
         template(v-if="actor(option)?.kind === 'agent'") {{ $t("actorCombobox.agentSuffix") }}
 </template>
 
@@ -47,6 +47,8 @@ import ActorAvatar from "@/components/ActorAvatar.vue";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { useAgents } from "@/composables/useAgents";
 import { useUsers } from "@/composables/useUsers";
+import type { AccountActor } from "@/lib/account";
+import type { Agent } from "@cherrypi/sdk";
 import { computed, onMounted, type HTMLAttributes } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -56,17 +58,22 @@ const props = withDefaults(
   defineProps<{
     modelValue?: string;
 
-    kinds?: "all" | "users";
+    kinds?: "all" | "users" | "agents";
+
+    valueMode?: "username" | "actorId";
     placeholder?: string;
     emptyText?: string;
     disabled?: boolean;
     size?: "sm" | "default";
     id?: string;
     class?: HTMLAttributes["class"];
+
+    preview?: ActorComboboxPreview;
   }>(),
   {
     modelValue: "",
     kinds: "all",
+    valueMode: "username",
     placeholder: undefined,
     emptyText: undefined,
     disabled: false,
@@ -86,36 +93,57 @@ const emit = defineEmits<{
   (event: "update:modelValue", value: string): void;
 }>();
 
+interface ActorComboboxPreview {
+  users: AccountActor[];
+  agents: Agent[];
+}
+
 interface ActorChoice extends ComboboxOption {
   kind: "user" | "agent";
+  username: string;
   picture?: string;
 }
 
 const { users, loadUsers } = useUsers();
 const { agents, loadAgents } = useAgents();
 
+const userSource = computed<AccountActor[]>(() =>
+  props.preview ? props.preview.users : users.value,
+);
+const agentSource = computed<Agent[]>(() =>
+  props.preview ? props.preview.agents : agents.value,
+);
+
 onMounted(() => {
-  void loadUsers();
+  if (props.preview) return;
+  if (props.kinds !== "agents") void loadUsers();
   if (props.kinds !== "users") void loadAgents();
 });
 
 const actors = computed<ActorChoice[]>(() => {
   const group = (name: string) => (props.kinds === "users" ? undefined : name);
-  const list: ActorChoice[] = users.value
-    .map((user) => ({
-      value: user.username,
-      label: user.name || user.username,
-      description: `@${user.username}`,
-      group: group("Users"),
-      kind: "user" as const,
-      picture: user.picture?.url,
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const value = (username: string, actorId: string) =>
+    props.valueMode === "actorId" ? actorId : username;
+  const list: ActorChoice[] =
+    props.kinds === "agents"
+      ? []
+      : userSource.value
+          .map((user) => ({
+            value: value(user.username, String(user.id)),
+            username: user.username,
+            label: user.name || user.username,
+            description: `@${user.username}`,
+            group: group("Users"),
+            kind: "user" as const,
+            picture: user.picture?.url,
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label));
   if (props.kinds !== "users") {
     list.push(
-      ...agents.value
+      ...agentSource.value
         .map((agent) => ({
-          value: agent.username,
+          value: value(agent.username, agent.actorId),
+          username: agent.username,
           label: agent.displayName || agent.username,
           description: `@${agent.username}`,
           group: group("Agents"),

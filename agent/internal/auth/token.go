@@ -16,47 +16,14 @@
 
 package auth
 
-import (
-	"errors"
-	"os"
-	"path/filepath"
-	"strings"
-)
+import "strings"
 
 const TokenPrefix = "pat_"
 
-func TokenFile(dir string) string {
-	return filepath.Join(dir, "agent.token")
-}
-
-func LoadToken(env, file string) string {
-	if token := strings.TrimSpace(env); strings.HasPrefix(token, TokenPrefix) {
-		return token
-	}
-	if file == "" {
-		return ""
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return ""
-	}
-	token := strings.TrimSpace(string(data))
+func LoadToken(value string) string {
+	token := strings.TrimSpace(value)
 	if !strings.HasPrefix(token, TokenPrefix) {
 		return ""
 	}
 	return token
-}
-
-func SaveToken(path, token string) error {
-	if !strings.HasPrefix(token, TokenPrefix) {
-		return errors.New("not an agent token")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }

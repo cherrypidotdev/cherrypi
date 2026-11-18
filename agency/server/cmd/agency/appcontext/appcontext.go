@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/agentconfig"
 	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
@@ -40,6 +41,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/health"
 	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
+	"cherrypi.vladfaust.com/agency/internal/modelrouting"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
@@ -47,6 +49,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/promptaccess"
 	"cherrypi.vladfaust.com/agency/internal/promptflow"
 	"cherrypi.vladfaust.com/agency/internal/prompts"
+	"cherrypi.vladfaust.com/agency/internal/reactions"
 	"cherrypi.vladfaust.com/agency/internal/realtime"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
 	"cherrypi.vladfaust.com/agency/internal/settings"
@@ -74,6 +77,8 @@ type AppContext struct {
 	Accounts      *accounts.Service
 	Agents        *agents.Registry
 	Settings      *settings.Service
+	ModelRouting  *modelrouting.Service
+	AgentConfig   *agentconfig.Service
 	Projects      *projects.Service
 	Prompts       *prompts.Service
 	PromptFlow    *promptflow.Service
@@ -142,14 +147,23 @@ func taskTransitionNotifier(
 			return
 		}
 
-		recipients, _ := tasksSvc.Recipients(ctx, task.ID)
-		_ = notificationsSvc.CreateForTask(ctx, task.ID, recipients, notifications.Notification{
-			AgentID:  agent.ID,
-			Kind:     entry.kind,
-			Severity: entry.severity,
-			Title:    entry.title,
-			Body:     taskTransitionBody(task),
-		})
+		recipients, broadcast, err := tasksSvc.NotificationRecipients(ctx, task.ID)
+		if err != nil {
+			return
+		}
+		_ = notificationsSvc.CreateForTask(
+			ctx,
+			task.ID,
+			recipients,
+			broadcast,
+			notifications.Notification{
+				AgentID:  agent.ID,
+				Kind:     entry.kind,
+				Severity: entry.severity,
+				Title:    entry.title,
+				Body:     taskTransitionBody(task),
+			},
+		)
 	}
 }
 
@@ -192,7 +206,7 @@ func commentNotifier(
 		if author != "" {
 			body = author + ": " + body
 		}
-		_ = notificationsSvc.CreateForTask(ctx, taskID, filtered, notifications.Notification{
+		_ = notificationsSvc.CreateForTask(ctx, taskID, filtered, false, notifications.Notification{
 			AgentID:  agent.ID,
 			Kind:     "task_comment",
 			Severity: "info",
@@ -229,6 +243,7 @@ func mentionNotifier(
 			ctx,
 			taskID,
 			comment.MentionedActorIDs,
+			false,
 			notifications.Notification{
 				AgentID:  agent.ID,
 				Kind:     "task_mention",
@@ -373,20 +388,6 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	groupsSvc.Teams = teamsSvc
 	templatesSvc := templates.New(st, projectsSvc)
 
-	go func() {
-		ticker := time.NewTicker(30 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			ctx := context.Background()
-			_ = accountsSvc.Cleanup(ctx)
-			_, _ = teamsSvc.PruneInvitations(ctx, time.Now())
-			_, _ = groupsSvc.PruneRequests(ctx, time.Now())
-			_, _ = groupsSvc.PruneAccessInvitations(ctx, time.Now())
-			_, _ = projectsSvc.PruneInvitations(ctx, time.Now())
-			_, _ = auditSvc.Prune(ctx, time.Now())
-		}
-	}()
-
 	attachmentsSvc := attachments.New(st, objectStore, attachments.Config{
 		KeyPrefix:     config.S3.KeyPrefix,
 		MaxBytes:      config.AttachmentMaxBytes,
@@ -406,6 +407,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	promptsSvc := prompts.New(st)
 	tagsSvc := tags.New(st)
 	settingsSvc := settings.New(st)
+	modelRoutingSvc := modelrouting.New(st)
 	tasksSvc := tasks.New(st, projectsSvc)
 
 	pluginStore, err := pluginhost.OpenStore(config.DatabaseDSN)
@@ -419,6 +421,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		AllowPrivateNetwork: config.PluginAllowPrivateNetwork,
 		PublicURL:           config.PublicURL,
 		DisableTicks:        config.PluginDisableTicks,
+		LogRetention:        config.PluginLogRetention,
 	}, pluginStore)
 	pluginsSvc.Projects = projectsSvc
 	pluginsSvc.Agents = agentRegistry
@@ -431,10 +434,44 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		log.Fatalf("Failed to bootstrap plugins: %v", err)
 	}
 
+	go func() {
+		prune := func() {
+			ctx := context.Background()
+			_ = accountsSvc.Cleanup(ctx)
+			_, _ = teamsSvc.PruneInvitations(ctx, time.Now())
+			_, _ = groupsSvc.PruneRequests(ctx, time.Now())
+			_, _ = groupsSvc.PruneAccessInvitations(ctx, time.Now())
+			_, _ = projectsSvc.PruneInvitations(ctx, time.Now())
+			_, _ = auditSvc.Prune(ctx, time.Now())
+			if err := pluginsSvc.PruneLogs(ctx); err != nil {
+				log.Printf("[plugins] prune logs: %v", err)
+			}
+		}
+
+		prune()
+
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			prune()
+		}
+	}()
+
+	reactionsSvc := &reactions.Service{
+		Tasks: tasksSvc,
+		IsAgent: func(ctx context.Context, actorID ids.ActorID) bool {
+			_, err := agentRegistry.GetByActor(ctx, actorID)
+			return err == nil
+		},
+	}
 	onTransition := taskTransitionNotifier(notificationsSvc, tasksSvc, agentRegistry)
 	tasksSvc.OnTransition = func(ctx context.Context, tr tasks.Transition) {
 		onTransition(ctx, tr)
 		realtimeBus.PublishTask(tr.TaskID)
+
+		if tr.State == tasks.StateInput || tr.State == tasks.StateSettled {
+			reactionsSvc.OnEvent(ctx, tr.TaskID)
+		}
 
 		if tr.Held {
 			pluginsSvc.DispatchEvent(ctx, pluginhost.Event{
@@ -475,8 +512,10 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		agentRegistry,
 		hub,
 	)
+	reactionsSvc.Wake = sched.Wake
 	sched.Attachments = attachmentsSvc
 	sched.Plugins = pluginsSvc
+	sched.ModelRouting = modelRoutingSvc
 
 	pluginsSvc.FollowUp = sched.FollowUp
 	pluginsSvc.RecordMessage = func(
@@ -508,10 +547,13 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 			if err != nil {
 				return err
 			}
+
+			model := sched.ResumeModel(ctx, t, t.SessionAgentID)
 			_, err = conn.Tasks.AddToTask(ctx, &agentv1.AddToTaskRequest{
-				Id:     t.SessionID,
-				Prompt: prompt,
-				TaskId: t.ID,
+				Id:          t.SessionID,
+				Prompt:      prompt,
+				TaskId:      t.ID,
+				Attachments: scheduler.AttachmentRefs(attachmentsSvc, ctx, t.ID),
 				Ref: &agentv1.TaskRef{
 					ProjectId: t.ProjectID,
 					Seq:       t.Seq,
@@ -522,24 +564,33 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 					Name:     sender.Name,
 					Kind:     sender.Kind,
 				},
+				RequiredTools: t.RequiredTools,
+				ModelProvider: model.Provider,
+				ModelId:       model.ModelID,
+				ThinkingLevel: model.ThinkingLevel,
 			})
 			return err
 		},
 	}
-	waker.LeadOf = tasksSvc.IsLead
-	waker.AgentProtocol = func(ctx context.Context, actorID ids.ActorID) (string, error) {
-		agent, err := agentRegistry.GetByActor(ctx, actorID)
-		if err != nil {
-			return "", err
-		}
-		return agent.ProtocolVersion, nil
+
+	reactionsSvc.Steer = waker.Steer
+	tasksSvc.OnTaskFinished = func(
+		ctx context.Context,
+		t tasks.Task,
+		outcome tasks.FinishOutcome,
+	) {
+		waker.OnTaskFinished(ctx, t, outcome)
+		reactionsSvc.OnFinished(ctx, t, outcome)
 	}
-	tasksSvc.OnChildFinished = waker.OnChildFinished
 
 	tasksSvc.OnInputCleared = func(ctx context.Context, t tasks.Task) {
 		sched.DeliverPendingPrompt(ctx, t)
 		waker.OnInputCleared(ctx, t)
+
+		reactionsSvc.OnResolved(ctx, t.ID)
 	}
+
+	tasksSvc.DeliverPendingPrompt = sched.DeliverPendingPrompt
 
 	tasksSvc.OnPendingPromptQueued = func(context.Context, string) {
 		sched.Wake()
@@ -583,8 +634,6 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 				Extra:  extra,
 			})
 		},
-
-		OnInputRequested: waker.OnInputRequested,
 	}
 	hub.OnConnect = func(ctx context.Context, conn *tunnel.Connection) {
 		go consumer.Run(ctx, conn)
@@ -595,11 +644,13 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		// The agent's own connect line races the tunnel subscribe, so the
 
 		logAgentEvent(agentLogsSvc, conn.ID, agentlogs.LevelInfo, "agent connected")
+		recordAgentPresence(agentRegistry, conn.ID, true)
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_AGENTS)
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_AGENT_LOGS)
 	}
 	hub.OnDisconnect = func(agentID ids.AgentID) {
 		logAgentEvent(agentLogsSvc, agentID, agentlogs.LevelWarn, "agent disconnected")
+		recordAgentPresence(agentRegistry, agentID, false)
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_AGENTS)
 		realtimeBus.Publish(agencyv1.RealtimeKind_REALTIME_KIND_AGENT_LOGS)
 	}
@@ -611,6 +662,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	go sched.Run(context.Background())
 	go archiver.New(tasksSvc, settingsSvc).Run(context.Background())
+	go waker.Run(context.Background(), 5*time.Second)
+	go runReactionSweep(context.Background(), reactionsSvc)
 
 	inputSvc := &taskinput.Service{
 		Tasks:  tasksSvc,
@@ -641,15 +694,16 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	}
 
 	return &AppContext{
-		Config:   config,
-		Store:    st,
-		Storage:  objectStore,
-		Accounts: accountsSvc,
-		Agents:   agentRegistry,
-		Settings: settingsSvc,
-		Speech:   speech.New(settingsSvc),
-		Projects: projectsSvc,
-		Prompts:  promptsSvc,
+		Config:       config,
+		Store:        st,
+		Storage:      objectStore,
+		Accounts:     accountsSvc,
+		Agents:       agentRegistry,
+		Settings:     settingsSvc,
+		ModelRouting: modelRoutingSvc,
+		Speech:       speech.New(settingsSvc),
+		Projects:     projectsSvc,
+		Prompts:      promptsSvc,
 		PromptFlow: &promptflow.Service{
 			Prompts: promptsSvc,
 			Access: &promptaccess.Authorizer{
@@ -768,5 +822,29 @@ func pushHealthInterval(
 			return
 		}
 		log.Printf("Push health interval to agent %d: %v", conn.ID, err)
+	}
+}
+
+func recordAgentPresence(
+	registry *agents.Registry,
+	agentID ids.AgentID,
+	online bool,
+) {
+	if registry == nil {
+		return
+	}
+	registry.RecordLastOnline(context.Background(), agentID, time.Now(), online)
+}
+
+func runReactionSweep(ctx context.Context, svc *reactions.Service) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			svc.Sweep(ctx)
+		}
 	}
 }

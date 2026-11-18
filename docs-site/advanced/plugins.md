@@ -200,7 +200,7 @@ Ungrouped fields fall into an **Other** group. Groups always start collapsed.
   "id": "acme-git-reviewer",
   "name": "AcmeGit Reviewer",
   "version": "0.1.0",
-  "requires_agency": ">=0.2.2 <0.3.0",
+  "requires_agency": ">=0.3.0 <0.4.0",
   "description": "Turns review events into review tasks.",
   "runtime": "lua",
   "entry": "main.lua",
@@ -259,7 +259,8 @@ Ungrouped fields fall into an **Other** group. Groups always start collapsed.
 | `limits` | Lower the timeout, response size, request size, or concurrency. |
 
 `requires_agency` is the plugin API range the bundle supports. The current API
-is `0.2.7`, which added the `task_input_answered` event, on top of `0.2.6`'s
+is `0.2.8`, which added `cherrypi.update_settings`, on top of `0.2.7`'s
+`task_input_answered` event, `0.2.6`'s
 `cherrypi.respond_task_input` and the dialog fields on `task_requested_input`,
 `0.2.5`'s templated settings, `x-groups`, and
 `cherrypi.template.render(source, vars)`, `0.2.4`'s optional `setup` block and
@@ -267,8 +268,9 @@ is `0.2.7`, which added the `task_input_answered` event, on top of `0.2.6`'s
 `handle_tick`, and `0.2.1`'s `task_hold_released` event. A bundle that uses
 templated settings or `x-groups` declares `>=0.2.5 <0.3.0`; one that answers a
 dialog declares `>=0.2.6 <0.3.0`; one that subscribes to `task_input_answered`
-declares `>=0.2.7 <0.3.0`. Because these are patch bumps, bundles that
-already accept the `0.2.x` line keep working.
+declares `>=0.2.7 <0.3.0`; one that writes its own settings rows declares
+`>=0.2.8 <0.3.0`. Because these are patch bumps, bundles that already accept
+the `0.2.x` line keep working.
 
 ### Network allowlist
 
@@ -440,7 +442,7 @@ end
   (fail open); `handle_tool_call` still validates its own preconditions.
 - Task tools attached with `create_task` are not filtered: the hook narrows
   project tools only.
-- The filter is evaluated when the scheduler creates a task's Pi session, the
+- The filter is evaluated when the scheduler creates a task's runtime, the
   only start payload that carries tools. A task resumed on a warm session — a
   settle followed by a follow-up, or a retry of a live session — keeps the tool
   list it started with, so a credential stored mid-task takes effect on the next
@@ -460,10 +462,10 @@ whose assignee has none, instead of being offered and failing at call time.
 | `cherrypi.get_user(id_or_username)` | User metadata. Requires that user to have enabled the plugin. |
 | `cherrypi.get_task(id)` | Task snapshot. Requires a plugin-created task or an enabled project. |
 | `cherrypi.get_project_tasks(project_id, opts)` | Project tasks (`limit`, `state`, `search`, `archived`). |
-| `cherrypi.get_task_history(task_id, opts)` | Persisted Pi session entries. |
-| `cherrypi.create_task(input)` | Create a queued task. See below. |
+| `cherrypi.get_task_history(task_id, opts)` | The task's persisted conversation. |
+| `cherrypi.create_task(input)` | Create a task. `automated = true` authors an automated task (queued, no leader, no user-input tools); otherwise the input must name an explicit `leader`. See below. |
 | `cherrypi.add_task_message(task_id, text)` | Send a follow-up prompt to a task: queues a resting task, appends to a queued, waiting, or input one's pending prompt, steers a running one. A text stashed on an input task is delivered once its dialog is answered, or with the next start if the run ends without an answer; consecutive follow-ups are capped at 20 per task. |
-| `cherrypi.respond_task_input(task_id, request_id, answer)` | Answer a pending dialog on an `input` task. Use `{ value }`, `{ confirmed }`, or `{ cancelled }`. A batch questionnaire needs the extension wire JSON in `value` (`{"answers":[{"index":0,"options":[1]}]}`, 0-based) plus optional `{ questionnaire = { { question, answer }, ... } }` resume pairs. The plugin must lead the task; `create_task` makes it a lead. |
+| `cherrypi.respond_task_input(task_id, request_id, answer)` | Answer a pending dialog on an `input` task. Use `{ value }`, `{ confirmed }`, or `{ cancelled }`. A batch questionnaire needs the extension wire JSON in `value` (`{"answers":[{"index":0,"options":[1]}]}`, 0-based) plus optional `{ questionnaire = { { question, answer }, ... } }` resume pairs. The plugin must be the task's leader. |
 | `cherrypi.close_task(task_id, outcome)` | Close a task out as `completed` or `cancelled`, attributed to the plugin's actor. A running task is refused, and so is a completed close-out of a task that has not run a follow-up stashed for it yet; a cancel may discard that follow-up. |
 | `cherrypi.set_task_badges(task_id, badges)` | Replace the badges the plugin shows for a task. |
 | `cherrypi.hold_task(task_id, hold)` | Hold a task until the plugin verifies its outcome (`key`, `reason`). Idempotent per key, at most 8 holds per task. See [Task holds](#task-holds). |
@@ -471,6 +473,7 @@ whose assignee has none, instead of being offered and failing at call time.
 | `cherrypi.list_task_holds(task_id)` | The task's holds, oldest first. |
 | `cherrypi.list_agents()` | Agents that enabled the plugin, with their agent settings. |
 | `cherrypi.list_settings(scope)` | The plugin's own settings rows for a surface. |
+| `cherrypi.update_settings(scope, target_id, values)` | Write one of the plugin's own settings rows. The scope must be a surface the bundle declares; a project write needs the plugin enabled there and the plugin's project membership, an agent or user write needs that target's surface enabled. The bundle's own `update_settings` hook validates the values; `values` replaces the whole row, so a field the caller omits is removed. The agency does not interpret them. The hook is a separate invocation, so the bundle needs a free `max_concurrent` slot (the default is 2). |
 
 `create_task` takes:
 
@@ -483,7 +486,8 @@ whose assignee has none, instead of being offered and failing at call time.
   assignee = "agent-actor-id",   -- an agent that is a project member
   size = "medium",               -- small | medium | big | epic
   priority = "normal",           -- low | normal | high | critical
-  interactive = true,            -- false runs without extension dialogs
+  automated = true,              -- the plugin owns it: no leader, no input tools
+  leader = "actor-id",           -- required when automated is false
   task_references = {            -- informational unless kind = "blocking"
     "PROJ-1",
     { task_id = "PROJ-2", kind = "blocking" },
@@ -495,10 +499,11 @@ whose assignee has none, instead of being offered and failing at call time.
 The project's **maximum task priority** caps the request; a higher priority is
 an error, not a silent downgrade.
 
-`interactive` defaults to `true`. A non-interactive task never surfaces a
-questionnaire or another extension dialog: the agent is told to ask in plain
-text instead. Unlike the task API and the agent tools, a plugin may create a
-non-interactive top-level task. The mode is fixed at creation.
+`automated` defaults to `false`. A **manual** task needs an explicit `leader`
+(a human or an agent who is a member of the project): a plugin is not an
+accountable actor, so it cannot be the leader. An **automated** task is owned by
+the plugin: it is created queued (never in backlog), takes no leader, and has no
+user-input tools. The kind is fixed at creation.
 
 ### Host APIs
 
