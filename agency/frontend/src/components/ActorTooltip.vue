@@ -23,13 +23,20 @@ AvatarTip(
   card-slot="actor-tip"
   card-width="w-60 max-w-60"
   :to="to"
+  :emoji="emoji"
   :meta="meta"
   :name="label"
   :seed="actorId"
   :size="size"
 )
   .flex.items-center.gap-2
-    ActorAvatar(:src="pictureUrl" decorative :name="label" :size="32")
+    ActorAvatar(
+      :src="pictureUrl"
+      decorative
+      :emoji="emoji"
+      :name="label"
+      :size="32"
+    )
     .flex.min-w-0.flex-col
       span.font-medium {{ label }}
       span.text-muted-foreground(v-if="username") @{{ username }}
@@ -66,6 +73,8 @@ const props = withDefaults(
 
     pictureUrl?: string;
 
+    emoji?: string;
+
     actorId?: string;
 
     to?: RouteLocationRaw | null;
@@ -77,6 +86,7 @@ const props = withDefaults(
     username: "",
     kind: "",
     pictureUrl: "",
+    emoji: "",
     actorId: "",
     to: null,
     size: 20,

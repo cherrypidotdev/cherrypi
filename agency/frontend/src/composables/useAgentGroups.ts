@@ -16,6 +16,7 @@
 
 import { agency } from "@/lib/sdk";
 import type {
+  ActorLinkInput,
   AgentGroup,
   AgentGroupLog,
   AgentGroupMember,
@@ -81,7 +82,13 @@ async function createGroup(input: {
 
 async function updateGroup(
   id: bigint | number,
-  input: { name: string; slug?: string; description?: string },
+  input: {
+    name: string;
+    slug?: string;
+    description?: string;
+    emoji?: string;
+    links?: ActorLinkInput[];
+  },
 ): Promise<AgentGroup> {
   const group = await agency.updateAgentGroup(id, input);
   await refresh();

@@ -82,6 +82,8 @@ type TransitionTaskParams struct {
 	StartedAt  sql.NullInt64
 	ArchivedAt sql.NullInt64
 
+	NotBefore sql.NullInt64
+
 	Error string
 	State string
 

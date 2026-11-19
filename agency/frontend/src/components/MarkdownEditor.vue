@@ -33,6 +33,17 @@ div(:class="rootClass" :style="rootStyle" :data-testid="testId")
 
   Teleport(to="body")
     .fixed.z-50.flex.flex-col(
+      v-if="referencePickerState.open"
+      ref="referencePickerRoot"
+      :style="referencePickerStyle"
+      data-dismissable-layer
+    )
+      ReferencePicker(
+        ref="referencePicker"
+        :search="referencePickerState.search"
+        @pick="onReferencePicked"
+      )
+    .fixed.z-50.flex.flex-col(
       v-if="taskPickerState.open"
       ref="taskPickerRoot"
       :style="taskPickerStyle"
@@ -53,16 +64,14 @@ import { EDITOR_MIN_HEIGHT, clampEditorHeight } from "@/lib/editorHeight";
 import { markdownFormattingKeymap } from "@/lib/markdownCommands";
 import { markdownSpellcheck } from "@/lib/markdownSpellcheck";
 import { IS_MAC } from "@/lib/platform";
-import { referenceCompletionSource } from "@/lib/referenceCompletion";
-import { taskReferenceMarkdown } from "@/lib/references";
+import {
+  referenceMarkdown,
+  taskReferenceMarkdown,
+  type ReferenceSuggestion,
+} from "@/lib/references";
 import { cn } from "@/lib/utils";
 import type { Task } from "@cherrypi/sdk";
-import {
-  autocompletion,
-  closeBrackets,
-  closeBracketsKeymap,
-  closeCompletion,
-} from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import {
   addCursorAbove,
   addCursorBelow,
@@ -96,7 +105,6 @@ import {
   keymap,
   placeholder as placeholderExtension,
   rectangularSelection,
-  tooltips,
   type ViewUpdate,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
@@ -175,34 +183,50 @@ const TaskPicker = defineAsyncComponent(
   () => import("@/components/tasks/TaskPicker.vue"),
 );
 
-interface TaskPickerHandle {
+const ReferencePicker = defineAsyncComponent(
+  () => import("@/components/tasks/ReferencePicker.vue"),
+);
+
+interface InlinePickerHandle {
   moveActive: (delta: number) => void;
   pickActive: () => boolean;
 }
 const TASK_PICKER_WIDTH = 416;
+const REFERENCE_PICKER_WIDTH = 432;
 
-const TASK_PICKER_GAP = 4;
-const TASK_PICKER_EDGE = 8;
+const PICKER_GAP = 4;
+const PICKER_EDGE = 8;
 
 const TASK_PICKER_FALLBACK_HEIGHT = 300;
+const REFERENCE_PICKER_FALLBACK_HEIGHT = 320;
 const taskPickerRoot = ref<HTMLElement>();
-const taskPicker = ref<TaskPickerHandle>();
+const taskPicker = ref<InlinePickerHandle>();
 const taskPickerState = reactive({ open: false, from: 0, search: "" });
 const taskPickerStyle = ref<Record<string, string>>({});
 const taskPickerExcludeIds = computed(() =>
   props.referenceTaskId ? [props.referenceTaskId] : [],
 );
+const referencePickerRoot = ref<HTMLElement>();
+const referencePicker = ref<InlinePickerHandle>();
+const referencePickerState = reactive({ open: false, from: 0, search: "" });
+const referencePickerStyle = ref<Record<string, string>>({});
+
+function closePickers() {
+  closeTaskPicker();
+  closeReferencePicker();
+}
 
 useEventListener(
   window,
   "pointerdown",
   (event: PointerEvent) => {
-    if (!taskPickerState.open) return;
+    if (!taskPickerState.open && !referencePickerState.open) return;
     const target = event.target as Node | null;
     if (!target) return;
     if (taskPickerRoot.value?.contains(target)) return;
+    if (referencePickerRoot.value?.contains(target)) return;
     if (host.value?.contains(target)) return;
-    closeTaskPicker();
+    closePickers();
   },
   { capture: true },
 );
@@ -211,10 +235,15 @@ useEventListener(
   window,
   "keydown",
   (event: KeyboardEvent) => {
-    if (!taskPickerState.open || event.key !== "Escape") return;
+    if (
+      (!taskPickerState.open && !referencePickerState.open) ||
+      event.key !== "Escape"
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
-    closeTaskPicker();
+    closePickers();
     view.value?.focus();
   },
   { capture: true },
@@ -225,7 +254,7 @@ useEventListener(
   "keydown",
   (event: KeyboardEvent) => {
     if (
-      !taskPickerState.open ||
+      (!taskPickerState.open && !referencePickerState.open) ||
       event.isComposing ||
       event.altKey ||
       event.ctrlKey ||
@@ -236,14 +265,18 @@ useEventListener(
     }
     const target = event.target as Node | null;
     if (!target || !host.value?.contains(target)) return;
+    const active = taskPickerState.open
+      ? taskPicker.value
+      : referencePicker.value;
+    if (!active) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
-      taskPicker.value?.moveActive(event.key === "ArrowDown" ? 1 : -1);
+      active.moveActive(event.key === "ArrowDown" ? 1 : -1);
       return;
     }
     if (event.key !== "Enter" && event.key !== "Tab") return;
-    if (!taskPicker.value?.pickActive()) return;
+    if (!active.pickActive()) return;
     event.preventDefault();
     event.stopPropagation();
   },
@@ -254,12 +287,12 @@ useEventListener(
   window,
   "scroll",
   () => {
-    if (taskPickerState.open) positionTaskPicker();
+    positionPickers();
   },
   { capture: true, passive: true },
 );
 useEventListener(window, "resize", () => {
-  if (taskPickerState.open) positionTaskPicker();
+  positionPickers();
 });
 
 function isEscaped(text: string, index: number): boolean {
@@ -358,23 +391,50 @@ function taskQueryAt(
   return { from: hash, search };
 }
 
-function hashWasTyped(update: ViewUpdate): boolean {
+function atQueryAt(
+  state: EditorState,
+): { from: number; search: string } | null {
+  const selection = state.selection.main;
+  if (!selection.empty) return null;
+  const before = state.sliceDoc(0, selection.head);
+  const at = before.lastIndexOf("@");
+  if (at < 0) return null;
+  // A username, project slug or team name: the query ends at the first space
+
+  const token = before.slice(at);
+  if (!/^@[\p{L}\p{N}_.-]*$/u.test(token)) return null;
+
+  if (at > 0 && /[\p{L}\p{N}_@]/u.test(before[at - 1]!)) return null;
+  if (isEscaped(before, at)) return null;
+  if (inCode(state, at) || inUnclosedInlineCode(state, at)) return null;
+  return { from: at, search: token.slice(1) };
+}
+
+function charWasTyped(update: ViewUpdate, char: string): boolean {
   const head = update.state.selection.main.head;
   if (!update.state.selection.main.empty) return false;
   for (const transaction of update.transactions) {
-    let insertedHash = false;
+    let insertedChar = false;
     transaction.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
       if (
         fromB === head - 1 &&
         inserted.length === 1 &&
-        inserted.toString() === "#"
+        inserted.toString() === char
       ) {
-        insertedHash = true;
+        insertedChar = true;
       }
     });
-    if (insertedHash) return true;
+    if (insertedChar) return true;
   }
   return false;
+}
+
+function hashWasTyped(update: ViewUpdate): boolean {
+  return charWasTyped(update, "#");
+}
+
+function atWasTyped(update: ViewUpdate): boolean {
+  return charWasTyped(update, "@");
 }
 
 function querySpaceWasDeleted(update: ViewUpdate): boolean {
@@ -401,32 +461,32 @@ function sameStyle(a: Record<string, string>, b: Record<string, string>) {
 
 let positionFrame = 0;
 
-function scheduleTaskPickerPosition() {
+function schedulePickerPosition() {
   if (positionFrame) return;
   positionFrame = requestAnimationFrame(() => {
     positionFrame = 0;
-    if (taskPickerState.open) positionTaskPicker();
+    positionPickers();
   });
 }
 
-function positionTaskPicker() {
-  const editor = view.value;
-  if (!editor) return;
+function panelStyle(
+  editor: EditorView,
+  root: HTMLElement | undefined,
+  widthLimit: number,
+  fallbackHeight: number,
+): Record<string, string> | null {
   const coords = editor.coordsAtPos(editor.state.selection.main.head);
-  if (!coords) return;
-  const width = Math.min(
-    TASK_PICKER_WIDTH,
-    window.innerWidth - TASK_PICKER_EDGE * 2,
-  );
+  if (!coords) return null;
+  const width = Math.min(widthLimit, window.innerWidth - PICKER_EDGE * 2);
   const left = Math.max(
-    TASK_PICKER_EDGE,
-    Math.min(coords.left, window.innerWidth - width - TASK_PICKER_EDGE),
+    PICKER_EDGE,
+    Math.min(coords.left, window.innerWidth - width - PICKER_EDGE),
   );
-  const measured = taskPickerRoot.value?.getBoundingClientRect().height ?? 0;
-  const height = measured || TASK_PICKER_FALLBACK_HEIGHT;
+  const measured = root?.getBoundingClientRect().height ?? 0;
+  const height = measured || fallbackHeight;
   const spaceBelow =
-    window.innerHeight - coords.bottom - TASK_PICKER_GAP - TASK_PICKER_EDGE;
-  const spaceAbove = coords.top - TASK_PICKER_GAP - TASK_PICKER_EDGE;
+    window.innerHeight - coords.bottom - PICKER_GAP - PICKER_EDGE;
+  const spaceAbove = coords.top - PICKER_GAP - PICKER_EDGE;
   const dropUp = height > spaceBelow && spaceAbove > spaceBelow;
   const style: Record<string, string> = {
     left: `${left}px`,
@@ -436,13 +496,51 @@ function positionTaskPicker() {
     pointerEvents: "auto",
   };
   if (dropUp) {
-    style.bottom = `${window.innerHeight - coords.top + TASK_PICKER_GAP}px`;
+    style.bottom = `${window.innerHeight - coords.top + PICKER_GAP}px`;
   } else {
-    style.top = `${coords.bottom + TASK_PICKER_GAP}px`;
+    style.top = `${coords.bottom + PICKER_GAP}px`;
   }
-  if (!sameStyle(style, taskPickerStyle.value)) {
-    taskPickerStyle.value = style;
-  }
+  return style;
+}
+
+function applyPanelStyle(
+  target: { value: Record<string, string> },
+  style: Record<string, string> | null,
+) {
+  if (style && !sameStyle(style, target.value)) target.value = style;
+}
+
+function positionTaskPicker() {
+  const editor = view.value;
+  if (!editor) return;
+  applyPanelStyle(
+    taskPickerStyle,
+    panelStyle(
+      editor,
+      taskPickerRoot.value,
+      TASK_PICKER_WIDTH,
+      TASK_PICKER_FALLBACK_HEIGHT,
+    ),
+  );
+}
+
+function positionReferencePicker() {
+  const editor = view.value;
+  if (!editor) return;
+  applyPanelStyle(
+    referencePickerStyle,
+    panelStyle(
+      editor,
+      referencePickerRoot.value,
+      REFERENCE_PICKER_WIDTH,
+      REFERENCE_PICKER_FALLBACK_HEIGHT,
+    ),
+  );
+}
+
+function positionPickers() {
+  if (taskPickerState.open) positionTaskPicker();
+  if (referencePickerState.open) positionReferencePicker();
 }
 
 let taskPickerResizeObserver: ResizeObserver | null = null;
@@ -452,8 +550,21 @@ watch(
     taskPickerResizeObserver?.disconnect();
     taskPickerResizeObserver = null;
     if (!element || typeof ResizeObserver === "undefined") return;
-    taskPickerResizeObserver = new ResizeObserver(scheduleTaskPickerPosition);
+    taskPickerResizeObserver = new ResizeObserver(schedulePickerPosition);
     taskPickerResizeObserver.observe(element);
+  },
+  { flush: "post" },
+);
+
+let referencePickerResizeObserver: ResizeObserver | null = null;
+watch(
+  referencePickerRoot,
+  (element) => {
+    referencePickerResizeObserver?.disconnect();
+    referencePickerResizeObserver = null;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    referencePickerResizeObserver = new ResizeObserver(schedulePickerPosition);
+    referencePickerResizeObserver.observe(element);
   },
   { flush: "post" },
 );
@@ -461,7 +572,14 @@ watch(
 watch(
   () => taskPickerState.open,
   (open) => {
-    if (open) scheduleTaskPickerPosition();
+    if (open) schedulePickerPosition();
+  },
+  { flush: "post" },
+);
+watch(
+  () => referencePickerState.open,
+  (open) => {
+    if (open) schedulePickerPosition();
   },
   { flush: "post" },
 );
@@ -482,10 +600,30 @@ function syncTaskPicker(update: ViewUpdate) {
     if (!hashWasTyped(update) && !querySpaceWasDeleted(update)) return;
     taskPickerState.from = match.from;
     taskPickerState.open = true;
-    if (view.value) closeCompletion(view.value);
+    closeReferencePicker();
   }
   taskPickerState.search = match.search;
   positionTaskPicker();
+}
+
+function syncReferencePicker(update: ViewUpdate) {
+  if (!props.references) {
+    closeReferencePicker();
+    return;
+  }
+  const match = atQueryAt(update.state);
+  if (!match) {
+    closeReferencePicker();
+    return;
+  }
+  if (!referencePickerState.open) {
+    if (!atWasTyped(update) && !querySpaceWasDeleted(update)) return;
+    referencePickerState.from = match.from;
+    referencePickerState.open = true;
+    closeTaskPicker();
+  }
+  referencePickerState.search = match.search;
+  positionReferencePicker();
 }
 
 function closeTaskPicker() {
@@ -493,6 +631,13 @@ function closeTaskPicker() {
   taskPickerState.open = false;
   taskPickerState.search = "";
   taskPickerState.from = 0;
+}
+
+function closeReferencePicker() {
+  if (!referencePickerState.open) return;
+  referencePickerState.open = false;
+  referencePickerState.search = "";
+  referencePickerState.from = 0;
 }
 
 function onTaskPicked(task: Task) {
@@ -512,12 +657,27 @@ function onTaskPicked(task: Task) {
   emit("task-picked", task);
 }
 
+function onReferencePicked(suggestion: ReferenceSuggestion) {
+  const editor = view.value;
+  if (!editor || !referencePickerState.open) return;
+  const head = editor.state.selection.main.head;
+  const from = Math.min(referencePickerState.from, head);
+  const markdown = `${referenceMarkdown(suggestion.reference)} `;
+  editor.dispatch({
+    changes: { from, to: head, insert: markdown },
+    selection: { anchor: from + markdown.length },
+    scrollIntoView: true,
+    userEvent: "input.complete",
+  });
+  closeReferencePicker();
+  editor.focus();
+}
+
 const readOnly = new Compartment();
 const layout = new Compartment();
 const attributes = new Compartment();
 const placeholders = new Compartment();
 const sending = new Compartment();
-const references = new Compartment();
 
 const rootClass = computed(() =>
   cn(
@@ -658,17 +818,6 @@ function layoutExtension() {
   return [fillLayout];
 }
 
-function referenceExtensions() {
-  if (!props.references) return [];
-  return [
-    autocompletion({
-      override: [referenceCompletionSource()],
-      icons: false,
-      tooltipClass: () => "cm-reference-tooltip",
-    }),
-  ];
-}
-
 function submitCommand(editor: EditorView): boolean {
   if (editor.composing || props.disabled) return false;
   emit("submit");
@@ -701,8 +850,6 @@ function extensions() {
     crosshairCursor(),
     EditorView.lineWrapping,
 
-    tooltips({ parent: document.body }),
-
     EditorView.clickAddsSelectionRange.of(
       (event) => event.altKey || (IS_MAC ? event.metaKey : event.ctrlKey),
     ),
@@ -715,7 +862,6 @@ function extensions() {
     highlightSelectionMatches(),
     baseTheme,
     layout.of(layoutExtension()),
-    references.of(referenceExtensions()),
     readOnly.of(readOnlyExtensions()),
     attributes.of(contentAttributes()),
     placeholders.of(placeholderExtension(props.placeholder)),
@@ -730,7 +876,10 @@ function extensions() {
       if (update.docChanged) {
         emit("update:modelValue", update.state.doc.toString());
       }
-      if (update.docChanged || update.selectionSet) syncTaskPicker(update);
+      if (update.docChanged || update.selectionSet) {
+        syncTaskPicker(update);
+        syncReferencePicker(update);
+      }
     }),
   ];
 }
@@ -751,6 +900,8 @@ onBeforeUnmount(() => {
   if (positionFrame) cancelAnimationFrame(positionFrame);
   taskPickerResizeObserver?.disconnect();
   taskPickerResizeObserver = null;
+  referencePickerResizeObserver?.disconnect();
+  referencePickerResizeObserver = null;
   view.value?.destroy();
   view.value = undefined;
 });
@@ -812,15 +963,7 @@ watch(
 watch(
   () => props.references,
   (enabled) => {
-    const editor = view.value;
-    if (!editor) return;
-    if (!enabled) {
-      closeCompletion(editor);
-      closeTaskPicker();
-    }
-    editor.dispatch({
-      effects: references.reconfigure(referenceExtensions()),
-    });
+    if (!enabled) closePickers();
   },
 );
 

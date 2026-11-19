@@ -28,6 +28,8 @@ type UserRow struct {
 	Username            string
 	Name                string
 	Description         string
+	Emoji               string
+	Links               string
 	PictureAttachmentID sql.NullInt64
 	Role                string
 	Status              string
@@ -84,7 +86,7 @@ type PATRow struct {
 
 func userRowFrom(
 	id, actorID int64,
-	username, name, description string,
+	username, name, description, emoji, links string,
 	picture sql.NullInt64,
 	role, status string,
 	lastLogin sql.NullInt64,
@@ -99,6 +101,8 @@ func userRowFrom(
 		Username:            username,
 		Name:                name,
 		Description:         description,
+		Emoji:               emoji,
+		Links:               links,
 		PictureAttachmentID: picture,
 		Role:                role,
 		Status:              status,

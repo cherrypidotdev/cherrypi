@@ -51,6 +51,7 @@ import {
   AttachmentSchema,
   type Attachment,
 } from "./gen/buf/agency/v1/attachments_pb.js";
+import { ActorLinkSchema } from "./gen/buf/agency/v1/actor_pb.js";
 import {
   ProjectService,
   type AgentProjectMembership,
@@ -409,6 +410,11 @@ export interface UpdateSiteInput {
   agencyWide?: boolean;
 }
 
+export interface ActorLinkInput {
+  url: string;
+  label?: string;
+}
+
 export interface CreateProjectInput {
   name: string;
 
@@ -416,13 +422,19 @@ export interface CreateProjectInput {
 
   prefix?: string;
   description?: string;
+  emoji?: string;
+  links?: ActorLinkInput[];
 }
 
 export interface UpdateProjectInput {
   name: string;
   description: string;
 
+  slug?: string;
+
   prefix?: string;
+  emoji?: string;
+  links?: ActorLinkInput[];
 }
 
 export interface PromptTarget {
@@ -661,6 +673,8 @@ export class AgencyClient {
       description: string;
 
       promptAutoApprove?: boolean;
+      emoji?: string;
+      links?: ActorLinkInput[];
     },
     options?: CallOptions,
   ): Promise<Agent> {
@@ -670,6 +684,10 @@ export class AgencyClient {
         displayName: input.displayName,
         description: input.description,
         promptAutoApprove: input.promptAutoApprove,
+        emoji: input.emoji ?? "",
+        links: (input.links ?? []).map((link) =>
+          create(ActorLinkSchema, { url: link.url, label: link.label ?? "" }),
+        ),
       },
       options,
     );
@@ -845,6 +863,10 @@ export class AgencyClient {
         slug: input.slug ?? "",
         prefix: input.prefix ?? "",
         description: input.description ?? "",
+        emoji: input.emoji ?? "",
+        links: (input.links ?? []).map((link) =>
+          create(ActorLinkSchema, { url: link.url, label: link.label ?? "" }),
+        ),
       },
       options,
     );
@@ -861,7 +883,12 @@ export class AgencyClient {
         id,
         name: input.name,
         description: input.description,
+        slug: input.slug ?? "",
         prefix: input.prefix ?? "",
+        emoji: input.emoji ?? "",
+        links: (input.links ?? []).map((link) =>
+          create(ActorLinkSchema, { url: link.url, label: link.label ?? "" }),
+        ),
       },
       options,
     );
@@ -1045,7 +1072,13 @@ export class AgencyClient {
 
   async updateAgentGroup(
     id: bigint | number,
-    input: { name: string; slug?: string; description?: string },
+    input: {
+      name: string;
+      slug?: string;
+      description?: string;
+      emoji?: string;
+      links?: ActorLinkInput[];
+    },
     options?: CallOptions,
   ): Promise<AgentGroup> {
     const res = await this.agentGroups.updateAgentGroup(
@@ -1054,6 +1087,10 @@ export class AgencyClient {
         name: input.name,
         slug: input.slug ?? "",
         description: input.description ?? "",
+        emoji: input.emoji ?? "",
+        links: (input.links ?? []).map((link) =>
+          create(ActorLinkSchema, { url: link.url, label: link.label ?? "" }),
+        ),
       },
       options,
     );

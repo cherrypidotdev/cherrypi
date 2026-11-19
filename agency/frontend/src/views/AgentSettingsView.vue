@@ -54,6 +54,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 FieldLabel(for="agent-description") {{ $t("common.description") }}
                 Textarea#agent-description(v-model="description")
               Field
+                FieldLabel {{ $t("actor.emoji.label") }}
+                ActorEmojiField(v-model="emoji")
+                FieldDescription {{ $t("actor.emoji.hint") }}
+              Field
+                FieldLabel {{ $t("actor.links.title") }}
+                ActorLinksField(v-model="links")
+              Field
                 FieldLabel {{ $t("common.status") }}
                 .flex.items-center.gap-2
                   Badge(
@@ -391,6 +398,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import ModelName from "@/components/ModelName.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
@@ -459,6 +468,7 @@ import {
 import { agency, currentAgentId } from "@/lib/sdk";
 import {
   PromptScope,
+  type ActorLinkInput,
   type Agent,
   type AgentProjectPrompt,
   type AgentToken,
@@ -503,6 +513,8 @@ const tab = ref(
 const item = ref<Agent>();
 const name = ref("");
 const description = ref("");
+const emoji = ref("");
+const links = ref<ActorLinkInput[]>([]);
 const saving = ref(false);
 const savingAutoApprove = ref(false);
 const error = ref("");
@@ -578,6 +590,8 @@ async function load() {
     item.value = agentItem;
     name.value = agentItem.displayName || agentItem.username;
     description.value = agentItem.description;
+    emoji.value = agentItem.emoji ?? "";
+    links.value = [...(agentItem.links ?? [])];
     tokens.value = tokenList;
     projectPrompts.value = await agency.listAgentProjectPrompts(id.value);
     error.value = "";
@@ -833,7 +847,12 @@ function onDefaultThinkingChange(value: unknown) {
 const pictureFallback = computed(() => toSvg(id.value || "agent", 48));
 
 function onPictureChanged(picture: Attachment | undefined) {
-  if (item.value) item.value.picture = picture;
+  if (!item.value) return;
+  item.value.picture = picture;
+  if (picture) {
+    item.value.emoji = "";
+    emoji.value = "";
+  }
 }
 
 async function saveGeneral() {
@@ -843,6 +862,8 @@ async function saveGeneral() {
       agency.updateAgent(id.value, {
         displayName: name.value.trim(),
         description: description.value.trim(),
+        emoji: emoji.value,
+        links: links.value,
       }),
     );
     toast.success(t("agentSettings.toasts.updated"));
@@ -878,6 +899,8 @@ async function setAutoApprove(value: unknown) {
       agency.updateAgent(id.value, {
         displayName: item.value?.displayName || item.value?.username || "",
         description: item.value?.description ?? "",
+        emoji: item.value?.emoji ?? "",
+        links: item.value?.links ?? [],
         promptAutoApprove: enabled,
       }),
     );
@@ -1000,7 +1023,7 @@ en:
       prefix: "Prefix"
       lastUsed: "Last used"
       empty: "No tokens."
-    profileHint: "The agent's picture, name, description, and username. The username is the agent's stable identifier."
+    profileHint: "The agent's picture or emoji, name, description, links, and username. The username is the agent's stable identifier."
     adminHint: "Admin agents may read the agency's process log and every agent's logs and metadata, read-only. Only a human administrator can change the role."
     health:
       title: "Health sampling"

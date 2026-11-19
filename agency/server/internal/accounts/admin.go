@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 )
@@ -134,11 +135,26 @@ func (s *Service) DeleteUser(ctx context.Context, actorID ids.ActorID) error {
 func (s *Service) UpdateProfile(
 	ctx context.Context,
 	actorID ids.ActorID,
-	name, description string,
+	name, description, emoji string,
+	links []actorprofile.Link,
 ) error {
+	emoji, err := actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
+	if err != nil {
+		return err
+	}
 	if err := s.store.UpdateActorProfile(ctx, store.UpdateActorProfileParams{
 		Name:        strings.TrimSpace(name),
 		Description: description,
+		Emoji:       emoji,
+		Links:       encoded,
 		UpdatedAt:   s.now().UnixMilli(),
 		ID:          int64(actorID),
 	}); err != nil {

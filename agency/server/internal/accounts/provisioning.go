@@ -135,7 +135,7 @@ func (s *Service) completeProvisionedActor(
 	emailVerified bool,
 ) Actor {
 	if name = strings.TrimSpace(name); name != "" && name != actor.Username {
-		if err := s.UpdateProfile(ctx, actor.ID, name, ""); err == nil {
+		if err := s.UpdateProfile(ctx, actor.ID, name, "", "", nil); err == nil {
 			actor.Name = name
 		}
 	}

@@ -23,6 +23,7 @@ import ConsoleAgentMessage from "@/components/tasks/ConsoleAgentMessage.vue";
 import ConsoleUserMessage from "@/components/tasks/ConsoleUserMessage.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import QuestionnaireWizard from "@/components/tasks/QuestionnaireWizard.vue";
+import ReferencePicker from "@/components/tasks/ReferencePicker.vue";
 import TaskConsole from "@/components/tasks/TaskConsole.vue";
 import TaskPicker from "@/components/tasks/TaskPicker.vue";
 import ThinkingBlock from "@/components/tasks/ThinkingBlock.vue";
@@ -40,6 +41,7 @@ import {
   type QuestionnaireAnswer,
   type QuestionnaireQuestion,
 } from "@/lib/questionnaire";
+import type { ReferenceDirectory } from "@/lib/references";
 import type { TaskModelSelection } from "@/lib/task";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
@@ -1084,6 +1086,20 @@ const pickerAgents = [
 
 const actorPreview = { users: directoryUsers, agents: pickerAgents };
 
+const referenceDirectoryPreview = {
+  users: directoryUsers,
+  agents: pickerAgents,
+  projects: [studioProject],
+  teams: [
+    {
+      id: 1,
+      name: "Platform",
+      description: "Owns the tunnel and the scheduler.",
+      member_count: 4,
+    },
+  ],
+} as unknown as ReferenceDirectory;
+
 const followUpProps = {
   task: runningTask,
   config: modelConfig,
@@ -1753,6 +1769,26 @@ export const studioComponents: StudioComponent[] = [
           { prop: "search", label: "Query", type: "text", initial: "" },
         ],
         width: 420,
+      },
+    ],
+  },
+  {
+    id: "reference-picker",
+    name: "Inline reference picker",
+    source: "@/components/tasks/ReferencePicker.vue",
+    component: ReferencePicker,
+    scenarios: [
+      {
+        id: "browse",
+        name: "Browsing",
+        description:
+          "The picker with nothing typed: every actor, then the project and team groups. Typing narrows all three lists locally.",
+        props: { preview: referenceDirectoryPreview },
+        events: ["pick"],
+        controls: [
+          { prop: "search", label: "Query", type: "text", initial: "" },
+        ],
+        width: 440,
       },
     ],
   },

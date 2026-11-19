@@ -1092,17 +1092,6 @@ func (s *SqliteStore) GetProjectBySlug(ctx context.Context, slug string) (Projec
 	return fromSqliteProject(row), nil
 }
 
-func (s *SqliteStore) GetProjectByPrefix(
-	ctx context.Context,
-	prefix string,
-) (Project, error) {
-	row, err := s.q.GetProjectByPrefix(ctx, prefix)
-	if err != nil {
-		return Project{}, err
-	}
-	return fromSqliteProject(row), nil
-}
-
 func (s *SqliteStore) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.q.ListProjects(ctx)
 	if err != nil {

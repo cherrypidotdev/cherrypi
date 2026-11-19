@@ -1713,15 +1713,24 @@ func (s *TaskServer) WatchTask(
 		case event.GetRunStarted() != nil:
 			s.materializeStatus(
 				ctx,
-				t.ID,
+				conn.ID,
+				t,
 				agentv1.TaskStatus_TASK_STATUS_IN_PROGRESS,
+				"",
 			)
 		case event.GetRunSettled() != nil:
+
 			if _, err := s.Tasks.Settle(ctx, t.ID); err != nil {
 				log.Printf("[task %s] settle: %v", t.ID, err)
 			}
 		case event.GetStatusChanged() != nil:
-			s.materializeStatus(ctx, t.ID, event.GetStatusChanged().GetStatus())
+			s.materializeStatus(
+				ctx,
+				conn.ID,
+				t,
+				event.GetStatusChanged().GetStatus(),
+				event.GetStatusChanged().GetError(),
+			)
 		}
 		if err := stream.Send(
 			&agencyv1.WatchTaskResponse{Event: event},
@@ -3054,25 +3063,34 @@ func (s *TaskServer) materializeRuntime(
 
 func (s *TaskServer) materializeStatus(
 	ctx context.Context,
-	id string,
+	agentID ids.AgentID,
+	t tasks.Task,
 	status agentv1.TaskStatus,
+	errMsg string,
 ) {
 	var err error
 	switch status {
 	case agentv1.TaskStatus_TASK_STATUS_WAITING_INPUT:
-		_, err = s.Tasks.MarkInput(ctx, id)
+		_, err = s.Tasks.MarkInput(ctx, t.ID)
 	case agentv1.TaskStatus_TASK_STATUS_IN_PROGRESS:
 
-		if _, resumeErr := s.Tasks.Resume(ctx, id); resumeErr != nil {
+		if _, resumeErr := s.Tasks.Resume(ctx, t.ID); resumeErr != nil {
 			err = resumeErr
 			break
 		}
-		_, err = s.Tasks.ClearInput(ctx, id)
+		_, err = s.Tasks.ClearInput(ctx, t.ID)
 	case agentv1.TaskStatus_TASK_STATUS_DONE:
-		_, err = s.Tasks.Settle(ctx, id)
+		_, err = s.Tasks.Settle(ctx, t.ID)
+	case agentv1.TaskStatus_TASK_STATUS_FAILED:
+
+		msg := strings.TrimSpace(errMsg)
+		if msg == "" {
+			msg = tasks.RunFailedReason
+		}
+		err = s.Tasks.FailBySession(ctx, agentID, t.SessionID, msg)
 	}
 	if err != nil {
-		log.Printf("[task %s] materialize status: %v", id, err)
+		log.Printf("[task %s] materialize status: %v", t.ID, err)
 	}
 }
 

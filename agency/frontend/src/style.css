@@ -331,44 +331,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --ref-color: oklch(0.78 0.14 300);
 }
 
-.cm-tooltip.cm-reference-tooltip {
-  border: 1px solid var(--border-color);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--popover);
-  color: var(--popover-foreground);
-  box-shadow: 0 8px 24px color-mix(in oklch, black 14%, transparent);
-  overflow: hidden;
-}
-.cm-reference-tooltip > ul {
-  max-height: min(22em, 50vh) !important;
-  font-family: var(--font-sans);
-  font-size: 0.8125rem;
-}
-.cm-reference-tooltip > ul > li {
-  padding: 0.25rem 0.5rem;
-}
-.cm-reference-tooltip > ul > li[aria-selected] {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-.cm-reference-tooltip completion-section {
-  border: 0;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.cm-reference-tooltip .cm-completionDetail {
-  color: var(--muted-foreground);
-  font-style: normal;
-  font-size: 0.75rem;
-}
-.cm-reference-tooltip .cm-completionLabel {
-  font-weight: 500;
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;

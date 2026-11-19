@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -119,7 +120,13 @@ func (s *ProjectServer) CreateProject(
 	ctx context.Context,
 	req *agencyv1.CreateProjectRequest,
 ) (*agencyv1.CreateProjectResponse, error) {
-	p, err := s.Projects.Create(ctx, req.Name, req.Slug, req.Prefix, req.Description)
+	slug := req.Slug
+	if strings.TrimSpace(slug) == "" {
+		slug = req.Prefix
+	}
+	p, err := s.Projects.CreateWithProfile(
+		ctx, req.Name, slug, req.Description, req.Emoji, actorprofile.FromProtoLinks(req.Links),
+	)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -130,7 +137,14 @@ func (s *ProjectServer) UpdateProject(
 	ctx context.Context,
 	req *agencyv1.UpdateProjectRequest,
 ) (*agencyv1.UpdateProjectResponse, error) {
-	p, err := s.Projects.Update(ctx, req.Id, req.Name, req.Description, req.Prefix)
+	slug := req.Slug
+	if strings.TrimSpace(slug) == "" {
+		slug = req.Prefix
+	}
+	p, err := s.Projects.Update(
+		ctx, req.Id, req.Name, req.Description, slug, req.Emoji,
+		actorprofile.FromProtoLinks(req.Links),
+	)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -464,6 +478,8 @@ func toProto(p projects.Project) *agencyv1.Project {
 		Slug:            p.Slug,
 		Prefix:          p.Prefix,
 		Description:     p.Description,
+		Emoji:           p.Emoji,
+		Links:           actorprofile.ToProtoLinks(p.Links),
 		ParentProjectId: p.ParentID,
 		CreatedAt:       timestamppb.New(p.CreatedAt),
 		UpdatedAt:       timestamppb.New(p.UpdatedAt),

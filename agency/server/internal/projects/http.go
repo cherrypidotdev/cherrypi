@@ -17,6 +17,7 @@
 package projects
 
 import (
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"context"
 	"encoding/json"
 	"errors"
@@ -641,12 +642,18 @@ func (h *Handler) governance(ctx context.Context) (Governance, error) {
 }
 
 func projectRefJSON(p Project) map[string]any {
+	links := p.Links
+	if links == nil {
+		links = []actorprofile.Link{}
+	}
 	out := map[string]any{
 		"id":          p.ID,
 		"name":        p.Name,
 		"slug":        p.Slug,
 		"prefix":      p.Prefix,
 		"description": p.Description,
+		"emoji":       p.Emoji,
+		"links":       links,
 		"parent_id":   p.ParentID,
 		"archived":    !p.ArchivedAt.IsZero(),
 	}
@@ -856,7 +863,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrPluginRoleFixed),
 		errors.Is(err, ErrRoleBelowInherited),
 		errors.Is(err, ErrInvalidName),
-		errors.Is(err, ErrInvalidPrefix):
+		errors.Is(err, ErrInvalidSlug):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrTeamAlreadyLinked),
 		errors.Is(err, ErrInvitationExists),

@@ -17,6 +17,7 @@
 package projects
 
 import (
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"context"
 	"database/sql"
@@ -35,7 +36,7 @@ var (
 
 	ErrInvalidName = errors.New("project name must be non-empty")
 
-	ErrInvalidPrefix = errors.New("task prefix must contain letters or digits")
+	ErrInvalidSlug = errors.New("project slug must contain letters or digits")
 
 	ErrInvalidArchiveAfterDays = errors.New(
 		"automatic archive override must be 0 (never) or between 1 and 3650 days",
@@ -57,11 +58,14 @@ var prefixRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 const OrphanPrefix = "TASK"
 
 type Project struct {
-	ID          string
-	Name        string
-	Slug        string
+	ID   string
+	Name string
+	Slug string
+
 	Prefix      string
 	Description string
+	Emoji       string
+	Links       []actorprofile.Link
 
 	ParentID   string
 	ArchivedAt time.Time
@@ -129,7 +133,15 @@ func (s *Service) Get(ctx context.Context, idOrSlug string) (Project, error) {
 
 func (s *Service) Create(
 	ctx context.Context,
-	name, slug, prefix, description string,
+	name, slug, description string,
+) (Project, error) {
+	return s.CreateWithProfile(ctx, name, slug, description, "", nil)
+}
+
+func (s *Service) CreateWithProfile(
+	ctx context.Context,
+	name, slug, description, emoji string,
+	links []actorprofile.Link,
 ) (Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -139,7 +151,15 @@ func (s *Service) Create(
 	if err != nil {
 		return Project{}, err
 	}
-	prefix, err = s.uniquePrefix(ctx, prefixOrSlug(prefix, slug))
+	emoji, err = actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return Project{}, err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return Project{}, err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
 	if err != nil {
 		return Project{}, err
 	}
@@ -149,8 +169,9 @@ func (s *Service) Create(
 		ID:          uuid.NewString(),
 		Name:        name,
 		Slug:        slug,
-		Prefix:      prefix,
 		Description: strings.TrimSpace(description),
+		Emoji:       emoji,
+		Links:       encoded,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	})
@@ -174,7 +195,8 @@ func (s *Service) Create(
 
 func (s *Service) Update(
 	ctx context.Context,
-	id, name, description, prefix string,
+	id, name, description, slug, emoji string,
+	links []actorprofile.Link,
 ) (Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -185,26 +207,40 @@ func (s *Service) Update(
 		return Project{}, err
 	}
 
-	newPrefix := cur.Prefix
+	newSlug := cur.Slug
 	rename := false
-	if strings.TrimSpace(prefix) != "" {
-		newPrefix = NormalizePrefix(prefix)
-		if newPrefix == "" {
-			return Project{}, ErrInvalidPrefix
+	if strings.TrimSpace(slug) != "" {
+		candidate := Slugify(slug)
+		if candidate == "" {
+			return Project{}, ErrInvalidSlug
 		}
-		if newPrefix != cur.Prefix {
-			newPrefix, err = s.uniquePrefix(ctx, newPrefix)
+		if !strings.EqualFold(candidate, cur.Slug) {
+			newSlug, err = s.uniqueSlug(ctx, candidate)
 			if err != nil {
 				return Project{}, err
 			}
 			rename = true
 		}
 	}
+	emoji, err = actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return Project{}, err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return Project{}, err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
+	if err != nil {
+		return Project{}, err
+	}
 
 	row, err := s.store.UpdateProject(ctx, store.UpdateProjectParams{
 		Name:        name,
+		Slug:        newSlug,
 		Description: strings.TrimSpace(description),
-		Prefix:      newPrefix,
+		Emoji:       emoji,
+		Links:       encoded,
 		UpdatedAt:   time.Now().UnixMilli(),
 		ID:          cur.ID,
 	}, rename)
@@ -219,9 +255,17 @@ func (s *Service) Update(
 		s.writeLog(ctx, cur.ID, "settings", "description", cur.Description, row.Description,
 			"Updated the project description", nil)
 	}
-	if cur.Prefix != row.Prefix {
-		s.writeLog(ctx, cur.ID, "settings", "prefix", cur.Prefix, row.Prefix,
-			"Changed the task prefix to "+row.Prefix, nil)
+	if cur.Slug != row.Slug {
+		s.writeLog(ctx, cur.ID, "settings", "slug", cur.Slug, row.Slug,
+			"Changed the project slug to "+row.Slug, nil)
+	}
+	if cur.Emoji != row.Emoji {
+		s.writeLog(ctx, cur.ID, "settings", "emoji", cur.Emoji, row.Emoji,
+			"Changed the project emoji", nil)
+	}
+	if !sameLinks(cur.Links, links) {
+		s.writeLog(ctx, cur.ID, "settings", "links", "", "",
+			"Changed the project links", nil)
 	}
 	return toProject(row), nil
 }
@@ -409,35 +453,17 @@ func (s *Service) uniqueSlug(ctx context.Context, candidate string) (string, err
 	if base == "" {
 		base = "project"
 	}
-	slug := base
-	for i := 2; ; i++ {
+	for i := 1; ; i++ {
+		slug := base
+		if i > 1 {
+			slug = base + "-" + strconv.Itoa(i)
+		}
+		if NormalizePrefix(slug) == OrphanPrefix {
+			continue
+		}
 		_, err := s.store.GetProjectBySlug(ctx, slug)
 		if errors.Is(err, sql.ErrNoRows) {
 			return slug, nil
-		}
-		if err != nil {
-			return "", err
-		}
-		slug = base + "-" + strconv.Itoa(i)
-	}
-}
-
-func (s *Service) uniquePrefix(ctx context.Context, candidate string) (string, error) {
-	base := NormalizePrefix(candidate)
-	if base == "" {
-		return "", ErrInvalidPrefix
-	}
-	for i := 1; ; i++ {
-		prefix := base
-		if i > 1 {
-			prefix = base + "-" + strconv.Itoa(i)
-		}
-		if prefix == OrphanPrefix {
-			continue
-		}
-		_, err := s.store.GetProjectByPrefix(ctx, prefix)
-		if errors.Is(err, sql.ErrNoRows) {
-			return prefix, nil
 		}
 		if err != nil {
 			return "", err
@@ -464,20 +490,15 @@ func slugOrName(slug, name string) string {
 	return name
 }
 
-func prefixOrSlug(prefix, slug string) string {
-	if strings.TrimSpace(prefix) != "" {
-		return prefix
-	}
-	return slug
-}
-
 func toProject(row store.Project) Project {
 	p := Project{
 		ID:          row.ID,
 		Name:        row.Name,
 		Slug:        row.Slug,
-		Prefix:      row.Prefix,
+		Prefix:      NormalizePrefix(row.Slug),
 		Description: row.Description,
+		Emoji:       row.Emoji,
+		Links:       actorprofile.DecodeLinks(row.Links),
 		CreatedAt:   time.UnixMilli(row.CreatedAt),
 		UpdatedAt:   time.UnixMilli(row.UpdatedAt),
 	}
@@ -492,4 +513,16 @@ func toProject(row store.Project) Project {
 		p.ArchiveAfterDays = &days
 	}
 	return p
+}
+
+func sameLinks(a, b []actorprofile.Link) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

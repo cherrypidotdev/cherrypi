@@ -32,12 +32,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :class="[isActive(item.project.slug) ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : 'px-3']"
   )
     span.relative.shrink-0
-      img.size-4.rounded-full.object-cover(
-        v-if="item.project.picture"
-        :src="item.project.picture.url"
-        :alt="item.project.name"
+      ActorAvatar(
+        :src="item.project.picture?.url"
+        :emoji="item.project.emoji"
+        :name="item.project.name"
+        :size="16"
+        :fallback-html="logo(item.project)"
       )
-      span.size-4(v-else :innerHTML="logo(item.project)")
       span.border-sidebar.absolute.-right-0.-bottom-0.size-2.rounded-full.border.bg-current(
         v-if="collapsed && item.state"
         :class="taskStateTextClass(item.state)"
@@ -59,9 +60,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import { useNotifications } from "@/composables/useNotifications";
-import { useProjectStatuses } from "@/composables/useProjectStatuses";
 import { useProjects } from "@/composables/useProjects";
+import { useProjectStatuses } from "@/composables/useProjectStatuses";
 import { PROJECT_STATUS_KEY, PROJECT_STATUS_STATE } from "@/lib/project";
 import { taskStateIcon, taskStateTextClass } from "@/lib/task";
 import { type Project } from "@cherrypi/sdk";

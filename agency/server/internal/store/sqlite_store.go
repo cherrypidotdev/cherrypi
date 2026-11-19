@@ -308,7 +308,7 @@ func (s *SqliteStore) GetUserByActor(ctx context.Context, actorID ids.ActorID) (
 	}
 	return userRowFrom(
 		row.ID, row.ActorID, row.Username, row.Name, row.Description,
-		row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+		row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 		row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 		row.CreatedAt, row.UpdatedAt,
 	), nil
@@ -321,7 +321,7 @@ func (s *SqliteStore) GetUserByUsername(ctx context.Context, username string) (U
 	}
 	return userRowFrom(
 		row.ID, row.ActorID, row.Username, row.Name, row.Description,
-		row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+		row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 		row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 		row.CreatedAt, row.UpdatedAt,
 	), nil
@@ -336,7 +336,7 @@ func (s *SqliteStore) ListUsers(ctx context.Context) ([]UserRow, error) {
 	for i, row := range rows {
 		out[i] = userRowFrom(
 			row.ID, row.ActorID, row.Username, row.Name, row.Description,
-			row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+			row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 			row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 			row.CreatedAt, row.UpdatedAt,
 		)
@@ -592,9 +592,21 @@ func (s *SqliteStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, e
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *SqliteStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error) {
@@ -602,9 +614,21 @@ func (s *SqliteStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) 
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *SqliteStore) GetAgentByUsername(ctx context.Context, username string) (AgentRow, error) {
@@ -612,9 +636,21 @@ func (s *SqliteStore) GetAgentByUsername(ctx context.Context, username string) (
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
@@ -624,9 +660,21 @@ func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	}
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
-		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-			row.PromptAutoApprove != 0)
+		out[i] = toAgentRow(
+			row.ID,
+			row.ActorID,
+			row.Username,
+			row.Name,
+			row.Description,
+			row.Emoji,
+			row.Links,
+			row.Role,
+			row.PictureAttachmentID,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.LastSeenAt,
+			row.PromptAutoApprove != 0,
+		)
 	}
 	return out, nil
 }
@@ -634,12 +682,14 @@ func (s *SqliteStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 func (s *SqliteStore) UpdateAgent(
 	ctx context.Context,
 	id ids.AgentID,
-	name, description string,
+	name, description, emoji, links string,
 	updatedAt int64,
 ) (AgentRow, error) {
 	if err := s.q.UpdateAgent(ctx, sqlitedb.UpdateAgentParams(UpdateAgentParams{
 		Name:        name,
 		Description: description,
+		Emoji:       emoji,
+		Links:       links,
 		UpdatedAt:   updatedAt,
 		ID:          int64(id),
 	})); err != nil {
@@ -693,7 +743,7 @@ func (s *SqliteStore) UpdateProject(
 		if !renameTasks {
 			return nil
 		}
-		return s.renameProjectTaskIDs(ctx, q, p.ID, p.Prefix)
+		return s.renameProjectTaskIDs(ctx, q, p.ID, strings.ToUpper(p.Slug))
 	})
 	return row, err
 }
@@ -1102,8 +1152,9 @@ func (s *SqliteStore) RegisterAgent(
 				return err
 			}
 		}
-		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
-			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{}, false)
+		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description,
+			"", "", row.Role, sql.NullInt64{}, p.CreatedAt, p.UpdatedAt,
+			sql.NullInt64{}, false)
 		return nil
 	})
 	return out, err
@@ -1252,6 +1303,7 @@ func (s *SqliteStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			AgentID:   int64(p.AgentID),
 			SessionID: p.SessionID,
+			NotBefore: p.NotBefore,
 		}))
 	case TaskRequeue:
 		return s.q.RequeueTask(ctx, sqlitedb.RequeueTaskParams(RequeueTaskParams{

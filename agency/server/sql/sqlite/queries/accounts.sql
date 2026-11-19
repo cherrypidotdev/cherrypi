@@ -75,6 +75,12 @@ WHERE id = sqlc.arg(id);
 UPDATE actors
 SET name = sqlc.arg(name),
     description = sqlc.arg(description),
+    emoji = sqlc.arg(emoji),
+    links = sqlc.arg(links),
+    picture_attachment_id = CASE
+      WHEN sqlc.arg(emoji) <> '' THEN NULL
+      ELSE picture_attachment_id
+    END,
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
@@ -95,7 +101,7 @@ RETURNING *;
 SELECT
   u.id, u.actor_id, u.role, u.status, u.last_login_at, u.must_change_password,
   u.created_at, u.updated_at,
-  a.username, a.name, a.description, a.picture_attachment_id, a.password_hash,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id, a.password_hash,
   a.totp_enabled_at
 FROM users u
 JOIN actors a ON a.id = u.actor_id
@@ -105,7 +111,7 @@ WHERE u.actor_id = sqlc.arg(actor_id);
 SELECT
   u.id, u.actor_id, u.role, u.status, u.last_login_at, u.must_change_password,
   u.created_at, u.updated_at,
-  a.username, a.name, a.description, a.picture_attachment_id, a.password_hash,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id, a.password_hash,
   a.totp_enabled_at
 FROM users u
 JOIN actors a ON a.id = u.actor_id
@@ -115,7 +121,7 @@ WHERE a.username = sqlc.arg(username);
 SELECT
   u.id, u.actor_id, u.role, u.status, u.last_login_at, u.must_change_password,
   u.created_at, u.updated_at,
-  a.username, a.name, a.description, a.picture_attachment_id, a.password_hash,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id, a.password_hash,
   a.totp_enabled_at
 FROM users u
 JOIN actors a ON a.id = u.actor_id

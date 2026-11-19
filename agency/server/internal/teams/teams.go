@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/notifications"
@@ -96,6 +97,8 @@ type Team struct {
 	ID               int64
 	Name             string
 	Description      string
+	Emoji            string
+	Links            []actorprofile.Link
 	MemberCount      int64
 	Role             string
 	CreatedByActorID ids.ActorID
@@ -275,7 +278,8 @@ func (s *Service) Update(
 	teamID int64,
 	actorID ids.ActorID,
 	isAdmin bool,
-	name, description string,
+	name, description, emoji string,
+	links []actorprofile.Link,
 ) (Team, error) {
 	team, err := s.requireTeam(ctx, teamID)
 	if err != nil {
@@ -293,11 +297,25 @@ func (s *Service) Update(
 		return Team{}, err
 	}
 	description = strings.TrimSpace(description)
+	emoji, err = actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return Team{}, err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return Team{}, err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
+	if err != nil {
+		return Team{}, err
+	}
 
 	now := time.Now()
 	updated, err := s.store.UpdateTeam(ctx, store.UpdateTeamParams{
 		Name:        name,
 		Description: description,
+		Emoji:       emoji,
+		Links:       encoded,
 		UpdatedAt:   now.UnixMilli(),
 		ID:          teamID,
 	})
@@ -997,6 +1015,8 @@ func toTeam(row store.Team, memberCount int64, role string) Team {
 		ID:               row.ID,
 		Name:             row.Name,
 		Description:      row.Description,
+		Emoji:            row.Emoji,
+		Links:            actorprofile.DecodeLinks(row.Links),
 		MemberCount:      memberCount,
 		Role:             role,
 		CreatedByActorID: ids.ActorID(row.CreatedByActorID),

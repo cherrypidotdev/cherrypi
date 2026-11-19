@@ -18,8 +18,11 @@ syntax = "proto3";
 
 package agency.v1;
 
+import "agency/v1/actor.proto";
 import "agency/v1/attachments.proto";
 import "google/protobuf/timestamp.proto";
+
+
 
 
 
@@ -28,6 +31,7 @@ service ProjectService {
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
   rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  
   
   
   rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse);
@@ -116,6 +120,7 @@ message Project {
   string id = 1;
   string name = 2;
   
+  
   string slug = 3;
   string description = 4;
   google.protobuf.Timestamp created_at = 5;
@@ -138,6 +143,11 @@ message Project {
   
   
   string parent_project_id = 10;
+  
+  
+  string emoji = 12;
+  
+  repeated ActorLink links = 13;
 }
 
 message ListProjectsRequest {}
@@ -162,7 +172,12 @@ message CreateProjectRequest {
   string slug = 2;
   string description = 3;
   
+  
   string prefix = 4;
+  
+  string emoji = 5;
+  
+  repeated ActorLink links = 6;
 }
 
 message CreateProjectResponse {
@@ -174,8 +189,14 @@ message UpdateProjectRequest {
   string name = 2;
   string description = 3;
   
-  
   string prefix = 4;
+  
+  
+  string slug = 5;
+  
+  string emoji = 6;
+  
+  repeated ActorLink links = 7;
 }
 
 message UpdateProjectResponse {

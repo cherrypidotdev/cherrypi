@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	"cherrypi.vladfaust.com/agency/internal/actorid"
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/agentgroups"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
@@ -114,7 +115,10 @@ func (s *Server) UpdateAgentGroup(
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, agentgroups.ErrForbidden)
 	}
-	group, err := s.Groups.Update(ctx, identity, req.Id, req.Name, req.Slug, req.Description)
+	group, err := s.Groups.Update(
+		ctx, identity, req.Id, req.Name, req.Slug, req.Description,
+		req.Emoji, actorprofile.FromProtoLinks(req.Links),
+	)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -722,6 +726,8 @@ func (s *Server) groupToProto(
 		Name:        group.Name,
 		Slug:        group.Slug,
 		Description: group.Description,
+		Emoji:       group.Emoji,
+		Links:       actorprofile.ToProtoLinks(group.Links),
 		Picture:     picture(group.PictureAttachmentID),
 		CreatedAt:   timestamppb.New(group.CreatedAt),
 		UpdatedAt:   timestamppb.New(group.UpdatedAt),
@@ -815,6 +821,10 @@ func mapError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, agentgroups.ErrInvalidName),
 		errors.Is(err, agentgroups.ErrInvalidSlug),
+		errors.Is(err, actorprofile.ErrInvalidEmoji),
+		errors.Is(err, actorprofile.ErrTooManyLinks),
+		errors.Is(err, actorprofile.ErrInvalidLink),
+		errors.Is(err, actorprofile.ErrLinkLabel),
 		errors.Is(err, agentgroups.ErrSlugInUse),
 		errors.Is(err, agentgroups.ErrArchived),
 		errors.Is(err, agentgroups.ErrMemberExists),

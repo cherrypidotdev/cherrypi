@@ -60,6 +60,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   FieldLabel(for="description") {{ $t("common.description") }}
                   Textarea#description(v-model="description" rows="3")
                 Field
+                  FieldLabel {{ $t("actor.emoji.label") }}
+                  ActorEmojiField(v-model="emoji")
+                  FieldDescription {{ $t("actor.emoji.hint") }}
+                Field
+                  FieldLabel {{ $t("actor.links.title") }}
+                  ActorLinksField(v-model="links")
+                Field
                   FieldLabel {{ $t("common.username") }}
                   Input(disabled :model-value="account?.actor.username ?? ''")
                   FieldDescription {{ $t("account.profile.usernameHint") }}
@@ -344,6 +351,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import ActivityPanel from "@/components/account/ActivityPanel.vue";
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import NotificationsPanel from "@/components/settings/NotificationsPanel.vue";
 import UserPluginsPanel from "@/components/settings/UserPluginsPanel.vue";
@@ -380,7 +389,7 @@ import {
   type AccountPayload,
   type IdentitiesPayload,
 } from "@/lib/account";
-import type { Attachment } from "@cherrypi/sdk";
+import type { ActorLinkInput, Attachment } from "@cherrypi/sdk";
 import { LogOutIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, onMounted, ref } from "vue";
@@ -412,6 +421,8 @@ const account = ref<AccountPayload | null>(null);
 
 const displayName = ref("");
 const description = ref("");
+const emoji = ref("");
+const links = ref<ActorLinkInput[]>([]);
 const savingProfile = ref(false);
 
 const profileAvatar = computed(() =>
@@ -421,6 +432,11 @@ const profileAvatar = computed(() =>
 function onPictureChanged(picture: Attachment | undefined): void {
   if (!account.value) return;
   account.value.actor.picture = picture;
+
+  if (picture) {
+    emoji.value = "";
+    account.value.actor.emoji = "";
+  }
   currentAccount.value = account.value.actor;
 }
 
@@ -481,6 +497,8 @@ async function load(): Promise<void> {
     currentAccount.value = payload.actor;
     displayName.value = payload.actor.name;
     description.value = payload.actor.description;
+    emoji.value = payload.actor.emoji ?? "";
+    links.value = [...(payload.actor.links ?? [])];
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t("account.errors.load"));
   }
@@ -496,7 +514,12 @@ async function load(): Promise<void> {
 async function saveProfile(): Promise<void> {
   savingProfile.value = true;
   try {
-    await accountApi.updateProfile(displayName.value, description.value);
+    await accountApi.updateProfile(
+      displayName.value,
+      description.value,
+      emoji.value,
+      links.value,
+    );
     await load();
     toast.success(t("account.toasts.profileSaved"));
   } catch (err) {
@@ -797,7 +820,7 @@ en:
       description: "Your temporary password must be replaced before you can use the agency."
       action: "Go to Security"
     profile:
-      description: "Your name, picture, and description."
+      description: "Your name, picture or emoji, links, and description."
       usernameHint: "Usernames are unique across users and agents."
       save: "Save profile"
     signOut:
@@ -898,7 +921,7 @@ ru:
       description: "Временный пароль нужно заменить, прежде чем пользоваться агентством."
       action: "Перейти к безопасности"
     profile:
-      description: "Имя, изображение и описание."
+      description: "Имя, изображение или эмодзи, ссылки и описание."
       usernameHint: "Имена пользователей уникальны среди пользователей и агентов."
       save: "Сохранить профиль"
     signOut:

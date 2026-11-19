@@ -215,8 +215,30 @@ func mergeModelCapabilities(builtin, agency *ai.Model) *ai.Model {
 	}
 	if len(out.Compat) == 0 {
 		out.Compat = builtin.Compat
+		if out.Provider != builtin.Provider {
+			out.Compat = withoutInheritedThinkingFormat(out.Compat)
+		}
 	}
 	return &out
+}
+
+func withoutInheritedThinkingFormat(compat json.RawMessage) json.RawMessage {
+	if len(compat) == 0 {
+		return compat
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(compat, &fields); err != nil {
+		return compat
+	}
+	if _, ok := fields["thinkingFormat"]; !ok {
+		return compat
+	}
+	delete(fields, "thinkingFormat")
+	stripped, err := json.Marshal(fields)
+	if err != nil {
+		return compat
+	}
+	return stripped
 }
 
 func mergeThinkingLevelMap(

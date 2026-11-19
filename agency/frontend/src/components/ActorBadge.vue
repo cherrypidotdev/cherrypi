@@ -22,10 +22,22 @@ RouterLink.flex.min-w-0.items-center.gap-2.font-medium(
   class="hover:text-primary"
   :to="to"
 )
-  ActorAvatar(:src="pictureUrl" :name="name" :username="username" :size="size")
+  ActorAvatar(
+    :src="pictureUrl"
+    :emoji="emoji"
+    :name="name"
+    :username="username"
+    :size="size"
+  )
   span.truncate {{ label }}
 span.flex.min-w-0.items-center.gap-2(v-else)
-  ActorAvatar(:src="pictureUrl" :name="name" :username="username" :size="size")
+  ActorAvatar(
+    :src="pictureUrl"
+    :emoji="emoji"
+    :name="name"
+    :username="username"
+    :size="size"
+  )
   span.truncate {{ label }}
 </template>
 
@@ -39,9 +51,10 @@ const props = withDefaults(
     username?: string;
     name?: string;
     pictureUrl?: string;
+    emoji?: string;
     size?: number;
   }>(),
-  { username: "", name: "", pictureUrl: "", size: 20 },
+  { username: "", name: "", pictureUrl: "", emoji: "", size: 20 },
 );
 
 const label = computed(() => props.name || props.username || "?");

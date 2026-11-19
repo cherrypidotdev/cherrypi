@@ -18,6 +18,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-6(v-if="group")
+  .flex.flex-wrap.items-center.gap-4
+    ActorAvatar(
+      :emoji="group.emoji"
+      :name="group.name"
+      :size="48"
+      :fallback-html="logo"
+    )
+    .flex.min-w-0.flex-col
+      span.text-lg.font-semibold {{ group.name }}
+      ActorLinks(:links="group.links")
   .grid.grid-cols-1.gap-6(class="lg:grid-cols-2")
     Card
       CardHeader
@@ -95,7 +105,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import ActorBadge from "@/components/ActorBadge.vue";
+import ActorLinks from "@/components/actor/ActorLinks.vue";
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -120,6 +132,7 @@ import { useGroupMemberConcurrency } from "@/composables/useGroupMemberConcurren
 import { formatTimestamp } from "@/lib/format";
 import type { AgentGroupMember, AgentGroupProject } from "@cherrypi/sdk";
 import { AgentStatus } from "@cherrypi/sdk";
+import { toSvg } from "jdenticon";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
@@ -135,6 +148,7 @@ const { fleetStat } = useGroupMemberConcurrency(members);
 
 const slug = computed(() => String(route.params.slug ?? ""));
 const group = computed(() => groupBySlug(slug.value));
+const logo = computed(() => toSvg(String(group.value?.id ?? "group"), 48));
 
 function isOnline(agentId: string): boolean {
   return (

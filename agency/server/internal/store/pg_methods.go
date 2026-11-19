@@ -1085,17 +1085,6 @@ func (s *PgStore) GetProjectBySlug(ctx context.Context, slug string) (Project, e
 	return fromPgProject(row), nil
 }
 
-func (s *PgStore) GetProjectByPrefix(
-	ctx context.Context,
-	prefix string,
-) (Project, error) {
-	row, err := s.q.GetProjectByPrefix(ctx, prefix)
-	if err != nil {
-		return Project{}, err
-	}
-	return fromPgProject(row), nil
-}
-
 func (s *PgStore) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.q.ListProjects(ctx)
 	if err != nil {

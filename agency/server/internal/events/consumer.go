@@ -25,6 +25,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -258,7 +259,7 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 		taskID := c.taskID(ctx, agentID, sessionID)
 		status := agentv1.TaskStatus(int64Value(msg.Payload["status"]))
 		if stringValue(msg.Payload["state"]) == "failed" {
-			errMsg := stringValue(msg.Payload["error"])
+			errMsg := runFailureReason(msg.Payload["error"])
 			c.notifyTask(
 				ctx,
 				agentID,
@@ -281,7 +282,14 @@ func (c *Consumer) dispatch(ctx context.Context, agentID ids.AgentID, msg Messag
 				}
 			}
 		} else {
-			c.materializeStatus(ctx, agentID, taskID, status)
+			c.materializeStatus(
+				ctx,
+				agentID,
+				taskID,
+				sessionID,
+				status,
+				runFailureReason(msg.Payload["error"]),
+			)
 		}
 		c.Notifier.Notify(msg.Kind, agentID, msg.Payload)
 		c.Realtime.PublishTask(taskID)
@@ -322,11 +330,19 @@ func (c *Consumer) insertHealth(ctx context.Context, agentID ids.AgentID, msg Me
 	}
 }
 
+func runFailureReason(value any) string {
+	if reason := strings.TrimSpace(stringValue(value)); reason != "" {
+		return reason
+	}
+	return tasks.RunFailedReason
+}
+
 func (c *Consumer) materializeStatus(
 	ctx context.Context,
 	agentID ids.AgentID,
-	taskID string,
+	taskID, sessionID string,
 	status agentv1.TaskStatus,
+	errMsg string,
 ) {
 	if c.Tasks == nil || taskID == "" {
 		return
@@ -335,6 +351,14 @@ func (c *Consumer) materializeStatus(
 	ctx = tasks.WithActor(ctx, tasks.ActorAgent)
 
 	switch status {
+	case agentv1.TaskStatus_TASK_STATUS_FAILED:
+
+		ctx = tasks.WithStateReason(ctx, "run failed")
+		if err := c.Tasks.FailBySession(
+			ctx, agentID, sessionID, errMsg,
+		); err != nil {
+			log.Printf("[events %d] fail task %s: %v", agentID, taskID, err)
+		}
 	case agentv1.TaskStatus_TASK_STATUS_DONE:
 
 		ctx = tasks.WithStateReason(ctx, "run finished")

@@ -365,7 +365,7 @@ best AS (
   SELECT project_id, MAX(weight) AS weight FROM readable GROUP BY project_id
 )
 SELECT
-  p.id, p.name, p.slug, p.prefix, p.description, p.archived_at,
+  p.id, p.name, p.slug, p.description, p.emoji, p.links, p.archived_at,
   p.parent_project_id, p.created_at, p.updated_at,
   CASE best.weight WHEN 3 THEN 'owner' WHEN 2 THEN 'member' ELSE 'viewer' END AS role,
   CAST(1 AS BIGINT) AS can_list_tasks,

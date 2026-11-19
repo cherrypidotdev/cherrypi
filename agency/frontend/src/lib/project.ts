@@ -34,6 +34,7 @@ export function normalizeTaskPrefix(value: string): string {
 }
 
 export type ProjectStatus =
+  | "failed"
   | "input"
   | "running"
   | "settled"
@@ -43,6 +44,7 @@ export type ProjectStatus =
 export function projectStatus(
   tasks: Pick<Task, "state">[],
 ): ProjectStatus | undefined {
+  if (tasks.some((task) => task.state === TaskState.FAILED)) return "failed";
   if (tasks.some((task) => task.state === TaskState.INPUT)) return "input";
   if (tasks.some((task) => task.state === TaskState.RUNNING)) return "running";
   if (tasks.some((task) => task.state === TaskState.SETTLED)) return "settled";
@@ -71,6 +73,7 @@ export function projectStatuses(
 }
 
 export const PROJECT_STATUS_KEY: Record<ProjectStatus, string> = {
+  failed: "projectStatus.failed",
   input: "projectStatus.input",
   running: "projectStatus.running",
   settled: "projectStatus.settled",
@@ -79,6 +82,7 @@ export const PROJECT_STATUS_KEY: Record<ProjectStatus, string> = {
 };
 
 export const PROJECT_STATUS_STATE: Record<ProjectStatus, TaskState> = {
+  failed: TaskState.FAILED,
   input: TaskState.INPUT,
   running: TaskState.RUNNING,
   settled: TaskState.SETTLED,

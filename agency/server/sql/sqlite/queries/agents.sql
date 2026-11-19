@@ -39,7 +39,7 @@ RETURNING id, actor_id, last_seen_at, role;
 -- name: GetAgent :one
 SELECT
   g.id, g.actor_id, g.last_seen_at, g.role, g.prompt_auto_approve,
-  a.username, a.name, a.description, a.picture_attachment_id,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
 JOIN actors a ON a.id = g.actor_id
@@ -48,7 +48,7 @@ WHERE g.id = sqlc.arg(id);
 -- name: GetAgentByActor :one
 SELECT
   g.id, g.actor_id, g.last_seen_at, g.role, g.prompt_auto_approve,
-  a.username, a.name, a.description, a.picture_attachment_id,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
 JOIN actors a ON a.id = g.actor_id
@@ -57,7 +57,7 @@ WHERE g.actor_id = sqlc.arg(actor_id);
 -- name: GetAgentByUsername :one
 SELECT
   g.id, g.actor_id, g.last_seen_at, g.role, g.prompt_auto_approve,
-  a.username, a.name, a.description, a.picture_attachment_id,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
 JOIN actors a ON a.id = g.actor_id
@@ -66,7 +66,7 @@ WHERE a.kind = 'agent' AND a.username = sqlc.arg(username);
 -- name: ListAgents :many
 SELECT
   g.id, g.actor_id, g.last_seen_at, g.role, g.prompt_auto_approve,
-  a.username, a.name, a.description, a.picture_attachment_id,
+  a.username, a.name, a.description, a.emoji, a.links, a.picture_attachment_id,
   a.created_at, a.updated_at
 FROM agents g
 JOIN actors a ON a.id = g.actor_id
@@ -76,6 +76,12 @@ ORDER BY a.name, a.username;
 UPDATE actors
 SET name = sqlc.arg(name),
     description = sqlc.arg(description),
+    emoji = sqlc.arg(emoji),
+    links = sqlc.arg(links),
+    picture_attachment_id = CASE
+      WHEN sqlc.arg(emoji) <> '' THEN NULL
+      ELSE picture_attachment_id
+    END,
     updated_at = sqlc.arg(updated_at)
 WHERE actors.id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(id))
   AND kind = 'agent';

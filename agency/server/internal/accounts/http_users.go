@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -84,10 +85,12 @@ func (h *Handler) users(w http.ResponseWriter, r *http.Request, identity auth.Id
 }
 
 type updateUserRequest struct {
-	Role        *string `json:"role"`
-	Status      *string `json:"status"`
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
+	Role        *string              `json:"role"`
+	Status      *string              `json:"status"`
+	Name        *string              `json:"name"`
+	Description *string              `json:"description"`
+	Emoji       *string              `json:"emoji"`
+	Links       *[]actorprofile.Link `json:"links"`
 }
 
 func (h *Handler) userAction(
@@ -166,7 +169,7 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, target ids.
 			return
 		}
 	}
-	if in.Name != nil || in.Description != nil {
+	if in.Name != nil || in.Description != nil || in.Emoji != nil || in.Links != nil {
 		name := actor.Name
 		description := actor.Description
 		if in.Name != nil {
@@ -175,7 +178,17 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request, target ids.
 		if in.Description != nil {
 			description = *in.Description
 		}
-		if err := h.Service.UpdateProfile(r.Context(), target, name, description); err != nil {
+		emoji := actor.Emoji
+		if in.Emoji != nil {
+			emoji = *in.Emoji
+		}
+		links := actor.Links
+		if in.Links != nil {
+			links = *in.Links
+		}
+		if err := h.Service.UpdateProfile(
+			r.Context(), target, name, description, emoji, links,
+		); err != nil {
 			writeAccountError(w, err)
 			return
 		}

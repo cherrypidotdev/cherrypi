@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/actorid"
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 )
@@ -221,15 +222,17 @@ func (h *Handler) oneTeam(
 		writeJSON(w, http.StatusOK, map[string]any{"team": teamJSON(team)})
 	case http.MethodPut:
 		var in struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
+			Name        string              `json:"name"`
+			Description string              `json:"description"`
+			Emoji       string              `json:"emoji"`
+			Links       []actorprofile.Link `json:"links"`
 		}
 		if !decodeJSON(w, r, &in) {
 			return
 		}
 		team, err := h.Service.Update(
 			r.Context(), teamID, identity.ActorID, identity.IsAdmin(),
-			in.Name, in.Description,
+			in.Name, in.Description, in.Emoji, in.Links,
 		)
 		if err != nil {
 			writeServiceError(w, err)
@@ -452,10 +455,16 @@ func teamsJSON(teams []Team) []map[string]any {
 }
 
 func teamJSON(team Team) map[string]any {
+	links := team.Links
+	if links == nil {
+		links = []actorprofile.Link{}
+	}
 	return map[string]any{
 		"id":                  team.ID,
 		"name":                team.Name,
 		"description":         team.Description,
+		"emoji":               team.Emoji,
+		"links":               links,
 		"member_count":        team.MemberCount,
 		"role":                team.Role,
 		"created_by_actor_id": actorid.Format(team.CreatedByActorID),

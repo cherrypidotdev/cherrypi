@@ -117,7 +117,9 @@ VALUES (
 
 -- name: SetProjectPicture :exec
 UPDATE projects
-SET picture_attachment_id = sqlc.arg(picture_attachment_id), updated_at = sqlc.arg(updated_at)
+SET picture_attachment_id = sqlc.arg(picture_attachment_id),
+    emoji = '',
+    updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
 -- name: ClearProjectPicture :exec
@@ -127,7 +129,9 @@ WHERE id = sqlc.arg(id);
 
 -- name: SetAgentPicture :exec
 UPDATE actors
-SET picture_attachment_id = sqlc.arg(picture_attachment_id), updated_at = sqlc.arg(updated_at)
+SET picture_attachment_id = sqlc.arg(picture_attachment_id),
+    emoji = '',
+    updated_at = sqlc.arg(updated_at)
 WHERE id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(agent_id))
   AND kind = 'agent';
 
@@ -139,7 +143,9 @@ WHERE id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(agent_id))
 
 -- name: SetUserPicture :exec
 UPDATE actors
-SET picture_attachment_id = sqlc.arg(picture_attachment_id), updated_at = sqlc.arg(updated_at)
+SET picture_attachment_id = sqlc.arg(picture_attachment_id),
+    emoji = '',
+    updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(actor_id) AND kind = 'user';
 
 -- name: ClearUserPicture :exec

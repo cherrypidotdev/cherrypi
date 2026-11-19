@@ -416,7 +416,7 @@ func (s *Scheduler) Reconcile(ctx context.Context) {
 			case at.GetStatus() == agentv1.TaskStatus_TASK_STATUS_FAILED:
 				errMsg := at.GetError()
 				if errMsg == "" {
-					errMsg = "the agent's run failed"
+					errMsg = tasks.RunFailedReason
 				}
 				if err := s.Tasks.FailBySession(
 					ctx,

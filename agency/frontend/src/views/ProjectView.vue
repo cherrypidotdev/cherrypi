@@ -20,12 +20,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
   header.flex.flex-wrap.items-start.justify-between.gap-4
     .flex.min-w-0.items-center.gap-4
-      img.size-12.shrink-0.rounded-full.object-cover(
-        v-if="project?.picture"
-        :src="project.picture.url"
-        :alt="project?.name"
+      ActorAvatar(
+        :src="project?.picture?.url"
+        :emoji="project?.emoji"
+        :name="project?.name"
+        :size="48"
+        :fallback-html="logo"
       )
-      span.size-12.shrink-0(v-else :innerHTML="logo")
       .flex.min-w-0.flex-col
         BackButton.-ml-2.self-start(:fallback="backFallback")
         nav.text-muted-foreground.flex.flex-wrap.items-center.gap-1.text-xs(
@@ -53,6 +54,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         TabsTrigger(value="settings") {{ $t("common.settings") }}
 
   p.text-destructive.text-sm(v-if="error") {{ error }}
+
+  ActorLinks.profile-links(:links="project?.links")
 
   Tabs(v-model="tab")
     TabsContent(value="overview")
@@ -99,6 +102,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorLinks from "@/components/actor/ActorLinks.vue";
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import BackButton from "@/components/BackButton.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
 import ProjectConcurrency from "@/components/concurrency/ProjectConcurrency.vue";

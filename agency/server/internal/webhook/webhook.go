@@ -24,6 +24,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/store"
@@ -47,8 +48,9 @@ func ValidEvent(name string) bool {
 }
 
 type Notifier struct {
-	store  store.Store
-	client *http.Client
+	store    store.Store
+	client   *http.Client
+	inflight sync.WaitGroup
 }
 
 func NewNotifier(st store.Store) *Notifier {
@@ -67,7 +69,25 @@ func (n *Notifier) Notify(event string, agentID ids.AgentID, payload map[string]
 		return
 	}
 
-	go n.deliver(event, agentID, data)
+	n.inflight.Add(1)
+	go func() {
+		defer n.inflight.Done()
+		n.deliver(event, agentID, data)
+	}()
+}
+
+func (n *Notifier) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		n.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func SamplePayload(event string) (map[string]any, bool) {

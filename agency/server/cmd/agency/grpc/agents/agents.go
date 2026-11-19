@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/accounts"
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/agentlogs"
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
@@ -292,7 +293,10 @@ func (s *AgentServer) UpdateAgent(
 	if err := s.requireAgentAccess(ctx, actorid.ParseAgent(req.Id)); err != nil {
 		return nil, err
 	}
-	a, err := s.Agents.Update(ctx, actorid.ParseAgent(req.Id), req.DisplayName, req.Description)
+	a, err := s.Agents.Update(
+		ctx, actorid.ParseAgent(req.Id), req.DisplayName, req.Description,
+		req.Emoji, actorprofile.FromProtoLinks(req.Links),
+	)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -600,6 +604,8 @@ func toProto(a agents.Agent) *agencyv1.Agent {
 		Username:          a.Username,
 		DisplayName:       a.DisplayName,
 		Description:       a.Description,
+		Emoji:             a.Emoji,
+		Links:             actorprofile.ToProtoLinks(a.Links),
 		Role:              a.Role,
 		Status:            agencyv1.AgentStatus(a.Status),
 		Version:           a.Version,
@@ -682,7 +688,9 @@ func mapError(err error) *connect.Error {
 	case errors.Is(err, agents.ErrAgentExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, agents.ErrInvalidUsername), errors.Is(err, agents.ErrInvalidDefaults),
-		errors.Is(err, agents.ErrInvalidRole), errors.Is(err, agents.ErrInvalidHealthInterval):
+		errors.Is(err, agents.ErrInvalidRole), errors.Is(err, agents.ErrInvalidHealthInterval),
+		errors.Is(err, actorprofile.ErrInvalidEmoji), errors.Is(err, actorprofile.ErrTooManyLinks),
+		errors.Is(err, actorprofile.ErrInvalidLink), errors.Is(err, actorprofile.ErrLinkLabel):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

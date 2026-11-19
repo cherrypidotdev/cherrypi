@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { request } from "@/lib/account";
+import type { ActorLinkInput } from "@cherrypi/sdk";
 
 export type TeamRole = "owner" | "member";
 
@@ -22,6 +23,8 @@ export interface Team {
   id: number;
   name: string;
   description: string;
+  emoji?: string;
+  links?: ActorLinkInput[];
   member_count: number;
   role: TeamRole | "";
   created_by_actor_id?: string;
@@ -113,8 +116,15 @@ export const teamApi = {
     id: number,
     name: string,
     description: string,
+    emoji = "",
+    links: ActorLinkInput[] = [],
   ): Promise<{ team: Team }> {
-    return request("PUT", `${TEAMS}/${id}`, { name, description });
+    return request("PUT", `${TEAMS}/${id}`, {
+      name,
+      description,
+      emoji,
+      links,
+    });
   },
 
   async remove(id: number): Promise<void> {

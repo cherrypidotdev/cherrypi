@@ -47,16 +47,27 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   @changed="onPictureChanged"
                 )
               Field
+                FieldLabel {{ $t("actor.emoji.label") }}
+                ActorEmojiField(v-model="emoji")
+                FieldDescription {{ $t("actor.emoji.hint") }}
+              Field
                 FieldLabel(for="project-name") {{ $t("common.name") }}
                 Input#project-name(v-model="name")
               Field
                 FieldLabel(for="project-description") {{ $t("common.description") }}
                 Textarea#project-description(v-model="description")
               Field
-                FieldLabel(for="project-slug") {{ $t("settings.auth.slug") }}
-                Input#project-slug(disabled :model-value="project?.slug ?? ''")
+                FieldLabel(for="project-slug") {{ $t("projectSettings.general.slug") }}
+                Input#project-slug(
+                  v-model="slug"
+                  autocapitalize="none"
+                  autocomplete="off"
+                )
                 FieldDescription
-                  | {{ $t("projectSettings.general.slugHint") }}
+                  | {{ $t("projectSettings.general.slugHint", { prefix: prefixPreview }) }}
+              Field
+                FieldLabel {{ $t("actor.links.title") }}
+                ActorLinksField(v-model="links")
             .flex.justify-end
               Button(type="submit" :disabled="saving || !name.trim()")
                 Spinner(v-if="saving" data-icon="inline-start")
@@ -183,25 +194,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     TabsContent(value="tasks")
       .flex.flex-col.gap-6
-        Card
-          CardHeader
-            CardTitle {{ $t("projectSettings.taskIds.title") }}
-            CardDescription
-              | {{ $t("projectSettings.taskIds.description2", { prefix: prefix.trim() || "MYPROJECT" }) }}
-          CardContent
-            form.flex.items-end.gap-2(@submit.prevent="savePrefix")
-              Field.flex-1
-                FieldLabel(for="project-prefix") {{ $t("projectSettings.taskIds.prefix") }}
-                Input#project-prefix(
-                  v-model="prefix"
-                  :placeholder="$t('projectSettings.taskIds.placeholder')"
-                  autocapitalize="characters"
-                )
-              Button(type="submit" :disabled="savingPrefix || !prefix.trim()")
-                Spinner(v-if="savingPrefix" data-icon="inline-start")
-                CheckIcon(v-else data-icon="inline-start")
-                span {{ $t("projectSettings.taskIds.save") }}
-
         Card
           CardHeader
             CardTitle {{ $t("projectSettings.archive.title") }}
@@ -578,6 +570,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
@@ -625,6 +619,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import { useSettings } from "@/composables/useSettings";
+import { normalizeTaskPrefix } from "@/lib/project";
 import {
   PROJECT_ROLE_KEY,
   projectAccessApi,
@@ -638,7 +633,12 @@ import {
 } from "@/lib/projectAccess";
 import { agency } from "@/lib/sdk";
 import { teamApi, type Team } from "@/lib/team";
-import { PromptScope, type Attachment, type Project } from "@cherrypi/sdk";
+import {
+  PromptScope,
+  type ActorLinkInput,
+  type Attachment,
+  type Project,
+} from "@cherrypi/sdk";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -699,12 +699,16 @@ const ROLE_WEIGHT: Record<ProjectRole, number> = {
 const logo = computed(() => toSvg(project.value?.id ?? "project", 48));
 
 const name = ref("");
-const prefix = ref("");
+const slug = ref("");
 const description = ref("");
+const emoji = ref("");
+const links = ref<ActorLinkInput[]>([]);
 const saving = ref(false);
-const savingPrefix = ref(false);
 const savingArchive = ref(false);
 const error = ref("");
+const prefixPreview = computed(
+  () => normalizeTaskPrefix(slug.value.trim()) || "MYPROJECT",
+);
 
 const MAX_ARCHIVE_DAYS = 3650;
 const archiveMode = ref<"inherit" | "custom" | "never">("inherit");
@@ -878,10 +882,13 @@ function linkTip(
 }
 
 function onPictureChanged(picture: Attachment | undefined) {
-  if (project.value) {
-    project.value.picture = picture;
-    emit("changed", project.value);
+  if (!project.value) return;
+  project.value.picture = picture;
+  if (picture) {
+    project.value.emoji = "";
+    emoji.value = "";
   }
+  emit("changed", project.value);
 }
 
 async function load() {
@@ -889,8 +896,10 @@ async function load() {
     const found = await agency.getProject(props.slug);
     project.value = found;
     name.value = found.name;
-    prefix.value = found.prefix ?? "";
-    description.value = found.description;
+    description.value = found.description ?? "";
+    slug.value = found.slug ?? "";
+    emoji.value = found.emoji ?? "";
+    links.value = [...(found.links ?? [])];
     applyArchivePolicy(found);
     error.value = "";
     await Promise.all([loadAccess(), loadHierarchy()]);
@@ -1158,16 +1167,29 @@ async function revokeInvite(invitation: { id: number }) {
 
 async function saveGeneral() {
   if (!project.value) return;
+  const previousSlug = project.value.slug;
   saving.value = true;
   try {
     project.value = await withProgress(() =>
       agency.updateProject(project.value!.id, {
         name: name.value.trim(),
         description: description.value.trim(),
-        prefix: prefix.value.trim(),
+        slug: slug.value.trim(),
+        emoji: emoji.value,
+        links: links.value,
       }),
     );
-    prefix.value = project.value.prefix ?? "";
+    slug.value = project.value.slug ?? "";
+    emoji.value = project.value.emoji ?? "";
+    links.value = [...(project.value.links ?? [])];
+
+    if (project.value.slug && project.value.slug !== previousSlug) {
+      await router.replace({
+        name: "project",
+        params: { slug: project.value.slug },
+        query: route.query,
+      });
+    }
     emit("changed", project.value);
     toast.success(t("projectSettings.toasts.updated"));
   } catch (err) {
@@ -1210,27 +1232,6 @@ async function saveArchivePolicy() {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
     savingArchive.value = false;
-  }
-}
-
-async function savePrefix() {
-  if (!project.value) return;
-  savingPrefix.value = true;
-  try {
-    project.value = await withProgress(() =>
-      agency.updateProject(project.value!.id, {
-        name: name.value.trim(),
-        description: description.value.trim(),
-        prefix: prefix.value.trim(),
-      }),
-    );
-    prefix.value = project.value.prefix ?? "";
-    emit("changed", project.value);
-    toast.success(t("projectSettings.toasts.prefixUpdated"));
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    savingPrefix.value = false;
   }
 }
 
@@ -1285,9 +1286,10 @@ en:
   projectSettings:
     dangerZone: "Danger zone"
     general:
-      description: "The project's picture, name, description, and slug."
+      description: "The project's picture or emoji, name, description, links, and slug."
       picture: "Picture"
-      slugHint: "The slug is set at creation and used in the project's URL."
+      slug: "Slug and task prefix"
+      slugHint: "Lowercase in URLs, uppercase in task ids ({prefix}-1). Changing it renames this project's existing tasks."
     hierarchy:
       description: "Projects form a tree. Anyone who can view a parent may also view every descendant, and tasks may reference tasks in descendant or sibling projects. Root projects are not siblings and cannot reference each other's tasks."
       parent: "Parent project"
@@ -1302,12 +1304,6 @@ en:
       chooseProject: "Choose a project"
       subprojectAria: "Subproject"
       pendingInvitations: "Pending invitations"
-    taskIds:
-      title: "Task ids"
-      prefix: "Task prefix"
-      placeholder: "MYPROJECT"
-      save: "Save prefix"
-      description2: "Task ids read {prefix}-1. Changing the prefix renames this project's existing tasks."
     archive:
       title: "Automatic archive"
       description: "Completed and cancelled tasks leave the active lists after a while, and their agent-side sessions are cleaned up. The organization sets the default policy; a project owner may override it here."
@@ -1366,7 +1362,6 @@ en:
       teamInvited: "Team invited; its owner must approve"
       teamDetached: "Team detached"
       updated: "Project updated"
-      prefixUpdated: "Task prefix updated"
     tabs:
       models: "Models"
       templates: "Templates"
@@ -1380,9 +1375,10 @@ ru:
   projectSettings:
     dangerZone: "Опасная зона"
     general:
-      description: "Изображение, название, описание и слаг проекта."
+      description: "Изображение или эмодзи, название, описание, ссылки и слаг проекта."
       picture: "Изображение"
-      slugHint: "Слаг задаётся при создании и используется в URL проекта."
+      slug: "Слаг и префикс задач"
+      slugHint: "В URL — строчными, в идентификаторах задач — заглавными ({prefix}-1). Смена переименовывает существующие задачи проекта."
     hierarchy:
       description: "Проекты образуют дерево. Тот, кто видит родительский проект, видит и все дочерние, а задачи могут ссылаться на задачи в дочерних или соседних проектах. Корневые проекты не являются соседними и не могут ссылаться на задачи друг друга."
       parent: "Родительский проект"
@@ -1397,12 +1393,6 @@ ru:
       chooseProject: "Выберите проект"
       subprojectAria: "Дочерний проект"
       pendingInvitations: "Ожидающие приглашения"
-    taskIds:
-      title: "Идентификаторы задач"
-      prefix: "Префикс задач"
-      placeholder: "MYPROJECT"
-      save: "Сохранить префикс"
-      description2: "Идентификаторы задач выглядят как {prefix}-1. Смена префикса переименовывает существующие задачи проекта."
     archive:
       title: "Автоматический архив"
       description: "Завершённые и отменённые задачи со временем покидают активные списки, а их сессии на агентах очищаются. По умолчанию действует правило агентства; владелец проекта может переопределить его здесь."
@@ -1461,7 +1451,6 @@ ru:
       teamInvited: "Команда приглашена; требуется одобрение её владельца"
       teamDetached: "Команда отключена"
       updated: "Проект обновлён"
-      prefixUpdated: "Префикс задач обновлён"
     tabs:
       models: "Модели"
       templates: "Шаблоны"

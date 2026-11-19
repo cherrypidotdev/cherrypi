@@ -60,12 +60,18 @@ ORDER BY lower(t.name);
 -- name: UpdateTeam :one
 UPDATE teams
 SET name = sqlc.arg(name), description = sqlc.arg(description),
+    emoji = sqlc.arg(emoji), links = sqlc.arg(links),
+    picture_attachment_id = CASE
+      WHEN sqlc.arg(emoji) <> '' THEN NULL
+      ELSE picture_attachment_id
+    END,
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: SetTeamPicture :exec
 UPDATE teams SET picture_attachment_id = sqlc.arg(picture_attachment_id),
+                 emoji = '',
                  updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 

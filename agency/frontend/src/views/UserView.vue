@@ -22,13 +22,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     :fallback="{ to: { name: 'users' }, label: 'Users' }"
   )
   .flex.items-center.gap-4
-    span.relative.size-16.shrink-0.overflow-hidden.rounded-full
-      img.absolute.inset-0.size-full.object-cover(
-        v-if="user?.picture"
-        :src="user.picture.url"
-        :alt="displayName"
-      )
-      span.absolute.inset-0(v-else :innerHTML="fallbackAvatar")
+    ActorAvatar(
+      :src="user?.picture?.url"
+      :emoji="user?.emoji"
+      :name="displayName"
+      :size="64"
+      :fallback-html="fallbackAvatar"
+    )
     .flex.min-w-0.flex-col(class="gap-0.5")
       .flex.items-center.gap-2
         h1.truncate.text-lg.font-semibold {{ displayName }}
@@ -41,6 +41,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     Card(v-if="user.description")
       CardContent.pt-6
         p.text-sm(v-text="user.description")
+
+    Card(v-if="user.links?.length")
+      CardHeader
+        CardTitle {{ $t("actor.links.title") }}
+      CardContent
+        ActorLinks(:links="user.links")
 
     Card
       CardHeader
@@ -64,13 +70,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       CardHeader
         CardTitle {{ $t("projectSettings.general.picture") }}
         CardDescription {{ $t("userView.pictureHint") }}
-      CardContent
+      CardContent.flex.flex-col.gap-4
         PictureUpload(
           :picture="user.picture"
           :user-id="String(user.id)"
           :fallback="fallbackAvatar"
           @changed="onPictureChanged"
         )
+        Field
+          FieldLabel {{ $t("actor.emoji.label") }}
+          ActorEmojiField(v-model="emoji")
+          FieldDescription {{ $t("actor.emoji.hint") }}
+        Field
+          FieldLabel {{ $t("actor.links.title") }}
+          ActorLinksField(v-model="links")
+        .flex.justify-end
+          Button(@click="saveIdentity" :disabled="savingIdentity")
+            Spinner(v-if="savingIdentity" data-icon="inline-start")
+            CheckIcon(v-else data-icon="inline-start")
+            span {{ $t("common.save") }}
 
     Card
       CardHeader
@@ -142,10 +160,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinks from "@/components/actor/ActorLinks.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import PictureUpload from "@/components/attachments/PictureUpload.vue";
 import BackButton from "@/components/BackButton.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -154,6 +177,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Empty, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
 import { useAgents } from "@/composables/useAgents";
 import { setPageTitle } from "@/composables/usePageTitle";
 import {
@@ -163,18 +188,25 @@ import {
   type DirectoryProject,
   type DirectoryTeam,
 } from "@/lib/account";
-import type { Agent, Attachment } from "@cherrypi/sdk";
+import type { ActorLinkInput, Agent, Attachment } from "@cherrypi/sdk";
+import { CheckIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
 import { computed, ref, watch, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
+import { toast } from "vue3-toastify";
 
 const route = useRoute();
+const { t } = useI18n();
 const { agents, loadAgents } = useAgents();
 const user = ref<AccountActor | null>(null);
 const teams = ref<DirectoryTeam[]>([]);
 const projects = ref<DirectoryProject[]>([]);
 const ownedAgentActorIds = ref<string[]>([]);
 const loading = ref(true);
+const emoji = ref("");
+const links = ref<ActorLinkInput[]>([]);
+const savingIdentity = ref(false);
 
 const displayName = computed(
   () => user.value?.name || user.value?.username || "",
@@ -210,6 +242,8 @@ async function load(): Promise<void> {
     const payload = await accountApi.getDirectoryUser(username);
     void loadAgents();
     user.value = payload.user;
+    emoji.value = payload.user.emoji ?? "";
+    links.value = [...(payload.user.links ?? [])];
     teams.value = payload.teams ?? [];
     projects.value = payload.projects ?? [];
     ownedAgentActorIds.value = payload.owned_agent_actor_ids ?? [];
@@ -225,9 +259,44 @@ function agentAvatar(id: string): string {
 
 function onPictureChanged(picture: Attachment | undefined): void {
   if (user.value) user.value.picture = picture;
+  if (picture && user.value) {
+    user.value.emoji = "";
+    emoji.value = "";
+  }
 
   if (user.value && currentAccount.value?.id === user.value.id) {
     currentAccount.value.picture = picture;
+  }
+}
+
+async function saveIdentity(): Promise<void> {
+  if (!user.value) return;
+  savingIdentity.value = true;
+  try {
+    if (
+      currentAccount.value?.is_admin === true &&
+      currentAccount.value.id !== user.value.id
+    ) {
+      const { user: updated } = await accountApi.updateUser(user.value.id, {
+        emoji: emoji.value,
+        links: links.value,
+      });
+      user.value = updated;
+    } else {
+      const updated = await accountApi.updateProfile(
+        user.value.name,
+        user.value.description,
+        emoji.value,
+        links.value,
+      );
+      user.value = updated;
+      currentAccount.value = updated;
+    }
+    toast.success(t("userView.identitySaved"));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    savingIdentity.value = false;
   }
 }
 
@@ -244,6 +313,7 @@ en:
     memberSince: "Member since"
     lastSignIn: "Last sign-in"
     pictureHint: "Upload a picture shown in the sidebar and on this page."
+    identitySaved: "Profile identity saved"
     teamsHint: "Teams this user belongs to."
     noTeams: "Not a member of any team yet."
     projectsHint: "Projects this user can read."
@@ -257,6 +327,7 @@ ru:
     memberSince: "Участник с"
     lastSignIn: "Последний вход"
     pictureHint: "Загрузите изображение, которое показывается в боковой панели и на этой странице."
+    identitySaved: "Идентичность профиля сохранена"
     teamsHint: "Команды, в которых состоит пользователь."
     noTeams: "Пока не состоит ни в одной команде."
     projectsHint: "Проекты, доступные пользователю для чтения."

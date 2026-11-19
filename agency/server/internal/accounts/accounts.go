@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/store"
@@ -91,6 +92,8 @@ type Actor struct {
 	Username            string
 	Name                string
 	Description         string
+	Emoji               string
+	Links               []actorprofile.Link
 	PictureAttachmentID int64
 
 	Role        string
@@ -215,6 +218,8 @@ func actorFromRows(row store.Actor, user *store.UserRow) Actor {
 		Username:            row.Username,
 		Name:                row.Name,
 		Description:         row.Description,
+		Emoji:               row.Emoji,
+		Links:               actorprofile.DecodeLinks(row.Links),
 		PictureAttachmentID: row.PictureAttachmentID.Int64,
 		Role:                userRole(user),
 		Status:              userStatus(user),
@@ -234,6 +239,8 @@ func actorFromUserRow(row store.UserRow) Actor {
 		Username:            row.Username,
 		Name:                row.Name,
 		Description:         row.Description,
+		Emoji:               row.Emoji,
+		Links:               actorprofile.DecodeLinks(row.Links),
 		PictureAttachmentID: row.PictureAttachmentID.Int64,
 		Role:                row.Role,
 		Status:              row.Status,

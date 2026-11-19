@@ -17,6 +17,7 @@
 package agentgroups
 
 import (
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -121,6 +122,8 @@ type Group struct {
 	Name                string
 	Slug                string
 	Description         string
+	Emoji               string
+	Links               []actorprofile.Link
 	PictureAttachmentID int64
 	ArchivedAt          *time.Time
 	CreatedAt           time.Time
@@ -290,7 +293,7 @@ func (s *Service) ForAgent(ctx context.Context, agentID ids.AgentID) ([]Group, e
 	out := make([]Group, len(rows))
 	for i, row := range rows {
 		out[i] = groupFrom(
-			row.ID, row.Name, row.Slug, row.Description,
+			row.ID, row.Name, row.Slug, row.Description, row.Emoji, row.Links,
 			row.PictureAttachmentID, row.ArchivedAt,
 			row.CreatedAt, row.UpdatedAt, row.MemberCount,
 		)
@@ -302,7 +305,8 @@ func (s *Service) Update(
 	ctx context.Context,
 	identity auth.Identity,
 	groupID int64,
-	name, slug, description string,
+	name, slug, description, emoji string,
+	links []actorprofile.Link,
 ) (Group, error) {
 	group, err := s.requireGroup(ctx, groupID)
 	if err != nil {
@@ -320,10 +324,24 @@ func (s *Service) Update(
 		return Group{}, err
 	}
 	description = strings.TrimSpace(description)
+	emoji, err = actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return Group{}, err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return Group{}, err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
+	if err != nil {
+		return Group{}, err
+	}
 	row, err := s.store.UpdateAgentGroup(ctx, store.UpdateAgentGroupParams{
 		Name:        name,
 		Slug:        slug,
 		Description: description,
+		Emoji:       emoji,
+		Links:       encoded,
 		UpdatedAt:   time.Now().UnixMilli(),
 		ID:          groupID,
 	})
@@ -343,6 +361,14 @@ func (s *Service) Update(
 	if group.Description != row.Description {
 		s.writeLog(ctx, groupID, identity.ActorID, "updated", "description",
 			group.Description, row.Description, "Updated the group description", nil)
+	}
+	if group.Emoji != row.Emoji {
+		s.writeLog(ctx, groupID, identity.ActorID, "updated", "emoji",
+			group.Emoji, row.Emoji, "Changed the group emoji", nil)
+	}
+	if !sameLinks(group.Links, actorprofile.DecodeLinks(row.Links)) {
+		s.writeLog(ctx, groupID, identity.ActorID, "updated", "links",
+			"", "", "Changed the group links", nil)
 	}
 	count, err := s.store.CountAgentGroupMembers(ctx, groupID)
 	if err != nil {
@@ -872,8 +898,10 @@ func (s *Service) GroupProjects(ctx context.Context, groupID int64) ([]GroupProj
 			ID:          row.ID,
 			Name:        row.Name,
 			Slug:        row.Slug,
-			Prefix:      row.Prefix,
+			Prefix:      projects.NormalizePrefix(row.Slug),
 			Description: row.Description,
+			Emoji:       row.Emoji,
+			Links:       actorprofile.DecodeLinks(row.Links),
 		}
 		if row.ArchivedAt.Valid {
 			project.ArchivedAt = time.UnixMilli(row.ArchivedAt.Int64)
@@ -1394,6 +1422,8 @@ func toGroup(row store.AgentGroup, memberCount int64) Group {
 		Name:                row.Name,
 		Slug:                row.Slug,
 		Description:         row.Description,
+		Emoji:               row.Emoji,
+		Links:               actorprofile.DecodeLinks(row.Links),
 		PictureAttachmentID: row.PictureAttachmentID.Int64,
 		ArchivedAt:          nullTime(row.ArchivedAt),
 		CreatedAt:           time.UnixMilli(row.CreatedAt),
@@ -1404,14 +1434,14 @@ func toGroup(row store.AgentGroup, memberCount int64) Group {
 
 func toGroupRow(row store.ListAgentGroupsRow) Group {
 	return groupFrom(
-		row.ID, row.Name, row.Slug, row.Description,
+		row.ID, row.Name, row.Slug, row.Description, row.Emoji, row.Links,
 		row.PictureAttachmentID, row.ArchivedAt,
 		row.CreatedAt, row.UpdatedAt, row.MemberCount,
 	)
 }
 
 func groupFrom(
-	id int64, name, slug, description string,
+	id int64, name, slug, description, emoji, links string,
 	picture, archived sql.NullInt64,
 	createdAt, updatedAt, memberCount int64,
 ) Group {
@@ -1420,6 +1450,8 @@ func groupFrom(
 		Name:                name,
 		Slug:                slug,
 		Description:         description,
+		Emoji:               emoji,
+		Links:               actorprofile.DecodeLinks(links),
 		PictureAttachmentID: picture.Int64,
 		ArchivedAt:          nullTime(archived),
 		CreatedAt:           time.UnixMilli(createdAt),
@@ -1494,4 +1526,16 @@ func (s *Service) uniqueSlug(ctx context.Context, candidate string, selfID int64
 		candidate = fmt.Sprintf("%s-%d", base, n)
 	}
 	return "", ErrSlugInUse
+}
+
+func sameLinks(a, b []actorprofile.Link) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

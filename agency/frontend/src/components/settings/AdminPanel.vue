@@ -259,24 +259,35 @@ Tabs(v-model="tab")
           CardDescription
             | {{ $t("admin.agents.registerHint") }}
         CardContent
-          form.flex.flex-wrap.items-end.gap-2(@submit.prevent="createAgent")
-            Field.w-56
+          form.flex.flex-col.gap-4(@submit.prevent="createAgent")
+            Field
+              FieldLabel {{ $t("projectSettings.general.picture") }}
+              PicturePicker(
+                v-model="agentPicture"
+                :fallback="agentPictureFallback"
+                :alt="$t('admin.agents.pictureAlt')"
+              )
+            Field
               FieldLabel(for="admin-agent-username") {{ $t("common.username") }}
               Input#admin-agent-username(
                 v-model="agentUsername"
                 :placeholder="$t('admin.agents.usernamePlaceholder')"
                 autocomplete="off"
               )
-            Field.w-56
+            Field
               FieldLabel(for="admin-agent-name") {{ $t("admin.agents.displayName") }}
               Input#admin-agent-name(v-model="agentDisplayName")
-            Button(
-              type="submit"
-              :disabled="creatingAgent || !agentUsername.trim()"
-            )
-              Spinner(v-if="creatingAgent" data-icon="inline-start")
-              PlusIcon(v-else data-icon="inline-start")
-              span {{ $t("admin.agents.registerSubmit") }}
+            Field
+              FieldLabel(for="admin-agent-description") {{ $t("common.description") }}
+              Textarea#admin-agent-description(v-model="agentDescription")
+            .flex.justify-end
+              Button(
+                type="submit"
+                :disabled="creatingAgent || !agentUsername.trim()"
+              )
+                Spinner(v-if="creatingAgent" data-icon="inline-start")
+                PlusIcon(v-else data-icon="inline-start")
+                span {{ $t("admin.agents.registerSubmit") }}
           Alert.mt-4(v-if="agentToken")
             AlertTitle {{ $t("admin.agents.tokenTitle") }}
             AlertDescription
@@ -336,9 +347,10 @@ Tabs(v-model="tab")
 </template>
 
 <script setup lang="ts">
-import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
+import PicturePicker from "@/components/attachments/PicturePicker.vue";
 import AdminActivityCard from "@/components/settings/AdminActivityCard.vue";
 import EventsPanel from "@/components/settings/EventsPanel.vue";
+import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -369,6 +381,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useAgents } from "@/composables/useAgents";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
@@ -385,7 +398,8 @@ import {
   SendIcon,
   Trash2Icon,
 } from "@lucide/vue";
-import { onMounted, ref } from "vue";
+import { toSvg } from "jdenticon";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import { toast } from "vue3-toastify";
@@ -427,7 +441,12 @@ const {
 } = useAgents();
 const agentUsername = ref("");
 const agentDisplayName = ref("");
+const agentDescription = ref("");
+const agentPicture = ref<File>();
 const creatingAgent = ref(false);
+const agentPictureFallback = computed(() =>
+  toSvg(agentUsername.value.trim() || "agent", 48),
+);
 const agentToken = ref("");
 
 async function loadUsers() {
@@ -571,11 +590,25 @@ async function createAgent() {
       agency.createAgent({
         username: agentUsername.value.trim(),
         displayName: agentDisplayName.value.trim(),
+        description: agentDescription.value.trim(),
       }),
     );
+    if (agentPicture.value) {
+      try {
+        await agency.uploadAttachment({
+          file: agentPicture.value,
+          filename: agentPicture.value.name,
+          agentId: result.agent.id,
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    }
     agentToken.value = result.token;
     agentUsername.value = "";
     agentDisplayName.value = "";
+    agentDescription.value = "";
+    agentPicture.value = undefined;
     await refreshAgents();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
@@ -624,6 +657,7 @@ en:
       registerHint: "A personal access token and a legacy tunnel credential are shown once."
       displayName: "Display name"
       registerSubmit: "Register"
+      pictureAlt: "Agent picture"
       tokenTitle: "Personal access token generated"
       tokenHint: "Copy the token now — it is shown only once. Set it as CHERRYPI_AGENT_TOKEN on the agent."
       description: "Presence is live while an agent's tunnel is connected."
@@ -685,6 +719,7 @@ ru:
       registerHint: "Персональный токен доступа и устаревшие учётные данные туннеля показываются один раз."
       displayName: "Отображаемое имя"
       registerSubmit: "Зарегистрировать"
+      pictureAlt: "Изображение агента"
       tokenTitle: "Персональный токен доступа создан"
       tokenHint: "Скопируйте токен сейчас — он показывается только один раз. Задайте его как CHERRYPI_AGENT_TOKEN на агенте."
       description: "Присутствие активно, пока подключён туннель агента."

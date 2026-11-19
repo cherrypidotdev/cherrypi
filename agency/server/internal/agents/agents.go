@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/store"
@@ -76,6 +77,8 @@ type Agent struct {
 	Username    string
 	DisplayName string
 	Description string
+	Emoji       string
+	Links       []actorprofile.Link
 
 	Role            string
 	Status          Status
@@ -244,7 +247,8 @@ func (r *Registry) SetPromptAutoApprove(
 func (r *Registry) Update(
 	ctx context.Context,
 	id ids.AgentID,
-	displayName, description string,
+	displayName, description, emoji string,
+	links []actorprofile.Link,
 ) (Agent, error) {
 	displayName = strings.TrimSpace(displayName)
 	row, err := r.store.GetAgent(ctx, id)
@@ -257,9 +261,22 @@ func (r *Registry) Update(
 	if displayName == "" {
 		displayName = row.Name
 	}
+	emoji, err = actorprofile.NormalizeEmoji(emoji)
+	if err != nil {
+		return Agent{}, err
+	}
+	links, err = actorprofile.NormalizeLinks(links)
+	if err != nil {
+		return Agent{}, err
+	}
+	encoded, err := actorprofile.EncodeLinks(links)
+	if err != nil {
+		return Agent{}, err
+	}
 
 	updated, err := r.store.UpdateAgent(
-		ctx, id, displayName, strings.TrimSpace(description), time.Now().UnixMilli(),
+		ctx, id, displayName, strings.TrimSpace(description), emoji, encoded,
+		time.Now().UnixMilli(),
 	)
 	if err != nil {
 		return Agent{}, err
@@ -366,6 +383,8 @@ func (r *Registry) toAgent(row store.AgentRow) Agent {
 		Username:          row.Username,
 		DisplayName:       row.Name,
 		Description:       row.Description,
+		Emoji:             row.Emoji,
+		Links:             actorprofile.DecodeLinks(row.Links),
 		Role:              row.Role,
 		Status:            StatusOffline,
 		PromptAutoApprove: row.PromptAutoApprove,

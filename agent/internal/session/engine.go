@@ -520,7 +520,13 @@ func (s *Session) closeThinking(content string) {
 }
 
 func toolEvent(event agent.AgentEvent, phase ToolPhase) Event {
-	args, _ := json.Marshal(event.Args)
+
+	args := ""
+	if phase != ToolFinished && event.Args != nil {
+		if raw, err := json.Marshal(event.Args); err == nil {
+			args = string(raw)
+		}
+	}
 	result := ""
 	details := ""
 	if phase == ToolFinished {
@@ -540,7 +546,7 @@ func toolEvent(event agent.AgentEvent, phase ToolPhase) Event {
 			CallID:      event.ToolCallID,
 			Name:        event.ToolName,
 			Phase:       phase,
-			ArgsJSON:    string(args),
+			ArgsJSON:    args,
 			ResultJSON:  result,
 			DetailsJSON: details,
 			IsError:     event.IsError,
@@ -598,8 +604,44 @@ func (s *Session) finishRun(event agent.AgentEvent) {
 		}
 	}
 
-	s.emit(Event{Kind: EventRunSettled, At: time.Now()})
+	if errMsg == "" {
+		s.emit(Event{Kind: EventRunSettled, At: time.Now()})
+	}
 	s.settle(errMsg)
+}
+
+func (s *Session) runModel(
+	ctx context.Context,
+	provider, modelID string,
+) (*ai.Model, error) {
+	if s.cfg.Model != nil {
+		return s.cfg.Model, nil
+	}
+	return resolveModel(s.catalog(ctx), provider, modelID)
+}
+
+// line the numbers behind a refusal are not in any log.
+func (s *Session) logRunLimits(ctx context.Context) {
+	s.mu.Lock()
+	provider, modelID, level := s.modelProvider, s.model, s.thinkingLevel
+	s.mu.Unlock()
+	model, err := s.runModel(ctx, provider, modelID)
+	if err != nil || model == nil {
+		return
+	}
+	if level == "" {
+		level = string(coding.DefaultThinkingLevel)
+	}
+	slog.Info("run model limits",
+		"session_id", s.ID,
+		"task_id", s.agencyTaskID,
+		"provider", string(model.Provider),
+		"model", model.ID,
+		"thinking_level",
+		string(ai.ClampThinkingLevel(model, ai.ModelThinkingLevel(level))),
+		"context_window", model.ContextWindow,
+		"max_tokens", model.MaxTokens,
+	)
 }
 
 func (s *Session) recordRunUsage(usage ai.Usage) {
@@ -723,6 +765,7 @@ func (s *Session) promptEngine(ctx context.Context, text string, images []imageA
 		Timestamp: now,
 	}
 	s.setRunning(true)
+	s.logRunLimits(ctx)
 
 	prompts := append(s.beginPlanRun(), message)
 	if err := s.startRun(ctx, eng, prompts); err != nil {

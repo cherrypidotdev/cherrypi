@@ -18,6 +18,7 @@ syntax = "proto3";
 
 package agency.v1;
 
+import "agency/v1/actor.proto";
 import "agency/v1/attachments.proto";
 import "agency/v1/projects.proto";
 import "agency/v1/prompts.proto";
@@ -143,6 +144,11 @@ message AgentGroup {
   
   bool can_edit = 10;
   bool is_owner = 11;
+  
+  
+  string emoji = 12;
+  
+  repeated ActorLink links = 13;
 }
 
 message AgentGroupMember {
@@ -334,6 +340,10 @@ message UpdateAgentGroupRequest {
   
   string slug = 3;
   string description = 4;
+  
+  string emoji = 5;
+  
+  repeated ActorLink links = 6;
 }
 
 message UpdateAgentGroupResponse {

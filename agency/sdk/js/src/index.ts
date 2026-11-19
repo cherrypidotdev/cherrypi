@@ -122,6 +122,7 @@ export {
   AgentLogLevel,
   type CreateAgentInput,
   type AgentProjectPrompt,
+  type ActorLinkInput,
   type CreateProjectInput,
   type CreatePromptProposalInput,
   type ListPromptProposalsFilter,
@@ -171,6 +172,8 @@ export type {
   OrganizationModelRouting,
   ProjectModelRouting,
 } from "./gen/buf/agency/v1/model_routing_pb.js";
+
+export * from "./gen/buf/agency/v1/actor_pb.js";
 
 export * from "./gen/buf/agency/v1/attachments_pb.js";
 

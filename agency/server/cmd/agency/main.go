@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"cherrypi.vladfaust.com/agency/cmd/agency/appcontext"
 	"cherrypi.vladfaust.com/agency/cmd/agency/buildinfo"
@@ -180,6 +181,20 @@ func main() {
 	log.Println("Shutting down")
 	_ = server.Shutdown(context.Background())
 	_ = server.Close()
+	drainWebhooks(appCtx)
+}
+
+const webhookDrainTimeout = 5 * time.Second
+
+func drainWebhooks(appCtx *appcontext.AppContext) {
+	if appCtx == nil || appCtx.Webhooks == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), webhookDrainTimeout)
+	defer cancel()
+	if err := appCtx.Webhooks.Wait(ctx); err != nil {
+		log.Printf("Webhook deliveries still in flight at shutdown: %v", err)
+	}
 }
 
 func flushTelemetry(provider *telemetry.Provider) {

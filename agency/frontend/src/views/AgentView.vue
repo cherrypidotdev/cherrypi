@@ -25,12 +25,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :fallback="{ to: { name: 'agents' }, label: 'Agents' }"
         )
         span.relative.shrink-0
-          img.block.size-10.rounded-full.object-cover(
-            v-if="item?.picture"
-            :src="item.picture.url"
-            :alt="$t('settings.auth.namePlaceholderPath')"
+          ActorAvatar(
+            :src="item?.picture?.url"
+            :emoji="item?.emoji"
+            :name="name"
+            :size="40"
+            :fallback-html="avatar"
           )
-          span.block.size-10(v-else :innerHTML="avatar")
           AgentStatusDot(
             size="md"
             :status="item?.status"
@@ -55,6 +56,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         .flex.flex-col.gap-3
           p.text-muted-foreground.max-w-2xl.text-sm(v-if="item?.description")
             | {{ item.description }}
+          ActorLinks(:links="item?.links")
           .flex.flex-wrap.items-center.gap-2(v-if="item")
             span.text-muted-foreground.text-xs.font-medium {{ $t("agentView.binary") }}
             Badge(variant="outline" :class="agentStatusClass(item.status)") {{ agentStatusLabel(item.status) }}
@@ -155,6 +157,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorLinks from "@/components/actor/ActorLinks.vue";
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import AgentStatusDot from "@/components/AgentStatusDot.vue";
 import BackButton from "@/components/BackButton.vue";
 import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";

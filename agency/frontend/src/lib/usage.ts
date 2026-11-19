@@ -169,18 +169,23 @@ export function summarizeTaskInsights(
 
 export interface LiveUsageTiming {
   activeMs: number;
+  toolMs: number;
   thinkingMs: number;
   modelWaitMs: number;
 }
 
 export function tickUsage(
-  base: Pick<LiveUsageTiming, "activeMs" | "thinkingMs" | "modelWaitMs">,
+  base: Pick<
+    LiveUsageTiming,
+    "activeMs" | "toolMs" | "thinkingMs" | "modelWaitMs"
+  >,
   elapsedMs: number,
   live: { toolRunning: boolean; modelWaiting: boolean },
 ): LiveUsageTiming {
   const elapsed = Math.max(0, elapsedMs);
   return {
     activeMs: base.activeMs + elapsed,
+    toolMs: base.toolMs + (live.toolRunning ? elapsed : 0),
     thinkingMs:
       base.thinkingMs + (live.toolRunning || live.modelWaiting ? 0 : elapsed),
     modelWaitMs: base.modelWaitMs + (live.modelWaiting ? elapsed : 0),

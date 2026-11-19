@@ -229,6 +229,8 @@ type Session struct {
 
 	dialogs map[string]chan ExtensionResponse
 
+	dialogTimeout time.Duration
+
 	liveInput      int64
 	liveOutput     int64
 	liveCacheRead  int64
@@ -1294,6 +1296,9 @@ func (s *Session) emit(ev Event) {
 	}
 
 	switch ev.Kind {
+	case EventModelWait:
+		s.queueTranscriptEvents()
+		s.enqueueEvent(TaskEventProto(s.ID, ev), eventKind(ev))
 	case EventStatus, EventRunStarted, EventRunSettled, EventThinkingSpan:
 		s.enqueueEvent(TaskEventProto(s.ID, ev), eventKind(ev))
 	}

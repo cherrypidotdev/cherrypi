@@ -15,26 +15,32 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 -- name: CreateProject :one
-INSERT INTO projects (id, name, slug, prefix, description, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO projects (id, name, slug, description, emoji, links, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetProject :one
 SELECT * FROM projects WHERE id = $1;
 
 -- name: GetProjectBySlug :one
-SELECT * FROM projects WHERE slug = $1;
-
--- name: GetProjectByPrefix :one
-SELECT * FROM projects WHERE prefix = $1;
+SELECT * FROM projects WHERE lower(slug) = lower($1);
 
 -- name: ListProjects :many
 SELECT * FROM projects ORDER BY created_at ASC;
 
 -- name: UpdateProject :one
 UPDATE projects
-SET name = $1, description = $2, prefix = $3, updated_at = $4
-WHERE id = $5
+SET name = $1,
+    slug = $2,
+    description = $3,
+    emoji = $4,
+    links = $5,
+    picture_attachment_id = CASE
+      WHEN $4 <> '' THEN NULL
+      ELSE picture_attachment_id
+    END,
+    updated_at = $6
+WHERE id = $7
 RETURNING *;
 
 -- name: AllocateTaskNumber :one

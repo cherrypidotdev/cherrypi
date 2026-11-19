@@ -55,7 +55,13 @@ ORDER BY g.id;
 -- name: UpdateAgentGroup :one
 UPDATE agent_groups
 SET name = sqlc.arg(name), slug = sqlc.arg(slug),
-    description = sqlc.arg(description), updated_at = sqlc.arg(updated_at)
+    description = sqlc.arg(description), emoji = sqlc.arg(emoji),
+    links = sqlc.arg(links),
+    picture_attachment_id = CASE
+      WHEN sqlc.arg(emoji) <> '' THEN NULL
+      ELSE picture_attachment_id
+    END,
+    updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
@@ -68,6 +74,7 @@ RETURNING *;
 -- name: SetAgentGroupPicture :exec
 UPDATE agent_groups
 SET picture_attachment_id = sqlc.arg(picture_attachment_id),
+    emoji = '',
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
@@ -316,12 +323,12 @@ reach AS (
   JOIN project_ancestors pa ON pa.ancestor_id = r.project_id
 )
 SELECT
-  p.id, p.name, p.slug, p.prefix, p.description, p.archived_at,
+  p.id, p.name, p.slug, p.description, p.emoji, p.links, p.archived_at,
   p.parent_project_id, p.created_at, p.updated_at, p.archive_after_days,
   COUNT(DISTINCT reach.actor_id) AS member_count
 FROM projects p
 JOIN reach ON reach.project_id = p.id
-GROUP BY p.id, p.name, p.slug, p.prefix, p.description, p.archived_at,
+GROUP BY p.id, p.name, p.slug, p.description, p.emoji, p.links, p.archived_at,
   p.parent_project_id, p.created_at, p.updated_at, p.archive_after_days
 ORDER BY lower(p.name);
 

@@ -35,6 +35,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           Field
             FieldLabel(for="group-settings-description") {{ t("common.description") }}
             Input#group-settings-description(v-model="description")
+          Field
+            FieldLabel {{ t("actor.emoji.label") }}
+            ActorEmojiField(v-model="emoji")
+            p.text-muted-foreground.text-xs {{ t("actor.emoji.hint") }}
+          Field
+            FieldLabel {{ t("actor.links.title") }}
+            ActorLinksField(v-model="links")
         p.text-destructive.text-sm(v-if="saveError") {{ saveError }}
         .flex.justify-end
           Button(type="submit" :disabled="saving || !name.trim()")
@@ -132,6 +139,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
 import ActorBadge from "@/components/ActorBadge.vue";
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import { Badge } from "@/components/ui/badge";
@@ -151,7 +160,11 @@ import { useAgentGroups } from "@/composables/useAgentGroups";
 import { useUsers } from "@/composables/useUsers";
 import { formatTimestamp } from "@/lib/format";
 import { agency } from "@/lib/sdk";
-import type { AgentGroupLog, AgentGroupOwner } from "@cherrypi/sdk";
+import type {
+  ActorLinkInput,
+  AgentGroupLog,
+  AgentGroupOwner,
+} from "@cherrypi/sdk";
 import { ArchiveIcon, CheckIcon, PlusIcon } from "@lucide/vue";
 import {
   computed,
@@ -182,6 +195,8 @@ const archiving = ref(false);
 const name = ref("");
 const slugInput = ref("");
 const description = ref("");
+const emoji = ref("");
+const links = ref<ActorLinkInput[]>([]);
 const saving = ref(false);
 const saveError = ref("");
 
@@ -203,6 +218,8 @@ function syncForm() {
   name.value = current.name;
   slugInput.value = current.slug;
   description.value = current.description;
+  emoji.value = current.emoji ?? "";
+  links.value = [...(current.links ?? [])];
 }
 
 async function load() {
@@ -258,6 +275,8 @@ async function save() {
       name: name.value.trim(),
       slug: slugInput.value.trim() || undefined,
       description: description.value.trim(),
+      emoji: emoji.value,
+      links: links.value,
     });
     toast.success(t("groups.settings.toasts.saved"));
     if (updated.slug !== current.slug) {

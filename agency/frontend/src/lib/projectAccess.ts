@@ -82,6 +82,7 @@ export interface ProjectRef {
   name: string;
   slug: string;
   prefix: string;
+  emoji?: string;
   description: string;
   parent_id: string;
   archived: boolean;

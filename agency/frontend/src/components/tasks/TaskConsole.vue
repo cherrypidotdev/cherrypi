@@ -414,6 +414,7 @@ import {
 } from "@/lib/task";
 import {
   PendingActivity_Kind,
+  TaskStatus,
   ToolPhase,
   type Agent,
   type AgentUsageRun,
@@ -1657,6 +1658,14 @@ function applyEvent(event: TaskEvent) {
       interruptOpenTools(timestampMs(event.at));
       clearPending();
       break;
+    case "statusChanged": {
+      const status = payload.value.status;
+      if (status === TaskStatus.FAILED || status === TaskStatus.DONE) {
+        interruptOpenTools(timestampMs(event.at));
+        clearPending();
+      }
+      break;
+    }
     case "pendingActivity": {
       pendingFromStream.value = true;
       const state = payload.value;

@@ -40,14 +40,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           class="hover:bg-muted/50"
           :to="{ name: 'user', params: { username: person.username } }"
         )
-          img.size-10.shrink-0.rounded-full.object-cover(
-            v-if="person.picture"
-            :src="person.picture.url"
-            :alt="person.name || person.username"
-          )
-          span.size-10.shrink-0.rounded-full(
-            v-else
-            :innerHTML="avatar(person)"
+          ActorAvatar(
+            :src="person.picture?.url"
+            :emoji="person.emoji"
+            :name="person.name || person.username"
+            :size="40"
+            :fallback-html="avatar(person)"
           )
           .flex.min-w-0.flex-col
             .flex.items-center(class="gap-1.5")
@@ -60,6 +58,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,

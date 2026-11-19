@@ -31,6 +31,8 @@ type AgentRow struct {
 	Username            string
 	Name                string
 	Description         string
+	Emoji               string
+	Links               string
 	Role                string
 	PictureAttachmentID sql.NullInt64
 	CreatedAt           int64
@@ -41,7 +43,7 @@ type AgentRow struct {
 
 func toAgentRow(
 	id, actorID int64,
-	username, name, description, role string,
+	username, name, description, emoji, links, role string,
 	picture sql.NullInt64,
 	createdAt, updatedAt int64,
 	lastSeen sql.NullInt64,
@@ -54,6 +56,8 @@ func toAgentRow(
 		Role:                role,
 		Name:                name,
 		Description:         description,
+		Emoji:               emoji,
+		Links:               links,
 		PictureAttachmentID: picture,
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,

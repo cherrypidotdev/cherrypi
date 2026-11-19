@@ -4928,6 +4928,8 @@ func (s *Service) TaskIDBySession(
 	return id, nil
 }
 
+const RunFailedReason = "the agent's run failed"
+
 func (s *Service) FailBySession(
 	ctx context.Context,
 	agentID ids.AgentID,
@@ -4942,20 +4944,29 @@ func (s *Service) FailBySession(
 		before, _ = s.snapshot(ctx, id)
 	}
 	now := time.Now().UnixMilli()
-	_, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:     store.TaskFailBySession,
 		Error:     errMsg,
 		SettledAt: sql.NullInt64{Int64: now, Valid: true},
 		UpdatedAt: now,
 		AgentID:   agentID,
 		SessionID: sessionID,
+		NotBefore: sql.NullInt64{
+			Int64: now - SettleGrace.Milliseconds(),
+			Valid: true,
+		},
 	})
-	if err != nil || idErr != nil {
+	if err != nil {
 		return err
 	}
-	if after, err := s.snapshot(ctx, id); err == nil {
-		s.logChanges(ctx, before, after)
+	if n == 0 || idErr != nil {
+		return nil
 	}
+	after, err := s.snapshot(ctx, id)
+	if err != nil {
+		return nil
+	}
+	s.logChanges(ctx, before, after)
 	return nil
 }
 

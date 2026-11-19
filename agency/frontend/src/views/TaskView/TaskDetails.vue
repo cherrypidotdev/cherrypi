@@ -525,6 +525,10 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           Skeleton.h-3.w-16(v-if="!taskUsage")
           span.font-medium.tabular-nums(v-else) {{ formatDuration(activeMs) }}
         .flex.items-baseline.justify-between.gap-3
+          span.text-muted-foreground(:title="$t('taskDetails.usage.toolHint')") {{ $t("taskDetails.usage.tool") }}
+          Skeleton.h-3.w-16(v-if="!taskUsage")
+          span.font-medium.tabular-nums(v-else) {{ measured(toolTotalMs) }}
+        .flex.items-baseline.justify-between.gap-3
           span.text-muted-foreground(
             :title="$t('taskDetails.usage.thinkingHint')"
           ) {{ $t("taskDetails.usage.thinking") }}
@@ -1072,6 +1076,7 @@ const cacheTokens = computed(
     Number(props.taskUsage?.cacheReadTokens ?? 0) +
     Number(props.taskUsage?.cacheWriteTokens ?? 0),
 );
+const toolMs = computed(() => Number(props.taskUsage?.toolMs ?? 0));
 const thinkingMs = computed(() => Number(props.taskUsage?.thinkingMs ?? 0));
 
 const usageFetchedAt = ref(Date.now());
@@ -1088,6 +1093,7 @@ const liveUsage = computed(() =>
   tickUsage(
     {
       activeMs: Number(props.taskUsage?.activeMs ?? 0),
+      toolMs: toolMs.value,
       thinkingMs: thinkingMs.value,
       modelWaitMs: modelWaitMs.value,
     },
@@ -1099,6 +1105,7 @@ const liveUsage = computed(() =>
   ),
 );
 const activeMs = computed(() => liveUsage.value.activeMs);
+const toolTotalMs = computed(() => liveUsage.value.toolMs);
 const thinkingTotalMs = computed(() => liveUsage.value.thinkingMs);
 const modelWaitTotalMs = computed(() => liveUsage.value.modelWaitMs);
 watch(
@@ -1292,12 +1299,14 @@ en:
       totalCost: "Total cost"
       ttc: "Time till completion"
       active: "Active time"
+      tool: "Tool call time"
       thinking: "Thinking time"
       modelWait: "Model wait"
       speed: "Generation speed"
       workspace: "Workspace size"
       ttcHint: "Time from the first queue to completion. Keeps counting while the task is open and stops in backlog."
       activeHint: "The agent's work time: idle gaps and user-input waits excluded, tool calls included."
+      toolHint: "The time the agent spent running tools: file edits, shell commands, searches and the like."
       thinkingHint: "The model's own working time: active time minus tool calls and provider waits."
       modelWaitHint: "The time spent waiting for a provider response."
       speedHint: "Output tokens over the time the model spent generating them: thinking time."
@@ -1377,12 +1386,14 @@ ru:
       totalCost: "Общая стоимость"
       ttc: "Время до завершения"
       active: "Активное время"
+      tool: "Время вызовов инструментов"
       thinking: "Время размышления"
       modelWait: "Ожидание модели"
       speed: "Скорость генерации"
       workspace: "Размер рабочего пространства"
       ttcHint: "Время от первой постановки в очередь до завершения. Считается, пока задача открыта, и останавливается в бэклоге."
       activeHint: "Рабочее время агента: без простоев и ожидания пользователя, включая вызовы инструментов."
+      toolHint: "Время, которое агент провёл за вызовами инструментов: правки файлов, команды оболочки, поиск и т. п."
       thinkingHint: "Собственное рабочее время модели: активное время минус вызовы инструментов и ожидание провайдера."
       modelWaitHint: "Время, потраченное на ожидание ответа провайдера."
       speedHint: "Выходные токены за время генерации: время размышления."

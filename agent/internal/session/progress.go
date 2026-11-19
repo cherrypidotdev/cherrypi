@@ -168,22 +168,15 @@ func (s *Session) beforeToolCall(
 
 	s.mu.Lock()
 	s.enterPlanBlockLocked(c.AssistantMessage)
-
 	if c.ToolCall.Name == planToolName {
+
 		s.progressForceToolChoice = false
-		s.mu.Unlock()
-		return nil
-	}
-	covered := s.progressBlockCovered
-	if !covered {
+	} else if !s.progressBlockCovered {
 
 		s.progressForceToolChoice = true
 	}
 	s.mu.Unlock()
-	if covered {
-		return nil
-	}
-	return planGateBlock()
+	return nil
 }
 
 func (s *Session) enterPlanBlockLocked(message *ai.AssistantMessage) {
@@ -269,18 +262,6 @@ func messageEndsWithText(message *ai.AssistantMessage) bool {
 }
 
 const planToolName = "reportTaskProgress"
-
-func planGateBlock() *agent.BeforeToolCallResult {
-	return &agent.BeforeToolCallResult{
-		Block: true,
-		Reason: "Plan reminder: this activity block must begin with " +
-			"`reportTaskProgress`. Call it first with the complete list " +
-			"(3–8 ordered items, mark finished ones `done` and the current one " +
-			"`in_progress`), then continue the block; one plan covers the rest " +
-			"of the block, so do not call it again until the next block." +
-			carryOn,
-	}
-}
 
 func (s *Session) shouldContinueBeforeSettle() (ai.Message, bool) {
 	progress := s.progressState()

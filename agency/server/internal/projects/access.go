@@ -17,6 +17,7 @@
 package projects
 
 import (
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"context"
 	"database/sql"
@@ -404,8 +405,10 @@ func (s *Service) ListAgentMemberships(
 				ID:          row.ID,
 				Name:        row.Name,
 				Slug:        row.Slug,
-				Prefix:      row.Prefix,
+				Prefix:      NormalizePrefix(row.Slug),
 				Description: row.Description,
+				Emoji:       row.Emoji,
+				Links:       actorprofile.DecodeLinks(row.Links),
 				ParentID:    row.ParentProjectID.String,
 				CreatedAt:   time.UnixMilli(row.CreatedAt),
 				UpdatedAt:   time.UnixMilli(row.UpdatedAt),

@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	pgdb "cherrypi.vladfaust.com/agency/internal/gen/pg"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -196,7 +197,7 @@ func (s *PgStore) GetUserByActor(ctx context.Context, actorID ids.ActorID) (User
 	}
 	return userRowFrom(
 		row.ID, row.ActorID, row.Username, row.Name, row.Description,
-		row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+		row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 		row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 		row.CreatedAt, row.UpdatedAt,
 	), nil
@@ -209,7 +210,7 @@ func (s *PgStore) GetUserByUsername(ctx context.Context, username string) (UserR
 	}
 	return userRowFrom(
 		row.ID, row.ActorID, row.Username, row.Name, row.Description,
-		row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+		row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 		row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 		row.CreatedAt, row.UpdatedAt,
 	), nil
@@ -224,7 +225,7 @@ func (s *PgStore) ListUsers(ctx context.Context) ([]UserRow, error) {
 	for i, row := range rows {
 		out[i] = userRowFrom(
 			row.ID, row.ActorID, row.Username, row.Name, row.Description,
-			row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
+			row.Emoji, row.Links, row.PictureAttachmentID, row.Role, row.Status, row.LastLoginAt,
 			row.MustChangePassword != 0, row.PasswordHash, row.TotpEnabledAt,
 			row.CreatedAt, row.UpdatedAt,
 		)
@@ -477,9 +478,21 @@ func (s *PgStore) GetAgent(ctx context.Context, id ids.AgentID) (AgentRow, error
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *PgStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (AgentRow, error) {
@@ -487,9 +500,21 @@ func (s *PgStore) GetAgentByActor(ctx context.Context, actorID ids.ActorID) (Age
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *PgStore) GetAgentByUsername(ctx context.Context, username string) (AgentRow, error) {
@@ -497,9 +522,21 @@ func (s *PgStore) GetAgentByUsername(ctx context.Context, username string) (Agen
 	if err != nil {
 		return AgentRow{}, err
 	}
-	return toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-		row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-		row.PromptAutoApprove != 0), nil
+	return toAgentRow(
+		row.ID,
+		row.ActorID,
+		row.Username,
+		row.Name,
+		row.Description,
+		row.Emoji,
+		row.Links,
+		row.Role,
+		row.PictureAttachmentID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.LastSeenAt,
+		row.PromptAutoApprove != 0,
+	), nil
 }
 
 func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
@@ -509,9 +546,21 @@ func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 	}
 	out := make([]AgentRow, len(rows))
 	for i, row := range rows {
-		out[i] = toAgentRow(row.ID, row.ActorID, row.Username, row.Name, row.Description, row.Role,
-			row.PictureAttachmentID, row.CreatedAt, row.UpdatedAt, row.LastSeenAt,
-			row.PromptAutoApprove != 0)
+		out[i] = toAgentRow(
+			row.ID,
+			row.ActorID,
+			row.Username,
+			row.Name,
+			row.Description,
+			row.Emoji,
+			row.Links,
+			row.Role,
+			row.PictureAttachmentID,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.LastSeenAt,
+			row.PromptAutoApprove != 0,
+		)
 	}
 	return out, nil
 }
@@ -519,12 +568,14 @@ func (s *PgStore) ListAgents(ctx context.Context) ([]AgentRow, error) {
 func (s *PgStore) UpdateAgent(
 	ctx context.Context,
 	id ids.AgentID,
-	name, description string,
+	name, description, emoji, links string,
 	updatedAt int64,
 ) (AgentRow, error) {
 	if err := s.q.UpdateAgent(ctx, pgdb.UpdateAgentParams(UpdateAgentParams{
 		Name:        name,
 		Description: description,
+		Emoji:       emoji,
+		Links:       links,
 		UpdatedAt:   updatedAt,
 		ID:          int64(id),
 	})); err != nil {
@@ -578,7 +629,7 @@ func (s *PgStore) UpdateProject(
 		if !renameTasks {
 			return nil
 		}
-		return s.renameProjectTaskIDs(ctx, q, p.ID, p.Prefix)
+		return s.renameProjectTaskIDs(ctx, q, p.ID, strings.ToUpper(p.Slug))
 	})
 	return row, err
 }
@@ -981,8 +1032,9 @@ func (s *PgStore) RegisterAgent(
 				return err
 			}
 		}
-		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description, row.Role,
-			sql.NullInt64{}, p.CreatedAt, p.UpdatedAt, sql.NullInt64{}, false)
+		out = toAgentRow(row.ID, row.ActorID, p.Username, p.DisplayName, p.Description,
+			"", "", row.Role, sql.NullInt64{}, p.CreatedAt, p.UpdatedAt,
+			sql.NullInt64{}, false)
 		return nil
 	})
 	return out, err
@@ -1131,6 +1183,7 @@ func (s *PgStore) TransitionTask(
 			UpdatedAt: p.UpdatedAt,
 			AgentID:   int64(p.AgentID),
 			SessionID: p.SessionID,
+			NotBefore: p.NotBefore,
 		}))
 	case TaskRequeue:
 		return s.q.RequeueTask(ctx, pgdb.RequeueTaskParams(RequeueTaskParams{

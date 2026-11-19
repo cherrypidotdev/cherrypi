@@ -318,7 +318,6 @@ type Store interface {
 		ctx context.Context,
 		p GetProjectActorGrantParams,
 	) (ProjectActorMembership, error)
-	GetProjectByPrefix(ctx context.Context, prefix string) (Project, error)
 	GetProjectBySlug(ctx context.Context, slug string) (Project, error)
 	GetProjectParent(ctx context.Context, childID string) (Project, error)
 	GetProjectParentInvitation(ctx context.Context, id int64) (ProjectParentInvitation, error)
@@ -859,6 +858,8 @@ type Store interface {
 		id ids.AgentID,
 		name string,
 		description string,
+		emoji string,
+		links string,
 		updatedAt int64,
 	) (AgentRow, error)
 	SetAgentRole(ctx context.Context, id ids.AgentID, role string) error

@@ -18,6 +18,7 @@ import {
   CSRF_COOKIE,
   CSRF_HEADER,
   readCookie,
+  type ActorLinkInput,
   type Attachment,
 } from "@cherrypi/sdk";
 import { ref } from "vue";
@@ -38,6 +39,10 @@ export interface AccountActor {
   last_login_at?: string;
 
   picture?: Attachment;
+
+  emoji?: string;
+
+  links?: ActorLinkInput[];
 }
 
 export interface DirectoryTeam {
@@ -368,11 +373,13 @@ export const accountApi = {
   async updateProfile(
     name: string,
     description: string,
+    emoji = "",
+    links: ActorLinkInput[] = [],
   ): Promise<AccountActor> {
     const res = await request<{ actor: AccountActor }>(
       "POST",
       `${ACCOUNT}/profile`,
-      { name, description },
+      { name, description, emoji, links },
     );
     currentAccount.value = res.actor;
     return res.actor;
@@ -567,7 +574,14 @@ export const accountApi = {
 
   async updateUser(
     id: number,
-    patch: { role?: string; status?: string; name?: string },
+    patch: {
+      role?: string;
+      status?: string;
+      name?: string;
+      description?: string;
+      emoji?: string;
+      links?: ActorLinkInput[];
+    },
   ): Promise<{ user: AdminUser }> {
     return request("PATCH", `${ACCOUNT}/users/${id}`, patch);
   },

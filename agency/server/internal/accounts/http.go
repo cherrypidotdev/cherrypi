@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/actorprofile"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/auth"
@@ -572,8 +573,10 @@ type changePasswordRequest struct {
 }
 
 type profileRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Emoji       string              `json:"emoji"`
+	Links       []actorprofile.Link `json:"links"`
 }
 
 func (h *Handler) preferences(w http.ResponseWriter, r *http.Request, identity auth.Identity) {
@@ -641,6 +644,8 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request, identity
 		identity.ActorID,
 		in.Name,
 		in.Description,
+		in.Emoji,
+		in.Links,
 	); err != nil {
 		writeAccountError(w, err)
 		return
@@ -949,6 +954,8 @@ func actorBaseJSON(a Actor) map[string]any {
 		"username":             a.Username,
 		"name":                 a.Name,
 		"description":          a.Description,
+		"emoji":                a.Emoji,
+		"links":                a.Links,
 		"password_set":         a.PasswordSet,
 		"totp_enabled":         a.TOTPEnabled,
 		"must_change_password": a.MustChangePassword,

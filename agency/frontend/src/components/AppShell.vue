@@ -187,12 +187,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :class="[isAgentActive(item.username) ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : '']"
           )
             span.relative.shrink-0
-              img.block.size-5.rounded-full.object-cover(
-                v-if="item.picture"
-                :src="item.picture.url"
-                :alt="item.displayName || item.username"
+              ActorAvatar(
+                :src="item.picture?.url"
+                :emoji="item.emoji"
+                :name="item.displayName || item.username"
+                :size="20"
+                :fallback-html="avatar(item)"
               )
-              span.block.size-5(v-else :innerHTML="avatar(item)")
               AgentStatusDot(
                 border-class="border-sidebar"
                 :status="item.status"
@@ -278,28 +279,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :title="collapsed ? person.name || person.username : undefined"
             :class="[isUserActive(person.username) ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : '']"
           )
-            span.relative.shrink-0
-              img.block.size-5.rounded-full.object-cover(
-                v-if="person.pictureUrl"
-                :src="person.pictureUrl"
-                :alt="person.name || person.username"
-              )
-              span.block.size-5(v-else :innerHTML="person.avatar")
+            ActorAvatar(
+              :src="person.pictureUrl"
+              :emoji="person.emoji"
+              :name="person.name || person.username"
+              :size="20"
+              :fallback-html="person.avatar"
+            )
             span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ person.name || person.username }}
 
     .flex.shrink-0.flex-col.border-t(
       :class="collapsed ? 'items-center gap-1 px-1.5 py-2' : 'gap-2 p-2'"
     )
       .flex.w-full.items-center.gap-2(:class="collapsed ? 'flex-col' : ''")
-        img.block.size-8.shrink-0.rounded-full.object-cover(
-          v-if="currentAccount?.picture"
-          :src="currentAccount.picture.url"
-          :alt="displayName"
-          :title="collapsed ? displayName : undefined"
-        )
-        span.block.size-8.shrink-0(
-          v-else
-          :innerHTML="userAvatar"
+        ActorAvatar(
+          :src="currentAccount?.picture?.url"
+          :emoji="currentAccount?.emoji"
+          :name="displayName"
+          :size="32"
+          :fallback-html="userAvatar"
           :title="collapsed ? displayName : undefined"
         )
         .flex.min-w-0.flex-1.flex-col(v-if="!collapsed")
@@ -580,6 +578,7 @@ interface SidebarUser {
   username: string;
   name: string;
   pictureUrl?: string;
+  emoji?: string;
   avatar: string;
 }
 
@@ -607,6 +606,7 @@ const sidebarUsers = computed(() => {
         username: person.username,
         name: person.name,
         pictureUrl: undefined,
+        emoji: undefined,
         avatar: toSvg(person.username || person.actor_id, 20),
       },
     ]),
@@ -628,6 +628,7 @@ function sidebarUser(person: AccountActor): SidebarUser {
     username: person.username,
     name: person.name,
     pictureUrl: person.picture?.url,
+    emoji: person.emoji,
     avatar: toSvg(person.username || String(person.id), 20),
   };
 }
@@ -901,6 +902,7 @@ en:
     cancelled: "Cancelled"
     unknown: "Unknown"
   projectStatus:
+    failed: "Failed"
     input: "Input required"
     running: "Running"
     settled: "Settled"
@@ -1220,6 +1222,7 @@ ru:
     cancelled: "Отменена"
     unknown: "Неизвестно"
   projectStatus:
+    failed: "Ошибка"
     input: "Нужен ввод"
     running: "Выполняется"
     settled: "Завершён"

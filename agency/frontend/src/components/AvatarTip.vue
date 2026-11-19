@@ -27,14 +27,13 @@ TooltipProvider(:delay-duration="120")
         :class="to ? 'transition-opacity hover:opacity-80' : ''"
         @click.stop
       )
-        img.rounded-full.object-cover(
-          v-if="src"
+        ActorAvatar(
           :src="src"
-          :alt="name"
-          :style="box"
+          :emoji="emoji"
+          :name="name"
+          :size="size"
+          :fallback-html="generated"
         )
-        span(v-else-if="seed" :innerHTML="generated")
-        ActorAvatar(v-else :name="name" :size="size")
     TipCard(:width="cardWidth" :data-slot="cardSlot")
       slot
         .flex.flex-col(class="gap-0.5")
@@ -65,6 +64,8 @@ const props = withDefaults(
 
     src?: string;
 
+    emoji?: string;
+
     seed?: string;
 
     meta?: string;
@@ -78,6 +79,7 @@ const props = withDefaults(
   {
     to: null,
     src: "",
+    emoji: "",
     seed: "",
     meta: "",
     size: 20,
@@ -85,11 +87,6 @@ const props = withDefaults(
     cardWidth: "w-56 max-w-56",
   },
 );
-
-const box = computed(() => ({
-  width: `${props.size}px`,
-  height: `${props.size}px`,
-}));
 
 const generated = computed(() =>
   props.seed ? toSvg(props.seed, props.size) : "",

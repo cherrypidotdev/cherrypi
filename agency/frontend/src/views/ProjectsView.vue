@@ -48,7 +48,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 RouterLink.d-link-hover.flex.items-center.gap-2(
                   :to="{ name: 'project', params: { slug: project.slug } }"
                 )
-                  span.size-6.shrink-0(:innerHTML="logo(project)")
+                  ActorAvatar(
+                    :src="project.picture?.url"
+                    :emoji="project.emoji"
+                    :name="project.name"
+                    :size="24"
+                    :fallback-html="logo(project)"
+                  )
                   span.font-semibold {{ project.name }}
 
               td.text-muted-foreground.font-mono.text-xs @{{ project.slug }}
@@ -81,7 +87,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
 
         fieldset.d-fieldset
-          label.d-fieldset-legend(for="project-slug") {{ $t("settings.auth.slug") }}
+          label.d-fieldset-legend(for="project-slug")
+            | {{ $t("projects.create.slugAndPrefix") }}
           input#project-slug.d-input.w-full(
             v-model="slug"
             :placeholder="slugPlaceholder"
@@ -89,17 +96,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
           p.d-fieldset-label
             | {{ $t("projects.create.slugHint") }}
-
-        fieldset.d-fieldset
-          label.d-fieldset-legend(for="project-prefix") {{ $t("projectSettings.taskIds.prefix") }}
-          input#project-prefix.d-input.w-full(
-            v-model="prefix"
-            :placeholder="prefixPlaceholder"
-            autocapitalize="characters"
-            autocomplete="off"
-          )
-          p.d-fieldset-label
-            | {{ $t("projects.create.taskPrefixHint") }}
 
         fieldset.d-fieldset
           label.d-fieldset-legend(for="project-description")
@@ -151,7 +147,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   RouterLink.d-link-hover.flex.items-center.gap-2(
                     :to="{ name: 'project', params: { slug: project.slug } }"
                   )
-                    span.size-6.shrink-0(:innerHTML="logo(project)")
+                    ActorAvatar(
+                      :src="project.picture?.url"
+                      :emoji="project.emoji"
+                      :name="project.name"
+                      :size="24"
+                      :fallback-html="logo(project)"
+                    )
                     span.font-semibold {{ project.name }}
 
                 td.text-muted-foreground.font-mono.text-xs @{{ project.slug }}
@@ -172,10 +174,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import { withProgress } from "@/composables/useProgress";
 import { useProjects } from "@/composables/useProjects";
 import { formatTimestamp } from "@/lib/format";
-import { normalizeTaskPrefix, slugify } from "@/lib/project";
+import { slugify } from "@/lib/project";
 import { type Project } from "@cherrypi/sdk";
 import {
   ArchiveIcon,
@@ -206,7 +209,6 @@ const {
 
 const name = ref("");
 const slug = ref("");
-const prefix = ref("");
 const description = ref("");
 const creating = ref(false);
 const createError = ref("");
@@ -214,11 +216,6 @@ const createError = ref("");
 const skeletonWidths = ["w-40", "w-24", "w-28", "w-16"];
 
 const slugPlaceholder = computed(() => slugify(name.value) || "project");
-const prefixPlaceholder = computed(
-  () =>
-    normalizeTaskPrefix(slug.value.trim() ? slug.value : name.value) ||
-    "PROJECT",
-);
 
 function logo(project: Project): string {
   return toSvg(project.id, 24);
@@ -232,13 +229,11 @@ async function create() {
       createProject({
         name: name.value.trim(),
         slug: slug.value.trim(),
-        prefix: prefix.value.trim(),
         description: description.value.trim(),
       }),
     );
     name.value = "";
     slug.value = "";
-    prefix.value = "";
     description.value = "";
     toast.success(t("projects.toasts.created"));
   } catch (err) {
@@ -284,8 +279,8 @@ en:
       archived: "No archived projects."
     create:
       websitePlaceholder: "Website"
-      slugHint: "Lowercase kebab-case, unique, and immutable."
-      taskPrefixHint: "Uppercase letters, digits, and dashes prefixed to task ids; unique. Derived from the slug when blank."
+      slugAndPrefix: "Slug and task prefix"
+      slugHint: "Lowercase kebab-case in URLs and uppercase in task ids; unique."
     showArchivedAria: "Show archived projects"
     archived: "Archived projects"
     archivedHint: "Archiving a project hides it and its tasks; un-archiving shows them again."
@@ -299,8 +294,8 @@ ru:
       archived: "Архивных проектов нет."
     create:
       websitePlaceholder: "Сайт"
-      slugHint: "Строчные буквы и дефисы, уникально и неизменяемо."
-      taskPrefixHint: "Заглавные буквы, цифры и дефисы перед идентификаторами задач; уникально. Если пусто, выводится из слага."
+      slugAndPrefix: "Слаг и префикс задач"
+      slugHint: "Строчные буквы и дефисы в URL, заглавные — в идентификаторах задач; уникально."
     showArchivedAria: "Показать архивные проекты"
     archived: "Архивные проекты"
     archivedHint: "Архивация скрывает проект и его задачи; разархивация возвращает их."

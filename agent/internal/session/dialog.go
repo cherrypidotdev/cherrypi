@@ -25,8 +25,6 @@ import (
 	"time"
 )
 
-const dialogTimeout = 30 * time.Minute
-
 func (s *Session) askDialog(ctx context.Context, title, prefill string) (string, bool) {
 	requestID := fmt.Sprintf("dialog-%d", dialogSeq.Add(1))
 	answers := make(chan ExtensionResponse, 1)
@@ -50,13 +48,18 @@ func (s *Session) askDialog(ctx context.Context, title, prefill string) (string,
 	s.waitStartedAt = time.Now()
 	s.lastDialogJSON = req.RawJSON
 	s.pendingExt[requestID] = req
+	timeout := s.dialogTimeout
 	s.mu.Unlock()
 
 	s.persistWaiting(req.RawJSON)
 	s.emit(Event{Kind: EventExtensionUI, At: time.Now(), Extension: extensionEvent(req)})
 
-	timer := time.NewTimer(dialogTimeout)
-	defer timer.Stop()
+	var expired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		expired = timer.C
+	}
 
 	select {
 	case answer := <-answers:
@@ -72,7 +75,7 @@ func (s *Session) askDialog(ctx context.Context, title, prefill string) (string,
 			return "", true
 		}
 		return answer.Value, false
-	case <-timer.C:
+	case <-expired:
 		s.closeDialog(requestID)
 		return "", true
 	case <-ctx.Done():

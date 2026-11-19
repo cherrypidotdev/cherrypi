@@ -18,6 +18,7 @@ syntax = "proto3";
 
 package agency.v1;
 
+import "agency/v1/actor.proto";
 import "agency/v1/attachments.proto";
 import "agency/v1/task.proto";
 import "google/protobuf/timestamp.proto";
@@ -134,6 +135,11 @@ message Agent {
   
   
   bool prompt_auto_approve = 16;
+  
+  
+  string emoji = 17;
+  
+  repeated ActorLink links = 18;
 }
 
 message ListAgentsRequest {}
@@ -175,6 +181,10 @@ message UpdateAgentRequest {
   
   
   optional bool prompt_auto_approve = 4;
+  
+  string emoji = 5;
+  
+  repeated ActorLink links = 6;
 }
 
 message UpdateAgentResponse {

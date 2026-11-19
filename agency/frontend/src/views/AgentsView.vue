@@ -58,12 +58,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 class="hover:text-primary"
                 :to="{ name: 'agent', params: { username: item.username } }"
               )
-                img.size-6.shrink-0.rounded-full.object-cover(
-                  v-if="item.picture"
-                  :src="item.picture.url"
-                  :alt="item.displayName || item.username"
+                ActorAvatar(
+                  :src="item.picture?.url"
+                  :emoji="item.emoji"
+                  :name="item.displayName || item.username"
+                  :size="24"
+                  :fallback-html="avatar(item)"
                 )
-                span.size-6.shrink-0(v-else :innerHTML="avatar(item)")
                 span {{ item.displayName || item.username }}
             TableCell.text-muted-foreground.font-mono {{ item.username }}
             TableCell
@@ -120,6 +121,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       form.flex.flex-col.gap-4(@submit.prevent="create")
         FieldGroup
           Field
+            FieldLabel {{ $t("projectSettings.general.picture") }}
+            PicturePicker(
+              v-model="picture"
+              :fallback="pictureFallback"
+              :alt="$t('agents.pictureAlt')"
+            )
+          Field
             FieldLabel(for="agent-username") {{ $t("common.username") }}
             Input#agent-username(
               v-model="username"
@@ -133,12 +141,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               :placeholder="$t('agents.namePlaceholder')"
             )
           Field
-            FieldLabel(for="agent-prompt") {{ $t("domainLog.kind.prompt") }}
-            Textarea#agent-prompt(
-              v-model="prompt"
-              :placeholder="$t('agents.promptPlaceholder')"
-            )
-            FieldDescription {{ $t("agents.promptHint") }}
+            FieldLabel(for="agent-description") {{ $t("common.description") }}
+            Textarea#agent-description(v-model="description")
         p.text-destructive.text-sm(v-if="createError") {{ createError }}
         .flex.justify-end
           Button(type="submit" :disabled="creating || !username")
@@ -148,6 +152,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorAvatar from "@/components/ActorAvatar.vue";
+import PicturePicker from "@/components/attachments/PicturePicker.vue";
 import ConcurrencyTrack from "@/components/concurrency/ConcurrencyTrack.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -160,12 +166,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -193,7 +194,7 @@ import { agency } from "@/lib/sdk";
 import { type Agent } from "@cherrypi/sdk";
 import { CopyIcon, PencilIcon, PlusIcon, Trash2Icon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { toast } from "vue3-toastify";
@@ -210,7 +211,8 @@ const router = useRouter();
 
 const username = ref("");
 const displayName = ref("");
-const prompt = ref("");
+const description = ref("");
+const picture = ref<File>();
 const creating = ref(false);
 const createError = ref("");
 const busy = ref("");
@@ -221,6 +223,10 @@ onMounted(() => void loadAgents());
 function avatar(item: Agent): string {
   return toSvg(item.id, 24);
 }
+
+const pictureFallback = computed(() =>
+  toSvg(username.value.trim() || "agent", 48),
+);
 
 function lastSeen(item: Agent): string {
   return item.lastSeenAt ? formatTimestamp(item.lastSeenAt) : "Never";
@@ -234,16 +240,28 @@ async function create() {
       agency.createAgent({
         username: username.value.trim(),
         displayName: displayName.value.trim(),
-        prompt: prompt.value.trim(),
+        description: description.value.trim(),
       }),
     );
+    if (picture.value) {
+      try {
+        await agency.uploadAttachment({
+          file: picture.value,
+          filename: picture.value.name,
+          agentId: result.agent.id,
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    }
     revealed.value = result.token;
     if (!result.token) {
       toast.error(t("agents.errors.noToken"));
     }
     username.value = "";
     displayName.value = "";
-    prompt.value = "";
+    description.value = "";
+    picture.value = undefined;
     await refresh();
   } catch (err) {
     createError.value = err instanceof Error ? err.message : String(err);
@@ -298,9 +316,8 @@ en:
     empty: "No agents yet."
     register: "Register agent"
     registerHint: "Create an agent before it connects. A personal access token is generated and shown once."
-    promptHint: "Injected into new tasks on this agent, after the organization prompt."
     namePlaceholder: "Builder"
-    promptPlaceholder: "Optional instructions for this agent's tasks"
+    pictureAlt: "Agent picture"
     errors:
       noToken: "Agent created, but no token was returned."
 ru:
@@ -313,9 +330,8 @@ ru:
     empty: "Агентов пока нет."
     register: "Зарегистрировать агента"
     registerHint: "Создайте агента до его подключения. Персональный токен доступа создаётся и показывается один раз."
-    promptHint: "Добавляется в новые задачи этого агента после промпта организации."
     namePlaceholder: "Builder"
-    promptPlaceholder: "Необязательные инструкции для задач этого агента"
+    pictureAlt: "Изображение агента"
     errors:
       noToken: "Агент создан, но токен не вернулся."
 </i18n>

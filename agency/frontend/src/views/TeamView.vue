@@ -48,13 +48,19 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CardContent
               .flex.flex-col.gap-6
                 .flex.items-center.gap-4
-                  span.size-14.shrink-0(:innerHTML="teamLogo")
+                  ActorAvatar(
+                    :emoji="team?.emoji"
+                    :name="team?.name"
+                    :size="56"
+                    :fallback-html="teamLogo"
+                  )
                   .flex.min-w-0.flex-col
                     h2.truncate.text-xl.font-semibold {{ team?.name || "Team" }}
                     p.text-muted-foreground.text-sm(v-if="team?.description")
                       | {{ team.description }}
                     p.text-muted-foreground.text-sm(v-else)
                       | {{ $t("team.noDescription") }}
+                ActorLinks(:links="team?.links")
                 dl.grid.grid-cols-2.gap-4.text-sm(class="sm:grid-cols-4")
                   div
                     dt.text-muted-foreground {{ $t("admin.teams.columnMembers") }}
@@ -336,6 +342,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                       Input#team-settings-description(
                         v-model="settingsDescription"
                       )
+                    Field
+                      FieldLabel {{ $t("actor.emoji.label") }}
+                      ActorEmojiField(v-model="settingsEmoji")
+                      FieldDescription {{ $t("actor.emoji.hint") }}
+                    Field
+                      FieldLabel {{ $t("actor.links.title") }}
+                      ActorLinksField(v-model="settingsLinks")
                   p.text-destructive.text-sm(v-if="settingsError") {{ settingsError }}
                   .flex.justify-end
                     Button(
@@ -385,6 +398,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import ActorEmojiField from "@/components/actor/ActorEmojiField.vue";
+import ActorLinks from "@/components/actor/ActorLinks.vue";
+import ActorLinksField from "@/components/actor/ActorLinksField.vue";
+import ActorAvatar from "@/components/ActorAvatar.vue";
 import ActorCombobox from "@/components/ActorCombobox.vue";
 import BackButton from "@/components/BackButton.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
@@ -406,7 +423,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -441,7 +463,7 @@ import {
   type TeamMember,
   type TeamProject,
 } from "@/lib/team";
-import { PromptScope } from "@cherrypi/sdk";
+import { PromptScope, type ActorLinkInput } from "@cherrypi/sdk";
 import {
   ArrowUpRightIcon,
   CheckIcon,
@@ -484,6 +506,8 @@ const inviteError = ref("");
 
 const settingsName = ref("");
 const settingsDescription = ref("");
+const settingsEmoji = ref("");
+const settingsLinks = ref<ActorLinkInput[]>([]);
 const savingSettings = ref(false);
 const settingsError = ref("");
 const deleting = ref(false);
@@ -553,6 +577,8 @@ async function load() {
     );
     settingsName.value = teamResult.team.name;
     settingsDescription.value = teamResult.team.description;
+    settingsEmoji.value = teamResult.team.emoji ?? "";
+    settingsLinks.value = [...(teamResult.team.links ?? [])];
     error.value = "";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -655,6 +681,8 @@ async function saveSettings() {
         id,
         settingsName.value.trim(),
         settingsDescription.value.trim(),
+        settingsEmoji.value,
+        settingsLinks.value,
       ),
     );
     team.value = result.team;

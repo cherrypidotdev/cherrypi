@@ -625,6 +625,11 @@ WHERE g.id = sqlc.arg(agent_id)
   AND t.state = 'running';
 
 -- name: FailTaskBySession :execrows
+
+
+
+
+
 UPDATE tasks SET
   state = 'failed',
   error = sqlc.arg(error),
@@ -635,7 +640,10 @@ WHERE rowid IN (
   JOIN agents g ON g.actor_id = t.assignee_actor_id
   WHERE g.id = sqlc.arg(agent_id)
     AND t.session_id = sqlc.arg(session_id)
-    AND t.state IN ('running', 'input')
+    AND (
+      t.state IN ('running', 'input')
+      OR (t.state = 'settled' AND t.settled_at >= sqlc.arg(not_before))
+    )
 );
 
 -- name: TaskIDBySession :one

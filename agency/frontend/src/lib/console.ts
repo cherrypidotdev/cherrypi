@@ -687,6 +687,11 @@ export function findTool(items: Item[], callId: string): ToolItem | undefined {
   );
 }
 
+function carriesToolArgs(args: string): boolean {
+  const trimmed = args.trim();
+  return trimmed !== "" && trimmed !== "null";
+}
+
 export function activeQuestionnaire(
   items: Item[],
 ): { callId: string; questions: QuestionnaireQuestion[] } | null {
@@ -710,7 +715,7 @@ export function mergeTool(existing: ToolItem, incoming: ToolInput) {
   }
 
   if (incoming.phase === ToolPhase.FINISHED) existing.interrupted = false;
-  if (incoming.args) existing.args = incoming.args;
+  if (carriesToolArgs(incoming.args)) existing.args = incoming.args;
   if (incoming.result) existing.result = incoming.result;
   if (incoming.details) existing.details = incoming.details;
   existing.isError = existing.isError || incoming.isError;
