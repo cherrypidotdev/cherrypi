@@ -247,6 +247,7 @@ func (s *Scheduler) FollowUp(
 	t tasks.Task,
 	prompt string,
 	actorID ids.ActorID,
+	force bool,
 ) error {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
@@ -261,6 +262,16 @@ func (s *Scheduler) FollowUp(
 		s.Wake()
 		return nil
 	case tasks.StateQueued, tasks.StateWaiting:
+		if force {
+			woken, err := s.Tasks.ForceWake(ctx, t, prompt, actorID)
+			if err != nil {
+				return err
+			}
+			if woken {
+				s.Wake()
+				return nil
+			}
+		}
 		if err := s.Tasks.AppendPendingPrompt(ctx, t.ID, prompt, actorID); err != nil {
 			return err
 		}

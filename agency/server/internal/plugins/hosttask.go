@@ -72,6 +72,13 @@ func (h *Host) addTaskMessage(taskID, text string, opts *lua.LTable) error {
 			}
 			message.RequiredTools = names
 		}
+		if raw := opts.RawGetString("force"); raw != lua.LNil {
+			value, ok := raw.(lua.LBool)
+			if !ok {
+				return errors.New("force must be a boolean")
+			}
+			message.Force = bool(value)
+		}
 	}
 	return h.Bridge.AddTaskMessage(
 		h.Ctx, strings.TrimSpace(taskID), text, message,
@@ -174,7 +181,7 @@ func (h *Host) setTaskBadges(taskID string, value lua.LValue) error {
 	var badges []TaskBadge
 	if err := json.Unmarshal(raw, &badges); err != nil {
 		return errors.New(
-			"badges must be a list of {key, label, value, tone, url} objects",
+			"badges must be a list of {key, label, value, tone, color, url} objects",
 		)
 	}
 	return h.Bridge.SetTaskBadges(h.Ctx, strings.TrimSpace(taskID), badges)

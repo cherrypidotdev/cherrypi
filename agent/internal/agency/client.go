@@ -37,6 +37,7 @@ type Client struct {
 	Plugins   agencyv1connect.PluginServiceClient
 	Sites     agencyv1connect.SiteServiceClient
 	Knowledge agencyv1connect.KnowledgeServiceClient
+	Tags      agencyv1connect.TagServiceClient
 }
 
 func New(baseURL string, token func() string, httpClient *http.Client) *Client {
@@ -59,6 +60,7 @@ func New(baseURL string, token func() string, httpClient *http.Client) *Client {
 		Plugins:   agencyv1connect.NewPluginServiceClient(httpClient, grpcURL),
 		Sites:     agencyv1connect.NewSiteServiceClient(httpClient, grpcURL),
 		Knowledge: agencyv1connect.NewKnowledgeServiceClient(httpClient, grpcURL),
+		Tags:      agencyv1connect.NewTagServiceClient(httpClient, grpcURL),
 	}
 }
 

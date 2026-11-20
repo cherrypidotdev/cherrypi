@@ -17,8 +17,6 @@
 package main
 
 import (
-	"bytes"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -72,6 +70,8 @@ func serveDocsProxy(mux *http.ServeMux, target *url.URL) {
 // newDocsHandler serves the built VitePress site. cleanUrls makes VitePress emit
 
 func newDocsHandler(docsFs fs.FS) http.Handler {
+	etags := newFileETags()
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == docsPrefix {
 			http.Redirect(w, r, docsPrefix+"/", http.StatusMovedPermanently)
@@ -83,54 +83,28 @@ func newDocsHandler(docsFs fs.FS) http.Handler {
 
 		file, ok := resolveDocsFile(docsFs, rel)
 		if !ok {
-			serveDocsNotFound(w, r, docsFs)
+			serveDocsNotFound(w, r, docsFs, etags)
 			return
 		}
 
-		// VitePress fingerprints the assets/ tree; HTML entry points must stay
-
-		if strings.HasPrefix(file, "assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache")
+		cacheControl, immutable := staticCachePolicy(file)
+		var etagStore *fileETags
+		if !immutable {
+			etagStore = etags
 		}
 
+		contentType := ""
 		switch path.Ext(file) {
 		case ".md":
-			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			contentType = "text/markdown; charset=utf-8"
 		case ".txt":
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			contentType = "text/plain; charset=utf-8"
 		}
 
-		serveDocsFile(w, r, docsFs, file)
+		if !serveEmbeddedFile(w, r, docsFs, file, contentType, cacheControl, etagStore) {
+			http.NotFound(w, r)
+		}
 	})
-}
-
-func serveDocsFile(w http.ResponseWriter, r *http.Request, docsFs fs.FS, file string) {
-	opened, err := docsFs.Open(file)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer func() { _ = opened.Close() }()
-
-	info, err := opened.Stat()
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	if seeker, ok := opened.(io.ReadSeeker); ok {
-		http.ServeContent(w, r, file, info.ModTime(), seeker)
-		return
-	}
-
-	data, err := io.ReadAll(opened)
-	if err != nil {
-		http.Error(w, "read docs file", http.StatusInternalServerError)
-		return
-	}
-	http.ServeContent(w, r, file, info.ModTime(), bytes.NewReader(data))
 }
 
 func resolveDocsFile(docsFs fs.FS, rel string) (string, bool) {
@@ -153,16 +127,17 @@ func resolveDocsFile(docsFs fs.FS, rel string) (string, bool) {
 	return "", false
 }
 
-func serveDocsNotFound(w http.ResponseWriter, r *http.Request, docsFs fs.FS) {
-	page, err := docsFs.Open("404.html")
-	if err != nil {
+func serveDocsNotFound(w http.ResponseWriter, r *http.Request, docsFs fs.FS, etags *fileETags) {
+	withStatus := &statusOverrideWriter{ResponseWriter: w, status: http.StatusNotFound}
+	if !serveEmbeddedFile(
+		withStatus,
+		r,
+		docsFs,
+		"404.html",
+		"text/html; charset=utf-8",
+		staticCacheRevalidate,
+		etags,
+	) {
 		http.NotFound(w, r)
-		return
 	}
-	defer func() { _ = page.Close() }()
-
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusNotFound)
-	_, _ = io.Copy(w, page)
 }

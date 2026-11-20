@@ -61,14 +61,29 @@ type modelCatalog struct {
 
 	declared map[string]bool
 
+	forcePlan map[string]bool
+
 	variables []AgencyVariable
 }
 
-func (c *modelCatalog) declareModel(provider, model string) {
+func (c *modelCatalog) declareModel(provider, model string, forcePlan bool) {
 	if c.declared == nil {
 		c.declared = map[string]bool{}
 	}
 	c.declared[provider+"/"+model] = true
+	if forcePlan {
+		if c.forcePlan == nil {
+			c.forcePlan = map[string]bool{}
+		}
+		c.forcePlan[provider+"/"+model] = true
+	}
+}
+
+func (c *modelCatalog) forcesPlan(model *ai.Model) bool {
+	if c == nil || model == nil {
+		return false
+	}
+	return c.forcePlan[string(model.Provider)+"/"+model.ID]
 }
 
 func (c *modelCatalog) offered(model *ai.Model) bool {
@@ -254,9 +269,14 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 		}
 	}
 
+	forcePlan := catalog.forcesPlan(model)
+	if s.cfg.Model != nil {
+		forcePlan = s.cfg.ForcePlan
+	}
 	s.mu.Lock()
 	s.modelProvider = string(model.Provider)
 	s.model = model.ID
+	s.forcePlanAllowed = forcePlan
 	s.mu.Unlock()
 	level := agent.ThinkingLevel(s.thinkingLevel)
 	if level == "" {

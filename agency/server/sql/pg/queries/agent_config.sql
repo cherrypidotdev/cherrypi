@@ -43,8 +43,8 @@ SELECT * FROM models ORDER BY provider_id, model_id;
 -- name: UpsertModel :exec
 INSERT INTO models (
   provider_id, model_id, name, reasoning, input_json, context_window,
-  max_tokens, cost_json, thinking_levels_json, enabled
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  max_tokens, cost_json, thinking_levels_json, force_plan, enabled
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT(provider_id, model_id) DO UPDATE SET
   name = excluded.name,
   reasoning = excluded.reasoning,
@@ -53,6 +53,7 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET
   max_tokens = excluded.max_tokens,
   cost_json = excluded.cost_json,
   thinking_levels_json = excluded.thinking_levels_json,
+  force_plan = excluded.force_plan,
   enabled = excluded.enabled;
 
 -- name: DeleteModelsForProvider :exec

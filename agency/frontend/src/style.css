@@ -647,3 +647,13 @@ body > .mermaidTooltip:empty {
   color: var(--syntax-mark);
   font-style: italic;
 }
+
+.task-badge-custom {
+  border-color: color-mix(in srgb, var(--badge-color) 32%, transparent);
+  background-color: color-mix(in srgb, var(--badge-color) 12%, transparent);
+  color: var(--badge-color);
+}
+
+.dark .task-badge-custom {
+  color: color-mix(in srgb, var(--badge-color) 78%, white);
+}

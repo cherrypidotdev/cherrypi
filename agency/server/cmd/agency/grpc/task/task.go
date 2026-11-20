@@ -321,6 +321,7 @@ func (s *TaskServer) enrichBadges(ctx context.Context, tasks []*agencyv1.Task) {
 				Label:         badge.Label,
 				Value:         badge.Value,
 				Tone:          badge.Tone,
+				Color:         badge.Color,
 				Url:           badge.URL,
 			}
 		}

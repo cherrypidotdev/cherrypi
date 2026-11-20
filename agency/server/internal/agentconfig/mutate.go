@@ -47,11 +47,13 @@ type ModelInput struct {
 	Reasoning bool     `json:"reasoning"`
 	Input     []string `json:"input"`
 
-	ThinkingLevels []string  `json:"thinkingLevels"`
-	ContextWindow  int64     `json:"contextWindow"`
-	MaxTokens      int64     `json:"maxTokens"`
-	Cost           ModelCost `json:"cost"`
-	Enabled        bool      `json:"enabled"`
+	ThinkingLevels []string `json:"thinkingLevels"`
+
+	ForcePlan     bool      `json:"forcePlan"`
+	ContextWindow int64     `json:"contextWindow"`
+	MaxTokens     int64     `json:"maxTokens"`
+	Cost          ModelCost `json:"cost"`
+	Enabled       bool      `json:"enabled"`
 }
 
 func (s *Service) SaveProvider(ctx context.Context, input ProviderInput) error {
@@ -125,6 +127,7 @@ func (s *Service) SaveProvider(ctx context.Context, input ProviderInput) error {
 			MaxTokens:          model.MaxTokens,
 			CostJson:           encodeJSON(model.Cost, "{}"),
 			ThinkingLevelsJson: encodeJSON(NormalizeThinkingLevels(model.ThinkingLevels), "[]"),
+			ForcePlan:          boolInt(model.ForcePlan),
 			Enabled:            boolInt(model.Enabled),
 		})
 	}

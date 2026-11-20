@@ -71,6 +71,7 @@ type testMessage struct {
 	TaskID        string
 	Text          string
 	RequiredTools []string
+	Force         bool
 }
 
 type testInputAnswer struct {
@@ -613,6 +614,7 @@ func (b *TestBridge) AddTaskMessage(
 		TaskID:        taskID,
 		Text:          text,
 		RequiredTools: opts.RequiredTools,
+		Force:         opts.Force,
 	})
 	if t, ok := b.tasks[taskID]; ok {
 		switch t.State {
@@ -620,6 +622,12 @@ func (b *TestBridge) AddTaskMessage(
 			tasks.StateCompleted, tasks.StateCancelled:
 			t.State = tasks.StateQueued
 			b.tasks[taskID] = t
+		case tasks.StateWaiting:
+
+			if opts.Force && len(b.holds[taskID]) == 0 {
+				t.State = tasks.StateQueued
+				b.tasks[taskID] = t
+			}
 		}
 	}
 	return nil

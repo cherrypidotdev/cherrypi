@@ -2742,6 +2742,26 @@ func (s *Service) WakeWaitingWithPrompt(
 	return after, nil
 }
 
+func (s *Service) ForceWake(
+	ctx context.Context,
+	t Task,
+	prompt string,
+	actorID ids.ActorID,
+) (bool, error) {
+	if t.State != StateWaiting {
+		return false, nil
+	}
+	_, err := s.WakeWaitingWithPrompt(ctx, t.ID, prompt, actorID)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, ErrHeld), errors.Is(err, ErrWrongState):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func (s *Service) ClearPendingPrompt(ctx context.Context, id string) error {
 	_, err := s.store.ClearTaskPendingPrompt(ctx, store.ClearTaskPendingPromptParams{
 		UpdatedAt: time.Now().UnixMilli(),

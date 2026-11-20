@@ -42,8 +42,28 @@ func strictTools(tools []agent.AgentTool) []agent.AgentTool {
 	}
 	for i := range out {
 		out[i].ConstrainedSampling = prefer
+		out[i].PrepareArguments = withArgumentRepair(
+			out[i].Parameters,
+			out[i].PrepareArguments,
+		)
 	}
 	return out
+}
+
+func withArgumentRepair(
+	schema *ai.Schema,
+	prepare func(map[string]any) map[string]any,
+) func(map[string]any) map[string]any {
+	return func(raw map[string]any) map[string]any {
+		repaired := normalizeToolArguments(schema, raw)
+		if prepare == nil {
+			return repaired
+		}
+		if next := prepare(repaired); next != nil {
+			return next
+		}
+		return repaired
+	}
 }
 
 func strictDeclaredOpen(schema *ai.Schema) bool {
@@ -90,6 +110,15 @@ func strictSchema(schema *ai.Schema, optional bool) *ai.Schema {
 	}
 	if optional {
 		schema.Nullable = true
+
+		if len(schema.Enum) > 0 && !slices.Contains(schema.Enum, nil) {
+			schema.Enum = append(schema.Enum, nil)
+		}
+		if schema.HasConst {
+			schema.Enum = []any{schema.Const, nil}
+			schema.Const = nil
+			schema.HasConst = false
+		}
 	}
 	if len(schema.Properties) > 0 {
 		required := make([]string, 0, len(schema.Properties))

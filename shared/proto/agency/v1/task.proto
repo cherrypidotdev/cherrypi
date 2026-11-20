@@ -576,6 +576,11 @@ message TaskBadge {
   
   
   string plugin_icon_url = 8;
+  
+  
+  
+  
+  string color = 9;
 }
 
 

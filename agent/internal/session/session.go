@@ -59,6 +59,8 @@ type Config struct {
 
 	Model *ai.Model
 
+	ForcePlan bool
+
 	Compaction *bool
 
 	CompactionSettings *coding.CompactionSettings
@@ -228,6 +230,8 @@ type Session struct {
 	progressBlockBreak      bool
 	progressForceToolChoice bool
 
+	forcePlanAllowed bool
+
 	requiredTools        []string
 	requiredSatisfied    bool
 	requiredGateBlocks   int
@@ -378,8 +382,10 @@ func (s *Session) selectModel(
 		return ErrInvalidModel
 	}
 	var model *ai.Model
+	var catalog *modelCatalog
 	if provider != "" {
-		resolved, err := resolveModel(s.catalog(ctx), provider, modelID)
+		catalog = s.catalog(ctx)
+		resolved, err := resolveModel(catalog, provider, modelID)
 		if err != nil {
 			return err
 		}
@@ -390,6 +396,7 @@ func (s *Session) selectModel(
 	if model != nil {
 		s.modelProvider = provider
 		s.model = modelID
+		s.forcePlanAllowed = catalog.forcesPlan(model)
 	}
 	if level != "" {
 		s.thinkingLevel = level
@@ -543,13 +550,15 @@ func (s *Session) SetModel(ctx context.Context, provider, modelID string) (Sessi
 	if provider == "" || modelID == "" {
 		return SessionConfig{}, ErrInvalidModel
 	}
-	model, err := resolveModel(s.catalog(ctx), provider, modelID)
+	catalog := s.catalog(ctx)
+	model, err := resolveModel(catalog, provider, modelID)
 	if err != nil {
 		return SessionConfig{}, err
 	}
 	s.mu.Lock()
 	s.modelProvider = provider
 	s.model = modelID
+	s.forcePlanAllowed = catalog.forcesPlan(model)
 	eng := s.eng
 	level := s.thinkingLevel
 	s.mu.Unlock()

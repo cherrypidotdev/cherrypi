@@ -542,28 +542,34 @@ func serveEmbeddedFrontend(mux *http.ServeMux) {
 }
 
 func newFrontendHandler(frontendFs fs.FS) http.Handler {
-	files := http.FileServer(http.FS(frontendFs))
+	etags := newFileETags()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		isImmutable := staticTree(name, "assets") || staticTree(name, "fonts")
 
-		file, err := frontendFs.Open(name)
-		if err == nil {
-			defer func() { _ = file.Close() }()
-		}
-
-		if os.IsNotExist(err) {
-			if strings.HasPrefix(name, "assets/") {
+		info, err := fs.Stat(frontendFs, name)
+		if err != nil || info.IsDir() {
+			if isImmutable {
 				http.NotFound(w, r)
 				return
 			}
-			r.URL.Path = "/"
+			name = "index.html"
 		}
 
-		if path.Ext(r.URL.Path) == ".map" {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		contentType := ""
+		if path.Ext(name) == ".map" {
+			contentType = "application/json; charset=utf-8"
 		}
 
-		files.ServeHTTP(w, r)
+		cacheControl, immutable := staticCachePolicy(name)
+		var etagStore *fileETags
+		if !immutable {
+			etagStore = etags
+		}
+
+		if !serveEmbeddedFile(w, r, frontendFs, name, contentType, cacheControl, etagStore) {
+			http.NotFound(w, r)
+		}
 	})
 }

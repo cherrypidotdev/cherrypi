@@ -82,10 +82,12 @@ type Model struct {
 	Reasoning bool     `json:"reasoning"`
 	Input     []string `json:"input"`
 
-	ThinkingLevels []string  `json:"thinkingLevels,omitempty"`
-	ContextWindow  int64     `json:"contextWindow"`
-	MaxTokens      int64     `json:"maxTokens"`
-	Cost           ModelCost `json:"cost"`
+	ThinkingLevels []string `json:"thinkingLevels,omitempty"`
+
+	ForcePlan     bool      `json:"forcePlan,omitempty"`
+	ContextWindow int64     `json:"contextWindow"`
+	MaxTokens     int64     `json:"maxTokens"`
+	Cost          ModelCost `json:"cost"`
 }
 
 var ThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
@@ -392,6 +394,7 @@ func modelOf(row store.Model) Model {
 		Reasoning:      row.Reasoning != 0,
 		Input:          input,
 		ThinkingLevels: decodeStrings(row.ThinkingLevelsJson),
+		ForcePlan:      row.ForcePlan != 0,
 		ContextWindow:  row.ContextWindow,
 		MaxTokens:      row.MaxTokens,
 		Cost:           decodeCost(row.CostJson),

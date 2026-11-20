@@ -90,6 +90,7 @@ type Service struct {
 		t tasks.Task,
 		prompt string,
 		actorID ids.ActorID,
+		force bool,
 	) error
 
 	RespondInput func(

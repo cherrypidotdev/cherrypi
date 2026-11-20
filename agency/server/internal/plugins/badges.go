@@ -37,6 +37,8 @@ type TaskBadge struct {
 
 	Tone string `json:"tone,omitempty"`
 
+	Color string `json:"color,omitempty"`
+
 	URL string `json:"url,omitempty"`
 
 	PluginID   string `json:"-"`
@@ -55,6 +57,7 @@ const (
 
 const (
 	maxTaskBadges   = 8
+	maxBadgeColor   = 9
 	maxBadgeLabel   = 48
 	maxBadgeValue   = 96
 	maxBadgeURL     = 2048
@@ -162,6 +165,7 @@ func normalizeBadges(badges []TaskBadge) ([]TaskBadge, error) {
 		badge.Label = strings.TrimSpace(badge.Label)
 		badge.Value = strings.TrimSpace(badge.Value)
 		badge.Tone = strings.ToLower(strings.TrimSpace(badge.Tone))
+		badge.Color = strings.ToLower(strings.TrimSpace(badge.Color))
 		badge.URL = strings.TrimSpace(badge.URL)
 		if badge.Key == "" {
 			return nil, errors.New("a badge needs a key")
@@ -182,9 +186,18 @@ func normalizeBadges(badges []TaskBadge) ([]TaskBadge, error) {
 		default:
 			return nil, fmt.Errorf("unknown badge tone %q", badge.Tone)
 		}
+		if badge.Color != "" {
+			if len(badge.Color) > maxBadgeColor || !isBadgeColor(badge.Color) {
+				return nil, fmt.Errorf(
+					"badge %q color must be a hex colour like #8957e5",
+					badge.Key,
+				)
+			}
+		}
 
 		if badge.Value == "" {
 			badge.Tone = ToneNeutral
+			badge.Color = ""
 		}
 		if badge.URL != "" {
 			if len(badge.URL) > maxBadgeURL {
@@ -200,6 +213,25 @@ func normalizeBadges(badges []TaskBadge) ([]TaskBadge, error) {
 	return out, nil
 }
 
+func isBadgeColor(value string) bool {
+	if value == "" || value[0] != '#' {
+		return false
+	}
+	digits := value[1:]
+	if len(digits) != 3 && len(digits) != 4 && len(digits) != 6 && len(digits) != 8 {
+		return false
+	}
+	for _, r := range digits {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func sameBadges(a, b []TaskBadge) bool {
 	if len(a) != len(b) {
 		return false
@@ -207,7 +239,7 @@ func sameBadges(a, b []TaskBadge) bool {
 	for i := range a {
 		if a[i].Key != b[i].Key || a[i].Label != b[i].Label ||
 			a[i].Value != b[i].Value || a[i].Tone != b[i].Tone ||
-			a[i].URL != b[i].URL {
+			a[i].Color != b[i].Color || a[i].URL != b[i].URL {
 			return false
 		}
 	}

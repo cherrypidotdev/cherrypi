@@ -644,6 +644,16 @@ export function taskBadgeToneClass(tone: string): string {
   }
 }
 
+export function taskBadgeColorStyle(
+  color?: string,
+): Record<string, string> | undefined {
+  const value = (color ?? "").trim().toLowerCase();
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(value)) {
+    return undefined;
+  }
+  return { "--badge-color": value };
+}
+
 function taskSizeKeyName(size: TaskSize): string {
   switch (size) {
     case TaskSize.SMALL:

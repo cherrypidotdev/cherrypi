@@ -23,7 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       v-if="badge.url"
       class="hover:brightness-105"
       rel="noopener noreferrer"
-      :class="taskBadgeToneClass(badgeTone(badge))"
+      :class="badgeClass(badge)"
+      :style="badgeStyle(badge)"
       :href="badge.url"
       :title="badgeTitle(badge)"
       target="_blank"
@@ -46,7 +47,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       ) {{ badge.value }}
     span.inline-flex.max-w-full.items-stretch.overflow-hidden.rounded-md.border.text-xs(
       v-else
-      :class="taskBadgeToneClass(badgeTone(badge))"
+      :class="badgeClass(badge)"
+      :style="badgeStyle(badge)"
       :title="badgeTitle(badge)"
       data-testid="task-badge"
     )
@@ -70,7 +72,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
-import { taskBadgeToneClass } from "@/lib/task";
+import { taskBadgeColorStyle, taskBadgeToneClass } from "@/lib/task";
 import type { TaskBadge } from "@cherrypi/sdk";
 import { computed } from "vue";
 
@@ -89,6 +91,17 @@ const shown = computed(() =>
 
 function badgeTone(badge: TaskBadge): string {
   return badge.value ? badge.tone : "neutral";
+}
+
+function badgeClass(badge: TaskBadge): Array<string | false> {
+  return [
+    taskBadgeToneClass(badgeTone(badge)),
+    Boolean(badge.value && badge.color) && "task-badge-custom",
+  ];
+}
+
+function badgeStyle(badge: TaskBadge): Record<string, string> | undefined {
+  return badge.value ? taskBadgeColorStyle(badge.color) : undefined;
 }
 
 function badgeTitle(badge: TaskBadge): string {

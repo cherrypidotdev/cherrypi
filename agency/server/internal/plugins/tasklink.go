@@ -41,6 +41,8 @@ func wakeCapError(plugin string, limit int) string {
 
 type AddMessageOptions struct {
 	RequiredTools []string
+
+	Force bool
 }
 
 func (s *Service) AddTaskMessage(
@@ -104,7 +106,7 @@ func (s *Service) AddTaskMessage(
 		s.logRequiredTools(ctx, p, t.ID, previousRequirement, t.RequiredTools)
 	}
 	actorID := ids.ActorID(p.ActorID)
-	if err := s.deliverFollowUp(ctx, t, text, actorID); err != nil {
+	if err := s.deliverFollowUp(ctx, t, text, actorID, opts.Force); err != nil {
 		s.rollBackRequirement(
 			ctx, p, t.ID, requirementChanged,
 			attemptedRequirement, previousRequirement,
@@ -129,9 +131,10 @@ func (s *Service) deliverFollowUp(
 	t tasks.Task,
 	text string,
 	actorID ids.ActorID,
+	force bool,
 ) error {
 	if s.FollowUp != nil {
-		return s.FollowUp(ctx, t, text, actorID)
+		return s.FollowUp(ctx, t, text, actorID, force)
 	}
 	switch t.State {
 	case tasks.StateSettled, tasks.StateFailed,
@@ -139,6 +142,15 @@ func (s *Service) deliverFollowUp(
 		_, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, text, actorID)
 		return err
 	case tasks.StateQueued, tasks.StateWaiting:
+		if force {
+			woken, err := s.Tasks.ForceWake(ctx, t, text, actorID)
+			if err != nil {
+				return err
+			}
+			if woken {
+				return nil
+			}
+		}
 		return s.Tasks.AppendPendingPrompt(ctx, t.ID, text, actorID)
 	case tasks.StateInput:
 		return errors.New(

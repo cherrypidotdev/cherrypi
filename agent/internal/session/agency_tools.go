@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,18 +137,52 @@ func (a args) number(name string) (float64, bool) {
 		return float64(value), true
 	case int64:
 		return float64(value), true
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+			return parsed, true
+		}
 	}
 	return 0, false
 }
 
 func (a args) boolean(name string) (bool, bool) {
-	value, ok := a[name].(bool)
-	return value, ok
+	switch value := a[name].(type) {
+	case bool:
+		return value, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
+	}
+	return false, false
 }
 
 func (a args) list(name string) []any {
 	value, _ := a[name].([]any)
 	return value
+}
+
+func (a args) strings(name string) []string {
+	switch value := a[name].(type) {
+	case string:
+		return stringList([]any{value})
+	case []any:
+		return stringList(value)
+	case []string:
+		return stringList(stringsToAny(value))
+	}
+	return nil
+}
+
+func stringsToAny(values []string) []any {
+	out := make([]any, len(values))
+	for i, value := range values {
+		out[i] = value
+	}
+	return out
 }
 
 func (a args) object(name string) map[string]any {
@@ -189,7 +224,7 @@ func references(input []any) []*agencyv1.TaskReferenceInput {
 }
 
 func referenceKind(value string) agencyv1.TaskReferenceKind {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "blocked_by", "blocking":
 		return agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKED_BY
 	case "blocks":
@@ -203,8 +238,24 @@ func referenceKind(value string) agencyv1.TaskReferenceKind {
 	}
 }
 
+func enumName(value string) string {
+	value = strings.Trim(enumSeparators.Replace(strings.ToLower(strings.TrimSpace(value))), "_")
+	for _, prefix := range []string{
+		"task_size_", "task_priority_", "task_state_", "prompt_scope_",
+		"prompt_proposal_status_", "agent_log_level_", "task_reference_kind_",
+		"size_", "priority_", "state_", "scope_", "status_", "level_", "kind_",
+	} {
+		if trimmed := strings.TrimPrefix(value, prefix); trimmed != value && trimmed != "" {
+			return trimmed
+		}
+	}
+	return value
+}
+
+var enumSeparators = strings.NewReplacer("-", "_", " ", "_", ".", "_", "/", "_")
+
 func taskPriority(value string) (agencyv1.TaskPriority, bool) {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "low":
 		return agencyv1.TaskPriority_TASK_PRIORITY_LOW, true
 	case "normal":
@@ -218,7 +269,7 @@ func taskPriority(value string) (agencyv1.TaskPriority, bool) {
 }
 
 func taskSize(value string) (agencyv1.TaskSize, bool) {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "small":
 		return agencyv1.TaskSize_TASK_SIZE_SMALL, true
 	case "medium":
@@ -232,7 +283,7 @@ func taskSize(value string) (agencyv1.TaskSize, bool) {
 }
 
 func taskState(value string) (agencyv1.TaskState, bool) {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "backlog":
 		return agencyv1.TaskState_TASK_STATE_BACKLOG, true
 	case "waiting":
@@ -256,7 +307,7 @@ func taskState(value string) (agencyv1.TaskState, bool) {
 }
 
 func closeOutOutcome(value string) (agencyv1.TaskState, bool) {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "completed":
 		return agencyv1.TaskState_TASK_STATE_COMPLETED, true
 	case "cancelled":
@@ -267,7 +318,7 @@ func closeOutOutcome(value string) (agencyv1.TaskState, bool) {
 }
 
 func promptScope(value string) agencyv1.PromptScope {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "agent":
 		return agencyv1.PromptScope_PROMPT_SCOPE_AGENT
 	case "agent_project":
@@ -286,7 +337,7 @@ func promptScope(value string) agencyv1.PromptScope {
 }
 
 func proposalStatus(value string) agencyv1.PromptProposalStatus {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "pending":
 		return agencyv1.PromptProposalStatus_PROMPT_PROPOSAL_STATUS_PENDING
 	case "approved":
@@ -301,7 +352,7 @@ func proposalStatus(value string) agencyv1.PromptProposalStatus {
 }
 
 func logLevel(value string) agencyv1.AgentLogLevel {
-	switch strings.TrimSpace(value) {
+	switch enumName(value) {
 	case "debug":
 		return agencyv1.AgentLogLevel_AGENT_LOG_LEVEL_DEBUG
 	case "info":
@@ -745,13 +796,19 @@ func taskCreateSchema(child bool) *ai.Schema {
 		ai.Opt(
 			"assigneeId",
 			ai.String(
-				"Actor id to assign the task to. Use the member's `actor_id` from listProjects. Omit to let the scheduler pick a member agent.",
+				"Actor id, agent id, username or name of a project member to assign the task to. Use a member from listProjects; pass the username when a number names two members. Omit to let the scheduler pick a member agent.",
 			),
 		),
 		ai.Opt("name", ai.String("Optional display name.")),
 		ai.Opt("priority", ai.EnumOf("low", "normal", "high", "critical")),
 		ai.Opt("size", ai.EnumOf("small", "medium", "big", "epic")),
-		ai.Opt("tagIds", ai.ArrayOf(ai.String(), "Tag ids from the project.")),
+		ai.Opt(
+			"tagIds",
+			ai.ArrayOf(
+				ai.String(),
+				"Tags to attach, by id or name (`unity` or `#unity`).",
+			),
+		),
 		ai.Opt(
 			"references",
 			referenceSchema(
@@ -782,6 +839,25 @@ func (s *Session) createTaskRequest(
 		return toolOutput{}, err
 	}
 	refs := references(a.list("references"))
+
+	projectID := a.str("projectId")
+	tags := a.strings("tagIds")
+	assignee := a.str("assigneeId")
+	if len(tags) > 0 || assignee != "" {
+		project, err := s.resolveProject(ctx, client, projectID)
+		if err != nil {
+			return toolOutput{}, err
+		}
+		projectID = project.GetId()
+	}
+	tagIDs, err := s.resolveTagIDs(ctx, client, projectID, tags)
+	if err != nil {
+		return toolOutput{}, err
+	}
+	assigneeID, err := s.resolveAssigneeID(ctx, client, projectID, assignee)
+	if err != nil {
+		return toolOutput{}, err
+	}
 	state := agencyv1.TaskState_TASK_STATE_BACKLOG
 	if child {
 		if own := s.agencyTaskID; own != "" {
@@ -796,11 +872,11 @@ func (s *Session) createTaskRequest(
 		state = agencyv1.TaskState_TASK_STATE_QUEUED
 	}
 	request := &agencyv1.CreateTaskRequest{
-		ProjectId:       a.str("projectId"),
+		ProjectId:       projectID,
 		Prompt:          a.str("prompt"),
 		Name:            a.str("name"),
-		AssigneeActorId: a.str("assigneeId"),
-		TagIds:          stringList(a.list("tagIds")),
+		AssigneeActorId: assigneeID,
+		TagIds:          tagIDs,
 		References:      refs,
 		TemplateId:      a.str("templateId"),
 		State:           state,
@@ -998,7 +1074,10 @@ func (s *Session) updateTaskTool() agent.AgentTool {
 			ai.Opt("links", linkSchema("The complete link list; empty clears it.")),
 			ai.Opt(
 				"tagIds",
-				ai.ArrayOf(ai.String(), "The complete tag id list; empty clears it."),
+				ai.ArrayOf(
+					ai.String(),
+					"The complete tag list, by id or name; empty clears it.",
+				),
 			),
 			ai.Opt(
 				"references",
@@ -1014,7 +1093,7 @@ func (s *Session) updateTaskTool() agent.AgentTool {
 			ai.Opt(
 				"assigneeId",
 				ai.String(
-					"Pin the task to this actor id; empty clears the pin. Use the member's `actor_id` from listProjects.",
+					"Pin the task to this project member, by actor id, agent id, username or name; empty clears the pin.",
 				),
 			),
 			ai.Opt(
@@ -1066,8 +1145,31 @@ func (s *Session) updateTaskTool() agent.AgentTool {
 					return toolOutput{}, err
 				}
 			}
-			if a.present("assigneeId") {
-				assignee := a.str("assigneeId")
+
+			if value, ok := a["assigneeId"]; ok && value != nil {
+				assignee, isString := value.(string)
+				if !isString {
+					return toolOutput{}, fmt.Errorf("assigneeId must be a string")
+				}
+				assignee = strings.TrimSpace(assignee)
+				if assignee != "" {
+					current, err := client.Tasks.GetTask(
+						ctx,
+						&agencyv1.GetTaskRequest{Id: taskID},
+					)
+					if err != nil {
+						return toolOutput{}, err
+					}
+					assignee, err = s.resolveAssigneeID(
+						ctx,
+						client,
+						current.GetTask().GetProjectId(),
+						assignee,
+					)
+					if err != nil {
+						return toolOutput{}, err
+					}
+				}
 				if _, err := client.Tasks.UpdateTask(
 					ctx,
 					&agencyv1.UpdateTaskRequest{
@@ -1107,7 +1209,7 @@ func (s *Session) updateTaskTool() agent.AgentTool {
 					ctx,
 					client,
 					taskID,
-					stringList(a.list("tagIds")),
+					a.strings("tagIds"),
 				); err != nil {
 					return toolOutput{}, err
 				}
@@ -1155,6 +1257,203 @@ func (s *Session) updateTaskTool() agent.AgentTool {
 	)
 }
 
+func (s *Session) resolveProject(
+	ctx context.Context,
+	client *agency.Client,
+	value string,
+) (*agencyv1.Project, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, fmt.Errorf("projectId is required")
+	}
+	res, err := client.Projects.GetProject(
+		ctx,
+		&agencyv1.GetProjectRequest{Id: value},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return res.GetProject(), nil
+}
+
+func (s *Session) resolveTagIDs(
+	ctx context.Context,
+	client *agency.Client,
+	projectID string,
+	values []string,
+) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("tags need a project to resolve against")
+	}
+	res, err := client.Tags.ListTags(
+		ctx,
+		&agencyv1.ListTagsRequest{ProjectId: projectID, IncludeArchived: true},
+	)
+	if err != nil {
+		return nil, err
+	}
+	tags := res.GetTags()
+	names := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if !tag.GetArchived() {
+			names = append(names, "#"+tag.GetName())
+		}
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "#"))
+		var match *agencyv1.Tag
+		for _, tag := range tags {
+			if strings.EqualFold(tag.GetId(), strings.TrimSpace(value)) ||
+				strings.EqualFold(tag.GetName(), name) {
+				match = tag
+				break
+			}
+		}
+		if match == nil {
+			if len(names) == 0 {
+				return nil, fmt.Errorf(
+					"tag %q is not in the project, which has no tags yet",
+					value,
+				)
+			}
+			return nil, fmt.Errorf(
+				"tag %q is not in the project; use one of: %s",
+				value,
+				strings.Join(names, ", "),
+			)
+		}
+		if seen[match.GetId()] {
+			continue
+		}
+		seen[match.GetId()] = true
+		out = append(out, match.GetId())
+	}
+	return out, nil
+}
+
+type projectMemberRecord struct {
+	agentID string
+	agent   *agencyv1.Agent
+}
+
+func (s *Session) resolveAssigneeID(
+	ctx context.Context,
+	client *agency.Client,
+	projectID string,
+	value string,
+) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if projectID == "" {
+		return "", fmt.Errorf("an assignee needs a project to resolve against")
+	}
+	res, err := client.Projects.ListProjectAgents(
+		ctx,
+		&agencyv1.ListProjectAgentsRequest{ProjectId: projectID},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	members := make([]projectMemberRecord, 0, len(res.GetAgents()))
+	for _, member := range res.GetAgents() {
+		agent, err := s.projectMember(ctx, client, member.GetAgentId())
+		if err != nil {
+			continue
+		}
+		members = append(members, projectMemberRecord{
+			agentID: member.GetAgentId(),
+			agent:   agent,
+		})
+	}
+	matches := assigneeMatches(members, value)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf(
+			"assignee %q is not a member of the project; use one of: %s",
+			value,
+			assigneeChoices(members),
+		)
+	case 1:
+		return matches[0].agent.GetActorId(), nil
+	default:
+		return "", fmt.Errorf(
+			"assignee %q matches several members; pass the member's username: %s",
+			value,
+			assigneeChoices(matches),
+		)
+	}
+}
+
+func (s *Session) projectMember(
+	ctx context.Context,
+	client *agency.Client,
+	agentID string,
+) (*agencyv1.Agent, error) {
+	res, err := client.Agents.GetAgent(
+		ctx,
+		&agencyv1.GetAgentRequest{Id: agentID},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return res.GetAgent(), nil
+}
+
+func assigneeMatches(members []projectMemberRecord, value string) []projectMemberRecord {
+	var out []projectMemberRecord
+	for _, member := range members {
+		if memberNames(member, value) {
+			out = append(out, member)
+		}
+	}
+	return out
+}
+
+func memberNames(member projectMemberRecord, value string) bool {
+	agent := member.agent
+	for _, candidate := range []string{
+		member.agentID,
+		agent.GetActorId(),
+		agent.GetUsername(),
+		agent.GetDisplayName(),
+	} {
+		if candidate != "" && strings.EqualFold(candidate, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func assigneeChoices(members []projectMemberRecord) string {
+	if len(members) == 0 {
+		return "the project has no agent members"
+	}
+	out := make([]string, 0, len(members))
+	for _, member := range members {
+		agent := member.agent
+		label := agent.GetUsername()
+		if label == "" {
+			label = agent.GetDisplayName()
+		}
+		if label == "" {
+			label = member.agentID
+		}
+		out = append(
+			out,
+			fmt.Sprintf("%s (actor %s, agent %s)", label, agent.GetActorId(), member.agentID),
+		)
+	}
+	return strings.Join(out, ", ")
+}
+
 func (s *Session) replaceTaskTags(
 	ctx context.Context,
 	client *agency.Client,
@@ -1170,6 +1469,15 @@ func (s *Session) replaceTaskTags(
 	have := map[string]bool{}
 	for _, tag := range current.GetTask().GetTags() {
 		have[tag.GetId()] = true
+	}
+	want, err = s.resolveTagIDs(
+		ctx,
+		client,
+		current.GetTask().GetProjectId(),
+		want,
+	)
+	if err != nil {
+		return err
 	}
 	keep := map[string]bool{}
 	var add, remove []string

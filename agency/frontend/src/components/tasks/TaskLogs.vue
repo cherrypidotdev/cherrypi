@@ -222,7 +222,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         a.inline-flex.items-stretch.overflow-hidden.rounded-md.border.text-xs(
           v-for="badge in row.badges"
           :key="badge.key"
-          :class="taskBadgeToneClass(badge.tone)"
+          :class="badgeClass(badge)"
+          :style="badgeStyle(badge)"
           :href="badge.url || undefined"
           :target="badge.url ? '_blank' : undefined"
           :rel="badge.url ? 'noopener noreferrer' : undefined"
@@ -253,6 +254,7 @@ import { useProjects } from "@/composables/useProjects";
 import { formatRelativeTimestamp, formatTimestamp } from "@/lib/format";
 import {
   tagStyle,
+  taskBadgeColorStyle,
   taskBadgeToneClass,
   taskPriorityClass,
   taskPriorityKey,
@@ -411,6 +413,7 @@ interface LogBadge {
   label: string;
   value?: string;
   tone: string;
+  color?: string;
   url?: string;
 }
 
@@ -536,6 +539,17 @@ function buildRow(log: TaskLog): LogRow {
 }
 
 const rows = computed(() => props.logs.map(buildRow));
+
+function badgeClass(badge: LogBadge): Array<string | false> {
+  return [
+    taskBadgeToneClass(badge.value ? badge.tone : "neutral"),
+    Boolean(badge.value && badge.color) && "task-badge-custom",
+  ];
+}
+
+function badgeStyle(badge: LogBadge): Record<string, string> | undefined {
+  return badge.value ? taskBadgeColorStyle(badge.color) : undefined;
+}
 
 function actorIcon(actor: string): LucideIcon {
   switch (actor) {

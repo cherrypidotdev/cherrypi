@@ -489,6 +489,9 @@ func (h *Host) attachTest(L *lua.LState) {
 				}
 				item.RawSetString("required_tools", required)
 			}
+			if row.Force {
+				item.RawSetString("force", lua.LTrue)
+			}
 			out.Append(item)
 		}
 		L.Push(out)
@@ -569,6 +572,7 @@ func (h *Host) attachTest(L *lua.LState) {
 				"label": badge.Label,
 				"value": badge.Value,
 				"tone":  badge.Tone,
+				"color": badge.Color,
 				"url":   badge.URL,
 			}))
 		}

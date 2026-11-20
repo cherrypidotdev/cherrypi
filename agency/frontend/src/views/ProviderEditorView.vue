@@ -221,6 +221,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               span {{ $t("providerEditor.context") }}
               span {{ $t("providerEditor.maxTokens") }}
               span {{ $t("providerEditor.reasoning") }}
+              span {{ $t("providerEditor.forcePlan") }}
               span {{ $t("providerEditor.image") }}
               span {{ $t("providerEditor.enabled") }}
               span
@@ -258,6 +259,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               label.flex.items-center.gap-2.text-sm
                 input(v-model="entry.model.reasoning" type="checkbox")
                 | {{ $t("providerEditor.reasoning") }}
+              label.flex.items-center.gap-2.text-sm(
+                :title="$t('providerEditor.forcePlanHint')"
+              )
+                input(
+                  v-model="entry.model.forcePlan"
+                  type="checkbox"
+                  data-test="model-force-plan"
+                )
+                | {{ $t("providerEditor.forcePlan") }}
               label.flex.items-center.gap-2.text-sm
                 input(
                   type="checkbox"
@@ -561,7 +571,7 @@ const MODEL_PAGE_SIZE = 20;
 const MODEL_PAGE_SIZES = [10, 20, 50, 100];
 
 const MODEL_GRID =
-  "sm:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto_auto]";
+  "sm:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto_auto_auto_auto]";
 const modelFilter = ref("");
 const modelPage = ref(1);
 const modelPageSize = ref(MODEL_PAGE_SIZE);
@@ -582,6 +592,7 @@ function draftModel(model: AgentModel): DraftModel {
   return {
     ...model,
     thinkingLevels: sortThinkingLevels(model.thinkingLevels ?? []),
+    forcePlan: model.forcePlan ?? false,
   };
 }
 
@@ -915,6 +926,7 @@ function toProviderInput(current: DraftProvider): ProviderInput {
       reasoning: model.reasoning,
       input: [...model.input],
       thinkingLevels: [...model.thinkingLevels],
+      forcePlan: model.forcePlan,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
       cost: { ...model.cost },
@@ -1010,7 +1022,7 @@ en:
     modelsTitle: "Models"
     addModel: "Add a model"
     fetchModels: "Fetch models"
-    fetchHint: "Read the model list from the provider. New models are added disabled; matching rows keep their enabled flag and every other field is overwritten."
+    fetchHint: "Read the model list from the provider. New models are added disabled; matching rows keep their enabled and force-planning flags and every other field is overwritten."
     fetchNeedsConnection: "Fill in the API, base URL and API key to fetch models."
     fetchedCount: "Fetched {count} model(s) from the provider."
     fetchedToast: "Fetched {count} model(s)"
@@ -1032,6 +1044,8 @@ en:
     context: "context"
     maxTokens: "max tokens"
     reasoning: "reasoning"
+    forcePlan: "force plan"
+    forcePlanHint: "Let the worker ask this model to call `reportTaskProgress` at the start of every activity block with a named tool choice. Leave it off for a thinking-mode endpoint: DeepSeek and Anthropic extended thinking refuse a forced choice while they think and answer 400."
     image: "image"
     costInput: "input $/1M"
     costOutput: "output $/1M"
@@ -1087,7 +1101,7 @@ ru:
     modelsTitle: "Модели"
     addModel: "Добавить модель"
     fetchModels: "Получить модели"
-    fetchHint: "Прочитать список моделей у провайдера. Новые модели добавляются отключёнными; у совпавших строк сохраняется флаг включения, остальные поля перезаписываются."
+    fetchHint: "Прочитать список моделей у провайдера. Новые модели добавляются отключёнными; у совпавших строк сохраняются флаги включения и принудительного плана, остальные поля перезаписываются."
     fetchNeedsConnection: "Заполните API, базовый URL и API-ключ, чтобы получить модели."
     fetchedCount: "Получено моделей от провайдера: {count}."
     fetchedToast: "Получено моделей: {count}"
@@ -1109,6 +1123,8 @@ ru:
     context: "контекст"
     maxTokens: "макс. токенов"
     reasoning: "reasoning"
+    forcePlan: "принудительный план"
+    forcePlanHint: "Разрешить воркеру требовать от этой модели вызова `reportTaskProgress` в начале каждого блока активности через именованный tool choice. Оставьте выключенным для endpoint в режиме размышления: DeepSeek и extended thinking у Anthropic отклоняют принудительный выбор во время размышления и отвечают 400."
     image: "изображения"
     costInput: "вход $/1M"
     costOutput: "выход $/1M"

@@ -30,6 +30,8 @@ export interface AgentModel {
   input: string[];
 
   thinkingLevels: string[];
+
+  forcePlan: boolean;
   contextWindow: number;
   maxTokens: number;
   cost: ModelCost;
@@ -139,6 +141,7 @@ export function emptyModel(): AgentModel {
     reasoning: false,
     input: ["text"],
     thinkingLevels: [],
+    forcePlan: false,
     contextWindow: 128000,
     maxTokens: 8192,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

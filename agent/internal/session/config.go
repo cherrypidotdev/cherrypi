@@ -66,6 +66,8 @@ type AgencyModel struct {
 
 	ThinkingLevels []string `json:"thinkingLevels"`
 
+	ForcePlan bool `json:"forcePlan"`
+
 	Overrides json.RawMessage `json:"overrides"`
 }
 
@@ -107,7 +109,7 @@ func applyAgencyModels(
 			if strings.TrimSpace(model.ID) == "" {
 				continue
 			}
-			catalog.declareModel(provider.Slug, model.ID)
+			catalog.declareModel(provider.Slug, model.ID, model.ForcePlan)
 		}
 
 		headers := provider.Headers

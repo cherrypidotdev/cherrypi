@@ -28,10 +28,11 @@ func (s *Session) forcePlanToolChoice(payload any, model *ai.Model) (any, error)
 
 	s.mu.Lock()
 	forced := s.progressForceToolChoice
+	allowed := s.forcePlanAllowed
 
 	compacting := !s.compactionStartedAt.IsZero()
 	s.mu.Unlock()
-	if !forced || compacting {
+	if !allowed || !forced || compacting {
 		return payload, nil
 	}
 
