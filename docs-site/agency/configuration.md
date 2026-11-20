@@ -17,6 +17,7 @@ they are stored in the database and apply immediately.
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP listen port. |
 | `CHERRYPI_AGENCY_DATABASE_DSN` | `$CHERRYPI_AGENCY_DIR/agency.sqlite3` | SQLite path or PostgreSQL URL. |
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin used in links and OIDC callbacks. |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the installed plugin bundles and their databases. Must survive a restart or redeploy, like the SQLite file. See [plugins](/advanced/plugins#storage-and-restarts). |
 | `CHERRYPI_ADMIN_USERNAME` | `admin` | First-boot administrator username. |
 | `CHERRYPI_ADMIN_PASSWORD` | generated + printed once | First-boot administrator password. |
 | `CHERRYPI_INSECURE_FIRST_REGISTERED_USER_BECOMES_ADMIN` | off | Open registration where the first user becomes admin. |
@@ -31,7 +32,7 @@ they are stored in the database and apply immediately.
 | `CHERRYPI_ATTACHMENT_MAX_BYTES` | `26214400` (25 MiB) | Per-file upload limit. |
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Attachments per message. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Process-log files to retain. |
-| `CHERRYPI_SECRET_KEY` | — | Base64 32-byte key that seals agency-held provider keys. A wrong length stops the boot. See [provider secrets](/reference/environment#provider-secrets). |
+| `CHERRYPI_SECRET_KEY` | — | Base64 32-byte key that seals agency-held provider keys and [secret variables](/using/variables). A wrong length stops the boot. See [provider secrets](/reference/environment#provider-secrets). |
 | `CHERRYPI_H2C` | off | Serve cleartext HTTP/2. Diagnostic/direct-agent use only. |
 | `CHERRYPI_OTEL_ENABLED` | auto | Enable OTLP traces, metrics and logs. Auto-on when an OTLP endpoint is set. |
 | `CHERRYPI_FRONTEND_PROXY_URL` | — | Development only: proxy the SPA to Vite. |
@@ -132,6 +133,7 @@ the `minio-init` service creates it.
 | --- | --- |
 | General | The read-only public URL (from `CHERRYPI_PUBLIC_URL`), agency name, logo, favicon, primary color, the default Overview widget layouts, and the automatic task-archive policy. |
 | Models | Providers, their sealed keys, models and grants. Requires `CHERRYPI_SECRET_KEY`. |
+| Variables | The organization-wide [variables and secrets](/using/variables) every task's shell receives. Storing a secret requires `CHERRYPI_SECRET_KEY`. |
 | Users | Invite people, change roles, disable accounts, resend invitations. |
 | Authentication | Password/magic-link toggles, TOTP policy, SMTP, OIDC and LDAP providers. |
 | Agents | Who may create agents, default concurrency behavior. |

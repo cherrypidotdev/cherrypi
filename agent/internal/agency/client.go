@@ -26,16 +26,17 @@ import (
 )
 
 type Client struct {
-	BaseURL  string
-	Token    func() string
-	HTTP     *http.Client
-	Tasks    agencyv1connect.TaskServiceClient
-	Projects agencyv1connect.ProjectServiceClient
-	Agents   agencyv1connect.AgentServiceClient
-	Prompts  agencyv1connect.PromptServiceClient
-	Agency   agencyv1connect.AgencyServiceClient
-	Plugins  agencyv1connect.PluginServiceClient
-	Sites    agencyv1connect.SiteServiceClient
+	BaseURL   string
+	Token     func() string
+	HTTP      *http.Client
+	Tasks     agencyv1connect.TaskServiceClient
+	Projects  agencyv1connect.ProjectServiceClient
+	Agents    agencyv1connect.AgentServiceClient
+	Prompts   agencyv1connect.PromptServiceClient
+	Agency    agencyv1connect.AgencyServiceClient
+	Plugins   agencyv1connect.PluginServiceClient
+	Sites     agencyv1connect.SiteServiceClient
+	Knowledge agencyv1connect.KnowledgeServiceClient
 }
 
 func New(baseURL string, token func() string, httpClient *http.Client) *Client {
@@ -47,16 +48,17 @@ func New(baseURL string, token func() string, httpClient *http.Client) *Client {
 
 	grpcURL := baseURL + "/api/grpc"
 	return &Client{
-		BaseURL:  baseURL,
-		Token:    token,
-		HTTP:     httpClient,
-		Tasks:    agencyv1connect.NewTaskServiceClient(httpClient, grpcURL),
-		Projects: agencyv1connect.NewProjectServiceClient(httpClient, grpcURL),
-		Agents:   agencyv1connect.NewAgentServiceClient(httpClient, grpcURL),
-		Prompts:  agencyv1connect.NewPromptServiceClient(httpClient, grpcURL),
-		Agency:   agencyv1connect.NewAgencyServiceClient(httpClient, grpcURL),
-		Plugins:  agencyv1connect.NewPluginServiceClient(httpClient, grpcURL),
-		Sites:    agencyv1connect.NewSiteServiceClient(httpClient, grpcURL),
+		BaseURL:   baseURL,
+		Token:     token,
+		HTTP:      httpClient,
+		Tasks:     agencyv1connect.NewTaskServiceClient(httpClient, grpcURL),
+		Projects:  agencyv1connect.NewProjectServiceClient(httpClient, grpcURL),
+		Agents:    agencyv1connect.NewAgentServiceClient(httpClient, grpcURL),
+		Prompts:   agencyv1connect.NewPromptServiceClient(httpClient, grpcURL),
+		Agency:    agencyv1connect.NewAgencyServiceClient(httpClient, grpcURL),
+		Plugins:   agencyv1connect.NewPluginServiceClient(httpClient, grpcURL),
+		Sites:     agencyv1connect.NewSiteServiceClient(httpClient, grpcURL),
+		Knowledge: agencyv1connect.NewKnowledgeServiceClient(httpClient, grpcURL),
 	}
 }
 

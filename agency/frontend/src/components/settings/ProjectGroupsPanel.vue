@@ -97,7 +97,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               Badge(variant="secondary") {{ link.role }}
             TableCell
               RouterLink.text-primary(
-                :to="{ name: 'project', params: { slug: link.inheritedFromProjectSlug }, query: { tab: 'settings', section: 'access' } }"
+                :to="{ name: 'project-settings-access', params: { slug: link.inheritedFromProjectSlug } }"
               ) {{ link.inheritedFromProjectName }}
 
   template(v-if="access.invitations.length")

@@ -166,6 +166,8 @@ type Session struct {
 
 	probe bool
 
+	fixedTools []agent.AgentTool
+
 	waiting bool
 
 	queue []queueEntry
@@ -178,6 +180,8 @@ type Session struct {
 
 	savedDialog string
 
+	shutdownAbandoned bool
+
 	idleTimer *time.Timer
 	idleGen   uint64
 
@@ -188,6 +192,10 @@ type Session struct {
 	historyCancel context.CancelFunc
 
 	catalogFn func(ctx context.Context) *modelCatalog
+
+	refreshFn func(ctx context.Context) *modelCatalog
+
+	variables []AgencyVariable
 
 	restoredProjection    coding.BranchProjection
 	hasRestoredProjection bool
@@ -332,12 +340,18 @@ func (s *Session) promptConfigured(
 	text, provider, modelID, level string,
 	images []imageAttachment,
 ) error {
+	if s.abandonedForShutdown() {
+		return ErrShuttingDown
+	}
+
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
 	s.cancelIdle()
 
 	s.discardWaitingForNewRun(ctx)
+
+	s.refreshVariables(ctx)
 
 	if err := s.selectModel(ctx, provider, modelID, level); err != nil {
 		return err
@@ -518,6 +532,7 @@ type SessionConfig struct {
 }
 
 func (s *Session) Config(ctx context.Context) (SessionConfig, error) {
+	s.adoptStoredSelection(ctx)
 	s.mu.Lock()
 	provider, modelID, level := s.modelProvider, s.model, s.thinkingLevel
 	s.mu.Unlock()
@@ -576,6 +591,10 @@ func (s *Session) settle(errMsg string) {
 	}
 
 	s.setRunning(false)
+
+	if s.abandonedForShutdown() {
+		return
+	}
 
 	s.clearWaitingStore(ctx)
 	if errMsg != "" {
@@ -848,6 +867,10 @@ func (s *Session) respondExtensionUI(
 	requestID string,
 	resp ExtensionResponse,
 ) error {
+
+	if s.abandonedForShutdown() {
+		return ErrShuttingDown
+	}
 	if s.answerLocalDialog(requestID, resp) {
 		s.clearWaitingStore(ctx)
 		s.notifyAgentState("waiting_resolved", StatusInProgress)
@@ -1013,6 +1036,19 @@ func (s *Session) clearWaiting() {
 	s.savedDialog = ""
 	s.accumulateWaitLocked(time.Now())
 	s.mu.Unlock()
+}
+
+func (s *Session) abandonForShutdown() {
+	s.mu.Lock()
+	s.shutdownAbandoned = true
+	s.mu.Unlock()
+	s.setRunning(false)
+}
+
+func (s *Session) abandonedForShutdown() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shutdownAbandoned
 }
 
 func (s *Session) discardWaitingForNewRun(ctx context.Context) {

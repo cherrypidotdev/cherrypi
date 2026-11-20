@@ -191,5 +191,5 @@ func validScope(scope Scope) bool {
 }
 
 func (s *Service) nextRevision() string {
-	return fmt.Sprintf("%d", s.now().UnixNano())
+	return store.NewRevision()
 }

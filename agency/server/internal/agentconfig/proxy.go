@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -141,6 +142,11 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	copyHeaders(req.Header, r.Header)
 	applyHeaders(req.Header, decodeMap(provider.HeadersJson))
+	if rewritesContentBlocks(provider.Api) {
+		// The rewrite reads the stream line by line, so it needs the bytes the
+
+		req.Header.Del("Accept-Encoding")
+	}
 	if err := p.authorize(r.Context(), req, provider); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -166,6 +172,21 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(res.StatusCode)
+	if rewritesContentBlocks(provider.Api) && sseContentType(res.Header) {
+		if encoding := contentEncoding(res.Header); encoding != "" {
+			// The stream is still encoded, so the line-by-line rewrite cannot
+
+			log.Printf(
+				"[agent-llm] %s answered a %s-encoded stream; the content-block rewrite did not run",
+				slug,
+				encoding,
+			)
+			_ = flushCopy(w, res.Body)
+			return
+		}
+		_ = flushNormalized(w, res.Body)
+		return
+	}
 	_ = flushCopy(w, res.Body)
 }
 
@@ -360,6 +381,14 @@ func applyHeaders(dst http.Header, headers map[string]string) {
 	for key, value := range headers {
 		dst.Set(key, value)
 	}
+}
+
+func contentEncoding(header http.Header) string {
+	encoding := strings.TrimSpace(header.Get("Content-Encoding"))
+	if strings.EqualFold(encoding, "identity") {
+		return ""
+	}
+	return encoding
 }
 
 func isHopHeader(key string) bool {

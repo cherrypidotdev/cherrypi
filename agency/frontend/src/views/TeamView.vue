@@ -38,6 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TabsTrigger(value="members") {{ $t("admin.teams.columnMembers") }}
           TabsTrigger(value="groups") {{ $t("nav.groups") }}
           TabsTrigger(value="projects") {{ $t("nav.projects") }}
+          TabsTrigger(value="variables") {{ $t("variables.title") }}
           TabsTrigger(value="settings") {{ $t("common.settings") }}
 
         TabsContent(value="profile")
@@ -322,6 +323,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :team-id="id"
               )
 
+        TabsContent(value="variables")
+          VariablesPanel(
+            v-if="team"
+            :target="{ scope: 3, teamId: team.id }"
+            :can-manage="canManage"
+          )
+
         TabsContent(value="settings")
           .flex.flex-col.gap-6
             Card
@@ -406,6 +414,7 @@ import ActorCombobox from "@/components/ActorCombobox.vue";
 import BackButton from "@/components/BackButton.vue";
 import PromptEditor from "@/components/PromptEditor.vue";
 import TeamGroupsPanel from "@/components/settings/TeamGroupsPanel.vue";
+import VariablesPanel from "@/components/settings/VariablesPanel.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";

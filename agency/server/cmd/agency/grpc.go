@@ -28,6 +28,7 @@ import (
 	agentsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/agents"
 	dashboardgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/dashboard"
 	desktopgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/desktop"
+	knowledgegrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/knowledge"
 	kpigrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/kpi"
 	modelroutinggrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/modelrouting"
 	notificationsgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/notifications"
@@ -41,6 +42,7 @@ import (
 	taskgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/task"
 	tasktemplatesgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/tasktemplates"
 	terminalgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/terminal"
+	variablesgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/variables"
 	webhookgrpc "cherrypi.vladfaust.com/agency/cmd/agency/grpc/webhook"
 	"cherrypi.vladfaust.com/agency/internal/accounts"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
@@ -195,6 +197,15 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 	)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
+	knowledgeService := &knowledgegrpc.Server{
+		Knowledge: appCtx.Knowledge,
+		Agents:    appCtx.Agents,
+	}
+	path, handler = agencyv1connect.NewKnowledgeServiceHandler(
+		knowledgeService,
+		handlerOptions()...)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
 	siteService := &sitesgrpc.SiteServer{
 		Sites:       appCtx.Sites,
 		Accounts:    appCtx.Accounts,
@@ -215,6 +226,17 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		ModelRouting: appCtx.ModelRouting,
 	}
 	path, handler = agencyv1connect.NewProjectServiceHandler(projectService, handlerOptions()...)
+	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
+
+	variableService := &variablesgrpc.Server{
+		Variables: appCtx.Variables,
+		Access:    appCtx.PromptFlow.Access,
+		Actors:    appCtx.Store,
+	}
+	path, handler = agencyv1connect.NewVariableServiceHandler(
+		variableService,
+		handlerOptions()...,
+	)
 	mux.Handle("/api/grpc"+path, http.StripPrefix("/api/grpc", handler))
 
 	promptService := &promptsgrpc.PromptServer{

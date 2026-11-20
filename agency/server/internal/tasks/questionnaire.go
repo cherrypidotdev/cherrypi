@@ -66,6 +66,14 @@ func (s *Service) RecordQuestionnaireResponse(
 		fmt.Sprintf("Questionnaire answered (%d %s)", answers, answerCount(answers)),
 		map[string]any{"request_id": requestID, "answers": answers},
 	)
+
+	s.decide(ctx, Decision{
+		Kind:    DecisionQuestionAnswered,
+		TaskID:  taskID,
+		EventID: requestID,
+		Summary: fmt.Sprintf("Answered %d %s", answers, answerCount(answers)),
+		Payload: map[string]any{"request_id": requestID, "answers": answers},
+	})
 }
 
 func (s *Service) QuestionnaireResponses(

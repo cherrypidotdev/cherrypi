@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,20 +149,56 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 			continue
 		}
 		if err := s.ensureRuntime(ctx, p); err != nil {
-			s.Store.Log(
-				ctx,
-				p.ID,
-				"error",
-				"lifecycle",
-				"",
-				"failed to load plugin",
-				map[string]any{"error": err.Error()},
-			)
+			s.disableAfterLoadFailure(ctx, p, err)
 			continue
 		}
+		s.clearLoadError(ctx, p.ID)
 		s.startTicker(p)
 	}
 	return nil
+}
+
+func (s *Service) disableAfterLoadFailure(ctx context.Context, p Plugin, cause error) {
+	s.stopTicker(p.ID)
+	if err := s.Store.SetLoadFailure(ctx, p.ID, s.publicLoadError(cause)); err != nil {
+		log.Printf("[plugins] record load failure %s: %v", p.ID, err)
+	}
+	if err := s.releasePluginHolds(ctx, p.ID); err != nil {
+		log.Printf("[plugins] release holds of unloadable %s: %v", p.ID, err)
+	}
+	s.Runtime.Unload(p.ID)
+	s.closeDB(p.ID)
+	s.Store.Log(
+		ctx,
+		p.ID,
+		"error",
+		"lifecycle",
+		"",
+		"failed to load plugin",
+		map[string]any{"error": cause.Error(), "disabled": true},
+	)
+}
+
+func (s *Service) publicLoadError(err error) string {
+	msg := err.Error()
+	for _, secret := range []string{
+		strings.TrimRight(s.Config.DataDir, string(os.PathSeparator)),
+		strings.TrimSpace(s.Config.DSN),
+	} {
+
+		if len(secret) < 2 {
+			continue
+		}
+		msg = strings.ReplaceAll(msg, secret+string(os.PathSeparator), "")
+		msg = strings.ReplaceAll(msg, secret, "")
+	}
+	return msg
+}
+
+func (s *Service) clearLoadError(ctx context.Context, id string) {
+	if err := s.Store.ClearLoadError(ctx, id); err != nil {
+		log.Printf("[plugins] clear load failure %s: %v", id, err)
+	}
 }
 
 func (s *Service) List(ctx context.Context) ([]Plugin, error) { return s.Store.List(ctx) }
@@ -280,8 +317,11 @@ func (s *Service) Install(
 		}
 	}
 	if err := s.ensureRuntime(ctx, p); err != nil {
+
+		s.disableAfterLoadFailure(ctx, p, err)
 		return Plugin{}, err
 	}
+	s.clearLoadError(ctx, p.ID)
 	s.startTicker(p)
 	s.Store.Log(
 		ctx,
@@ -303,8 +343,11 @@ func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error
 	if enabled {
 		p.Enabled = true
 		if err := s.ensureRuntime(ctx, p); err != nil {
+
+			s.disableAfterLoadFailure(ctx, p, err)
 			return err
 		}
+		s.clearLoadError(ctx, id)
 	} else {
 
 		if err := s.Store.SetEnabled(ctx, id, false); err != nil {

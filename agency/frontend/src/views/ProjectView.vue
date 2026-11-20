@@ -46,94 +46,42 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           | {{ project.description }}
         span.text-muted-foreground.font-mono.text-xs {{ project?.slug }}
-    Tabs(v-model="tab")
+    Tabs(:model-value="activeTab" @update:model-value="onTabChange")
       TabsList
-        TabsTrigger(value="overview") {{ $t("projectView.overview") }}
-        TabsTrigger(value="usage") {{ $t("projectView.usage") }}
-        TabsTrigger(value="concurrency") {{ $t("agentConcurrency.title") }}
-        TabsTrigger(value="settings") {{ $t("common.settings") }}
+        TabsTrigger(
+          v-for="tab in tabs"
+          :key="tab.value"
+          :value="tab.value"
+          as-child
+        )
+          RouterLink(:to="tabTo(tab)") {{ $t(tab.labelKey) }}
 
-  p.text-destructive.text-sm(v-if="error") {{ error }}
+  p.text-destructive.text-sm(v-if="page.error") {{ page.error }}
 
   ActorLinks.profile-links(:links="project?.links")
 
-  Tabs(v-model="tab")
-    TabsContent(value="overview")
-      .flex.flex-col.gap-6
-        KpiOverview(
-          :page="project ? { kind: 'project', id: project.id } : undefined"
-          :page-context="kpiPageContext"
-        )
-
-        ExpressTaskForm(v-if="project && canPrompt" :project-id="project.id")
-        p.text-muted-foreground.text-sm(v-else-if="project")
-          | {{ $t("projectView.viewOnly") }}
-
-        Card.overflow-visible
-          CardHeader
-            CardTitle {{ $t("nav.tasks") }}
-            CardDescription {{ $t("projectView.tasksDescription") }}
-          CardContent
-            TasksList(
-              v-if="project"
-              empty-text="No tasks in this project."
-              hide-project
-              :project-id="project.id"
-            )
-
-    TabsContent(value="usage")
-      UsageDashboard(v-if="project" context="project" :project-id="project.id")
-
-    TabsContent.flex-1.overflow-auto(value="concurrency")
-      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
-        ConcurrencyKpis(v-if="project" context="project" :project="project")
-        ProjectConcurrency(
-          v-if="project"
-          :project="project"
-          :can-manage="canManageProject"
-        )
-
-    TabsContent(value="settings")
-      ProjectSettingsView(
-        v-if="project"
-        :slug="slug"
-        @changed="onProjectChanged"
-      )
+  RouterView(v-slot="{ Component }")
+    component(:is="Component" :page="page")
 </template>
 
 <script setup lang="ts">
 import ActorLinks from "@/components/actor/ActorLinks.vue";
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import BackButton from "@/components/BackButton.vue";
-import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
-import ProjectConcurrency from "@/components/concurrency/ProjectConcurrency.vue";
-import KpiOverview from "@/components/kpi/KpiOverview.vue";
-import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
-import TasksList from "@/components/tasks/TasksList.vue";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import UsageDashboard from "@/components/usage/UsageDashboard.vue";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAgents } from "@/composables/useAgents";
 import type { BackFallback } from "@/composables/useBackNavigation";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { useProjects } from "@/composables/useProjects";
-import type { KpiPageContext } from "@/lib/kpiWidgets";
-import { projectAccessApi } from "@/lib/projectAccess";
+import { projectAccessApi, type ProjectAccess } from "@/lib/projectAccess";
 import { agency } from "@/lib/sdk";
 import type { Project } from "@cherrypi/sdk";
 import { ChevronRightIcon } from "@lucide/vue";
 import { toSvg } from "jdenticon";
-import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, onMounted, reactive, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { RouterLink, useRoute, useRouter } from "vue-router";
-import ProjectSettingsView from "./ProjectSettingsView.vue";
+import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 const { t } = useI18n();
 
@@ -143,22 +91,61 @@ const router = useRouter();
 const { loadAgents } = useAgents();
 const { projects, loadProjects } = useProjects();
 
-const TABS = ["overview", "usage", "concurrency", "settings"];
-const tab = ref(
-  typeof route.query.tab === "string" && TABS.includes(route.query.tab)
-    ? route.query.tab
-    : "overview",
-);
+const tabs = [
+  { value: "overview", name: "project", labelKey: "projectView.overview" },
+  { value: "wiki", name: "project-wiki", labelKey: "knowledge.wikiTab" },
+  {
+    value: "decisions",
+    name: "project-decisions",
+    labelKey: "knowledge.decisionsTab",
+  },
+  { value: "usage", name: "project-usage", labelKey: "projectView.usage" },
+  {
+    value: "concurrency",
+    name: "project-concurrency",
+    labelKey: "agentConcurrency.title",
+  },
+  { value: "settings", name: "project-settings", labelKey: "common.settings" },
+];
+
 const project = ref<Project>();
-
-const kpiPageContext = computed<KpiPageContext>(() => ({
-  kind: "project",
-  projectId: project.value?.id ?? "",
-}));
+const access = ref<ProjectAccess>();
 const canPrompt = ref(false);
-
 const canManageProject = ref(false);
 const error = ref("");
+
+const page = reactive({
+  project,
+  access,
+  canPrompt,
+  canManageProject,
+  error,
+  setProject: (updated: Project) => {
+    project.value = updated;
+  },
+  reload: load,
+  reloadAccess: loadAccess,
+});
+
+const activeTab = computed(() => {
+  const name = String(route.name ?? "");
+  if (name.startsWith("project-settings")) return "settings";
+  if (name === "project-wiki") return "wiki";
+  if (name === "project-decisions") return "decisions";
+  if (name === "project-usage") return "usage";
+  if (name === "project-concurrency") return "concurrency";
+  return "overview";
+});
+
+function tabTo(tab: (typeof tabs)[number]) {
+  return { name: tab.name, params: { slug: props.slug } };
+}
+
+function onTabChange(value: unknown) {
+  const tab = tabs.find((candidate) => candidate.value === value);
+  if (!tab) return;
+  void router.push(tabTo(tab));
+}
 
 const ancestors = computed(() => {
   const byID = new Map(projects.value.map((item) => [item.id, item]));
@@ -188,37 +175,44 @@ const backFallback = computed<BackFallback>(() => {
 
 const logo = computed(() => toSvg(project.value?.id ?? "project", 48));
 
-watchEffect(() =>
-  setPageTitle(project.value?.name || t("admin.projects.columnProject")),
-);
-
-function onProjectChanged(updated: Project) {
-  project.value = updated;
-}
+watchEffect(() => {
+  void route.name;
+  setPageTitle(project.value?.name || t("admin.projects.columnProject"));
+});
 
 async function load() {
+  error.value = "";
   try {
     project.value = await agency.getProject(props.slug);
-    try {
-      const access = await projectAccessApi.access(project.value.id);
-      canPrompt.value = access.role !== "viewer";
-      canManageProject.value = access.can_manage_access;
-    } catch {
-      canPrompt.value = false;
-      canManageProject.value = false;
-    }
-    error.value = "";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
+    return;
   }
+  await loadAccess();
 }
 
-watch(tab, (value) => {
-  const next = { ...route.query };
-  if (value === "overview") delete next.tab;
-  else next.tab = value;
-  void router.replace({ query: next });
-});
+async function loadAccess() {
+  if (!project.value) {
+    access.value = undefined;
+    canPrompt.value = false;
+    canManageProject.value = false;
+    return;
+  }
+
+  const projectID = project.value.id;
+  try {
+    const payload = await projectAccessApi.access(projectID);
+    if (project.value?.id !== projectID) return;
+    access.value = payload;
+    canPrompt.value = payload.role !== "viewer";
+    canManageProject.value = payload.can_manage_access;
+  } catch {
+    if (project.value?.id !== projectID) return;
+    access.value = undefined;
+    canPrompt.value = false;
+    canManageProject.value = false;
+  }
+}
 
 onMounted(async () => {
   await Promise.all([loadAgents(), loadProjects(), load()]);
@@ -228,14 +222,10 @@ onMounted(async () => {
 <i18n lang="yaml">
 en:
   projectView:
-    usage: "Usage"
     overview: "Overview"
-    viewOnly: "You have view-only access to this project."
-    tasksDescription: "Tasks in this project, across agents."
+    usage: "Usage"
 ru:
   projectView:
-    usage: "Использование"
     overview: "Обзор"
-    viewOnly: "У вас доступ к этому проекту только для чтения."
-    tasksDescription: "Задачи этого проекта по всем агентам."
+    usage: "Использование"
 </i18n>

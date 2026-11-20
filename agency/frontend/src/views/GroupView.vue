@@ -83,6 +83,7 @@ const tabs = [
   { name: "group-members", labelKey: "groups.tabs.members" },
   { name: "group-prompts", labelKey: "groups.tabs.prompts" },
   { name: "group-access", labelKey: "groups.tabs.access" },
+  { name: "group-variables", labelKey: "groups.tabs.variables" },
   { name: "group-settings", labelKey: "groups.tabs.settings" },
 ];
 
@@ -109,6 +110,7 @@ en:
       members: Members
       prompts: Prompts
       access: Access
+      variables: Variables
       settings: Settings
 ru:
   groups:
@@ -123,5 +125,6 @@ ru:
       members: Участники
       prompts: Промпты
       access: Доступ
+      variables: Переменные
       settings: Настройки
 </i18n>

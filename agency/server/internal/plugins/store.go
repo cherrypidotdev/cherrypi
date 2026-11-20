@@ -30,15 +30,17 @@ import (
 )
 
 type Plugin struct {
-	ID            string
-	Name          string
-	Version       string
-	Description   string
-	Manifest      Manifest
-	ManifestRaw   []byte
-	Runtime       string
-	Entry         string
-	Checksum      string
+	ID          string
+	Name        string
+	Version     string
+	Description string
+	Manifest    Manifest
+	ManifestRaw []byte
+	Runtime     string
+	Entry       string
+	Checksum    string
+
+	LoadError     string
 	Enabled       bool
 	InstalledBy   int64
 	ActorID       int64
@@ -180,7 +182,7 @@ func (s *Store) q(query string) string {
 	return b.String()
 }
 
-const pluginSelect = `SELECT p.id,p.name,p.version,p.description,p.manifest_json,p.runtime,p.entry,p.checksum,p.enabled,
+const pluginSelect = `SELECT p.id,p.name,p.version,p.description,p.manifest_json,p.runtime,p.entry,p.checksum,p.load_error,p.enabled,
 	COALESCE(p.installed_by_actor_id,0),COALESCE(pa.actor_id,0),COALESCE(a.username,''),COALESCE(a.name,''),p.created_at,p.updated_at
 	FROM plugins p
 	LEFT JOIN plugin_actors pa ON pa.plugin_id=p.id
@@ -224,6 +226,7 @@ func scanPlugin(row scanner) (Plugin, error) {
 		&p.Runtime,
 		&p.Entry,
 		&p.Checksum,
+		&p.LoadError,
 		&enabled,
 		&p.InstalledBy,
 		&p.ActorID,
@@ -261,7 +264,7 @@ func (s *Store) Insert(ctx context.Context, p Plugin) error {
 	if _, err := tx.ExecContext(
 		ctx,
 		s.q(
-			`INSERT INTO plugins (id,name,version,description,manifest_json,runtime,entry,checksum,enabled,installed_by_actor_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO plugins (id,name,version,description,manifest_json,runtime,entry,checksum,load_error,enabled,installed_by_actor_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		),
 		p.ID,
 		p.Name,
@@ -271,6 +274,7 @@ func (s *Store) Insert(ctx context.Context, p Plugin) error {
 		p.Runtime,
 		p.Entry,
 		p.Checksum,
+		p.LoadError,
 		boolInt(p.Enabled),
 		nullInt(p.InstalledBy),
 		now.UnixMilli(),
@@ -398,6 +402,27 @@ func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 		ctx,
 		s.q(`UPDATE plugins SET enabled=?,updated_at=? WHERE id=?`),
 		boolInt(enabled),
+		time.Now().UnixMilli(),
+		id,
+	)
+	return err
+}
+
+func (s *Store) SetLoadFailure(ctx context.Context, id, message string) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		s.q(`UPDATE plugins SET enabled=0,load_error=?,updated_at=? WHERE id=?`),
+		message,
+		time.Now().UnixMilli(),
+		id,
+	)
+	return err
+}
+
+func (s *Store) ClearLoadError(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		s.q(`UPDATE plugins SET load_error='',updated_at=? WHERE id=? AND load_error<>''`),
 		time.Now().UnixMilli(),
 		id,
 	)

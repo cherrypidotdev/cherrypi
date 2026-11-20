@@ -97,6 +97,8 @@ func WithActorID(ctx context.Context, actorID ids.ActorID) context.Context {
 	return context.WithValue(ctx, actorIDContextKey{}, actorID)
 }
 
+func ActorIDFrom(ctx context.Context) ids.ActorID { return actorIDFrom(ctx) }
+
 func actorIDFrom(ctx context.Context) ids.ActorID {
 	if id, ok := ctx.Value(actorIDContextKey{}).(ids.ActorID); ok {
 		return id

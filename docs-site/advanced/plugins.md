@@ -647,6 +647,40 @@ cherrypi.release_task(task_id, "ci", {
 - Packing and loading skip version-control metadata and paths matched by the
   tree's `.gitignore` files, so a repository root is a safe bundle directory.
 
+## Storage and restarts
+
+A plugin lives in two places, and both have to survive a restart:
+
+- the **registry** — id, version, manifest, enabled flag, settings, actor, and
+  Activity Log — is in the agency database;
+- the **bundle** — `plugin.json`, the Lua sources, and migrations — is on disk
+  under `$CHERRYPI_AGENCY_DIR/plugins/<id>/versions/<version>/`, and the
+  plugin's own database under `$CHERRYPI_AGENCY_DIR/plugins/<id>/data/`.
+  `CHERRYPI_PLUGIN_DATA_DIR` moves that root.
+
+Persist `$CHERRYPI_AGENCY_DIR` (or `CHERRYPI_PLUGIN_DATA_DIR`) across
+redeploys and container recreations, the same way you persist the SQLite file.
+A PostgreSQL agency still keeps plugin code on disk: persisting only the
+database keeps the registry rows while losing the bundles they point at.
+
+The agency logs the directory it resolved at startup:
+
+```text
+[plugins] data dir /root/.cherrypi-agency (CHERRYPI_AGENCY_DIR)
+[plugins] data dir /srv/plugins (CHERRYPI_PLUGIN_DATA_DIR)
+```
+
+Compare it with the volume your deployment mounts. The two stores diverge
+whenever the **install** ran somewhere other than the preserved root — a pod or
+job whose filesystem was not the volume, a release that predated the volume
+mount, or a `HOME` that resolves the default directory outside it. Nothing
+looks wrong until the next restart re-reads the registry.
+
+When the code is gone, the agency disables the plugin and records the reason on
+its page instead of leaving it green-but-dead — every route under
+`/plugins/<id>/` answers `404` until the bundle is reinstalled and the plugin
+enabled again.
+
 ## Runtime and security
 
 - Outbound calls are HTTPS-only and host-allowlisted: an entry matches an exact

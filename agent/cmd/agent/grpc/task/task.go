@@ -388,6 +388,9 @@ func connectError(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, session.ErrInvalidThinkingLevel):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, session.ErrShuttingDown):
+
+		return connect.NewError(connect.CodeUnavailable, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

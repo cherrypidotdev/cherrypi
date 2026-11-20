@@ -57,6 +57,8 @@ var (
 	ErrInvalidThinkingLevel = errors.New("thinking level is required")
 
 	ErrSessionBusy = errors.New("the session is busy")
+
+	ErrShuttingDown = errors.New("the agent is shutting down")
 )
 
 const (
@@ -87,6 +89,8 @@ type Manager struct {
 	lastUsed map[string]time.Time
 
 	runs atomic.Int64
+
+	shuttingDown atomic.Bool
 
 	catalogs map[string]*catalogEntry
 
@@ -193,6 +197,9 @@ func (m *Manager) Create(
 	prompt string,
 	opts CreateOptions,
 ) (sqlitedb.Task, error) {
+	if m.shuttingDown.Load() {
+		return sqlitedb.Task{}, ErrShuttingDown
+	}
 	if strings.TrimSpace(prompt) == "" {
 		return sqlitedb.Task{}, ErrInvalidPrompt
 	}
@@ -437,6 +444,9 @@ func truncateRunes(s string, n int) string {
 }
 
 func (m *Manager) Add(ctx context.Context, id, prompt string, opts AddOptions) error {
+	if m.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	if strings.TrimSpace(prompt) == "" {
 		return ErrInvalidPrompt
 	}
@@ -689,6 +699,9 @@ func (m *Manager) Retry(
 	requiredTools []string,
 	model ModelSelection,
 ) error {
+	if m.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	row, err := m.store.GetSession(ctx, id)
 	if err != nil {
 		return err
@@ -970,20 +983,24 @@ func (m *Manager) autoContinue(row sqlitedb.Task, s *Session) {
 
 func (m *Manager) Shutdown(ctx context.Context) {
 
-	m.stopWaiting()
+	m.shuttingDown.Store(true)
+
+	m.abandonWaiting()
 
 	for m.runs.Load() > 0 {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(50 * time.Millisecond):
+
+			m.abandonWaiting()
 		}
 	}
 
 	m.stopAll()
 }
 
-func (m *Manager) stopWaiting() {
+func (m *Manager) abandonWaiting() {
 	m.mu.Lock()
 	sessions := make([]*Session, 0, len(m.byID))
 	for _, s := range m.byID {
@@ -991,12 +1008,18 @@ func (m *Manager) stopWaiting() {
 	}
 	m.mu.Unlock()
 
+	abandoned := 0
 	for _, s := range sessions {
-		if waiting, _ := s.waitingForInput(); waiting {
-			s.forceStopEngine()
-			s.setRunning(false)
-			s.clearWaiting()
+		if waiting, _ := s.waitingForInput(); waiting && !s.abandonedForShutdown() {
+			s.abandonForShutdown()
+			abandoned++
 		}
+	}
+	if abandoned > 0 {
+		log.Printf(
+			"[session] shutdown: leaving %d session(s) waiting for input",
+			abandoned,
+		)
 	}
 }
 
@@ -1024,6 +1047,10 @@ func (m *Manager) stopAll() {
 
 	var wg sync.WaitGroup
 	for _, s := range sessions {
+
+		if waiting, _ := s.waitingForInput(); waiting {
+			continue
+		}
 		wg.Add(1)
 		go func(s *Session) {
 			defer wg.Done()
@@ -1067,6 +1094,10 @@ func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 	)
 	s.catalogFn = func(ctx context.Context) *modelCatalog {
 		return m.modelsRegistry(ctx, s.agencyTaskID)
+	}
+
+	s.refreshFn = func(ctx context.Context) *modelCatalog {
+		return m.modelsRegistryForced(ctx, s.agencyTaskID)
 	}
 	s.appendSystemPrompt = row.AppendSystemPrompt
 	s.loadQueue(row.PendingQueue)

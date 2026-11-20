@@ -71,4 +71,6 @@ enum RealtimeKind {
   REALTIME_KIND_SITES = 7;
   
   REALTIME_KIND_HEALTH = 8;
+  
+  REALTIME_KIND_KNOWLEDGE = 9;
 }

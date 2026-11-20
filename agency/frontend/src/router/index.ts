@@ -20,6 +20,9 @@ import GroupMembersPanel from "@/components/groups/GroupMembersPanel.vue";
 import GroupOverviewPanel from "@/components/groups/GroupOverviewPanel.vue";
 import GroupPromptsPanel from "@/components/groups/GroupPromptsPanel.vue";
 import GroupSettingsPanel from "@/components/groups/GroupSettingsPanel.vue";
+import GroupVariablesPanel from "@/components/groups/GroupVariablesPanel.vue";
+import PluginDetailPanel from "@/components/plugins/PluginDetailPanel.vue";
+import PluginsPanel from "@/components/settings/PluginsPanel.vue";
 import { useAgents } from "@/composables/useAgents";
 import { loadLocalePreference } from "@/composables/useLocale";
 import { setPageTitle } from "@/composables/usePageTitle";
@@ -35,13 +38,36 @@ import GroupView from "@/views/GroupView.vue";
 import GroupsView from "@/views/GroupsView.vue";
 import InboxView from "@/views/InboxView.vue";
 import InviteView from "@/views/InviteView.vue";
+import KnowledgeView from "@/views/KnowledgeView.vue";
 import LoginView from "@/views/LoginView.vue";
 import MagicLinkView from "@/views/MagicLinkView.vue";
+import ProjectSettingsView from "@/views/ProjectSettingsView.vue";
+import ProjectAccessSettingsTab from "@/views/ProjectSettingsView/AccessSettingsTab.vue";
+import ProjectDangerSettingsTab from "@/views/ProjectSettingsView/DangerSettingsTab.vue";
+import ProjectGeneralSettingsTab from "@/views/ProjectSettingsView/GeneralSettingsTab.vue";
+import ProjectModelsSettingsTab from "@/views/ProjectSettingsView/ModelsSettingsTab.vue";
+import ProjectPluginSettingsTab from "@/views/ProjectSettingsView/PluginSettingsTab.vue";
+import ProjectPluginsSettingsTab from "@/views/ProjectSettingsView/PluginsSettingsTab.vue";
+import ProjectTasksSettingsTab from "@/views/ProjectSettingsView/TasksSettingsTab.vue";
+import ProjectTemplatesSettingsTab from "@/views/ProjectSettingsView/TemplatesSettingsTab.vue";
+import ProjectVariablesSettingsTab from "@/views/ProjectSettingsView/VariablesSettingsTab.vue";
 import ProjectView from "@/views/ProjectView.vue";
+import ProjectConcurrencyTab from "@/views/ProjectView/ProjectConcurrencyTab.vue";
+import ProjectDecisionsTab from "@/views/ProjectView/ProjectDecisionsTab.vue";
+import ProjectOverviewTab from "@/views/ProjectView/ProjectOverviewTab.vue";
+import ProjectUsageTab from "@/views/ProjectView/ProjectUsageTab.vue";
+import ProjectWikiTab from "@/views/ProjectView/ProjectWikiTab.vue";
 import ProjectsView from "@/views/ProjectsView.vue";
 import ProviderEditorView from "@/views/ProviderEditorView.vue";
 import ResetPasswordView from "@/views/ResetPasswordView.vue";
 import SettingsView from "@/views/SettingsView.vue";
+import SettingsAdminTab from "@/views/SettingsView/AdminSettingsTab.vue";
+import SettingsAuthTab from "@/views/SettingsView/AuthSettingsTab.vue";
+import SettingsGeneralTab from "@/views/SettingsView/GeneralSettingsTab.vue";
+import SettingsIntegrationsTab from "@/views/SettingsView/IntegrationsSettingsTab.vue";
+import SettingsLogsTab from "@/views/SettingsView/LogsSettingsTab.vue";
+import SettingsModelsTab from "@/views/SettingsView/ModelsSettingsTab.vue";
+import SettingsVariablesTab from "@/views/SettingsView/VariablesSettingsTab.vue";
 import SiteView from "@/views/SiteView.vue";
 import SitesView from "@/views/SitesView.vue";
 import TaskView from "@/views/TaskView.vue";
@@ -130,6 +156,12 @@ const router = createRouter({
           meta: { titleKey: "pageTitle.task" },
         },
         {
+          path: "knowledge",
+          name: "knowledge",
+          component: KnowledgeView,
+          meta: { titleKey: "pageTitle.knowledge" },
+        },
+        {
           path: "sites",
           name: "sites",
           component: SitesView,
@@ -195,6 +227,12 @@ const router = createRouter({
               meta: { titleKey: "pageTitle.group" },
             },
             {
+              path: "variables",
+              name: "group-variables",
+              component: GroupVariablesPanel,
+              meta: { titleKey: "pageTitle.group" },
+            },
+            {
               path: "settings",
               name: "group-settings",
               component: GroupSettingsPanel,
@@ -217,25 +255,161 @@ const router = createRouter({
         },
         {
           path: "projects/:slug",
-          name: "project",
           component: ProjectView,
           props: true,
-          meta: { titleKey: "pageTitle.project" },
-        },
-        {
-          path: "projects/:slug/settings",
-          name: "project-settings",
-          redirect: (to) => ({
-            name: "project",
-            params: { slug: to.params.slug },
-            query: { ...to.query, tab: "settings" },
-          }),
+          children: [
+            {
+              path: "",
+              name: "project",
+              component: ProjectOverviewTab,
+              meta: { titleKey: "pageTitle.project" },
+            },
+            {
+              path: "wiki",
+              name: "project-wiki",
+              component: ProjectWikiTab,
+              meta: { titleKey: "pageTitle.project" },
+            },
+            {
+              path: "decisions",
+              name: "project-decisions",
+              component: ProjectDecisionsTab,
+              meta: { titleKey: "pageTitle.project" },
+            },
+            {
+              path: "usage",
+              name: "project-usage",
+              component: ProjectUsageTab,
+              meta: { titleKey: "pageTitle.project" },
+            },
+            {
+              path: "concurrency",
+              name: "project-concurrency",
+              component: ProjectConcurrencyTab,
+              meta: { titleKey: "pageTitle.project" },
+            },
+            {
+              path: "settings",
+              component: ProjectSettingsView,
+              children: [
+                {
+                  path: "",
+                  name: "project-settings",
+                  component: ProjectGeneralSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "tasks",
+                  name: "project-settings-tasks",
+                  component: ProjectTasksSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "models",
+                  name: "project-settings-models",
+                  component: ProjectModelsSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "templates",
+                  name: "project-settings-templates",
+                  component: ProjectTemplatesSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "plugins",
+                  name: "project-settings-plugins",
+                  component: ProjectPluginsSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "plugins/:pluginId",
+                  name: "project-settings-plugin",
+                  component: ProjectPluginSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "variables",
+                  name: "project-settings-variables",
+                  component: ProjectVariablesSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "access",
+                  name: "project-settings-access",
+                  component: ProjectAccessSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+                {
+                  path: "danger",
+                  name: "project-settings-danger",
+                  component: ProjectDangerSettingsTab,
+                  meta: { titleKey: "pageTitle.project" },
+                },
+              ],
+            },
+          ],
         },
         {
           path: "settings",
-          name: "settings",
           component: SettingsView,
           meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+          children: [
+            {
+              path: "",
+              name: "settings",
+              component: SettingsGeneralTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "models",
+              name: "settings-models",
+              component: SettingsModelsTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "plugins",
+              name: "settings-plugins",
+              component: PluginsPanel,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "plugins/:pluginId",
+              name: "settings-plugin",
+              component: PluginDetailPanel,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "auth",
+              name: "settings-auth",
+              component: SettingsAuthTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "integrations",
+              name: "settings-integrations",
+              component: SettingsIntegrationsTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "variables",
+              name: "settings-variables",
+              component: SettingsVariablesTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "admin",
+              name: "settings-admin",
+              component: SettingsAdminTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+            {
+              path: "logs",
+              name: "settings-logs",
+              component: SettingsLogsTab,
+              meta: { titleKey: "pageTitle.orgSettings", adminOnly: true },
+            },
+          ],
         },
         {
           path: "settings/providers/create",

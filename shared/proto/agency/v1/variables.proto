@@ -1,0 +1,178 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+enum VariableScope {
+  VARIABLE_SCOPE_UNSPECIFIED = 0;
+  
+  VARIABLE_SCOPE_ORG = 1;
+  
+  VARIABLE_SCOPE_PROJECT = 2;
+  
+  VARIABLE_SCOPE_TEAM = 3;
+  
+  VARIABLE_SCOPE_GROUP = 4;
+  
+  VARIABLE_SCOPE_AGENT = 5;
+}
+
+
+message VariableTarget {
+  VariableScope scope = 1;
+  
+  string project_id = 2;
+  
+  int64 team_id = 3;
+  
+  int64 group_id = 4;
+  
+  string agent_id = 5;
+}
+
+
+
+message Variable {
+  string name = 1;
+  string note = 2;
+  bool secret = 3;
+  
+  string value = 4;
+  VariableTarget target = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  
+  string updated_by_username = 8;
+  string updated_by_name = 9;
+}
+
+// EffectiveVariable is one resolved name: the winning definition plus every
+
+message EffectiveVariable {
+  string name = 1;
+  string note = 2;
+  bool secret = 3;
+  
+  string value = 4;
+  VariableTarget source = 5;
+  
+  repeated VariableTarget shadowed = 6;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+service VariableService {
+  
+  rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+  rpc CreateVariable(CreateVariableRequest) returns (CreateVariableResponse);
+  
+  
+  rpc UpdateVariable(UpdateVariableRequest) returns (UpdateVariableResponse);
+  
+  
+  rpc PromoteVariable(PromoteVariableRequest) returns (PromoteVariableResponse);
+  rpc DeleteVariable(DeleteVariableRequest) returns (DeleteVariableResponse);
+  
+  
+  rpc ListEffectiveVariables(ListEffectiveVariablesRequest) returns (ListEffectiveVariablesResponse);
+  
+  
+  rpc GetVariableCapabilities(GetVariableCapabilitiesRequest) returns (GetVariableCapabilitiesResponse);
+}
+
+message ListVariablesRequest {
+  VariableTarget target = 1;
+}
+
+message ListVariablesResponse {
+  repeated Variable variables = 1;
+}
+
+message CreateVariableRequest {
+  VariableTarget target = 1;
+  string name = 2;
+  string value = 3;
+  string note = 4;
+  bool secret = 5;
+}
+
+message CreateVariableResponse {
+  Variable variable = 1;
+}
+
+message UpdateVariableRequest {
+  VariableTarget target = 1;
+  string name = 2;
+  
+  optional string note = 3;
+  
+  optional string value = 4;
+}
+
+message UpdateVariableResponse {
+  Variable variable = 1;
+}
+
+message PromoteVariableRequest {
+  VariableTarget target = 1;
+  string name = 2;
+}
+
+message PromoteVariableResponse {
+  Variable variable = 1;
+}
+
+message DeleteVariableRequest {
+  VariableTarget target = 1;
+  string name = 2;
+}
+
+message DeleteVariableResponse {}
+
+message ListEffectiveVariablesRequest {
+  
+  string agent_id = 1;
+  
+  
+  string project_id = 2;
+}
+
+message ListEffectiveVariablesResponse {
+  repeated EffectiveVariable variables = 1;
+}
+
+message GetVariableCapabilitiesRequest {}
+
+message GetVariableCapabilitiesResponse {
+  
+  bool secrets_enabled = 1;
+}

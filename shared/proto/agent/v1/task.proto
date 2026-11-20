@@ -600,6 +600,10 @@ message ToolExecution {
   ToolPhase phase = 3;
   
   string args_json = 4;
+  
+  
+  
+  
   string result_json = 5;
   bool is_error = 6;
   

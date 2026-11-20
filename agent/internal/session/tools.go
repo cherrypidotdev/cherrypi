@@ -719,6 +719,9 @@ func (s *Session) pluginAgentTools() []agent.AgentTool {
 }
 
 func (s *Session) tools() []agent.AgentTool {
+	if s.fixedTools != nil {
+		return s.fixedTools
+	}
 	out := []agent.AgentTool{
 		s.setTaskURLs(),
 		s.setTaskArtifacts(),
@@ -738,6 +741,7 @@ func (s *Session) tools() []agent.AgentTool {
 		out = append(out, s.askUserQuestion())
 	}
 	out = append(out, s.agencyTools()...)
+	out = append(out, s.knowledgeTools()...)
 	out = append(out, s.inputTools()...)
 	out = append(out, s.pluginAgentTools()...)
 	return out

@@ -48,7 +48,7 @@ Card
             | {{ $t(selectedSet.descriptionKey) }} {{ $t("notifications.organizationHint") }}
             RouterLink.text-underline(
               v-if="isAdmin"
-              :to="{ name: 'settings', query: { tab: 'general' } }"
+              :to="{ name: 'settings' }"
             ) {{ $t("notifications.changeInSettings") }}
         Button(
           variant="outline"

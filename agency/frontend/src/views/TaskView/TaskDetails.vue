@@ -554,6 +554,9 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           ) {{ formatBytes(taskDiskBytes) }}
           span.font-medium.tabular-nums(v-else) —
 
+    .flex.flex-col.gap-1(v-if="detailsTab === 'decisions'")
+      DecisionLedger(compact :task-id="task.id")
+
     .flex.flex-col.gap-1(v-if="detailsTab === 'comments'")
       TaskComments(
         :task-id="task.id"
@@ -744,14 +747,18 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           | {{ $t("taskDetails.editableInBacklog") }}
         p.text-muted-foreground.text-xs(v-else-if="!isBacklog")
           | {{ $t("taskDetails.followUpOrClose") }}
+
+      TaskHistoryExport(:task="task")
 </template>
 
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
+import DecisionLedger from "@/components/knowledge/DecisionLedger.vue";
 import TaskArtifacts from "@/components/tasks/TaskArtifacts.vue";
 import TaskBadges from "@/components/tasks/TaskBadges.vue";
 import TaskComments from "@/components/tasks/TaskComments.vue";
+import TaskHistoryExport from "@/components/tasks/TaskHistoryExport.vue";
 import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
 import TaskReferences from "@/components/tasks/TaskReferences.vue";
@@ -955,6 +962,7 @@ const detailsTabs = computed(() => {
   return [
     { value: "general", label: t("taskDetails.tabs.general") },
     { value: "comments", label: t("taskDetails.tabs.comments") },
+    { value: "decisions", label: t("taskDetails.tabs.decisions") },
     { value: "plan", label: plan },
     { value: "artifacts", label: t("taskDetails.artifacts") },
     { value: "system", label: t("taskDetails.tabs.system") },
@@ -1331,6 +1339,7 @@ en:
     tabs:
       general: "General"
       comments: "Comments"
+      decisions: "Decisions"
       plan: "Plan"
       system: "System"
       logs: "Logs"
@@ -1418,6 +1427,7 @@ ru:
     tabs:
       general: "Общее"
       comments: "Комментарии"
+      decisions: "Решения"
       plan: "План"
       system: "Система"
       logs: "Журналы"

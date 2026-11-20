@@ -48,7 +48,7 @@ export function isPromptTarget(target: PromptTarget): boolean {
 export function promptRoute(target: PromptTarget): RouteLocationRaw | null {
   switch (target.promptScope) {
     case "org":
-      return { name: "settings", query: { tab: "general" } };
+      return { name: "settings" };
     case "agent":
     case "agent_project": {
       const username = agentUsername(String(target.agentId ?? ""));
@@ -68,10 +68,8 @@ export function promptRoute(target: PromptTarget): RouteLocationRaw | null {
       const slug = projectSlug(target.promptProjectId ?? "");
       if (!slug) return null;
       return {
-        name: "project",
+        name: "project-settings-tasks",
         params: { slug },
-
-        query: { tab: "settings", section: "tasks" },
       };
     }
     case "team":

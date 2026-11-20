@@ -217,7 +217,7 @@ function surfaceChip(scope: string, targetId: string): SurfaceChip {
       label: "Organization",
       title: t("nav.orgSettings"),
       to: currentAccount.value?.is_admin
-        ? { name: "settings", query: { tab: "plugins" } }
+        ? { name: "settings-plugin", params: { pluginId: props.pluginId } }
         : undefined,
     };
   }
@@ -229,9 +229,8 @@ function surfaceChip(scope: string, targetId: string): SurfaceChip {
       title: project?.slug ? `Project ${project.slug}` : undefined,
       to: project
         ? {
-            name: "project",
-            params: { slug: project.slug },
-            query: { tab: "settings", section: "plugins" },
+            name: "project-settings-plugin",
+            params: { slug: project.slug, pluginId: props.pluginId },
           }
         : undefined,
     };

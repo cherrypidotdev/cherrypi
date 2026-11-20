@@ -12,17 +12,19 @@ startup; restart the agency after changing them.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CHERRYPI_AGENCY_DIR` | `~/.cherrypi-agency` | Data directory for the SQLite database and process logs. |
+| `CHERRYPI_AGENCY_DIR` | `~/.cherrypi-agency` | Data directory for the SQLite database, process logs, published sites, and installed plugin bundles. |
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP listen port. |
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin without a trailing slash. Used for links, cookies and OIDC callbacks. Shown read-only in **Org → General**. |
 | `CHERRYPI_H2C` | off | Enable cleartext HTTP/2 on the listener. Diagnostic/direct-agent use only; do not force it through a proxy. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Number of timestamped process-log files to keep. |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the plugin storage: `<dir>/plugins/<id>/versions/<version>/` holds the installed bundles and `<dir>/plugins/<id>/data/` each plugin's own database. Preserve it across restarts and redeploys; a plugin whose bundle is gone is disabled with the reason on its page. See [plugins](/advanced/plugins#storage-and-restarts). |
 
 ## Provider secrets
 
-`CHERRYPI_SECRET_KEY` seals the provider keys the agency holds for
-**Settings → Models** (AES-256-GCM). Generate a base64 value that decodes to
-exactly **32 bytes**:
+`CHERRYPI_SECRET_KEY` seals every value the agency holds at rest with
+AES-256-GCM: the provider keys behind **Settings → Models**, and the **secret**
+variables a task's shell receives (see [variables](/using/variables)). Generate
+a base64 value that decodes to exactly **32 bytes**:
 
 ```sh
 openssl rand -base64 32
@@ -30,16 +32,17 @@ openssl rand -base64 32
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CHERRYPI_SECRET_KEY` | — | Base64-encoded 32-byte key that seals agency-held provider keys. |
+| `CHERRYPI_SECRET_KEY` | — | Base64-encoded 32-byte key that seals agency-held provider keys and secret variables. |
 
 The value is validated during boot. A malformed base64 value, or one that
 decodes to any length other than 32 bytes, **stops the agency from starting**
 with a `Model catalog: CHERRYPI_SECRET_KEY …` error. Leave the variable unset to
-disable agency-held provider keys: the Models settings then explain that keys
-cannot be stored, and no agent offers a model until that changes.
+disable agency-held values: the Models settings then explain that keys cannot be
+stored, no agent offers a model until that changes, and **Variables** refuses to
+store a secret (plain variables keep working).
 
-Losing the key makes every stored provider key unreadable; keep it in the same
-secret store as the database and its backup.
+Losing the key makes every stored provider key and every variable secret
+unreadable; keep it in the same secret store as the database and its backup.
 
 ## Database
 

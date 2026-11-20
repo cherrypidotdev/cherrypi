@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +63,8 @@ type Scheduler struct {
 
 	SettleGrace time.Duration
 
+	StartRefusalCooldown time.Duration
+
 	Connected  func(agentID ids.AgentID) bool
 	CreateTask func(
 		ctx context.Context,
@@ -89,10 +92,20 @@ type Scheduler struct {
 
 	AgentTasks func(ctx context.Context, agentID ids.AgentID) ([]*agentv1.Task, error)
 
+	Rand func(n int) int
+
 	wake chan struct{}
 	mu   sync.Mutex
 
 	waiting map[string]string
+
+	coolMu  sync.Mutex
+	cooling map[ids.AgentID]cooldown
+}
+
+type cooldown struct {
+	until  time.Time
+	window time.Duration
 }
 
 func New(
@@ -111,6 +124,7 @@ func New(
 		Agents:   agentsReg,
 		Interval: DefaultInterval,
 		wake:     make(chan struct{}, 1),
+		cooling:  map[ids.AgentID]cooldown{},
 	}
 
 	if hub != nil {
@@ -497,6 +511,8 @@ const (
 
 	agentOffline
 
+	agentCooling
+
 	agentForeign
 
 	agentViewer
@@ -548,6 +564,9 @@ func (s *Scheduler) checkAgent(
 	if s.Connected == nil || !s.Connected(agent.ID) {
 		return agentCheck{verdict: agentOffline}, nil
 	}
+	if s.coolingDown(agent.ID) {
+		return agentCheck{verdict: agentCooling}, nil
+	}
 	counts, err := s.Tasks.RunningCounts(ctx, agent.ID)
 	if err != nil {
 		return agentCheck{verdict: agentUnknown}, err
@@ -583,6 +602,24 @@ func (s *Scheduler) pickAgent(
 	candidates := s.candidates(ctx, task)
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
 
+	if owner, ok := warmSessionOwner(task); ok {
+		for i, agent := range candidates {
+			if agent.ID != owner {
+				continue
+			}
+			check, err := s.checkAgent(ctx, task, agent, view)
+			if err != nil {
+				log.Printf("[scheduler] check agent %d for %s: %v", agent.ID, task.ID, err)
+			} else if check.verdict == agentReady {
+				return agent, true
+			}
+
+			candidates = append(candidates[:i], candidates[i+1:]...)
+			break
+		}
+	}
+
+	s.shuffle(candidates)
 	for _, agent := range candidates {
 		check, err := s.checkAgent(ctx, task, agent, view)
 		if err != nil {
@@ -594,6 +631,28 @@ func (s *Scheduler) pickAgent(
 		}
 	}
 	return agents.Agent{}, false
+}
+
+func warmSessionOwner(task tasks.Task) (ids.AgentID, bool) {
+	if task.SessionID == "" || task.SessionAgentID == 0 ||
+		!task.SessionDeletedAt.IsZero() {
+		return 0, false
+	}
+	return task.SessionAgentID, true
+}
+
+func (s *Scheduler) shuffle(list []agents.Agent) {
+	for i := len(list) - 1; i > 0; i-- {
+		j := s.randomIndex(i + 1)
+		list[i], list[j] = list[j], list[i]
+	}
+}
+
+func (s *Scheduler) randomIndex(n int) int {
+	if s.Rand != nil {
+		return s.Rand(n)
+	}
+	return rand.IntN(n)
 }
 
 func (s *Scheduler) WaitingReason(ctx context.Context, task tasks.Task) string {
@@ -641,7 +700,7 @@ func (s *Scheduler) waitingReason(
 	}
 
 	full, foreign, viewer, unknown, reserved := false, false, false, false, ""
-	offline := false
+	offline, cooling := false, false
 	missingTags := map[string]string{}
 	for _, agent := range candidates {
 		check, err := s.checkAgent(ctx, task, agent, view)
@@ -668,6 +727,8 @@ func (s *Scheduler) waitingReason(
 			viewer = true
 		case agentOffline:
 			offline = true
+		case agentCooling:
+			cooling = true
 		}
 	}
 	if reserved != "" {
@@ -678,6 +739,9 @@ func (s *Scheduler) waitingReason(
 	}
 	if offline {
 		return "Waiting for an agent to connect"
+	}
+	if cooling {
+		return "Waiting for an agent that is restarting"
 	}
 	if len(missingTags) > 0 {
 		names := make([]string, 0, len(missingTags))
@@ -874,10 +938,73 @@ func (s *Scheduler) sender(ctx context.Context, actorID ids.ActorID) *agentv1.Pr
 	}
 }
 
+const startRefusalCooldown = 10 * time.Second
+
+const maxStartRefusalCooldown = time.Minute
+
+func (s *Scheduler) coolingDown(agentID ids.AgentID) bool {
+	s.coolMu.Lock()
+	defer s.coolMu.Unlock()
+	cool, ok := s.cooling[agentID]
+	if !ok {
+		return false
+	}
+	return time.Now().Before(cool.until)
+}
+
+func (s *Scheduler) coolDown(agentID ids.AgentID) {
+	base := s.StartRefusalCooldown
+	if base <= 0 {
+		base = startRefusalCooldown
+	}
+	base = min(base, maxStartRefusalCooldown)
+	s.coolMu.Lock()
+	if s.cooling == nil {
+		s.cooling = map[ids.AgentID]cooldown{}
+	}
+	window := base
+	if prev := s.cooling[agentID]; prev.window > 0 {
+		window = min(prev.window*2, maxStartRefusalCooldown)
+	}
+	s.cooling[agentID] = cooldown{
+		until:  time.Now().Add(window),
+		window: window,
+	}
+	s.coolMu.Unlock()
+}
+
+func (s *Scheduler) WarmAgent(agentID ids.AgentID) {
+	s.coolMu.Lock()
+	delete(s.cooling, agentID)
+	s.coolMu.Unlock()
+}
+
 func (s *Scheduler) failStart(ctx context.Context, taskID string, cause error) {
 	if _, err := s.Tasks.Fail(ctx, taskID, cause.Error()); err != nil {
 		log.Printf("[scheduler] fail %s: %v", taskID, err)
 	}
+}
+
+func (s *Scheduler) deferStart(
+	ctx context.Context,
+	taskID string,
+	agentID ids.AgentID,
+	cause error,
+) bool {
+	if connect.CodeOf(cause) != connect.CodeUnavailable {
+		return false
+	}
+	log.Printf(
+		"[scheduler] start %s refused by agent %d, retrying later: %v",
+		taskID, agentID, cause,
+	)
+	s.coolDown(agentID)
+	if err := s.Tasks.RequeueAfterStartFailure(
+		ctx, taskID, cause.Error(),
+	); err != nil {
+		log.Printf("[scheduler] requeue deferred start %s: %v", taskID, err)
+	}
+	return true
 }
 
 func (s *Scheduler) freshPrompt(
@@ -1134,23 +1261,22 @@ func (s *Scheduler) ResumeModel(
 	task tasks.Task,
 	agentID ids.AgentID,
 ) ModelSelection {
-	sel := s.taskModel(ctx, task, agentID)
-	if task.ModelProvider != "" || task.ModelID != "" {
-		return sel
-	}
 	state, ok, err := s.Tasks.SessionState(ctx, task.ID)
 	if err != nil {
 		log.Printf("[scheduler] resume model for %s: %v", task.ID, err)
+	} else if ok && state.ModelProvider != "" && state.ModelID != "" {
+		sel := ModelSelection{
+			Provider:      state.ModelProvider,
+			ModelID:       state.ModelID,
+			ThinkingLevel: state.ThinkingLevel,
+		}
+		if sel.ThinkingLevel == "" {
+
+			sel.ThinkingLevel = s.taskModel(ctx, task, agentID).ThinkingLevel
+		}
 		return sel
 	}
-	if !ok || state.ModelProvider == "" || state.ModelID == "" {
-		return sel
-	}
-	sel.Provider, sel.ModelID = state.ModelProvider, state.ModelID
-	if state.ThinkingLevel != "" {
-		sel.ThinkingLevel = state.ThinkingLevel
-	}
-	return sel
+	return s.taskModel(ctx, task, agentID)
 }
 
 func (s *Scheduler) pluginTools(ctx context.Context, task tasks.Task) []*agentv1.PluginTool {
@@ -1232,12 +1358,15 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			s.ResumeModel(ctx, task, agent.ID),
 		)
 		if err == nil {
+			s.WarmAgent(agent.ID)
 			s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)
 			return
 		}
 		if !s.sessionGone(ctx, task, err) {
 			log.Printf("[scheduler] add prompt %s on %d: %v", task.ID, agent.ID, err)
-			s.failStart(ctx, task.ID, err)
+			if !s.deferStart(ctx, task.ID, agent.ID, err) {
+				s.failStart(ctx, task.ID, err)
+			}
 			return
 		}
 		resume = false
@@ -1254,11 +1383,14 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			s.ResumeModel(ctx, task, agent.ID),
 		)
 		if err == nil {
+			s.WarmAgent(agent.ID)
 			return
 		}
 		if !s.sessionGone(ctx, task, err) {
 			log.Printf("[scheduler] retry %s on %d: %v", task.ID, agent.ID, err)
-			s.failStart(ctx, task.ID, err)
+			if !s.deferStart(ctx, task.ID, agent.ID, err) {
+				s.failStart(ctx, task.ID, err)
+			}
 			return
 		}
 		var ok bool
@@ -1277,7 +1409,12 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 
 	s.recordInitialMessage(ctx, task.ID, prompt, promptActorID, now)
 
-	model := s.taskModel(ctx, task, agent.ID)
+	var model ModelSelection
+	if task.StartedAt.IsZero() {
+		model = s.taskModel(ctx, task, agent.ID)
+	} else {
+		model = s.ResumeModel(ctx, task, agent.ID)
+	}
 
 	interactive := !task.Automated
 	sessionID, err := s.CreateTask(ctx, agent.ID, &agentv1.CreateTaskRequest{
@@ -1299,12 +1436,15 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	})
 	if err != nil {
 		log.Printf("[scheduler] start %s on %d: %v", task.ID, agent.ID, err)
-		s.failStart(ctx, task.ID, err)
+		if !s.deferStart(ctx, task.ID, agent.ID, err) {
+			s.failStart(ctx, task.ID, err)
+		}
 		return
 	}
 	if err := s.Tasks.SetSession(ctx, task.ID, agent.ID, sessionID); err != nil {
 		log.Printf("[scheduler] store session %s: %v", task.ID, err)
 	}
+	s.WarmAgent(agent.ID)
 	log.Printf("[scheduler] started %s on agent %d session=%s", task.ID, agent.ID, sessionID)
 	if task.PendingPrompt != "" {
 		s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)

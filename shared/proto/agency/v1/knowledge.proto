@@ -1,0 +1,453 @@
+// CherryPi: A multi-agent-multi-human self-hosted agency
+// Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+syntax = "proto3";
+
+package agency.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+
+
+
+
+
+
+
+service KnowledgeService {
+  rpc ListConcepts(ListConceptsRequest) returns (ListConceptsResponse);
+  rpc GetConcept(GetConceptRequest) returns (GetConceptResponse);
+  rpc CreateConcept(CreateConceptRequest) returns (CreateConceptResponse);
+  rpc UpdateConcept(UpdateConceptRequest) returns (UpdateConceptResponse);
+  rpc DeleteConcept(DeleteConceptRequest) returns (DeleteConceptResponse);
+  rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
+  
+  
+  rpc VerifyConcept(VerifyConceptRequest) returns (VerifyConceptResponse);
+  rpc RevokeVerification(RevokeVerificationRequest)
+      returns (RevokeVerificationResponse);
+  
+  
+  
+  
+  rpc SearchKnowledge(SearchKnowledgeRequest) returns (SearchKnowledgeResponse);
+  
+  
+  
+  rpc GetMemoryContext(GetMemoryContextRequest)
+      returns (GetMemoryContextResponse);
+  rpc WriteMemory(WriteMemoryRequest) returns (WriteMemoryResponse);
+  rpc ForgetMemory(ForgetMemoryRequest) returns (ForgetMemoryResponse);
+  rpc RestoreMemory(RestoreMemoryRequest) returns (RestoreMemoryResponse);
+  rpc Scratchpad(ScratchpadRequest) returns (ScratchpadResponse);
+  rpc GetMemoryStatus(GetMemoryStatusRequest) returns (GetMemoryStatusResponse);
+
+  
+  
+  
+  
+  rpc ListDecisions(ListDecisionsRequest) returns (ListDecisionsResponse);
+  
+  
+  rpc RecordDecision(RecordDecisionRequest) returns (RecordDecisionResponse);
+
+  
+  rpc ListAgentMemory(ListAgentMemoryRequest) returns (ListAgentMemoryResponse);
+  rpc GetAgentMemoryFile(GetAgentMemoryFileRequest)
+      returns (GetAgentMemoryFileResponse);
+}
+
+
+
+
+
+message KnowledgeConcept {
+  string id = 1;
+  
+  string scope = 2;
+  
+  
+  string scope_id = 3;
+  string path = 4;
+  string type = 5;
+  string title = 6;
+  string description = 7;
+  string resource = 8;
+  repeated string tags = 9;
+  string body = 10;
+  string frontmatter_json = 11;
+  string status = 12;
+  google.protobuf.Timestamp stale_after = 13;
+  string generated_by_actor_id = 14;
+  string generated_by = 15;
+  google.protobuf.Timestamp generated_at = 16;
+  
+  string trust_tier = 17;
+  int64 revision = 18;
+  bool protected = 19;
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp updated_at = 21;
+  bool can_edit = 22;
+  bool can_verify = 23;
+  repeated KnowledgeSource sources = 24;
+  repeated KnowledgeLink links = 25;
+  repeated KnowledgeBacklink backlinks = 26;
+  repeated KnowledgeVerification verifications = 27;
+  
+  repeated Decision decisions = 29;
+  
+  
+  int32 body_size = 28;
+}
+
+message KnowledgeSource {
+  string id = 1;
+  string resource = 2;
+  string title = 3;
+  string author = 4;
+  optional int64 usage_count = 5;
+  optional int64 last_modified = 6;
+}
+
+message KnowledgeLink {
+  string target_path = 1;
+  string kind = 2;
+}
+
+message KnowledgeBacklink {
+  string id = 1;
+  string scope = 2;
+  string scope_id = 3;
+  string path = 4;
+  string title = 5;
+}
+
+message KnowledgeVerification {
+  int64 id = 1;
+  string actor_id = 2;
+  string actor_ref = 3;
+  string note = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp revoked_at = 6;
+  string revoked_by_actor_id = 7;
+}
+
+message KnowledgeRevision {
+  int64 id = 1;
+  int64 revision = 2;
+  string title = 3;
+  string body = 4;
+  string status = 5;
+  string actor_id = 6;
+  string actor_ref = 7;
+  string summary = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message KnowledgeSourceInput {
+  string id = 1;
+  string resource = 2;
+  string title = 3;
+  string author = 4;
+}
+
+message KnowledgeLinkInput {
+  string target_path = 1;
+  string kind = 2;
+}
+
+
+message Decision {
+  int64 id = 1;
+  
+  string project_id = 2;
+  
+  string task_id = 3;
+  
+  string kind = 4;
+  string actor_id = 5;
+  
+  string actor_ref = 6;
+  
+  string summary = 7;
+  string payload_json = 8;
+  
+  
+  repeated string concept_paths = 9;
+  google.protobuf.Timestamp created_at = 10;
+  
+  string project_slug = 11;
+}
+
+message ListDecisionsRequest {
+  
+  
+  string scope = 1;
+  string scope_id = 2;
+  
+  string task_id = 3;
+  string kind = 4;
+  int32 limit = 5;
+  
+  int64 before_id = 6;
+}
+
+message ListDecisionsResponse {
+  repeated Decision decisions = 1;
+}
+
+message RecordDecisionRequest {
+  string scope = 1;
+  string scope_id = 2;
+  
+  string task_id = 3;
+  string summary = 4;
+  
+  string rationale = 5;
+  
+  repeated string concept_paths = 6;
+}
+
+message RecordDecisionResponse {
+  Decision decision = 1;
+}
+
+message MemoryLayer {
+  string name = 1;
+  string path = 2;
+  int32 chars = 3;
+  bool truncated = 4;
+}
+
+message GetMemoryContextRequest {
+  string project_id = 1;
+}
+
+message GetMemoryContextResponse {
+  string text = 1;
+  string hash = 2;
+  google.protobuf.Timestamp snapshot_at = 3;
+  string project_id = 4;
+  repeated MemoryLayer layers = 5;
+}
+
+message WriteMemoryRequest {
+  string project_id = 1;
+  
+  string target = 2;
+  string path = 3;
+  string content = 4;
+  bool replace = 5;
+}
+
+message WriteMemoryResponse {
+  KnowledgeConcept file = 1;
+  
+  
+  bool snapshot_dirty = 2;
+}
+
+message ForgetMemoryRequest {
+  string query = 1;
+}
+
+message ForgetMemoryResponse {
+  string recovery_id = 1;
+  int32 files = 2;
+  int32 entries = 3;
+}
+
+message RestoreMemoryRequest {
+  string recovery_id = 1;
+}
+
+message RestoreMemoryResponse {
+  int32 restored_files = 1;
+}
+
+message ScratchpadRequest {
+  
+  string action = 1;
+  string text = 2;
+}
+
+message ScratchpadResponse {
+  string content = 1;
+}
+
+message GetMemoryStatusRequest {
+  string project_id = 1;
+}
+
+message GetMemoryStatusResponse {
+  string project_id = 1;
+  string today_path = 2;
+  int32 total_chars = 3;
+  repeated KnowledgeConcept files = 4;
+  GetMemoryContextResponse context = 5;
+}
+
+message ListConceptsRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string query = 3;
+  string path_prefix = 4;
+  string status = 5;
+  string tag = 6;
+  int32 limit = 7;
+}
+
+message ListConceptsResponse {
+  repeated KnowledgeConcept concepts = 1;
+}
+
+message GetConceptRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+}
+
+message GetConceptResponse {
+  KnowledgeConcept concept = 1;
+}
+
+message CreateConceptRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+  string type = 4;
+  string title = 5;
+  string description = 6;
+  string resource = 7;
+  string body = 8;
+  string status = 9;
+  repeated string tags = 10;
+  google.protobuf.Timestamp stale_after = 11;
+  string extra_frontmatter_json = 12;
+  repeated KnowledgeSourceInput sources = 13;
+  repeated KnowledgeLinkInput links = 14;
+  string summary = 15;
+  
+  repeated int64 decision_ids = 16;
+}
+
+message CreateConceptResponse {
+  KnowledgeConcept concept = 1;
+}
+
+message UpdateConceptRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+  int64 base_revision = 4;
+  optional string new_path = 5;
+  optional string type = 6;
+  optional string title = 7;
+  optional string description = 8;
+  optional string resource = 9;
+  optional string body = 10;
+  optional string status = 11;
+  repeated string tags = 12;
+  bool replace_tags = 13;
+  google.protobuf.Timestamp stale_after = 14;
+  bool clear_stale_after = 15;
+  optional string extra_frontmatter_json = 16;
+  repeated KnowledgeSourceInput sources = 17;
+  bool replace_sources = 18;
+  repeated KnowledgeLinkInput links = 19;
+  bool replace_links = 20;
+  string summary = 21;
+  
+  
+  repeated int64 decision_ids = 22;
+  bool replace_decisions = 23;
+}
+
+message UpdateConceptResponse {
+  KnowledgeConcept concept = 1;
+}
+
+message DeleteConceptRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+  int64 base_revision = 4;
+}
+
+message DeleteConceptResponse {}
+
+message ListRevisionsRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+}
+
+message ListRevisionsResponse {
+  repeated KnowledgeRevision revisions = 1;
+}
+
+message VerifyConceptRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+  string note = 4;
+}
+
+message VerifyConceptResponse {
+  KnowledgeConcept concept = 1;
+}
+
+message RevokeVerificationRequest {
+  string scope = 1;
+  string scope_id = 2;
+  string path = 3;
+  int64 verification_id = 4;
+}
+
+message RevokeVerificationResponse {
+  KnowledgeConcept concept = 1;
+}
+
+message SearchKnowledgeRequest {
+  string query = 1;
+  
+  string scope = 2;
+  string scope_id = 3;
+  int32 limit = 4;
+}
+
+message SearchKnowledgeResponse {
+  repeated KnowledgeConcept concepts = 1;
+}
+
+message ListAgentMemoryRequest {
+  
+  string agent_id = 1;
+}
+
+message ListAgentMemoryResponse {
+  repeated KnowledgeConcept concepts = 1;
+}
+
+message GetAgentMemoryFileRequest {
+  string agent_id = 1;
+  string path = 2;
+}
+
+message GetAgentMemoryFileResponse {
+  KnowledgeConcept concept = 1;
+}

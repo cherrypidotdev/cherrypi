@@ -105,6 +105,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
             span {{ $t("nav.allSites") }}
       .mt-2.border-t.pt-2
+        RouterLink.text-muted-foreground.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
+          :to="{ name: 'knowledge' }"
+          :title="$t('nav.knowledge')"
+          :class="route.name === 'knowledge' ? 'text-primary' : 'hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'"
+        )
+          NotebookTextIcon.size-4.shrink-0
+          span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ $t("nav.knowledge") }}
+      .mt-2.border-t.pt-2
         SidebarSection(
           :icon="BotIcon"
           :to="{ name: 'agents' }"
@@ -391,7 +399,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   .flex.flex-1.flex-col.overflow-hidden
     main.flex-1.overflow-auto
       RouterView(v-slot="{ Component }")
-        component(:key="route.fullPath" :is="Component")
+        component(:key="viewKey" :is="Component")
   TaskComposerDialog(
     v-model:open="newTaskOpen"
     :default-project-id="pageProjectId"
@@ -433,6 +441,7 @@ import {
 } from "@/lib/attention";
 import { ATTENTION_EVENTS } from "@/lib/attentionEvents";
 import { bindAttentionNavigation } from "@/lib/attentionToast";
+import { isProjectRouteName, isSettingsRouteName } from "@/lib/projectPage";
 import type { Team } from "@/lib/team";
 import { currentUser } from "@/lib/user";
 import { AgentStatus, type Agent, type AgentGroupMember } from "@cherrypi/sdk";
@@ -761,6 +770,15 @@ const currentTaskId = computed(() =>
   route.name === "task" ? String(route.params.id ?? "") : "",
 );
 
+const viewKey = computed(() => {
+  if (route.name === "task") return route.fullPath;
+  if (isProjectRouteName(route.name)) {
+    return `project:${String(route.params.slug ?? "")}`;
+  }
+  if (isSettingsRouteName(route.name)) return "settings";
+  return route.fullPath;
+});
+
 watch(
   [currentTaskId, notifications],
   ([id]) => {
@@ -786,7 +804,7 @@ function isTeamActive(id: number): boolean {
 }
 
 function isProjectsSectionActive(): boolean {
-  return route.name === "projects" || route.name === "project";
+  return route.name === "projects" || isProjectRouteName(route.name);
 }
 
 function isAgentsSectionActive(): boolean {
@@ -862,6 +880,7 @@ en:
     projects: "Projects"
     allProjects: "All projects"
     sites: "Sites"
+    knowledge: "Knowledge"
     allSites: "All sites"
     noAgencySites: "No agency-wide sites"
     agents: "Agents"
@@ -1182,6 +1201,7 @@ ru:
     projects: "Проекты"
     allProjects: "Все проекты"
     sites: "Сайты"
+    knowledge: "База знаний"
     allSites: "Все сайты"
     noAgencySites: "Нет сайтов агентства"
     agents: "Агенты"

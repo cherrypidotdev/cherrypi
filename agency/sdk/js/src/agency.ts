@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { create, fromJson } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   createClient,
   type Client,
@@ -52,6 +53,13 @@ import {
   type Attachment,
 } from "./gen/buf/agency/v1/attachments_pb.js";
 import { ActorLinkSchema } from "./gen/buf/agency/v1/actor_pb.js";
+import {
+  VariableScope,
+  VariableService,
+  type EffectiveVariable,
+  type Variable,
+  type VariableTarget,
+} from "./gen/buf/agency/v1/variables_pb.js";
 import {
   ProjectService,
   type AgentProjectMembership,
@@ -133,6 +141,12 @@ import {
   type Notification,
 } from "./gen/buf/agency/v1/notifications_pb.js";
 import { SiteService, type Site } from "./gen/buf/agency/v1/sites_pb.js";
+import {
+  KnowledgeService,
+  type Decision,
+  type KnowledgeConcept,
+  type KnowledgeRevision,
+} from "./gen/buf/agency/v1/knowledge_pb.js";
 import type {
   AgentHealthSample,
   AgentUsageRun,
@@ -208,6 +222,11 @@ import {
   type TaskTemplateContentInput,
   type TaskTemplateValidationResult,
   type WatchTaskOptions,
+  type ListDecisionsFilter,
+  type RecordDecisionInput,
+  type ListKnowledgeConceptsFilter,
+  type CreateKnowledgeConceptInput,
+  type UpdateKnowledgeConceptInput,
 } from "./common.js";
 
 export type { Agent, AgentDefaults, AgentLog, AgentToken };
@@ -570,9 +589,11 @@ export class AgencyClient {
   private readonly desktops: Client<typeof AgencyDesktopService>;
   private readonly notifications: Client<typeof AgencyNotificationService>;
   private readonly sites: Client<typeof SiteService>;
+  private readonly knowledge: Client<typeof KnowledgeService>;
   private readonly plugins: Client<typeof PluginService>;
   private readonly webhooks: Client<typeof AgencyWebhookService>;
   private readonly realtime: Client<typeof RealtimeService>;
+  private readonly variables: Client<typeof VariableService>;
 
   constructor(options: AgencyClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -606,9 +627,11 @@ export class AgencyClient {
     this.desktops = createClient(AgencyDesktopService, transport);
     this.notifications = createClient(AgencyNotificationService, transport);
     this.sites = createClient(SiteService, transport);
+    this.knowledge = createClient(KnowledgeService, transport);
     this.plugins = createClient(PluginService, transport);
     this.webhooks = createClient(AgencyWebhookService, transport);
     this.realtime = createClient(RealtimeService, transport);
+    this.variables = createClient(VariableService, transport);
   }
 
   private restHeaders(): Record<string, string> {
@@ -3235,6 +3258,320 @@ export class AgencyClient {
   ): Promise<TestWebhookResponse> {
     return await this.webhooks.testWebhook({ id: BigInt(id), event }, options);
   }
+
+  async listVariables(
+    target: VariableTargetInput,
+    options?: CallOptions,
+  ): Promise<Variable[]> {
+    const res = await this.variables.listVariables(
+      { target: variableTarget(target) },
+      options,
+    );
+    return res.variables;
+  }
+
+  async createVariable(
+    input: CreateVariableInput,
+    options?: CallOptions,
+  ): Promise<Variable> {
+    const res = await this.variables.createVariable(
+      {
+        target: variableTarget(input.target),
+        name: input.name,
+        value: input.value,
+        note: input.note ?? "",
+        secret: input.secret ?? false,
+      },
+      options,
+    );
+    return res.variable!;
+  }
+
+  async updateVariable(
+    target: VariableTargetInput,
+    name: string,
+    patch: { note?: string; value?: string },
+    options?: CallOptions,
+  ): Promise<Variable> {
+    const res = await this.variables.updateVariable(
+      {
+        target: variableTarget(target),
+        name,
+        note: patch.note,
+        value: patch.value,
+      },
+      options,
+    );
+    return res.variable!;
+  }
+
+  async promoteVariable(
+    target: VariableTargetInput,
+    name: string,
+    options?: CallOptions,
+  ): Promise<Variable> {
+    const res = await this.variables.promoteVariable(
+      { target: variableTarget(target), name },
+      options,
+    );
+    return res.variable!;
+  }
+
+  async deleteVariable(
+    target: VariableTargetInput,
+    name: string,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.variables.deleteVariable(
+      { target: variableTarget(target), name },
+      options,
+    );
+  }
+
+  async listEffectiveVariables(
+    agentId: string,
+    projectId?: string,
+    options?: CallOptions,
+  ): Promise<EffectiveVariable[]> {
+    const res = await this.variables.listEffectiveVariables(
+      { agentId, projectId: projectId ?? "" },
+      options,
+    );
+    return res.variables;
+  }
+
+  async getVariableCapabilities(
+    options?: CallOptions,
+  ): Promise<{ secretsEnabled: boolean }> {
+    const res = await this.variables.getVariableCapabilities({}, options);
+    return { secretsEnabled: res.secretsEnabled };
+  }
+
+  async listConcepts(
+    filter: ListKnowledgeConceptsFilter,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept[]> {
+    const res = await this.knowledge.listConcepts(
+      {
+        scope: filter.scope,
+        scopeId: filter.scopeId ?? "",
+        query: filter.query ?? "",
+        pathPrefix: filter.pathPrefix ?? "",
+        status: filter.status ?? "",
+        tag: filter.tag ?? "",
+        limit: filter.limit ?? 100,
+      },
+      options,
+    );
+    return res.concepts;
+  }
+
+  async getConcept(
+    scope: string,
+    scopeId: string,
+    path: string,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.getConcept(
+      { scope, scopeId, path },
+      options,
+    );
+    return res.concept!;
+  }
+
+  async createConcept(
+    input: CreateKnowledgeConceptInput,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.createConcept(
+      {
+        scope: input.scope,
+        scopeId: input.scopeId ?? "",
+        path: input.path,
+        type: input.type ?? "",
+        title: input.title,
+        description: input.description ?? "",
+        resource: input.resource ?? "",
+        body: input.body ?? "",
+        status: input.status ?? "",
+        tags: input.tags ?? [],
+        staleAfter: input.staleAfter
+          ? timestampFromDate(input.staleAfter)
+          : undefined,
+        extraFrontmatterJson: input.extraFrontmatterJson ?? "",
+        sources: input.sources ?? [],
+        links: input.links ?? [],
+        summary: input.summary ?? "",
+        decisionIds: (input.decisionIds ?? []).map((id) => BigInt(id)),
+      },
+      options,
+    );
+    return res.concept!;
+  }
+
+  async updateConcept(
+    input: UpdateKnowledgeConceptInput,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.updateConcept(
+      {
+        scope: input.scope,
+        scopeId: input.scopeId ?? "",
+        path: input.path,
+        baseRevision: input.baseRevision ?? 0n,
+        newPath: input.newPath,
+        type: input.type,
+        title: input.title,
+        description: input.description,
+        resource: input.resource,
+        body: input.body,
+        status: input.status,
+        tags: input.tags ?? [],
+        replaceTags: input.replaceTags ?? false,
+        staleAfter: input.staleAfter
+          ? timestampFromDate(input.staleAfter)
+          : undefined,
+        clearStaleAfter: input.clearStaleAfter ?? false,
+        extraFrontmatterJson: input.extraFrontmatterJson,
+        sources: input.sources ?? [],
+        replaceSources: input.replaceSources ?? false,
+        links: input.links ?? [],
+        replaceLinks: input.replaceLinks ?? false,
+        summary: input.summary ?? "",
+        decisionIds: (input.decisionIds ?? []).map((id) => BigInt(id)),
+        replaceDecisions: input.replaceDecisions ?? false,
+      },
+      options,
+    );
+    return res.concept!;
+  }
+
+  async deleteConcept(
+    scope: string,
+    scopeId: string,
+    path: string,
+    baseRevision: number | bigint = 0,
+    options?: CallOptions,
+  ): Promise<void> {
+    await this.knowledge.deleteConcept(
+      { scope, scopeId, path, baseRevision: BigInt(baseRevision) },
+      options,
+    );
+  }
+
+  async listConceptRevisions(
+    scope: string,
+    scopeId: string,
+    path: string,
+    options?: CallOptions,
+  ): Promise<KnowledgeRevision[]> {
+    const res = await this.knowledge.listRevisions(
+      { scope, scopeId, path },
+      options,
+    );
+    return res.revisions;
+  }
+
+  async verifyConcept(
+    scope: string,
+    scopeId: string,
+    path: string,
+    note = "",
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.verifyConcept(
+      { scope, scopeId, path, note },
+      options,
+    );
+    return res.concept!;
+  }
+
+  async revokeVerification(
+    scope: string,
+    scopeId: string,
+    path: string,
+    verificationId: bigint,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.revokeVerification(
+      { scope, scopeId, path, verificationId },
+      options,
+    );
+    return res.concept!;
+  }
+
+  async searchKnowledge(
+    query: string,
+    filter?: { scope?: string; scopeId?: string; limit?: number },
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept[]> {
+    const res = await this.knowledge.searchKnowledge(
+      {
+        query,
+        scope: filter?.scope ?? "",
+        scopeId: filter?.scopeId ?? "",
+        limit: filter?.limit ?? 50,
+      },
+      options,
+    );
+    return res.concepts;
+  }
+
+  async listDecisions(
+    filter: ListDecisionsFilter,
+    options?: CallOptions,
+  ): Promise<Decision[]> {
+    const res = await this.knowledge.listDecisions(
+      {
+        scope: filter.scope ?? "",
+        scopeId: filter.scopeId ?? "",
+        taskId: filter.taskId ?? "",
+        kind: filter.kind ?? "",
+        limit: filter.limit ?? 100,
+        beforeId: BigInt(filter.beforeId ?? 0),
+      },
+      options,
+    );
+    return res.decisions;
+  }
+
+  async recordDecision(
+    input: RecordDecisionInput,
+    options?: CallOptions,
+  ): Promise<Decision> {
+    const res = await this.knowledge.recordDecision(
+      {
+        scope: input.scope ?? "",
+        scopeId: input.scopeId ?? "",
+        taskId: input.taskId ?? "",
+        summary: input.summary,
+        rationale: input.rationale ?? "",
+        conceptPaths: input.conceptPaths ?? [],
+      },
+      options,
+    );
+    return res.decision!;
+  }
+
+  async listAgentMemory(
+    agentId: string,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept[]> {
+    const res = await this.knowledge.listAgentMemory({ agentId }, options);
+    return res.concepts;
+  }
+
+  async getAgentMemoryFile(
+    agentId: string,
+    path: string,
+    options?: CallOptions,
+  ): Promise<KnowledgeConcept> {
+    const res = await this.knowledge.getAgentMemoryFile(
+      { agentId, path },
+      options,
+    );
+    return res.concept!;
+  }
 }
 
 function realtimeKindName(event: RealtimeEventPb): RealtimeKind | undefined {
@@ -3247,6 +3584,8 @@ function realtimeKindName(event: RealtimeEventPb): RealtimeKind | undefined {
       return "usage";
     case RealtimeKindPb.TERMINALS:
       return "terminals";
+    case RealtimeKindPb.KNOWLEDGE:
+      return "knowledge";
     case RealtimeKindPb.AGENT_LOGS:
       return "agent-logs";
     case RealtimeKindPb.AGENTS:
@@ -3339,4 +3678,31 @@ function templateContent(input: TaskTemplateContentInput): TaskTemplateContent {
     defaultTeamIds: input.defaultTeamIds ?? [],
     defaultLeaderActorId: input.defaultLeaderActorId ?? "",
   } as TaskTemplateContent;
+}
+
+export interface VariableTargetInput {
+  scope: VariableScope;
+  projectId?: string;
+  teamId?: number | bigint;
+  groupId?: number | bigint;
+
+  agentId?: string;
+}
+
+export interface CreateVariableInput {
+  target: VariableTargetInput;
+  name: string;
+  value: string;
+  note?: string;
+  secret?: boolean;
+}
+
+function variableTarget(target: VariableTargetInput): VariableTarget {
+  return {
+    scope: target.scope,
+    projectId: target.projectId ?? "",
+    teamId: BigInt(target.teamId ?? 0),
+    groupId: BigInt(target.groupId ?? 0),
+    agentId: target.agentId ?? "",
+  } as VariableTarget;
 }

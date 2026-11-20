@@ -806,6 +806,7 @@ func toProtoPlugin(p pluginhost.Plugin) *agencyv1.Plugin {
 		ManifestJson:     string(p.ManifestRaw),
 		SettingsSurfaces: sortedSurfaces(p),
 		IconUrl:          pluginhost.IconURL(p),
+		LoadError:        p.LoadError,
 		CreatedAt:        timestamppb.New(p.CreatedAt),
 		UpdatedAt:        timestamppb.New(p.UpdatedAt),
 	}

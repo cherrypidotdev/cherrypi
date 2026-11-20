@@ -107,6 +107,30 @@ func (s *Session) adoptStateSelection(state TaskSessionState) {
 	}
 }
 
+func (s *Session) adoptStoredSelection(ctx context.Context) {
+	if s.probe || !s.stateEnabled() {
+		return
+	}
+	s.mu.Lock()
+	empty := s.modelProvider == "" && s.model == ""
+	s.mu.Unlock()
+	if !empty {
+		return
+	}
+	taskID := s.ensureAgencyTaskID(ctx)
+	if taskID == "" {
+		return
+	}
+	state, found, err := s.cfg.GetTaskSessionState(ctx, taskID)
+	if err != nil {
+		slog.Warn("read task session state", "session_id", s.ID, "error", err)
+		return
+	}
+	if found {
+		s.adoptStateSelection(state)
+	}
+}
+
 func (s *Session) applyRestoredState(state TaskSessionState) {
 	projection, err := decodeProjection(state.EntriesJSON)
 	if err != nil {

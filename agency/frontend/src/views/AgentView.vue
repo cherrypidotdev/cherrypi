@@ -48,6 +48,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           TabsTrigger(value="concurrency") {{ $t("agentConcurrency.title") }}
           TabsTrigger(value="terminals" :disabled="!item || !canUseTerminals") {{ $t("agentView.tabs.terminals") }}
           TabsTrigger(value="rdp") {{ $t("agentView.tabs.rdp") }}
+          TabsTrigger(value="memory") {{ $t("knowledge.memoryTab") }}
           TabsTrigger(value="logs") {{ $t("settings.tabs.logs") }}
           TabsTrigger(value="settings") {{ $t("common.settings") }}
   Tabs.flex.min-h-0.flex-1.flex-col.overflow-hidden(v-model="tab")
@@ -147,6 +148,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsContent.flex-1.overflow-hidden(value="rdp")
       DesktopView(embedded)
 
+    TabsContent.flex-1.overflow-auto(value="memory")
+      .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-4.p-6
+        AgentMemoryPanel(v-if="currentAgentId" :agent-id="currentAgentId")
+
     TabsContent.flex-1.overflow-auto(value="logs")
       .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-4.p-6
         LogsView
@@ -165,6 +170,7 @@ import AgentConcurrency from "@/components/concurrency/AgentConcurrency.vue";
 import ConcurrencyKpis from "@/components/concurrency/ConcurrencyKpis.vue";
 import HealthOverview from "@/components/health/HealthOverview.vue";
 import HealthPanel from "@/components/health/HealthPanel.vue";
+import AgentMemoryPanel from "@/components/knowledge/AgentMemoryPanel.vue";
 import KpiOverview from "@/components/kpi/KpiOverview.vue";
 import ExpressTaskForm from "@/components/tasks/ExpressTaskForm.vue";
 import TasksList from "@/components/tasks/TasksList.vue";
@@ -208,6 +214,7 @@ const kpiPageContext = computed<KpiPageContext>(() => ({
 }));
 
 const TABS = [
+  "memory",
   "overview",
   "health",
   "usage",

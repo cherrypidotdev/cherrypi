@@ -85,6 +85,10 @@ func (s *Session) askDialog(ctx context.Context, title, prefill string) (string,
 }
 
 func (s *Session) closeDialog(requestID string) {
+
+	if s.abandonedForShutdown() {
+		return
+	}
 	s.mu.Lock()
 	delete(s.dialogs, requestID)
 	delete(s.pendingExt, requestID)

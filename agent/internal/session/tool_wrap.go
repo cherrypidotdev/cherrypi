@@ -67,6 +67,15 @@ func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
 	if execute == nil {
 		return tool
 	}
+
+	redactUpdate := func(update agent.ToolUpdateFunc) agent.ToolUpdateFunc {
+		if update == nil {
+			return nil
+		}
+		return func(result agent.AgentToolResult) {
+			update(s.redactResult(result))
+		}
+	}
 	tool.Execute = func(
 		ctx context.Context,
 		toolCallID string,
@@ -78,7 +87,12 @@ func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
 		s.registerToolCall(toolCallID, cancel)
 		defer s.unregisterToolCall(toolCallID)
 
-		result, err := execute(callCtx, toolCallID, params, onUpdate)
+		result, err := execute(callCtx, toolCallID, params, redactUpdate(onUpdate))
+		result = s.redactResult(result)
+
+		if err != nil {
+			err = s.redactError(err)
+		}
 		if actor := s.takeToolInterrupt(toolCallID); actor != "" {
 			return interruptedToolResult(actor), nil
 		}

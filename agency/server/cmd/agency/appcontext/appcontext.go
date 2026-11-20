@@ -39,6 +39,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	agencyevents "cherrypi.vladfaust.com/agency/internal/events"
 	"cherrypi.vladfaust.com/agency/internal/health"
+	"cherrypi.vladfaust.com/agency/internal/knowledge"
 	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
 	"cherrypi.vladfaust.com/agency/internal/modelrouting"
@@ -64,6 +65,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/teams"
 	"cherrypi.vladfaust.com/agency/internal/templates"
 	"cherrypi.vladfaust.com/agency/internal/tunnel"
+	"cherrypi.vladfaust.com/agency/internal/variables"
 	"cherrypi.vladfaust.com/agency/internal/webhook"
 	agencyv1 "cherrypi.vladfaust.com/shared/gen/buf/agency/v1"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
@@ -79,6 +81,7 @@ type AppContext struct {
 	Settings      *settings.Service
 	ModelRouting  *modelrouting.Service
 	AgentConfig   *agentconfig.Service
+	Variables     *variables.Service
 	Projects      *projects.Service
 	Prompts       *prompts.Service
 	PromptFlow    *promptflow.Service
@@ -86,6 +89,7 @@ type AppContext struct {
 	Attachments   *attachments.Service
 	Artifacts     *artifacts.Service
 	Sites         *sites.Service
+	Knowledge     *knowledge.Service
 	Tags          *tags.Service
 	Limits        *limits.Service
 	Scheduler     *scheduler.Scheduler
@@ -110,6 +114,29 @@ type AppContext struct {
 	Input *taskinput.Service
 
 	KpiLayouts *kpilayout.Service
+}
+
+func decisionRecorder(
+	svc *knowledge.Service,
+	tasksSvc *tasks.Service,
+) func(context.Context, tasks.Decision) {
+	return func(ctx context.Context, d tasks.Decision) {
+		task, err := tasksSvc.Get(ctx, d.TaskID)
+		if err != nil {
+			return
+		}
+		if err := svc.CaptureTaskDecision(ctx, knowledge.CapturedDecision{
+			Kind:      d.Kind,
+			EventID:   d.EventID,
+			TaskID:    d.TaskID,
+			ProjectID: task.ProjectID,
+			ActorID:   tasks.ActorIDFrom(ctx),
+			Summary:   d.Summary,
+			Payload:   d.Payload,
+		}); err != nil {
+			log.Printf("[knowledge] capture %s for %s: %v", d.Kind, d.TaskID, err)
+		}
+	}
 }
 
 func taskTransitionNotifier(
@@ -430,6 +457,14 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	pluginsSvc.Settings = settingsSvc
 	pluginsSvc.Teams = teamsSvc
 	pluginsSvc.Tags = tagsSvc
+
+	// Name the directory the agency actually resolves: without this line the
+
+	if os.Getenv("CHERRYPI_PLUGIN_DATA_DIR") != "" {
+		log.Printf("[plugins] data dir %s (CHERRYPI_PLUGIN_DATA_DIR)", config.PluginDataDir)
+	} else {
+		log.Printf("[plugins] data dir %s (CHERRYPI_AGENCY_DIR)", config.PluginDataDir)
+	}
 	if err := pluginsSvc.Bootstrap(context.Background()); err != nil {
 		log.Fatalf("Failed to bootstrap plugins: %v", err)
 	}
@@ -597,6 +632,9 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	}
 
 	artifactsSvc := artifacts.New(st)
+	knowledgeSvc := knowledge.New(st, projectsSvc, agentRegistry, accountsSvc, realtimeBus)
+
+	tasksSvc.OnDecision = decisionRecorder(knowledgeSvc, tasksSvc)
 	sitesSvc := sites.New(
 		st,
 		attachmentsSvc,
@@ -640,6 +678,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 		go pushHealthInterval(ctx, agentRegistry, conn)
 
+		sched.WarmAgent(conn.ID)
 		sched.Wake()
 		// The agent's own connect line races the tunnel subscribe, so the
 
@@ -724,6 +763,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		Attachments:   attachmentsSvc,
 		Artifacts:     artifactsSvc,
 		Sites:         sitesSvc,
+		Knowledge:     knowledgeSvc,
 		Tags:          tagsSvc,
 		Limits:        limitsSvc,
 		Scheduler:     sched,

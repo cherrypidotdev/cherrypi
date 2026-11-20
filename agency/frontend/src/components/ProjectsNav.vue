@@ -65,6 +65,7 @@ import { useNotifications } from "@/composables/useNotifications";
 import { useProjects } from "@/composables/useProjects";
 import { useProjectStatuses } from "@/composables/useProjectStatuses";
 import { PROJECT_STATUS_KEY, PROJECT_STATUS_STATE } from "@/lib/project";
+import { isProjectRouteName } from "@/lib/projectPage";
 import { taskStateIcon, taskStateTextClass } from "@/lib/task";
 import { type Project } from "@cherrypi/sdk";
 import { toSvg } from "jdenticon";
@@ -139,7 +140,7 @@ const items = computed(() => {
 onMounted(() => void loadProjects());
 
 function isActive(slug: string): boolean {
-  return route.name === "project" && route.params.slug === slug;
+  return isProjectRouteName(route.name) && route.params.slug === slug;
 }
 
 function logo(project: Project): string {

@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	pgdb "cherrypi.vladfaust.com/agency/internal/gen/pg"
@@ -604,6 +605,17 @@ func (s *PgStore) DeleteAgent(ctx context.Context, id ids.AgentID) error {
 		if err := q.DeleteAgentGroupMemberRequestsByAgent(ctx, int64(id)); err != nil {
 			return err
 		}
+
+		if err := q.DeleteVariablesForScope(ctx, pgdb.DeleteVariablesForScopeParams{
+			ScopeKind: "agent",
+			ScopeID:   strconv.FormatInt(row.ActorID, 10),
+		}); err != nil {
+			return err
+		}
+
+		if err := q.BumpAgentConfigRevision(ctx, NewRevision()); err != nil {
+			return err
+		}
 		if err := q.DeleteAgent(ctx, int64(id)); err != nil {
 			return err
 		}
@@ -637,6 +649,16 @@ func (s *PgStore) UpdateProject(
 func (s *PgStore) DeleteProject(ctx context.Context, id string) error {
 	return s.tx(ctx, func(q *pgdb.Queries) error {
 		if err := s.deleteProjectChildren(ctx, q, id); err != nil {
+			return err
+		}
+		if err := q.DeleteVariablesForScope(ctx, pgdb.DeleteVariablesForScopeParams{
+			ScopeKind: "project",
+			ScopeID:   id,
+		}); err != nil {
+			return err
+		}
+
+		if err := q.BumpAgentConfigRevision(ctx, NewRevision()); err != nil {
 			return err
 		}
 		return q.DeleteProject(ctx, id)
@@ -983,6 +1005,16 @@ func (s *PgStore) DeleteTeam(ctx context.Context, id int64) error {
 			return err
 		}
 		if err := q.DeleteTeamLogs(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteVariablesForScope(ctx, pgdb.DeleteVariablesForScopeParams{
+			ScopeKind: "team",
+			ScopeID:   strconv.FormatInt(id, 10),
+		}); err != nil {
+			return err
+		}
+
+		if err := q.BumpAgentConfigRevision(ctx, NewRevision()); err != nil {
 			return err
 		}
 		return q.DeleteTeam(ctx, id)

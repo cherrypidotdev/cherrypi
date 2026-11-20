@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
       TabsTrigger(value="tasks") {{ $t("nav.tasks") }}
       TabsTrigger(value="groups") {{ $t("agentGroups.title") }}
+      TabsTrigger(value="variables") {{ $t("variables.title") }}
       TabsTrigger(value="security") {{ $t("account.tabs.security") }}
 
     TabsContent(value="general")
@@ -299,6 +300,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     TabsContent(value="groups")
       AgentGroupsPanel(:agent-id="id")
 
+    TabsContent(value="variables")
+      VariablesPanel(
+        v-if="item"
+        :target="{ scope: 5, agentId: item.actorId }"
+        :can-manage="canManageAgent(item.actorId)"
+        :agent-id="item.actorId"
+      )
+
     TabsContent(value="security")
       .flex.flex-col.gap-6
         AgentOwnersPanel(:agent-id="id")
@@ -410,6 +419,7 @@ import AgentPluginsPanel from "@/components/settings/AgentPluginsPanel.vue";
 import AgentProjectLimits from "@/components/settings/AgentProjectLimits.vue";
 import AgentTeamsPanel from "@/components/settings/AgentTeamsPanel.vue";
 import ConcurrencyPanel from "@/components/settings/ConcurrencyPanel.vue";
+import VariablesPanel from "@/components/settings/VariablesPanel.vue";
 import TableRowsSkeleton from "@/components/TableRowsSkeleton.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -502,7 +512,15 @@ const isAdmin = computed(() => currentAccount.value?.is_admin ?? false);
 const PI_DEFAULT = "__pi_default__";
 const PI_DEFAULT_LEVEL = "__model_default__";
 
-const SETTINGS_TABS = ["general", "projects", "plugins", "tasks", "security"];
+const SETTINGS_TABS = [
+  "general",
+  "projects",
+  "plugins",
+  "tasks",
+  "groups",
+  "variables",
+  "security",
+];
 const settingsRoute = useRoute();
 const tab = ref(
   typeof settingsRoute.query.section === "string" &&

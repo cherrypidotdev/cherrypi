@@ -17,6 +17,7 @@ Agency настраивается переменными окружения и, 
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP-порт. |
 | `CHERRYPI_AGENCY_DATABASE_DSN` | `$CHERRYPI_AGENCY_DIR/agency.sqlite3` | Путь SQLite или URL PostgreSQL. |
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | Внешний origin для ссылок и OIDC callback. |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Корень установленных пакетов плагинов и их баз. Должен переживать перезапуск и перевыкладку, как и файл SQLite. |
 | `CHERRYPI_ADMIN_USERNAME` | `admin` | Имя первого администратора. |
 | `CHERRYPI_ADMIN_PASSWORD` | генерируется и печатается один раз | Пароль первого администратора. |
 | `CHERRYPI_INSECURE_FIRST_REGISTERED_USER_BECOMES_ADMIN` | выкл. | Открытая регистрация, где первый пользователь становится админом. |
@@ -31,7 +32,7 @@ Agency настраивается переменными окружения и, 
 | `CHERRYPI_ATTACHMENT_MAX_BYTES` | `26214400` (25 МиБ) | Лимит одного файла. |
 | `CHERRYPI_ATTACHMENT_MAX_PER_MESSAGE` | `10` | Вложений на сообщение. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Сколько process-логов хранить. |
-| `CHERRYPI_SECRET_KEY` | — | Base64-ключ из 32 байт для шифрования ключей провайдеров. Неверная длина не даёт agency запуститься. См. [секреты провайдеров](/ru/reference/environment#секреты-провайдеров). |
+| `CHERRYPI_SECRET_KEY` | — | Base64-ключ из 32 байт для шифрования ключей провайдеров и [секретных переменных](/ru/using/variables). Неверная длина не даёт agency запуститься. См. [секреты провайдеров](/ru/reference/environment#секреты-провайдеров). |
 | `CHERRYPI_H2C` | выкл. | Cleartext HTTP/2 для диагностики/прямого агента. |
 | `CHERRYPI_OTEL_ENABLED` | авто | Включить OTLP-трейсы, метрики и логи. Автовключение при заданном OTLP-endpoint. |
 | `CHERRYPI_FRONTEND_PROXY_URL` | — | Только dev: проксировать SPA в Vite. |
@@ -129,6 +130,7 @@ CHERRYPI_S3_FORCE_PATH_STYLE=true
 | --- | --- |
 | General | Публичный URL только для чтения (из `CHERRYPI_PUBLIC_URL`), имя agency, логотип, favicon, основной цвет и правило автоматического архива задач. |
 | Models | Провайдеры, их зашифрованные ключи, модели и гранты. Требует `CHERRYPI_SECRET_KEY`. |
+| Variables | [Переменные и секреты](/ru/using/variables) уровня организации, которые получает оболочка каждой задачи. Для хранения секрета нужен `CHERRYPI_SECRET_KEY`. |
 | Users | Приглашения, роли, отключение аккаунтов. |
 | Authentication | Пароль/magic link, TOTP, SMTP, OIDC и LDAP. |
 | Agents | Кто может создавать агентов, поведение лимитов. |

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useProjects } from "@/composables/useProjects";
+import { isProjectRouteName } from "@/lib/projectPage";
 import { agency } from "@/lib/sdk";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -41,7 +42,7 @@ export function usePageProject() {
   );
 
   const projectId = computed(() => {
-    if (route.name === "project") {
+    if (isProjectRouteName(route.name)) {
       const slug = String(route.params.slug ?? "");
       return projects.value.find((item) => item.slug === slug)?.id ?? "";
     }

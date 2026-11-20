@@ -501,7 +501,7 @@ func (s *Session) listTasksTool() agent.AgentTool {
 		"List Tasks",
 		"List CherryPi tasks. With a projectId, lists that project's tasks when this agent has the can-list permission (otherwise only the agent's own tasks in it); without one, lists only this agent's own tasks. Optionally filter by assigned agent id, state, or a free-text search.",
 		ai.Object(
-			ai.Opt("projectId", ai.String("Project id or slug to list tasks in.")),
+			ai.Opt("projectId", ai.String("Project id, slug, or task prefix to list tasks in.")),
 			ai.Opt("agentId", ai.String("Only tasks assigned to this agent id.")),
 			ai.Opt(
 				"state",

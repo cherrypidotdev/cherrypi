@@ -45,6 +45,8 @@ type AgentConfigStore interface {
 	BumpAgentConfigRevision(ctx context.Context, revision string) error
 
 	ListAgentGroupIDsForAgentActor(ctx context.Context, actorID int64) ([]int64, error)
+
+	ListTeamIDsForAgentActor(ctx context.Context, actorID int64) ([]int64, error)
 }
 
 type SaveModelProviderParams struct {

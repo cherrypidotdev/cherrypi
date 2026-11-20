@@ -60,6 +60,8 @@ type modelCatalog struct {
 	donors map[string]*ai.Model
 
 	declared map[string]bool
+
+	variables []AgencyVariable
 }
 
 func (c *modelCatalog) declareModel(provider, model string) {
@@ -145,6 +147,15 @@ func (m *Manager) modelsRegistry(ctx context.Context, taskID string) *modelCatal
 	return built
 }
 
+func (m *Manager) modelsRegistryForced(ctx context.Context, taskID string) *modelCatalog {
+	m.catalogMu.Lock()
+	if entry := m.catalogs[taskID]; entry != nil {
+		entry.fetchedAt = time.Time{}
+	}
+	m.catalogMu.Unlock()
+	return m.modelsRegistry(ctx, taskID)
+}
+
 func (m *Manager) pruneCatalogsLocked(now time.Time) {
 	for taskID, entry := range m.catalogs {
 		if entry.lastUsed.IsZero() {
@@ -171,7 +182,10 @@ func buildCatalog(
 	declared AgencyModels,
 	taskID string,
 ) *modelCatalog {
-	catalog := &modelCatalog{models: ai.BuiltinModels(nil)}
+	catalog := &modelCatalog{
+		models:    ai.BuiltinModels(nil),
+		variables: declared.Variables,
+	}
 
 	catalog.donors = builtinDonors(catalog.models)
 	applyAgencyModels(catalog, declared, cfg.AgencyURL, cfg.AgentToken, taskID)
@@ -266,12 +280,23 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 	}
 
 	tools := s.tools()
+
+	systemPrompt := s.appendSystemPrompt
+	memoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	if snapshot, err := s.memoryContext(memoryCtx); err == nil && snapshot != "" {
+		systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + snapshot)
+	}
+	cancel()
+
+	if listing := s.variablesPrompt(); listing != "" {
+		systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + listing)
+	}
 	opts := coding.SessionOptions{
 		Model:         model,
 		Cwd:           s.Workspace,
 		ThinkingLevel: level,
 		SessionID:     s.ID,
-		SystemPrompt:  s.appendSystemPrompt,
+		SystemPrompt:  systemPrompt,
 		CustomTools:   tools,
 
 		MaxRetries:     3,
@@ -297,7 +322,7 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 		return fmt.Errorf("create pi session: %w", err)
 	}
 
-	sess.Agent.SetTools(strictTools(s.wrapTools(sess.Agent.State().Tools)))
+	sess.Agent.SetTools(strictTools(s.wrapTools(s.withVariableShell(sess.Agent.State().Tools))))
 
 	eng := &engine{sess: sess, compaction: compaction}
 	enableAllSteering(sess.Agent)
@@ -530,14 +555,9 @@ func toolEvent(event agent.AgentEvent, phase ToolPhase) Event {
 	result := ""
 	details := ""
 	if phase == ToolFinished {
-		if raw, err := json.Marshal(event.Result); err == nil {
-			result = string(raw)
-			details = resultDetails(raw)
-		}
+		result, details = toolResultJSON(event.Result)
 	} else if phase == ToolUpdated && event.PartialResult != nil {
-		if raw, err := json.Marshal(event.PartialResult); err == nil {
-			result = string(raw)
-		}
+		result, _ = toolResultJSON(event.PartialResult)
 	}
 	return Event{
 		Kind: EventTool,
@@ -554,6 +574,33 @@ func toolEvent(event agent.AgentEvent, phase ToolPhase) Event {
 	}
 }
 
+func toolResultJSON(result any) (text, details string) {
+	switch value := result.(type) {
+	case agent.AgentToolResult:
+		return contentListText(value.Content), detailsJSON(value.Details)
+	case *agent.AgentToolResult:
+		if value != nil {
+			return contentListText(value.Content), detailsJSON(value.Details)
+		}
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return "", ""
+	}
+	return string(raw), resultDetails(raw)
+}
+
+func detailsJSON(value any) string {
+	if value == nil {
+		return ""
+	}
+	raw, err := json.Marshal(value)
+	if err != nil || string(raw) == "null" {
+		return ""
+	}
+	return string(raw)
+}
+
 func (s *Session) finishRun(event agent.AgentEvent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -561,10 +608,11 @@ func (s *Session) finishRun(event agent.AgentEvent) {
 	s.mu.Lock()
 	eng := s.eng
 	stopped := s.stopRequested
+	abandoned := s.shutdownAbandoned
 	s.mu.Unlock()
 
 	errMsg := ""
-	if eng != nil && !stopped {
+	if eng != nil && !stopped && !abandoned {
 		if state := eng.sess.Agent.State(); state.ErrorMessage != "" {
 			errMsg = state.ErrorMessage
 		}
@@ -578,7 +626,7 @@ func (s *Session) finishRun(event agent.AgentEvent) {
 	s.closeRunTiming()
 	s.recordUsage(ctx)
 
-	if errMsg == "" && !stopped && eng != nil {
+	if errMsg == "" && !stopped && !abandoned && eng != nil {
 		reminders := make([]agent.AgentMessage, 0, 2)
 		if reminder, cont := s.shouldContinueWithoutRequiredTool(); cont {
 			reminders = append(reminders, reminder)
@@ -604,7 +652,7 @@ func (s *Session) finishRun(event agent.AgentEvent) {
 		}
 	}
 
-	if errMsg == "" {
+	if errMsg == "" && !abandoned {
 		s.emit(Event{Kind: EventRunSettled, At: time.Now()})
 	}
 	s.settle(errMsg)
@@ -964,6 +1012,9 @@ func thinkingLevelsFor(model *ai.Model) []string {
 }
 
 func (s *Session) forceStopEngine() {
+	if s.abandonedForShutdown() {
+		return
+	}
 	s.mu.Lock()
 	eng := s.eng
 	s.mu.Unlock()

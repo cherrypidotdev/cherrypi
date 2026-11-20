@@ -50,6 +50,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	"cherrypi.vladfaust.com/agency/internal/teams"
 	"cherrypi.vladfaust.com/agency/internal/telemetry"
+	"cherrypi.vladfaust.com/agency/internal/variables"
 	connectcors "connectrpc.com/cors"
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
@@ -96,6 +97,14 @@ func main() {
 		log.Fatalf("Model catalog: %v", err)
 	}
 	appCtx.AgentConfig = catalog
+	variablesService, err := variables.New(
+		appCtx.Store, appCtx.Store, appCtx.Store, os.Getenv("CHERRYPI_SECRET_KEY"),
+	)
+	if err != nil {
+		log.Fatalf("Variables: %v", err)
+	}
+	appCtx.Variables = variablesService
+	catalog.SetVariables(variablesService)
 
 	if count, err := appCtx.Accounts.CountUsers(context.Background()); err == nil && count == 0 {
 		log.Print("No user accounts configured: the agency is un-authenticate-able")

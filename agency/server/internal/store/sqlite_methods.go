@@ -19,6 +19,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strconv"
 
 	sqlitedb "cherrypi.vladfaust.com/agency/internal/gen/sqlite"
 	"cherrypi.vladfaust.com/agency/internal/ids"
@@ -3871,6 +3872,16 @@ func (s *SqliteStore) DeleteAgentGroup(ctx context.Context, id int64) error {
 			return err
 		}
 		if err := q.DeleteTeamGroupInvitationsByGroup(ctx, id); err != nil {
+			return err
+		}
+		if err := q.DeleteVariablesForScope(ctx, sqlitedb.DeleteVariablesForScopeParams{
+			ScopeKind: "group",
+			ScopeID:   strconv.FormatInt(id, 10),
+		}); err != nil {
+			return err
+		}
+
+		if err := q.BumpAgentConfigRevision(ctx, NewRevision()); err != nil {
 			return err
 		}
 		return q.DeleteAgentGroup(ctx, id)

@@ -20,7 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .mx-auto.flex.w-full.max-w-5xl.flex-col.gap-6.p-6
   .flex.flex-col.gap-2
     Button.self-start(as-child variant="ghost" size="sm")
-      RouterLink(:to="{ name: 'settings', query: { tab: 'models' } }")
+      RouterLink(:to="{ name: 'settings-models' }")
         ArrowLeftIcon(data-icon="inline-start")
         span {{ $t("providerEditor.back") }}
     h1.text-lg.font-semibold {{ formTitle }}
@@ -475,7 +475,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             CheckIcon(v-else data-icon="inline-start")
             span {{ editing ? $t("common.saveChanges") : $t("common.create") }}
           Button(type="button" as-child variant="outline")
-            RouterLink(:to="{ name: 'settings', query: { tab: 'models' } }")
+            RouterLink(:to="{ name: 'settings-models' }")
               | {{ $t("common.cancel") }}
 </template>
 
@@ -947,7 +947,7 @@ async function save() {
         ? t("providerEditor.savedToast")
         : t("providerEditor.createdToast"),
     );
-    await router.push({ name: "settings", query: { tab: "models" } });
+    await router.push({ name: "settings-models" });
   } catch (err) {
     formError.value = err instanceof Error ? err.message : String(err);
   } finally {

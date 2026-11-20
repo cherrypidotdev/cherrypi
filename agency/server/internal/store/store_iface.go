@@ -638,6 +638,8 @@ type Store interface {
 
 	AgentConfigStore
 
+	VariableStore
+
 	ListTags(
 		ctx context.Context,
 		projectID string,
@@ -1101,4 +1103,82 @@ type Store interface {
 	SetAgentGroupArchived(ctx context.Context, p SetAgentGroupArchivedParams) (AgentGroup, error)
 	SetAgentGroupPicture(ctx context.Context, p SetAgentGroupPictureParams) error
 	UpdateAgentGroup(ctx context.Context, p UpdateAgentGroupParams) (AgentGroup, error)
+	CreateKnowledgeConcept(
+		ctx context.Context,
+		c KnowledgeConcept,
+		w KnowledgeConceptWrite,
+	) (KnowledgeConcept, error)
+	GetKnowledgeConcept(ctx context.Context, scope, scopeID, path string) (KnowledgeConcept, error)
+	GetKnowledgeConceptByID(ctx context.Context, id string) (KnowledgeConcept, error)
+	ListKnowledgeConcepts(
+		ctx context.Context,
+		f KnowledgeConceptFilter,
+	) ([]KnowledgeConcept, error)
+	SaveKnowledgeConcept(
+		ctx context.Context,
+		id string,
+		baseRevision int64,
+		w KnowledgeConceptWrite,
+		rev KnowledgeRevision,
+	) (KnowledgeConcept, error)
+	SoftDeleteKnowledgeConcept(ctx context.Context, id string, now int64) error
+	SetKnowledgeConceptTrust(ctx context.Context, id, tier string, now int64) error
+	SetKnowledgeConceptFrontmatter(ctx context.Context, id, frontmatter string, now int64) error
+	CreateKnowledgeRevision(
+		ctx context.Context,
+		rev KnowledgeRevision,
+	) (KnowledgeRevision, error)
+	ListKnowledgeRevisions(ctx context.Context, conceptID string) ([]KnowledgeRevision, error)
+	CreateKnowledgeVerification(
+		ctx context.Context,
+		v KnowledgeVerification,
+	) (KnowledgeVerification, error)
+	RevokeKnowledgeVerification(
+		ctx context.Context,
+		conceptID string,
+		verificationID int64,
+		actorID ids.ActorID,
+		now int64,
+	) error
+	ListKnowledgeVerifications(
+		ctx context.Context,
+		conceptID string,
+	) ([]KnowledgeVerification, error)
+	ReplaceKnowledgeSources(ctx context.Context, conceptID string, sources []KnowledgeSource) error
+	ListKnowledgeSources(ctx context.Context, conceptID string) ([]KnowledgeSource, error)
+	ReplaceKnowledgeLinks(ctx context.Context, conceptID string, links []KnowledgeLink) error
+	ListKnowledgeLinks(ctx context.Context, conceptID string) ([]KnowledgeLink, error)
+	ListKnowledgeBacklinks(ctx context.Context, targetPath string) ([]KnowledgeConcept, error)
+	CreateKnowledgeDecision(
+		ctx context.Context,
+		d KnowledgeDecision,
+	) (KnowledgeDecision, bool, error)
+	ListKnowledgeDecisions(
+		ctx context.Context,
+		f DecisionFilter,
+	) ([]KnowledgeDecision, error)
+	GetKnowledgeDecision(ctx context.Context, id int64) (KnowledgeDecision, error)
+	LinkKnowledgeDecisionConcepts(
+		ctx context.Context,
+		decisionID int64,
+		conceptIDs []string,
+	) error
+	ListKnowledgeDecisionConcepts(ctx context.Context, decisionID int64) ([]string, error)
+	ReplaceKnowledgeConceptDecisions(
+		ctx context.Context,
+		conceptID string,
+		decisionIDs []int64,
+	) error
+	ListKnowledgeConceptDecisions(
+		ctx context.Context,
+		conceptID string,
+	) ([]KnowledgeDecision, error)
+	GetKnowledgeDecisionIDs(ctx context.Context, conceptID string) ([]int64, error)
+	ListKnowledgeDecisionConceptPaths(
+		ctx context.Context,
+		decisionID int64,
+	) ([]string, error)
+	CreateKnowledgeMemoryRecovery(ctx context.Context, r KnowledgeMemoryRecovery) error
+	GetKnowledgeMemoryRecovery(ctx context.Context, id string) (KnowledgeMemoryRecovery, error)
+	MarkKnowledgeMemoryRecoveryRestored(ctx context.Context, id string, now int64) error
 }

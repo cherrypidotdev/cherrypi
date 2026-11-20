@@ -553,6 +553,8 @@ type Service struct {
 
 	OnCreated func(ctx context.Context, taskID string)
 
+	OnDecision func(ctx context.Context, d Decision)
+
 	OnTaskFinished func(ctx context.Context, t Task, outcome FinishOutcome)
 
 	OnInputCleared func(ctx context.Context, t Task)
@@ -754,6 +756,13 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	if s.OnCreated != nil {
 		s.OnCreated(ctx, t.ID)
 	}
+	s.decide(ctx, Decision{
+		Kind:    DecisionTaskCreated,
+		TaskID:  t.ID,
+		EventID: "created",
+		Summary: t.Prompt,
+		Payload: map[string]any{"state": string(t.State)},
+	})
 	return t, nil
 }
 
@@ -1038,6 +1047,12 @@ func (s *Service) snapshot(ctx context.Context, id string) (Task, error) {
 }
 
 func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
+
+	if strings.TrimSpace(f.ProjectID) != "" {
+		if id, err := s.ResolveProjectID(ctx, f.ProjectID); err == nil {
+			f.ProjectID = id
+		}
+	}
 	rows, err := s.store.ListTasks(ctx, store.ListTasksParams{
 		ProjectID:          nullString(f.ProjectID),
 		AgentID:            nullID(f.AgentID),
@@ -1067,7 +1082,15 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 		}
 		kept := rows[:0]
 		for _, row := range rows {
-			if !row.ProjectID.Valid || row.ProjectID.String == "" || visible[row.ProjectID.String] {
+
+			own := row.AssigneeActorID.Valid &&
+				ids.ActorID(row.AssigneeActorID.Int64) == f.VisibleToActorID
+			if !own {
+				own = row.CreatorActorID.Valid &&
+					ids.ActorID(row.CreatorActorID.Int64) == f.VisibleToActorID
+			}
+			if !row.ProjectID.Valid || row.ProjectID.String == "" ||
+				visible[row.ProjectID.String] || own {
 				kept = append(kept, row)
 			}
 		}
@@ -2195,6 +2218,13 @@ func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 		s.OnPendingPromptQueued(ctx, id)
 	}
 	s.taskFinished(ctx, id, OutcomeSettled)
+	s.decide(ctx, Decision{
+		Kind:    DecisionTaskSettled,
+		TaskID:  id,
+		EventID: fmt.Sprintf("settled:%d", now),
+		Summary: "Run settled",
+		Payload: map[string]any{"outcome": string(OutcomeSettled)},
+	})
 	return true, nil
 }
 
@@ -2264,6 +2294,42 @@ func (s *Service) lockHandoff(id string) func() {
 	mu := &s.handoffLocks[h.Sum32()%handoffLockStripes]
 	mu.Lock()
 	return mu.Unlock
+}
+
+type Decision struct {
+	Kind string
+
+	EventID string
+	TaskID  string
+	Summary string
+	Payload map[string]any
+}
+
+const (
+	DecisionTaskCreated      = "task_created"
+	DecisionFollowUp         = "follow_up"
+	DecisionQuestionAnswered = "question_answered"
+	DecisionTaskSettled      = "task_settled"
+)
+
+func (s *Service) decide(ctx context.Context, d Decision) {
+	if s.OnDecision == nil || d.TaskID == "" {
+		return
+	}
+	s.OnDecision(ctx, d)
+}
+
+func (s *Service) RecordFollowUp(
+	ctx context.Context,
+	taskID, messageID, prompt string,
+) {
+	s.decide(ctx, Decision{
+		Kind:    DecisionFollowUp,
+		TaskID:  taskID,
+		EventID: messageID,
+		Summary: prompt,
+		Payload: map[string]any{"message_id": messageID},
+	})
 }
 
 func isFailedStop(dataJSON string) bool {
@@ -2583,6 +2649,42 @@ func (s *Service) RequeueWithPrompt(
 		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
 	}
 	return s.Get(ctx, id)
+}
+
+func (s *Service) RequeueAfterStartFailure(
+	ctx context.Context,
+	id, errMsg string,
+) error {
+	cur, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
+		Event:     store.TaskRequeue,
+		Error:     strings.TrimSpace(errMsg),
+		QueuedAt:  sql.NullInt64{Int64: now, Valid: true},
+		UpdatedAt: now,
+		ID:        id,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+
+		return nil
+	}
+	after, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.logChanges(ctx, cur, after)
+	s.transitioned(ctx, id, StateQueued)
+
+	if err := s.ReconcileWaiting(ctx, id); err != nil {
+		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
+	}
+	return nil
 }
 
 func (s *Service) WakeWaitingWithPrompt(
@@ -4209,6 +4311,27 @@ func (s *Service) SetFavorite(
 
 	t.Favorite = favorite
 	return t, nil
+}
+
+func (s *Service) ResolveProjectID(ctx context.Context, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", nil
+	}
+	if s.projects == nil {
+		return ref, nil
+	}
+	project, err := s.projects.Get(ctx, ref)
+	if err == nil {
+		return project.ID, nil
+	}
+
+	if lower := strings.ToLower(ref); lower != ref {
+		if project, lowerErr := s.projects.Get(ctx, lower); lowerErr == nil {
+			return project.ID, nil
+		}
+	}
+	return "", err
 }
 
 func (s *Service) CanView(

@@ -114,6 +114,8 @@ func (h *Handler) bundle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		caller.ProjectID, caller.TeamIDs = projectID, teamIDs
+
+		caller.TaskScoped = true
 	}
 
 	bundle, changed, err := h.Service.Bundle(r.Context(), caller, r.URL.Query().Get("revision"))

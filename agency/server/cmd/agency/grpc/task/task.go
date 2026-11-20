@@ -183,6 +183,9 @@ func (s *TaskServer) visibleTask(ctx context.Context, id string) (tasks.Task, er
 		return tasks.Task{}, mapError(err)
 	}
 	if actorID, ok := auth.ActorID(ctx); ok && actorID != 0 && !auth.IsAdmin(ctx) {
+		if t.AssigneeActorID == actorID || t.CreatorActorID == actorID {
+			return t, nil
+		}
 		allowed, err := s.Tasks.CanView(ctx, t.ProjectID, actorID, false)
 		if err != nil {
 			return tasks.Task{}, mapError(err)
@@ -1583,6 +1586,8 @@ func (s *TaskServer) recordMessage(
 	); err != nil {
 		log.Printf("[task %s] record message: %v", taskID, err)
 	}
+
+	s.Tasks.RecordFollowUp(ctx, taskID, messageID, text)
 }
 
 func (s *TaskServer) StopTask(

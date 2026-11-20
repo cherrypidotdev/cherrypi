@@ -18,11 +18,7 @@ package agentconfig
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,14 +27,14 @@ import (
 	"strings"
 	"time"
 
+	"cherrypi.vladfaust.com/agency/internal/sealed"
 	"cherrypi.vladfaust.com/agency/internal/store"
+	"cherrypi.vladfaust.com/agency/internal/variables"
 )
 
 var ErrInvalidConfig = errors.New("invalid model configuration")
 
-var ErrNoSecretKey = errors.New(
-	"CHERRYPI_SECRET_KEY is not set, so provider keys cannot be stored",
-)
+var ErrNoSecretKey = sealed.ErrNoKey
 
 var supportedAPIs = map[string]bool{
 	"anthropic-messages":   true,
@@ -58,71 +54,27 @@ const (
 
 type Service struct {
 	store  store.AgentConfigStore
-	sealer *sealer
+	sealer *sealed.Sealer
 	now    func() time.Time
+
+	variables VariableResolver
 }
 
+type VariableResolver interface {
+	Resolve(ctx context.Context, caller variables.Caller) ([]variables.Resolved, error)
+}
+
+func (s *Service) SetVariables(resolver VariableResolver) { s.variables = resolver }
+
 func New(st store.AgentConfigStore, secretKey string) (*Service, error) {
-	seal, err := newSealer(secretKey)
+	seal, err := sealed.New(secretKey)
 	if err != nil {
 		return nil, err
 	}
 	return &Service{store: st, sealer: seal, now: time.Now}, nil
 }
 
-type sealer struct {
-	aead cipher.AEAD
-}
-
-func newSealer(encoded string) (*sealer, error) {
-	if strings.TrimSpace(encoded) == "" {
-		return &sealer{}, nil
-	}
-	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil {
-		return nil, fmt.Errorf("CHERRYPI_SECRET_KEY must be base64: %w", err)
-	}
-	if len(key) != 32 {
-		return nil, fmt.Errorf("CHERRYPI_SECRET_KEY must decode to 32 bytes, got %d", len(key))
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &sealer{aead: aead}, nil
-}
-
-func (s *sealer) Seal(value string) ([]byte, error) {
-	if s.aead == nil {
-		return nil, ErrNoSecretKey
-	}
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return s.aead.Seal(nonce, nonce, []byte(value), nil), nil
-}
-
-func (s *sealer) Open(sealed []byte) (string, error) {
-	if s.aead == nil {
-		return "", ErrNoSecretKey
-	}
-	size := s.aead.NonceSize()
-	if len(sealed) < size {
-		return "", errors.New("sealed key is truncated")
-	}
-	plain, err := s.aead.Open(nil, sealed[:size], sealed[size:], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
-}
-
-func (s *Service) Enabled() bool { return s.sealer.aead != nil }
+func (s *Service) Enabled() bool { return s.sealer.Enabled() }
 
 type Model struct {
 	ID        string   `json:"id"`
@@ -184,6 +136,15 @@ type Provider struct {
 type Bundle struct {
 	Revision  string     `json:"revision"`
 	Providers []Provider `json:"providers"`
+
+	Variables []BundleVariable `json:"variables,omitempty"`
+}
+
+type BundleVariable struct {
+	Name   string `json:"name"`
+	Note   string `json:"note,omitempty"`
+	Secret bool   `json:"secret"`
+	Value  string `json:"value"`
 }
 
 type Scope struct {
@@ -193,6 +154,8 @@ type Scope struct {
 }
 
 type Caller struct {
+	TaskScoped bool
+
 	AgentActorID string
 
 	ProjectID string
@@ -240,14 +203,34 @@ func (s *Service) withGroups(ctx context.Context, caller Caller) (Caller, error)
 	return caller, nil
 }
 
-func scopedRevision(revision string, scopes []Scope) string {
-	keys := make([]string, 0, len(scopes))
+func scopedRevision(revision string, scopes []Scope, extra []string) string {
+	keys := make([]string, 0, len(scopes)+len(extra))
 	for _, scope := range scopes {
 		keys = append(keys, scope.Kind+":"+scope.ID)
 	}
+	keys = append(keys, extra...)
 	sort.Strings(keys)
 	sum := sha256.Sum256([]byte(strings.Join(keys, "\x00")))
 	return revision + ":" + fmt.Sprintf("%x", sum[:8])
+}
+
+func (s *Service) variableScopes(ctx context.Context, caller Caller) ([]string, error) {
+	if caller.AgentActorID == "" {
+		return nil, nil
+	}
+	actorID, err := strconv.ParseInt(caller.AgentActorID, 10, 64)
+	if err != nil {
+		return nil, nil
+	}
+	teams, err := s.store.ListTeamIDsForAgentActor(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(teams))
+	for _, team := range teams {
+		keys = append(keys, "variable-team:"+strconv.FormatInt(team, 10))
+	}
+	return keys, nil
 }
 
 func (s *Service) Bundle(
@@ -264,7 +247,11 @@ func (s *Service) Bundle(
 		return nil, false, err
 	}
 	scopes := scopesOf(caller)
-	revision := scopedRevision(catalogRevision, scopes)
+	variableScopes, err := s.variableScopes(ctx, caller)
+	if err != nil {
+		return nil, false, err
+	}
+	revision := scopedRevision(catalogRevision, scopes, variableScopes)
 	if knownRevision != "" && knownRevision == revision {
 		return nil, false, nil
 	}
@@ -317,7 +304,42 @@ func (s *Service) Bundle(
 			bundle.Providers = append(bundle.Providers, provider)
 		}
 	}
+	if resolved, err := s.resolveVariables(ctx, caller); err != nil {
+		return nil, false, err
+	} else {
+		bundle.Variables = resolved
+	}
 	return bundle, true, nil
+}
+
+func (s *Service) resolveVariables(
+	ctx context.Context,
+	caller Caller,
+) ([]BundleVariable, error) {
+	if s.variables == nil || !caller.TaskScoped || caller.AgentActorID == "" {
+		return nil, nil
+	}
+	actorID, err := strconv.ParseInt(caller.AgentActorID, 10, 64)
+	if err != nil {
+		return nil, nil
+	}
+	resolved, err := s.variables.Resolve(ctx, variables.Caller{
+		AgentActorID: actorID,
+		ProjectID:    caller.ProjectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BundleVariable, 0, len(resolved))
+	for _, variable := range resolved {
+		out = append(out, BundleVariable{
+			Name:   variable.Name,
+			Note:   variable.Note,
+			Secret: variable.Secret,
+			Value:  variable.Value,
+		})
+	}
+	return out, nil
 }
 
 type grantSet struct {

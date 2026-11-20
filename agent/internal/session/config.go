@@ -27,6 +27,15 @@ import (
 type AgencyModels struct {
 	Revision  string           `json:"revision"`
 	Providers []AgencyProvider `json:"providers"`
+
+	Variables []AgencyVariable `json:"variables"`
+}
+
+type AgencyVariable struct {
+	Name   string `json:"name"`
+	Note   string `json:"note"`
+	Secret bool   `json:"secret"`
+	Value  string `json:"value"`
 }
 
 type AgencyCatalog interface {
@@ -216,13 +225,19 @@ func mergeModelCapabilities(builtin, agency *ai.Model) *ai.Model {
 	if len(out.Compat) == 0 {
 		out.Compat = builtin.Compat
 		if out.Provider != builtin.Provider {
-			out.Compat = withoutInheritedThinkingFormat(out.Compat)
+			out.Compat = withoutInheritedEndpointCompat(out.Compat)
 		}
 	}
 	return &out
 }
 
-func withoutInheritedThinkingFormat(compat json.RawMessage) json.RawMessage {
+var inheritedEndpointCompat = []string{
+	"thinkingFormat",
+	"supportsMidConvoToolAdditions",
+	"supportsMidConvoSystemMessages",
+}
+
+func withoutInheritedEndpointCompat(compat json.RawMessage) json.RawMessage {
 	if len(compat) == 0 {
 		return compat
 	}
@@ -230,10 +245,17 @@ func withoutInheritedThinkingFormat(compat json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(compat, &fields); err != nil {
 		return compat
 	}
-	if _, ok := fields["thinkingFormat"]; !ok {
+	changed := false
+	for _, key := range inheritedEndpointCompat {
+		if _, ok := fields[key]; !ok {
+			continue
+		}
+		delete(fields, key)
+		changed = true
+	}
+	if !changed {
 		return compat
 	}
-	delete(fields, "thinkingFormat")
 	stripped, err := json.Marshal(fields)
 	if err != nil {
 		return compat
