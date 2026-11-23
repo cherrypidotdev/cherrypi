@@ -41,6 +41,7 @@ type Entry struct {
 	ID              int64       `json:"id"`
 	AgentID         ids.AgentID `json:"agentId"`
 	TaskID          string      `json:"taskId"`
+	ProjectID       string      `json:"projectId"`
 	Kind            string      `json:"kind"`
 	Severity        string      `json:"severity"`
 	Title           string      `json:"title"`
@@ -119,6 +120,7 @@ func browserEntry(n Notification) *Entry {
 		ID:              n.ID,
 		AgentID:         n.AgentID,
 		TaskID:          n.TaskID,
+		ProjectID:       n.ProjectID,
 		Kind:            n.Kind,
 		Severity:        n.Severity,
 		Title:           n.Title,

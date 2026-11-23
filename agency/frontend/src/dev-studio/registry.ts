@@ -18,6 +18,7 @@ import ActorCombobox from "@/components/ActorCombobox.vue";
 import ActorTooltip from "@/components/ActorTooltip.vue";
 import AvatarTip from "@/components/AvatarTip.vue";
 import ActivityWait from "@/components/tasks/ActivityWait.vue";
+import CompactionLine from "@/components/tasks/CompactionLine.vue";
 import ConsoleActivity from "@/components/tasks/ConsoleActivity.vue";
 import ConsoleAgentMessage from "@/components/tasks/ConsoleAgentMessage.vue";
 import ConsoleUserMessage from "@/components/tasks/ConsoleUserMessage.vue";
@@ -54,6 +55,7 @@ import {
   PendingActivity_Kind,
   TagSchema,
   TaskCommentSchema,
+  TaskCompactionSchema,
   TaskConfigSchema,
   TaskEventSchema,
   TaskLogSchema,
@@ -75,6 +77,7 @@ import {
   type Project,
   type SystemPromptSection,
   type Task,
+  type TaskCompaction,
   type TaskEvent,
 } from "@cherrypi/sdk";
 import TaskDetailsStage from "./TaskDetailsStage.vue";
@@ -368,6 +371,8 @@ const requestWait: ActivityItem = {
   error: "",
   attempt: 0,
   reason: "",
+  contextTokensBefore: 0,
+  contextTokensAfter: 0,
   startedAt: blockStart + 11_400,
   endedAt: blockStart + 15_600,
 };
@@ -905,10 +910,32 @@ const settledToolCalls = {
   names: ["bash", "read"],
 };
 
+const settledCompactions: TaskCompaction[] = [
+  create(TaskCompactionSchema, {
+    at: stamp(consoleStart + 86_400_000),
+    durationMs: 12_345n,
+    reason: "threshold",
+    provider: "surplus",
+    model: "deepseek-v4.1-flash-1017",
+    contextTokensBefore: 1_040_000n,
+    contextTokensAfter: 38_000n,
+  }),
+  create(TaskCompactionSchema, {
+    at: stamp(consoleStart + 86_400_000 + 3_600_000),
+    durationMs: 8_400n,
+    reason: "manual",
+    provider: "surplus",
+    model: "deepseek-v4.1-flash-1017",
+    contextTokensBefore: 62_000n,
+    contextTokensAfter: 14_000n,
+  }),
+];
+
 const settledPreview = {
   comments: { comments: settledComments, unread: 2 },
   tools: settledTools,
   toolCalls: settledToolCalls,
+  compactions: settledCompactions,
 };
 
 const detailsEvents = [
@@ -929,6 +956,7 @@ const detailsEvents = [
   "queue",
   "dequeue",
   "restart-session",
+  "compact-session",
   "stop",
   "reopen",
   "close-out",
@@ -1358,6 +1386,44 @@ export const studioComponents: StudioComponent[] = [
           reason: "threshold",
         },
         width: 480,
+      },
+    ],
+  },
+  {
+    id: "compaction-line",
+    name: "Compaction line",
+    source: "@/components/tasks/CompactionLine.vue",
+    component: CompactionLine,
+    scenarios: [
+      {
+        id: "threshold",
+        name: "Threshold compaction",
+        description:
+          "The full-width transcript line Pi leaves after it summarized a full context window.",
+        props: {
+          beforeTokens: 1_040_000,
+          afterTokens: 38_000,
+          durationMs: 12_345n,
+          reason: "threshold",
+          at: consoleStart + 86_400_000,
+        },
+        events: [],
+        width: 720,
+      },
+      {
+        id: "manual",
+        name: "Manual compaction",
+        description:
+          "An operator forced the summary from the System tab; the reason reads as requested.",
+        props: {
+          beforeTokens: 62_000,
+          afterTokens: 14_000,
+          durationMs: 8_400n,
+          reason: "manual",
+          at: consoleStart + 86_400_000 + 3_600_000,
+        },
+        events: [],
+        width: 720,
       },
     ],
   },

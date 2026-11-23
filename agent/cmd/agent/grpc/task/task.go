@@ -367,11 +367,25 @@ func (s *TaskServer) RestartTaskSession(
 	return &agentv1.RestartTaskSessionResponse{}, nil
 }
 
+func (s *TaskServer) CompactTask(
+	ctx context.Context,
+	req *agentv1.CompactTaskRequest,
+) (*agentv1.CompactTaskResponse, error) {
+	if err := s.Tasks.Compact(ctx, req.Id); err != nil {
+		return nil, connectError(err)
+	}
+	return &agentv1.CompactTaskResponse{}, nil
+}
+
 func connectError(err error) error {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, session.ErrSessionBusy):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, session.ErrNothingToCompact):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, session.ErrCompactionDisabled):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, session.ErrInvalidPrompt):
 		return connect.NewError(connect.CodeInvalidArgument, err)

@@ -45,6 +45,27 @@ bucket, endpoint and addressing style. Common fixes:
 
 After a token rotation, restart the agent so the new token is picked up.
 
+## The tunnel drops periodically
+
+Synchronous drops across several agents are usually the reverse proxy, not the
+agency: the agent log shows `failed to read frame header: EOF` and every tunnel
+is back within a second or two.
+
+- With ingress-nginx, a reload (any Ingress, Service, Secret or Endpoint change
+  in the cluster) retires the old worker, which force-closes its open
+  connections after `worker-shutdown-timeout` (240 s by default). Drops land
+  that long after a `Configuration changes detected, backend reload required`
+  line. Raising `proxy-read-timeout` does not help; the worker shutdown is a
+  different timer.
+- A `426 Upgrade Required` on `/api/tunnel/ws` means the request reached the
+  agency without the `Connection: Upgrade` / `Upgrade: websocket` headers, so a
+  proxy is stripping them. An incompatible agent binary is refused with `412
+Precondition Failed` and the reason is logged by the agency; the agent log
+  carries the response body.
+- A healthy tunnel reconnects in about a second; only a run of failed attempts
+  backs off to 30 s. A `409 Conflict` means the agency still holds the previous
+  tunnel slot, and the next attempt takes it once yamux notices the close.
+
 ## A task does not start
 
 The queued task's page shows its exact waiting reason, for example

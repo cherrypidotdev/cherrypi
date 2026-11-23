@@ -200,11 +200,13 @@ func (s *Service) Discover(ctx context.Context, input DiscoverInput) (DiscoverRe
 
 func discoveredModel(id string, entry upstreamModel, known *ai.Model) ModelInput {
 	model := ModelInput{
-		ID:            id,
-		Name:          id,
-		Input:         []string{"text"},
-		ContextWindow: 0,
-		MaxTokens:     0,
+		ID:                         id,
+		Name:                       id,
+		Input:                      []string{"text"},
+		ContextWindow:              0,
+		MaxTokens:                  0,
+		CompactionReserveTokens:    DefaultCompactionReserveTokens,
+		CompactionKeepRecentTokens: DefaultCompactionKeepRecentTokens,
 
 		Enabled: false,
 	}

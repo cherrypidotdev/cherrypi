@@ -17,7 +17,7 @@ they are stored in the database and apply immediately.
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP listen port. |
 | `CHERRYPI_AGENCY_DATABASE_DSN` | `$CHERRYPI_AGENCY_DIR/agency.sqlite3` | SQLite path or PostgreSQL URL. |
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin used in links and OIDC callbacks. |
-| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the installed plugin bundles and their databases. Must survive a restart or redeploy, like the SQLite file. See [plugins](/advanced/plugins#storage-and-restarts). |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the extracted plugin bundles and their databases. On a SQLite agency preserve it as a whole together with the agency file — the default places both in `$CHERRYPI_AGENCY_DIR`, while this variable can move the bundles outside it, and no archive exists to rebuild them. On PostgreSQL the installed archive is also kept in the agency database, so a lost version directory is rebuilt on boot. See [plugins](/advanced/plugins#storage-and-restarts). |
 | `CHERRYPI_ADMIN_USERNAME` | `admin` | First-boot administrator username. |
 | `CHERRYPI_ADMIN_PASSWORD` | generated + printed once | First-boot administrator password. |
 | `CHERRYPI_INSECURE_FIRST_REGISTERED_USER_BECOMES_ADMIN` | off | Open registration where the first user becomes admin. |

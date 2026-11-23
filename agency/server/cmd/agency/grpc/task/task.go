@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +48,7 @@ import (
 	agentv1connect "cherrypi.vladfaust.com/shared/gen/buf/agent/v1/agentv1connect"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -162,6 +164,7 @@ func (s *TaskServer) ListTasks(
 		out[i] = toProtoTask(t)
 		out[i].CanCloseOut = s.canCloseOut(ctx, t)
 		out[i].CanAnswerInput = s.canAnswerInput(ctx, t)
+		out[i].CanPrompt = t.CanPrompt
 	}
 	stripProgressItems(out)
 
@@ -245,8 +248,9 @@ func (s *TaskServer) protoTask(ctx context.Context, t tasks.Task) *agencyv1.Task
 	out := toProtoTask(t)
 	out.CanCloseOut = s.canCloseOut(ctx, t)
 	out.CanAnswerInput = s.canAnswerInput(ctx, t)
+	out.CanPrompt = s.canPrompt(ctx, t)
 	s.enrichWaitingReasons(ctx, list, []*agencyv1.Task{out})
-	s.enrichAttachments(ctx, out.Id, out)
+	s.enrichAttachments(ctx, t.ID, t.State, out)
 	s.enrichAttribution(ctx, out)
 	s.enrichBadges(ctx, []*agencyv1.Task{out})
 	s.enrichHoldIcons(ctx, []*agencyv1.Task{out})
@@ -351,7 +355,12 @@ func (s *TaskServer) enrichHoldIcons(ctx context.Context, tasks []*agencyv1.Task
 	}
 }
 
-func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *agencyv1.Task) {
+func (s *TaskServer) enrichAttachments(
+	ctx context.Context,
+	taskID string,
+	state tasks.State,
+	out *agencyv1.Task,
+) {
 	if s.Attachments == nil {
 		return
 	}
@@ -380,6 +389,8 @@ func (s *TaskServer) enrichAttachments(ctx context.Context, taskID string, out *
 		}
 		out.Messages[i] = tm
 	}
+
+	s.enrichPendingMessages(ctx, taskID, state, out)
 
 	if s.Artifacts != nil {
 		list, err := s.Artifacts.List(ctx, taskID)
@@ -470,6 +481,9 @@ func (r *attributionResolvers) prefetch(page []*agencyv1.Task) {
 		for _, message := range task.Messages {
 			addActor(message.ActorId)
 		}
+		for _, message := range task.PendingMessages {
+			addActor(message.ActorId)
+		}
 		for _, team := range task.Teams {
 			teamIDs[int64(team.Id)] = struct{}{}
 		}
@@ -526,6 +540,13 @@ func (s *TaskServer) enrichAttributionWith(
 		}
 	}
 	for _, message := range out.Messages {
+		if info, ok := actor(message.ActorId); ok {
+			message.ActorName = displayActorName(info)
+			message.ActorUsername = info.Username
+			message.ActorKind = info.Kind
+		}
+	}
+	for _, message := range out.PendingMessages {
 		if info, ok := actor(message.ActorId); ok {
 			message.ActorName = displayActorName(info)
 			message.ActorUsername = info.Username
@@ -1441,6 +1462,7 @@ func (s *TaskServer) AddToTask(
 		return nil, mapError(err)
 	}
 	if t.State == tasks.StateInput {
+
 		return nil, connect.NewError(
 			connect.CodeFailedPrecondition,
 			errors.New("task is waiting for input; answer the dialog first"),
@@ -1455,72 +1477,77 @@ func (s *TaskServer) AddToTask(
 	if !allowed {
 		return nil, connect.NewError(connect.CodePermissionDenied, tasks.ErrCannotPrompt)
 	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, tasks.ErrInvalidPrompt)
+	}
 
+	if t.State == tasks.StateBacklog && t.StartedAt.IsZero() {
+		return nil, connect.NewError(
+			connect.CodeFailedPrecondition,
+			tasks.ErrBacklogNotStarted,
+		)
+	}
 	messageID := req.MessageId
 	if messageID == "" {
 		messageID = uuid.NewString()
 	}
 
-	if !t.SessionDeletedAt.IsZero() {
-		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, req.Prompt, actorID); err != nil {
-			return nil, mapError(err)
-		}
-		s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
-		s.wake()
-		return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
-	}
+	s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
 
-	switch t.State {
-	case tasks.StateCompleted, tasks.StateCancelled,
-		tasks.StateSettled, tasks.StateFailed:
-		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, req.Prompt, actorID); err != nil {
-			return nil, mapError(err)
-		}
-		s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
-		s.wake()
-		return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
-	case tasks.StateBacklog:
-		if t.StartedAt.IsZero() {
-			return nil, connect.NewError(
-				connect.CodeFailedPrecondition,
-				errors.New("a backlog task that has not started has no running session"),
-			)
-		}
-		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, req.Prompt, actorID); err != nil {
-			return nil, mapError(err)
-		}
-		s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
-		s.wake()
-		return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
+	result, err := s.Tasks.FollowUp(ctx, tasks.FollowUpParams{
+		TaskID:     t.ID,
+		Text:       req.Prompt,
+		ActorID:    actorID,
+		MessageID:  messageID,
+		Cancelable: true,
+	})
+	if err != nil {
+		return nil, mapError(err)
 	}
+	s.wake()
+	return &agencyv1.AddToTaskResponse{
+		MessageId: messageID,
+		Queued:    result.Queued,
+	}, nil
+}
 
-	if t.State != tasks.StateRunning {
-		return nil, connect.NewError(
-			connect.CodeFailedPrecondition,
-			errors.New("task has no running session"),
-		)
-	}
-	conn, err := s.connectionForActor(ctx, t.AssigneeActorID)
+func (s *TaskServer) RemoveTaskPendingMessage(
+	ctx context.Context,
+	req *agencyv1.RemoveTaskPendingMessageRequest,
+) (*agencyv1.RemoveTaskPendingMessageResponse, error) {
+	t, err := s.promptableTask(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
-	model := s.resumeModel(ctx, t)
-	if _, err := conn.Tasks.AddToTask(ctx, &agentv1.AddToTaskRequest{
-		Id:            t.SessionID,
-		Prompt:        req.Prompt,
-		Attachments:   s.attachmentRefs(ctx, req.AttachmentIds),
-		TaskId:        t.ID,
-		Ref:           taskRef(t),
-		Sender:        s.promptSender(ctx, actorID),
-		RequiredTools: t.RequiredTools,
-		ModelProvider: model.Provider,
-		ModelId:       model.ModelID,
-		ThinkingLevel: model.ThinkingLevel,
-	}); err != nil {
-		return nil, err
+	updated, err := s.Tasks.RemovePendingMessage(ctx, t.ID, req.MessageId)
+	if err != nil {
+		return nil, mapError(err)
 	}
-	s.recordMessage(ctx, t.ID, messageID, req.Prompt, actorID, req.AttachmentIds)
-	return &agencyv1.AddToTaskResponse{MessageId: messageID}, nil
+	return &agencyv1.RemoveTaskPendingMessageResponse{
+		Task: s.protoTask(ctx, updated),
+	}, nil
+}
+
+func (s *TaskServer) promptableTask(
+	ctx context.Context,
+	id string,
+) (tasks.Task, error) {
+	t, err := s.Tasks.Get(ctx, id)
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	actorID, _ := auth.ActorID(ctx)
+	allowed, err := s.Tasks.CanPrompt(ctx, t, actorID, auth.IsAdmin(ctx))
+	if err != nil {
+		return tasks.Task{}, mapError(err)
+	}
+	if !allowed {
+		return tasks.Task{}, connect.NewError(
+			connect.CodePermissionDenied,
+			tasks.ErrCannotPrompt,
+		)
+	}
+	return t, nil
 }
 
 func (s *TaskServer) resumeModel(
@@ -1531,46 +1558,6 @@ func (s *TaskServer) resumeModel(
 		return scheduler.ModelSelection{}
 	}
 	return s.Scheduler.ResumeModel(ctx, t, t.SessionAgentID)
-}
-
-func (s *TaskServer) promptSender(
-	ctx context.Context,
-	actorID ids.ActorID,
-) *agentv1.PromptSender {
-	sender, err := s.Tasks.Sender(ctx, actorID)
-	if err != nil {
-		return nil
-	}
-	return &agentv1.PromptSender{
-		ActorId:  int64(sender.ActorID),
-		Username: sender.Username,
-		Name:     sender.Name,
-		Kind:     sender.Kind,
-	}
-}
-
-func (s *TaskServer) attachmentRefs(
-	ctx context.Context,
-	ids []int64,
-) []*agentv1.AttachmentRef {
-	if s.Attachments == nil || len(ids) == 0 {
-		return nil
-	}
-	refs := make([]*agentv1.AttachmentRef, 0, len(ids))
-	for _, id := range ids {
-		a, err := s.Attachments.Get(ctx, id)
-		if err != nil {
-			continue
-		}
-		refs = append(refs, &agentv1.AttachmentRef{
-			Id:          a.ID,
-			Filename:    a.Filename,
-			ContentType: a.ContentType,
-			Size:        a.Size,
-			Url:         attachments.URLFor(a.ID),
-		})
-	}
-	return refs
 }
 
 func (s *TaskServer) recordMessage(
@@ -1587,8 +1574,6 @@ func (s *TaskServer) recordMessage(
 	); err != nil {
 		log.Printf("[task %s] record message: %v", taskID, err)
 	}
-
-	s.Tasks.RecordFollowUp(ctx, taskID, messageID, text)
 }
 
 func (s *TaskServer) StopTask(
@@ -2294,6 +2279,52 @@ func (s *TaskServer) storeToolCalls(
 	s.toolCallCache[id] = cachedToolCalls{tip: tip, calls: calls}
 }
 
+func (s *TaskServer) ListTaskCompactions(
+	ctx context.Context,
+	req *agencyv1.ListTaskCompactionsRequest,
+) (*agencyv1.ListTaskCompactionsResponse, error) {
+	t, err := s.visibleTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+	out := &agencyv1.ListTaskCompactionsResponse{}
+	const pageSize = 500
+	var before int64
+	for {
+		rows, err := s.Tasks.TaskEventPage(ctx, t.ID, before, pageSize)
+		if err != nil {
+			return nil, mapError(err)
+		}
+		for _, row := range rows {
+			var event agentv1.TaskEvent
+			if protojson.Unmarshal([]byte(row.PayloadJSON), &event) != nil {
+				continue
+			}
+			wait := event.GetModelWait()
+			if wait.GetKind() != agentv1.ModelWait_KIND_COMPACTION {
+				continue
+			}
+			out.Compactions = append(out.Compactions, &agencyv1.TaskCompaction{
+				At:                  timestamppb.New(time.UnixMilli(row.At)),
+				DurationMs:          wait.GetDurationMs(),
+				Reason:              wait.GetReason(),
+				Model:               wait.GetModel(),
+				Provider:            wait.GetProvider(),
+				ContextTokensBefore: wait.GetContextTokensBefore(),
+				ContextTokensAfter:  wait.GetContextTokensAfter(),
+			})
+		}
+		if len(rows) < pageSize {
+			break
+		}
+		before = rows[0].Seq
+	}
+	slices.SortFunc(out.Compactions, func(a, b *agencyv1.TaskCompaction) int {
+		return b.GetAt().AsTime().Compare(a.GetAt().AsTime())
+	})
+	return out, nil
+}
+
 func (s *TaskServer) ListTaskToolCalls(
 	ctx context.Context,
 	req *agencyv1.ListTaskToolCallsRequest,
@@ -2749,6 +2780,30 @@ func (s *TaskServer) RestartTaskSession(
 	return &agencyv1.RestartTaskSessionResponse{}, nil
 }
 
+func (s *TaskServer) CompactTask(
+	ctx context.Context,
+	req *agencyv1.CompactTaskRequest,
+) (*agencyv1.CompactTaskResponse, error) {
+	t, conn, err := s.sessionTask(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireTaskControl(
+		ctx,
+		t,
+		"not allowed to compact this task's session",
+	); err != nil {
+		return nil, err
+	}
+	if _, err := conn.Tasks.CompactTask(
+		ctx,
+		&agentv1.CompactTaskRequest{Id: t.SessionID},
+	); err != nil {
+		return nil, err
+	}
+	return &agencyv1.CompactTaskResponse{}, nil
+}
+
 func (s *TaskServer) enrichNames(ctx context.Context, list []tasks.Task) {
 	missing := map[ids.ActorID][]int{}
 	for i := range list {
@@ -3151,6 +3206,15 @@ func (s *TaskServer) canAnswerInput(ctx context.Context, t tasks.Task) bool {
 	return err == nil && allowed
 }
 
+func (s *TaskServer) canPrompt(ctx context.Context, t tasks.Task) bool {
+	actorID, ok := auth.ActorID(ctx)
+	if !ok || actorID == 0 {
+		return false
+	}
+	allowed, err := s.Tasks.CanPrompt(ctx, t, actorID, auth.IsAdmin(ctx))
+	return err == nil && allowed
+}
+
 func (s *TaskServer) requireCanCloseOut(ctx context.Context, t tasks.Task) error {
 	actorID, ok := auth.ActorID(ctx)
 	if !ok || actorID == 0 {
@@ -3210,6 +3274,9 @@ func mapError(err error) *connect.Error {
 		errors.Is(err, tasks.ErrWrongState),
 		errors.Is(err, tasks.ErrRunning),
 		errors.Is(err, tasks.ErrPendingPrompt),
+		errors.Is(err, tasks.ErrBacklogNotStarted),
+		errors.Is(err, tasks.ErrNotCancelable),
+		errors.Is(err, tasks.ErrLastPendingMessage),
 		errors.Is(err, tasks.ErrFollowUpRequired),
 		errors.Is(err, tasks.ErrHeld),
 		errors.Is(err, tasks.ErrNotMember),
@@ -3377,6 +3444,43 @@ func sizeToProto(s string) agencyv1.TaskSize {
 		return agencyv1.TaskSize_TASK_SIZE_EPIC
 	default:
 		return agencyv1.TaskSize_TASK_SIZE_UNSPECIFIED
+	}
+}
+
+func (s *TaskServer) enrichPendingMessages(
+	ctx context.Context,
+	taskID string,
+	state tasks.State,
+	out *agencyv1.Task,
+) {
+	queued, err := s.Tasks.PendingMessages(ctx, taskID)
+	if err != nil || len(queued) == 0 {
+		return
+	}
+	var byMessage map[string][]attachments.Attachment
+	if s.Attachments != nil {
+		if list, err := s.Attachments.TaskAttachments(ctx, taskID); err == nil {
+			byMessage = map[string][]attachments.Attachment{}
+			for _, a := range list {
+				if a.MessageID != "" {
+					byMessage[a.MessageID] = append(byMessage[a.MessageID], a)
+				}
+			}
+		}
+	}
+	out.PendingMessages = make([]*agencyv1.TaskPendingMessage, len(queued))
+	for i, message := range queued {
+		pm := &agencyv1.TaskPendingMessage{
+			Id:        message.ID,
+			Text:      message.Text,
+			ActorId:   actorid.Format(message.ActorID),
+			CreatedAt: timestamppb.New(message.CreatedAt),
+			CanCancel: tasks.CanCancelPendingMessage(state, queued, message),
+		}
+		for _, a := range byMessage[message.MessageID] {
+			pm.Attachments = append(pm.Attachments, attachments.ToProto(a))
+		}
+		out.PendingMessages[i] = pm
 	}
 }
 

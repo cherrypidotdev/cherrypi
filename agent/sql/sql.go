@@ -20,5 +20,14 @@ import (
 	"embed"
 )
 
+// Migrations is the agent's SQLite goose tree.
+
 //go:embed migrations/*.sql
 var Migrations embed.FS
+
+// MigrationClaim is the one-line claim in `migration_claim`: the version and
+
+// conflict in git instead of merging into a tree goose refuses to migrate.
+
+//go:embed migration_claim
+var MigrationClaim []byte

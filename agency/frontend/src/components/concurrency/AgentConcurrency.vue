@@ -235,10 +235,10 @@ const settingsTo = computed(() => ({
 en:
   agentConcurrency:
     title: "Concurrency"
-    description: "A task holds a slot while it is running, waiting for input, settled or failed. Queued tasks start only when every applicable cap has room."
+    description: "A task holds a slot only while it runs. Queued tasks start when every applicable cap has room."
     manageLimits: "Manage limits"
     concurrentSlots: "Concurrent slots"
-    slotsHint: "Settled and failed tasks keep their slot until they are closed out; archived tasks never hold one."
+    slotsHint: "Settling, failing, or waiting on a dialog frees the slot; archived tasks never hold one."
     waiting: "waiting"
     reservedOnAgent: "Reserved on this agent"
     offlineHint: "This agent is offline. Its held slots stay frozen and queued tasks cannot start until the tunnel reconnects."
@@ -268,10 +268,10 @@ en:
 ru:
   agentConcurrency:
     title: "Параллельность"
-    description: "Задача занимает слот, пока выполняется, ждёт ввода, завершена или завершилась ошибкой. Задачи из очереди запускаются, только когда во всех применимых лимитах есть место."
+    description: "Задача занимает слот, только пока выполняется. Задачи из очереди запускаются, когда во всех применимых лимитах есть место."
     manageLimits: "Управлять лимитами"
     concurrentSlots: "Одновременные слоты"
-    slotsHint: "Завершённые задачи и задачи с ошибкой сохраняют слот, пока их не закроют; архивные задачи слот не занимают."
+    slotsHint: "Завершение, ошибка или ожидание ввода освобождают слот; архивные задачи слот не занимают."
     waiting: "в очереди"
     reservedOnAgent: "Зарезервировано на этом агенте"
     offlineHint: "Агент не в сети. Занятые слоты заморожены, а задачи из очереди не запустятся, пока туннель не восстановится."

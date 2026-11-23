@@ -488,8 +488,11 @@ func (s *Service) RemoveMember(
 	return nil
 }
 
-// Invite creates a pending invitation for an existing actor. Any member (or
-// admin) may invite; only an owner or admin may invite as an owner.
+// Invite adds an actor to a team. Any member (or admin) may invite; only an
+// owner or admin may invite as an owner. When the caller may answer the
+// invitation on the invitee's side — an administrator always, or any owner of
+// an invited agent — the member is added at once and the invitation is kept as
+
 func (s *Service) Invite(
 	ctx context.Context,
 	teamID int64,
@@ -557,11 +560,90 @@ func (s *Service) Invite(
 	if err != nil {
 		return Invitation{}, err
 	}
+
+	if s.canAddDirectly(ctx, invitee, actorID, isAdmin) {
+		// The caller may answer on the invitee's side, so the invitation is
+
+		if _, err := s.Respond(ctx, row.ID, actorID, isAdmin, true); err != nil {
+			return Invitation{}, err
+		}
+		s.notifyAdded(ctx, team, invitee, actorID, role)
+		inviter := actorLabel(ctx, s, actorID)
+		accepted := toInvitation(
+			row, team, invitee.Kind, invitee.Username, invitee.Name, inviter, inviter,
+		)
+		accepted.Status = "accepted"
+		accepted.RespondedAt = &now
+		return accepted, nil
+	}
+
 	s.writeLog(ctx, teamID, actorID, "invitation", "invited", "", invitee.Username,
 		"Invited "+invitee.Username+" to the team",
 		map[string]any{"actor_id": inviteeID, "role": role})
 	s.notifyInvitee(ctx, team, inviteeID, invitee.Kind, actorID, role, note)
 	return toInvitation(row, team, invitee.Kind, invitee.Username, invitee.Name, "", ""), nil
+}
+
+// invitee's side: an administrator always may, and an agent's invitation is
+
+func (s *Service) canAddDirectly(
+	ctx context.Context,
+	invitee store.Actor,
+	actorID ids.ActorID,
+	isAdmin bool,
+) bool {
+	if isAdmin {
+		return true
+	}
+	return invitee.Kind == "agent" && s.ownsAgent(ctx, ids.ActorID(invitee.ID), actorID)
+}
+
+func (s *Service) notifyAdded(
+	ctx context.Context,
+	team store.Team,
+	invitee store.Actor,
+	inviterID ids.ActorID,
+	role string,
+) {
+	if s.Notifier == nil {
+		return
+	}
+	inviter := actorLabel(ctx, s, inviterID)
+	title := "Added to " + team.Name
+	body := "You were added to " + team.Name + " as " + role + "."
+	if inviter != "" {
+		body = inviter + " added you to " + team.Name + " as " + role + "."
+	}
+	recipients := []ids.ActorID{ids.ActorID(invitee.ID)}
+	if invitee.Kind == "agent" {
+		rows, err := s.store.ListAgentOwners(ctx, ids.ActorID(invitee.ID))
+		if err != nil {
+			return
+		}
+		recipients = make([]ids.ActorID, 0, len(rows))
+		for _, row := range rows {
+			recipients = append(recipients, ids.ActorID(row.OwnerActorID))
+		}
+		body = "Added " + invitee.Username + " to " + team.Name + " as " + role + "."
+		if inviter != "" {
+			body = inviter + " added " + invitee.Username + " to " + team.Name +
+				" as " + role + "."
+		}
+	}
+	for _, recipient := range recipients {
+		if recipient == 0 || recipient == inviterID {
+			continue
+		}
+		if err := s.Notifier.Create(ctx, notifications.Notification{
+			RecipientActorID: recipient,
+			Kind:             notifications.KindTeamAdded,
+			Severity:         "info",
+			Title:            title,
+			Body:             body,
+		}); err != nil {
+			log.Printf("notify team add %d: %v", team.ID, err)
+		}
+	}
 }
 
 // notifyInvitee puts a user's team invitation in their inbox, so someone who

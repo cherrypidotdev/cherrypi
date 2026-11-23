@@ -2357,6 +2357,41 @@ func (s *PgStore) ListTaskMessages(
 	return fromPgListTaskMessagesRowSlice(rows), nil
 }
 
+func (s *PgStore) CreateTaskPendingMessage(
+	ctx context.Context,
+	p CreateTaskPendingMessageParams,
+) error {
+	return s.q.CreateTaskPendingMessage(ctx, pgdb.CreateTaskPendingMessageParams(p))
+}
+
+func (s *PgStore) ListTaskPendingMessages(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskPendingMessagesRow, error) {
+	rows, err := s.q.ListTaskPendingMessages(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromPgListTaskPendingMessagesRowSlice(rows), nil
+}
+
+func (s *PgStore) DeleteTaskPendingMessage(
+	ctx context.Context,
+	p DeleteTaskPendingMessageParams,
+) (int64, error) {
+	return s.q.DeleteTaskPendingMessage(
+		ctx,
+		pgdb.DeleteTaskPendingMessageParams(p),
+	)
+}
+
+func (s *PgStore) DeleteTaskPendingMessages(
+	ctx context.Context,
+	taskID string,
+) (int64, error) {
+	return s.q.DeleteTaskPendingMessages(ctx, taskID)
+}
+
 func (s *PgStore) LinkMessageAttachment(
 	ctx context.Context,
 	p LinkMessageAttachmentParams,

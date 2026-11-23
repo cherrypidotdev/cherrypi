@@ -110,7 +110,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           )
             component.size-3.shrink-0(:is="taskStateIcon(task.state)")
             | {{ $t(taskStateKeyFor(task)) }}
-          span.text-muted-foreground.text-xs(v-if="isActive") {{ $t("taskDetails.holdsSlot") }}
+          span.text-muted-foreground.text-xs(v-if="isRunning") {{ $t("taskDetails.holdsSlot") }}
 
     .grid.grid-cols-2.gap-3(v-if="detailsTab === 'general'")
       .flex.flex-col(class="gap-0.5")
@@ -554,8 +554,8 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           ) {{ formatBytes(taskDiskBytes) }}
           span.font-medium.tabular-nums(v-else) —
 
-    .flex.flex-col.gap-1(v-if="detailsTab === 'decisions'")
-      DecisionLedger(compact :task-id="task.id")
+    .flex.flex-col.gap-1(v-if="detailsTab === 'knowledge'")
+      TaskKnowledge(:task-id="task.id")
 
     .flex.flex-col.gap-1(v-if="detailsTab === 'comments'")
       TaskComments(
@@ -584,7 +584,7 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
       )
 
     .flex.flex-col.gap-2(v-if="detailsTab === 'logs'")
-      .flex.items-center.gap-1
+      .flex.flex-wrap.items-center.gap-1
         button.rounded-md.px-2.py-1.text-xs.font-medium(
           v-for="option in LOGS_TABS"
           :key="option.value"
@@ -593,7 +593,14 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           @click="logsTab = option.value"
           :data-testid="`logs-tab-${option.value}`"
         ) {{ $t(option.labelKey) }}
+
+        TaskHistoryExport.ml-auto(:task="task")
       TaskLogs(v-if="logsTab === 'activity'" :logs="task.logs")
+      TaskCompactions(
+        v-else-if="logsTab === 'compactions'"
+        :task-id="task.id"
+        :preview="compactionsPreview"
+      )
       TaskToolCalls(
         v-else
         v-model:names="toolFilter"
@@ -602,6 +609,30 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
       )
 
     .flex.flex-col.gap-3(v-if="detailsTab === 'system'")
+      .border-border.flex.flex-col.gap-2.rounded-lg.border.p-3(
+        v-if="task.sessionId && !sessionDeleted"
+        data-testid="task-context-panel"
+      )
+        .flex.flex-wrap.items-center.gap-2
+          span.text-sm.font-medium {{ $t("taskDetails.context") }}
+          ContextMeter.ml-auto(
+            v-if="contextWindow"
+            :tokens="taskUsage?.contextTokens ?? 0"
+            :window="contextWindow"
+          )
+        p.text-muted-foreground.text-xs {{ $t("taskDetails.compactHint") }}
+        Button.w-fit(
+          type="button"
+          variant="outline"
+          size="sm"
+          :title="compactTitle"
+          @click="$emit('compact-session')"
+          :disabled="actionBusy || compactBlocked"
+          data-test="compact-session"
+        )
+          Minimize2Icon(data-icon="inline-start")
+          span {{ $t("taskDetails.compactContext") }}
+
       TaskSystemPanel(
         :task-id="task.id"
         :preview="toolsPreview"
@@ -747,17 +778,17 @@ aside#task-details.bg-card.absolute.top-0.right-0.bottom-0.flex.shrink-0.flex-co
           | {{ $t("taskDetails.editableInBacklog") }}
         p.text-muted-foreground.text-xs(v-else-if="!isBacklog")
           | {{ $t("taskDetails.followUpOrClose") }}
-
-      TaskHistoryExport(:task="task")
 </template>
 
 <script setup lang="ts">
 import ActorAvatar from "@/components/ActorAvatar.vue";
 import AttachmentList from "@/components/attachments/AttachmentList.vue";
-import DecisionLedger from "@/components/knowledge/DecisionLedger.vue";
+import TaskKnowledge from "@/components/knowledge/TaskKnowledge.vue";
+import ContextMeter from "@/components/tasks/ContextMeter.vue";
 import TaskArtifacts from "@/components/tasks/TaskArtifacts.vue";
 import TaskBadges from "@/components/tasks/TaskBadges.vue";
 import TaskComments from "@/components/tasks/TaskComments.vue";
+import TaskCompactions from "@/components/tasks/TaskCompactions.vue";
 import TaskHistoryExport from "@/components/tasks/TaskHistoryExport.vue";
 import TaskLogs from "@/components/tasks/TaskLogs.vue";
 import TaskProgressPanel from "@/components/tasks/TaskProgressPanel.vue";
@@ -843,6 +874,7 @@ import {
   InboxIcon,
   LockIcon,
   LockOpenIcon,
+  Minimize2Icon,
   PauseIcon,
   PencilIcon,
   PinIcon,
@@ -923,6 +955,7 @@ const emit = defineEmits<{
   (e: "queue"): void;
   (e: "dequeue"): void;
   (e: "restart-session"): void;
+  (e: "compact-session"): void;
   (e: "stop"): void;
   (e: "reopen", toQueue: boolean): void;
   (e: "close-out"): void;
@@ -949,6 +982,9 @@ const toolCallsPreview = computed(() =>
     ? (props.preview.toolCalls ?? { calls: [], total: 0, names: [] })
     : undefined,
 );
+const compactionsPreview = computed(() =>
+  props.preview ? (props.preview.compactions ?? []) : undefined,
+);
 
 const { agents, usernameFor, agentIdForActor } = useAgents();
 const { active: allProjects } = useProjects();
@@ -962,7 +998,7 @@ const detailsTabs = computed(() => {
   return [
     { value: "general", label: t("taskDetails.tabs.general") },
     { value: "comments", label: t("taskDetails.tabs.comments") },
-    { value: "decisions", label: t("taskDetails.tabs.decisions") },
+    { value: "knowledge", label: t("taskDetails.tabs.knowledge") },
     { value: "plan", label: plan },
     { value: "artifacts", label: t("taskDetails.artifacts") },
     { value: "system", label: t("taskDetails.tabs.system") },
@@ -972,9 +1008,10 @@ const detailsTabs = computed(() => {
 
 const LOGS_TABS = [
   { value: "activity", labelKey: "taskDetails.logsTab.activity" },
+  { value: "compactions", labelKey: "taskDetails.logsTab.compactions" },
   { value: "tool-calls", labelKey: "taskDetails.logsTab.toolCalls" },
 ] as const;
-const logsTab = ref<"activity" | "tool-calls">("activity");
+const logsTab = ref<"activity" | "compactions" | "tool-calls">("activity");
 
 const toolFilter = ref<string[]>([]);
 
@@ -984,7 +1021,10 @@ function filterToolCalls(name: string) {
   detailsTab.value = "logs";
 }
 
-const TAB_ALIASES: Record<string, string> = { prompts: "system" };
+const TAB_ALIASES: Record<string, string> = {
+  prompts: "system",
+  decisions: "knowledge",
+};
 
 const detailsTab = computed({
   get: () => {
@@ -1021,16 +1061,6 @@ const isInput = computed(() => props.task?.state === TaskState.INPUT);
 const isStarted = computed(() => Boolean(props.task?.sessionId));
 
 const canEditAssignee = computed(() => !isRunning.value && !isInput.value);
-
-const isActive = computed(() => {
-  const state = props.task?.state;
-  return (
-    state === TaskState.RUNNING ||
-    state === TaskState.INPUT ||
-    state === TaskState.SETTLED ||
-    state === TaskState.FAILED
-  );
-});
 const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
 
 const ttcCounts = computed(() => {
@@ -1163,6 +1193,23 @@ const restartTitle = computed(() => {
     return "Answer or decline the questionnaire before restarting Pi";
   }
   return "Restart the runtime so it reloads the agent's model catalog";
+});
+
+const contextWindow = computed(() =>
+  Number(props.taskUsage?.contextWindow ?? 0),
+);
+const compactBlocked = computed(() => isInput.value);
+const compactTitle = computed(() => {
+  if (isInput.value) {
+    return "Answer or decline the questionnaire before compacting the context";
+  }
+  if (contextWindow.value <= 0) {
+    return "Restore the session and compact its stored transcript";
+  }
+  if (props.task?.runtime?.runInProgress) {
+    return "Compact on the next model request of the running task";
+  }
+  return "Summarize older turns now";
 });
 
 const canRework = computed(
@@ -1322,6 +1369,9 @@ en:
     queue: "Queue task"
     stop: "Stop run"
     restartSession: "Restart Pi session"
+    context: "Context"
+    compactContext: "Compact context"
+    compactHint: "Summarize older turns now. Automatic compaction runs only near the model's context limit."
     changeOutcome: "Change outcome"
     alreadyRan: "This task already ran. Send a follow-up to queue it again, or close it out."
     editableInBacklog: "You can edit the prompt, project, and model in Backlog."
@@ -1339,12 +1389,13 @@ en:
     tabs:
       general: "General"
       comments: "Comments"
-      decisions: "Decisions"
+      knowledge: "Knowledge"
       plan: "Plan"
       system: "System"
       logs: "Logs"
     logsTab:
       activity: "Activity"
+      compactions: "Compactions"
       toolCalls: "Tool calls"
     relateTo: "Relate it to {id}"
     createRelated: "Create a task related to this one"
@@ -1410,6 +1461,9 @@ ru:
     queue: "Поставить в очередь"
     stop: "Остановить запуск"
     restartSession: "Перезапустить сеанс Pi"
+    context: "Контекст"
+    compactContext: "Сжать контекст"
+    compactHint: "Суммировать старые ходы сейчас. Автоматическое сжатие запускается только у предела контекстного окна модели."
     changeOutcome: "Изменить результат"
     alreadyRan: "Задача уже выполнялась. Отправьте уточнение, чтобы поставить её снова в очередь, или закройте её."
     editableInBacklog: "В бэклоге можно изменить промпт, проект и модель."
@@ -1427,12 +1481,13 @@ ru:
     tabs:
       general: "Общее"
       comments: "Комментарии"
-      decisions: "Решения"
+      knowledge: "Знания"
       plan: "План"
       system: "Система"
       logs: "Журналы"
     logsTab:
       activity: "Активность"
+      compactions: "Сжатия"
       toolCalls: "Вызовы инструментов"
     relateTo: "Связать с {id}"
     createRelated: "Создать задачу, связанную с этой"

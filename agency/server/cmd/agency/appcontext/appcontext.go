@@ -39,6 +39,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	agencyevents "cherrypi.vladfaust.com/agency/internal/events"
 	"cherrypi.vladfaust.com/agency/internal/health"
+	"cherrypi.vladfaust.com/agency/internal/integrations"
 	"cherrypi.vladfaust.com/agency/internal/knowledge"
 	"cherrypi.vladfaust.com/agency/internal/kpilayout"
 	"cherrypi.vladfaust.com/agency/internal/limits"
@@ -81,6 +82,7 @@ type AppContext struct {
 	Settings      *settings.Service
 	ModelRouting  *modelrouting.Service
 	AgentConfig   *agentconfig.Service
+	Integrations  *integrations.Service
 	Variables     *variables.Service
 	Projects      *projects.Service
 	Prompts       *prompts.Service
@@ -114,29 +116,6 @@ type AppContext struct {
 	Input *taskinput.Service
 
 	KpiLayouts *kpilayout.Service
-}
-
-func decisionRecorder(
-	svc *knowledge.Service,
-	tasksSvc *tasks.Service,
-) func(context.Context, tasks.Decision) {
-	return func(ctx context.Context, d tasks.Decision) {
-		task, err := tasksSvc.Get(ctx, d.TaskID)
-		if err != nil {
-			return
-		}
-		if err := svc.CaptureTaskDecision(ctx, knowledge.CapturedDecision{
-			Kind:      d.Kind,
-			EventID:   d.EventID,
-			TaskID:    d.TaskID,
-			ProjectID: task.ProjectID,
-			ActorID:   tasks.ActorIDFrom(ctx),
-			Summary:   d.Summary,
-			Payload:   d.Payload,
-		}); err != nil {
-			log.Printf("[knowledge] capture %s for %s: %v", d.Kind, d.TaskID, err)
-		}
-	}
 }
 
 func taskTransitionNotifier(
@@ -424,6 +403,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 
 	notificationsSvc := notifications.New(st)
 	teamsSvc.Notifier = notificationsSvc
+	projectsSvc.Notifier = notificationsSvc
 	groupsSvc.Notifications = notificationsSvc
 	notifier := webhook.NewNotifier(st)
 	agentLogsSvc := agentlogs.New(st)
@@ -458,7 +438,7 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	pluginsSvc.Teams = teamsSvc
 	pluginsSvc.Tags = tagsSvc
 
-	// Name the directory the agency actually resolves: without this line the
+	// line the only trace of a mismatch is a per-plugin load failure after the
 
 	if os.Getenv("CHERRYPI_PLUGIN_DATA_DIR") != "" {
 		log.Printf("[plugins] data dir %s (CHERRYPI_PLUGIN_DATA_DIR)", config.PluginDataDir)
@@ -632,9 +612,14 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 	}
 
 	artifactsSvc := artifacts.New(st)
-	knowledgeSvc := knowledge.New(st, projectsSvc, agentRegistry, accountsSvc, realtimeBus)
-
-	tasksSvc.OnDecision = decisionRecorder(knowledgeSvc, tasksSvc)
+	knowledgeSvc := knowledge.New(
+		st,
+		projectsSvc,
+		agentRegistry,
+		accountsSvc,
+		tasksSvc,
+		realtimeBus,
+	)
 	sitesSvc := sites.New(
 		st,
 		attachmentsSvc,

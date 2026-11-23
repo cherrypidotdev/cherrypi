@@ -66,6 +66,8 @@ export type Item =
 
       system?: boolean;
 
+      messageId?: string;
+
       at?: number;
     }
   | { id: number; kind: "text"; text: string; at?: number }
@@ -94,6 +96,9 @@ export type Item =
       attempt: number;
 
       reason: string;
+
+      contextTokensBefore: number;
+      contextTokensAfter: number;
     } & ActivityTiming)
   | ({
       id: number;
@@ -122,6 +127,8 @@ export type ToolInput = Omit<ToolItem, "id">;
 export interface UserMessageParts {
   text: string;
   attachmentIds: string[];
+
+  messageId?: string;
   sender?: MessageSender;
 
   system?: boolean;
@@ -129,6 +136,8 @@ export interface UserMessageParts {
 
 export interface UnsentMessage extends UserMessageParts {
   key: string;
+
+  pendingId: string;
 
   queueId: string;
 
@@ -175,12 +184,14 @@ function normalizeSender(
 export function userMessageParts(value: {
   text: string;
   body?: string;
+  messageId?: string;
   sender?: {
     actorId?: bigint;
     id?: unknown;
     name?: string;
     username?: string;
     kind?: string;
+    messageId?: string;
   };
   attachments?: { id: bigint; filename: string }[];
 }): UserMessageParts {
@@ -189,9 +200,12 @@ export function userMessageParts(value: {
     if (envelope) return envelope;
   }
   const sender = normalizeSender(value.sender);
+  const messageId =
+    value.messageId?.trim() || value.sender?.messageId?.trim() || undefined;
   return {
     text: value.body || value.text,
     attachmentIds: (value.attachments ?? []).map((a) => String(a.id)),
+    ...(messageId ? { messageId } : {}),
     sender,
     system: sender?.kind === "system",
   };
@@ -253,9 +267,12 @@ export function parsePromptEnvelope(text: string): UserMessageParts | null {
       attachmentIds.push(String(id));
     }
   }
+  const messageId =
+    typeof actor.messageId === "string" ? actor.messageId.trim() : "";
   return {
     text: typeof body.text === "string" ? body.text : "",
     attachmentIds,
+    ...(messageId ? { messageId } : {}),
     sender,
     system: sender.kind === "system",
   };
@@ -345,6 +362,8 @@ export function newItem(event: TaskEvent): NewItem | null {
         error: wait.error,
         attempt: wait.attempt,
         reason: wait.reason,
+        contextTokensBefore: Number(wait.contextTokensBefore),
+        contextTokensAfter: Number(wait.contextTokensAfter),
         startedAt: at !== undefined ? at - durationMs : undefined,
         endedAt: at,
       };
@@ -426,6 +445,7 @@ export interface StateChange {
 export type Group =
   | { id: number; kind: "single"; item: PlainItem }
   | { id: number; kind: "activity"; items: ActivityItem[] }
+  | { id: number; kind: "compaction"; item: WaitItem }
   | { id: number; kind: "state"; change: StateChange }
   | ({ id: number; kind: "questionnaire" } & QuestionnaireReview);
 
@@ -605,6 +625,11 @@ export function groupItems(items: Item[]): Group[] {
     }
     if (!isActivity(item)) {
       groups.push({ id: item.id, kind: "single", item });
+      continue;
+    }
+
+    if (item.kind === "wait" && item.waitKind === ModelWait_Kind.COMPACTION) {
+      groups.push({ id: item.id, kind: "compaction", item });
       continue;
     }
     const last = groups[groups.length - 1];

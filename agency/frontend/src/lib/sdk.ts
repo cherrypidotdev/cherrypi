@@ -98,6 +98,8 @@ export const agent = {
     agency.cleanupTaskSession(id, o),
   restartTaskSession: (id: string, o?: CallOptions): Promise<void> =>
     agency.restartTaskSession(id, o),
+  compactTaskSession: (id: string, o?: CallOptions): Promise<void> =>
+    agency.compactTaskSession(id, o),
   closeOutTask: (
     id: string,
     outcome: TaskState,
@@ -160,11 +162,19 @@ export const agent = {
     input: BulkUpdateTaskInput,
     o?: CallOptions,
   ): Promise<BulkUpdateTaskResult[]> => agency.bulkUpdateTask(input, o),
+
   addToTask: (
     id: string,
     prompt: string,
     o?: AddToTaskOptions,
-  ): Promise<string> => agency.addToTask(id, prompt, o),
+  ): Promise<{ messageId: string; queued: boolean }> =>
+    agency.addToTask(id, prompt, o),
+
+  removeTaskPendingMessage: (
+    id: string,
+    messageId: string,
+    o?: CallOptions,
+  ): Promise<Task> => agency.removeTaskPendingMessage(id, messageId, o),
   stopTask: (id: string, o?: CallOptions): Promise<void> =>
     agency.stopTask(id, o),
   interruptTaskToolCall: (

@@ -54,8 +54,7 @@ const (
 )
 
 func HoldsSlot(state State) bool {
-	return state == StateRunning || state == StateInput ||
-		state == StateSettled || state == StateFailed
+	return state == StateRunning
 }
 
 func CountsTtc(state State) bool {
@@ -104,6 +103,10 @@ var (
 	)
 
 	ErrTagMissing = errors.New("tag not found")
+
+	ErrBacklogNotStarted = errors.New(
+		"a backlog task that has not started does not accept a follow-up; edit its prompt or queue it first",
+	)
 
 	ErrNotMember = errors.New("agent is not a member of the project")
 
@@ -281,6 +284,8 @@ type Task struct {
 
 	Automated bool
 
+	Reaction bool
+
 	RequiredTools []string
 
 	NeedsOperator string
@@ -314,6 +319,8 @@ type Task struct {
 	ReferencedBy []Reference
 
 	PendingSteering string
+
+	CanPrompt bool
 
 	Blockers int
 
@@ -397,6 +404,8 @@ type CreateParams struct {
 	LeaderActorID ids.ActorID
 
 	Automated bool
+
+	Reaction bool
 
 	Template *TemplateApplication
 }
@@ -553,8 +562,6 @@ type Service struct {
 
 	OnCreated func(ctx context.Context, taskID string)
 
-	OnDecision func(ctx context.Context, d Decision)
-
 	OnTaskFinished func(ctx context.Context, t Task, outcome FinishOutcome)
 
 	OnInputCleared func(ctx context.Context, t Task)
@@ -591,6 +598,10 @@ func (s *Service) changed(ctx context.Context, id string) {
 }
 
 func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
+
+	if p.Reaction {
+		p.Automated = true
+	}
 	prompt := strings.TrimSpace(p.Prompt)
 	if prompt == "" {
 		return Task{}, ErrInvalidPrompt
@@ -680,6 +691,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 		ModelID:         p.ModelID,
 		ThinkingLevel:   p.ThinkingLevel,
 		Automated:       boolInt(p.Automated),
+		Reaction:        boolInt(p.Reaction),
 		Workspace:       p.Workspace,
 		AutoTitle:       boolInt(p.AutoTitle),
 		CreatedAt:       now,
@@ -756,13 +768,6 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Task, error) {
 	if s.OnCreated != nil {
 		s.OnCreated(ctx, t.ID)
 	}
-	s.decide(ctx, Decision{
-		Kind:    DecisionTaskCreated,
-		TaskID:  t.ID,
-		EventID: "created",
-		Summary: t.Prompt,
-		Payload: map[string]any{"state": string(t.State)},
-	})
 	return t, nil
 }
 
@@ -1165,9 +1170,88 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Task, error) {
 			}
 		}
 	}
+	if err := s.fillPromptPolicy(
+		ctx, out, f.VisibleToActorID, f.VisibleToAdmin, teamsByTask, leadsByTask,
+	); err != nil {
+		return nil, err
+	}
 
 	prioritizeSearchMatches(out, f.Search)
 	return out, nil
+}
+
+func (s *Service) fillPromptPolicy(
+	ctx context.Context,
+	list []Task,
+	actorID ids.ActorID,
+	isAdmin bool,
+	teamsByTask map[string][]int64,
+	leadsByTask map[string][]int64,
+) error {
+	if len(list) == 0 {
+		return nil
+	}
+	if isAdmin {
+		for i := range list {
+			list[i].CanPrompt = true
+		}
+		return nil
+	}
+	if actorID == 0 {
+		return nil
+	}
+	rows, err := s.store.ListTeamsForActor(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	member := make(map[int64]struct{}, len(rows))
+	for _, row := range rows {
+		member[row.ID] = struct{}{}
+	}
+	projectAllowed := map[string]bool{}
+	for i := range list {
+		task := &list[i]
+		if task.CreatorActorID == actorID {
+			task.CanPrompt = true
+			continue
+		}
+		teams := teamsByTask[task.ID]
+		if len(teams) == 0 {
+			if s.projects == nil || strings.TrimSpace(task.ProjectID) == "" {
+				continue
+			}
+			allowed, ok := projectAllowed[task.ProjectID]
+			if !ok {
+				allowed, err = s.projects.ActorCanPrompt(
+					ctx, task.ProjectID, actorID,
+				)
+				if err != nil {
+					return err
+				}
+				projectAllowed[task.ProjectID] = allowed
+			}
+			task.CanPrompt = allowed
+			continue
+		}
+		inTeam := false
+		for _, team := range teams {
+			if _, ok := member[team]; ok {
+				inTeam = true
+				break
+			}
+		}
+		if inTeam {
+			task.CanPrompt = true
+			continue
+		}
+		for _, lead := range leadsByTask[task.ID] {
+			if ids.ActorID(lead) == actorID {
+				task.CanPrompt = true
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func prioritizeSearchMatches(list []Task, search string) {
@@ -2218,13 +2302,6 @@ func (s *Service) Settle(ctx context.Context, id string) (bool, error) {
 		s.OnPendingPromptQueued(ctx, id)
 	}
 	s.taskFinished(ctx, id, OutcomeSettled)
-	s.decide(ctx, Decision{
-		Kind:    DecisionTaskSettled,
-		TaskID:  id,
-		EventID: fmt.Sprintf("settled:%d", now),
-		Summary: "Run settled",
-		Payload: map[string]any{"outcome": string(OutcomeSettled)},
-	})
 	return true, nil
 }
 
@@ -2294,42 +2371,6 @@ func (s *Service) lockHandoff(id string) func() {
 	mu := &s.handoffLocks[h.Sum32()%handoffLockStripes]
 	mu.Lock()
 	return mu.Unlock
-}
-
-type Decision struct {
-	Kind string
-
-	EventID string
-	TaskID  string
-	Summary string
-	Payload map[string]any
-}
-
-const (
-	DecisionTaskCreated      = "task_created"
-	DecisionFollowUp         = "follow_up"
-	DecisionQuestionAnswered = "question_answered"
-	DecisionTaskSettled      = "task_settled"
-)
-
-func (s *Service) decide(ctx context.Context, d Decision) {
-	if s.OnDecision == nil || d.TaskID == "" {
-		return
-	}
-	s.OnDecision(ctx, d)
-}
-
-func (s *Service) RecordFollowUp(
-	ctx context.Context,
-	taskID, messageID, prompt string,
-) {
-	s.decide(ctx, Decision{
-		Kind:    DecisionFollowUp,
-		TaskID:  taskID,
-		EventID: messageID,
-		Summary: prompt,
-		Payload: map[string]any{"message_id": messageID},
-	})
 }
 
 func isFailedStop(dataJSON string) bool {
@@ -2539,6 +2580,10 @@ func (s *Service) closeOut(ctx context.Context, id string, r Resolution) (Task, 
 		return Task{}, ErrWrongState
 	}
 
+	if err := s.discardPendingMessages(ctx, id); err != nil {
+		log.Printf("[tasks] discard queued messages after close-out %s: %v", id, err)
+	}
+
 	if err := s.ClearHolds(ctx, id, HoldClearedByCloseOut); err != nil {
 		log.Printf("[tasks] clear holds after close-out %s: %v", id, err)
 	}
@@ -2602,22 +2647,30 @@ func (s *Service) RequeueWithPrompt(
 	default:
 		return Task{}, ErrWrongState
 	}
-	if err := s.validateAssigneeTagDeclarations(
-		ctx,
-		cur.ProjectID,
-		cur.AssigneeActorID,
-		tagIDsOf(cur.Tags),
-	); err != nil {
+	messages, err := s.queuePendingMessage(ctx, id, QueueParams{
+		Text:    prompt,
+		ActorID: actorID,
+	})
+	if err != nil {
 		return Task{}, err
 	}
-	if err := s.requireLeader(ctx, id, StateQueued); err != nil {
+	text, actor := joinPending(messages)
+	if err := s.requeueWithPrompt(ctx, cur, text, actor); err != nil {
 		return Task{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+func (s *Service) requeueWithPrompt(
+	ctx context.Context,
+	cur Task,
+	pending string,
+	actorID ids.ActorID,
+) error {
+	if err := s.validateRequeue(ctx, cur); err != nil {
+		return err
 	}
 
-	pending := prompt
-	if undelivered := strings.TrimSpace(cur.PendingPrompt); undelivered != "" {
-		pending = undelivered + "\n\n" + prompt
-	}
 	now := time.Now().UnixMilli()
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:                store.TaskRequeueWithPrompt,
@@ -2625,30 +2678,42 @@ func (s *Service) RequeueWithPrompt(
 		PendingPromptActorID: nullID(actorID),
 		QueuedAt:             sql.NullInt64{Int64: now, Valid: true},
 		UpdatedAt:            now,
-		ID:                   id,
+		ID:                   cur.ID,
 	})
 	if err != nil {
-		return Task{}, err
+		return err
 	}
 	if n == 0 {
-		return Task{}, ErrWrongState
+		return ErrWrongState
 	}
-	after, err := s.Get(ctx, id)
+	after, err := s.Get(ctx, cur.ID)
 	if err != nil {
-		return Task{}, err
+		return err
 	}
 	s.logChanges(ctx, cur, after)
 
 	if cur.Archived {
 		s.recordLog(
-			ctx, actorFrom(ctx), now, id, LogState, "archive",
+			ctx, actorFrom(ctx), now, cur.ID, LogState, "archive",
 			"", "", "Task unarchived by a follow-up", nil,
 		)
 	}
-	if err := s.ReconcileWaiting(ctx, id); err != nil {
-		log.Printf("[tasks] reconcile waiting after requeue %s: %v", id, err)
+	if err := s.ReconcileWaiting(ctx, cur.ID); err != nil {
+		log.Printf("[tasks] reconcile waiting after requeue %s: %v", cur.ID, err)
 	}
-	return s.Get(ctx, id)
+	return nil
+}
+
+func (s *Service) validateRequeue(ctx context.Context, cur Task) error {
+	if err := s.validateAssigneeTagDeclarations(
+		ctx,
+		cur.ProjectID,
+		cur.AssigneeActorID,
+		tagIDsOf(cur.Tags),
+	); err != nil {
+		return err
+	}
+	return s.requireLeader(ctx, cur.ID, StateQueued)
 }
 
 func (s *Service) RequeueAfterStartFailure(
@@ -2706,15 +2771,15 @@ func (s *Service) WakeWaitingWithPrompt(
 	if len(cur.Holds) > 0 {
 		return Task{}, heldError(cur.Holds)
 	}
-	pending := prompt
-	sender := actorID
-	if undelivered := strings.TrimSpace(cur.PendingPrompt); undelivered != "" {
-		pending = undelivered + "\n\n" + prompt
 
-		if cur.PendingPromptActorID != 0 {
-			sender = cur.PendingPromptActorID
-		}
+	messages, err := s.queuePendingMessage(ctx, id, QueueParams{
+		Text:    prompt,
+		ActorID: actorID,
+	})
+	if err != nil {
+		return Task{}, err
 	}
+	pending, sender := joinPending(messages)
 	now := time.Now().UnixMilli()
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:                store.TaskWakeWaiting,
@@ -2760,17 +2825,6 @@ func (s *Service) ForceWake(
 	default:
 		return false, err
 	}
-}
-
-func (s *Service) ClearPendingPrompt(ctx context.Context, id string) error {
-	_, err := s.store.ClearTaskPendingPrompt(ctx, store.ClearTaskPendingPromptParams{
-		UpdatedAt: time.Now().UnixMilli(),
-		ID:        id,
-	})
-	if err == nil {
-		s.changed(ctx, id)
-	}
-	return err
 }
 
 func (s *Service) Fail(ctx context.Context, id, errMsg string) (Task, error) {
@@ -2828,34 +2882,38 @@ func (s *Service) Reopen(ctx context.Context, id string, queue bool) (Task, erro
 	if queue {
 
 		if len(cur.Holds) > 0 {
-			return Task{}, heldError(cur.Holds)
-		}
-
-		if !cur.StartedAt.IsZero() && cur.State != StateFailed {
-			return Task{}, ErrFollowUpRequired
-		}
-		if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
-			return Task{}, err
-		}
-
-		if err := s.validateAssigneeTagDeclarations(
-			ctx,
-			cur.ProjectID,
-			cur.AssigneeActorID,
-			tagIDsOf(cur.Tags),
-		); err != nil {
-			return Task{}, err
-		}
-		if err := s.requireLeader(ctx, id, StateQueued); err != nil {
-			return Task{}, err
-		}
-		state = StateQueued
-		waiting, err := s.hasIncompleteDependencies(ctx, cur)
-		if err != nil {
-			return Task{}, err
-		}
-		if waiting {
+			if cur.State != StateFailed {
+				return Task{}, heldError(cur.Holds)
+			}
 			state = StateWaiting
+		} else {
+
+			if !cur.StartedAt.IsZero() && cur.State != StateFailed {
+				return Task{}, ErrFollowUpRequired
+			}
+			if err := s.requireExecutor(ctx, cur.ProjectID, cur.AssigneeActorID); err != nil {
+				return Task{}, err
+			}
+
+			if err := s.validateAssigneeTagDeclarations(
+				ctx,
+				cur.ProjectID,
+				cur.AssigneeActorID,
+				tagIDsOf(cur.Tags),
+			); err != nil {
+				return Task{}, err
+			}
+			if err := s.requireLeader(ctx, id, StateQueued); err != nil {
+				return Task{}, err
+			}
+			state = StateQueued
+			waiting, err := s.hasIncompleteDependencies(ctx, cur)
+			if err != nil {
+				return Task{}, err
+			}
+			if waiting {
+				state = StateWaiting
+			}
 		}
 	}
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
@@ -2872,6 +2930,10 @@ func (s *Service) Reopen(ctx context.Context, id string, queue bool) (Task, erro
 	}
 
 	s.clearBlockerWakeKeys(ctx, id)
+
+	if err := s.discardPendingMessages(ctx, id); err != nil {
+		log.Printf("[tasks] discard queued messages after reopen %s: %v", id, err)
+	}
 	after, err := s.Get(ctx, id)
 	if err != nil {
 		return Task{}, err
@@ -3035,6 +3097,9 @@ func (s *Service) applyAttributes(
 		strings.TrimSpace(*attrs.PendingPrompt) == "" &&
 		(cur.State == StateInput || cur.State == StateRunning) {
 
+		if err := s.discardPendingMessages(ctx, cur.ID); err != nil {
+			return Task{}, err
+		}
 		_, err := s.store.ClearTaskPendingPrompt(
 			ctx,
 			store.ClearTaskPendingPromptParams{
@@ -3061,6 +3126,17 @@ func (s *Service) applyAttributes(
 		}
 		if n == 0 {
 			return Task{}, ErrNotEditable
+		}
+
+		if err := s.discardPendingMessages(ctx, cur.ID); err != nil {
+			return Task{}, err
+		}
+		if _, err := s.queuePendingMessage(ctx, cur.ID, QueueParams{
+			Text:       *attrs.PendingPrompt,
+			ActorID:    actorIDFrom(ctx),
+			Cancelable: true,
+		}); err != nil {
+			return Task{}, err
 		}
 	}
 	if attrs.Model != nil {
@@ -4425,7 +4501,7 @@ func (s *Service) CanPrompt(
 		return false, err
 	}
 	if len(teams) == 0 {
-		if strings.TrimSpace(t.ProjectID) == "" {
+		if s.projects == nil || strings.TrimSpace(t.ProjectID) == "" {
 			return false, nil
 		}
 		return s.projects.ActorCanPrompt(ctx, t.ProjectID, actorID)
@@ -4644,29 +4720,14 @@ func ParseWakeStateRow(raw string) (WakeState, bool) {
 func (s *Service) AppendPendingPrompt(
 	ctx context.Context, id, text string, actorID ids.ActorID,
 ) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	t, err := s.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	pending := strings.TrimSpace(t.PendingPrompt)
-	if pending != "" {
-		pending += "\n\n"
-	}
-	pending += text
-	if _, err := s.store.SetTaskPendingPromptAny(ctx, store.SetTaskPendingPromptAnyParams{
-		PendingPrompt:        pending,
-		PendingPromptActorID: nullID(actorID),
-		UpdatedAt:            time.Now().UnixMilli(),
-		ID:                   id,
-	}); err != nil {
-		return err
-	}
-	s.changed(ctx, id)
-	return nil
+	_, err := s.queuePendingMessage(ctx, id, QueueParams{
+		Text:    text,
+		ActorID: actorID,
+	})
+	return err
 }
 
 func (s *Service) FailForWakeCap(ctx context.Context, id, msg string) error {
@@ -4877,6 +4938,7 @@ func toTask(
 		ModelID:           row.ModelID,
 		ThinkingLevel:     row.ThinkingLevel,
 		Automated:         row.Automated != 0,
+		Reaction:          row.Reaction != 0,
 		RequiredTools:     parseRequiredTools(row.RequiredTools),
 		NeedsOperator:     textutil.Clean(row.NeedsOperator),
 		ReactionReminders: int(row.ReactionReminders),

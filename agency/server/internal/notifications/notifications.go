@@ -29,6 +29,12 @@ import (
 
 const keyInboxDisabledKinds = "notification_inbox_disabled_kinds"
 
+const (
+	KindTeamAdded = "team_added"
+
+	KindProjectLinked = "project_linked"
+)
+
 type Notification struct {
 	ID      int64
 	AgentID ids.AgentID
@@ -116,6 +122,7 @@ func (s *Service) Create(ctx context.Context, n Notification) error {
 		Body:             n.Body,
 		CreatedAt:        createdAt.UnixMilli(),
 		RecipientActorID: nullActorID(n.RecipientActorID),
+		ProjectID:        nullString(n.ProjectID),
 		PromptScope:      n.PromptScope,
 		PromptProjectID:  nullString(n.PromptProjectID),
 		PromptTeamID:     sql.NullInt64{Int64: n.PromptTeamID, Valid: n.PromptTeamID != 0},

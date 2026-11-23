@@ -36,6 +36,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       TabsTrigger(value="tokens") {{ $t("account.tabs.tokens") }}
       TabsTrigger(value="plugins") {{ $t("account.tabs.plugins") }}
       TabsTrigger(value="notifications") {{ $t("account.tabs.notifications") }}
+      TabsTrigger(value="experimental") {{ $t("account.tabs.experimental") }}
 
     TabsContent(value="profile")
       .flex.flex-col.gap-6
@@ -347,6 +348,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           AlertTitle {{ $t("account.webhooks.title") }}
           AlertDescription
             | {{ $t("account.webhooks.description") }}
+
+    TabsContent(value="experimental")
+      Card
+        CardHeader
+          CardTitle {{ $t("account.experimental.title") }}
+          CardDescription {{ $t("account.experimental.description") }}
+        CardContent
+          Field
+            FieldLabel(for="markdown-interval") {{ $t("account.experimental.markdown.label") }}
+            Input#markdown-interval(
+              v-model="markdownIntervalDraft"
+              type="number"
+              min="100"
+              max="5000"
+              step="50"
+              @change="saveMarkdownInterval"
+            )
+            FieldDescription {{ $t("account.experimental.markdown.hint") }}
 </template>
 
 <script setup lang="ts">
@@ -382,6 +401,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useConsolePreferences } from "@/composables/useConsolePreferences";
 import { resetLocalePreference, useLocale } from "@/composables/useLocale";
 import {
   accountApi,
@@ -400,6 +420,7 @@ import { toast } from "vue3-toastify";
 const { t } = useI18n();
 
 const { locale: i18nLocale } = useLocale();
+const { markdownIntervalMs, setMarkdownIntervalMs } = useConsolePreferences();
 const route = useRoute();
 const router = useRouter();
 const TABS = [
@@ -409,6 +430,7 @@ const TABS = [
   "tokens",
   "plugins",
   "notifications",
+  "experimental",
 ];
 const tab = ref(
   route.query.must_change_password
@@ -418,6 +440,20 @@ const tab = ref(
       : "profile",
 );
 const account = ref<AccountPayload | null>(null);
+const markdownIntervalDraft = ref<string | number>(
+  String(markdownIntervalMs.value),
+);
+
+function saveMarkdownInterval(): void {
+  const raw = String(markdownIntervalDraft.value ?? "").trim();
+  const value = Number(raw);
+  if (raw === "" || !Number.isFinite(value)) {
+    markdownIntervalDraft.value = markdownIntervalMs.value;
+    return;
+  }
+  setMarkdownIntervalMs(value);
+  markdownIntervalDraft.value = markdownIntervalMs.value;
+}
 
 const displayName = ref("");
 const description = ref("");
@@ -798,6 +834,7 @@ en:
       security: "Security"
       auth: "Auth"
       notifications: "Notifications"
+      experimental: "🧪 Experimental"
     emails:
       placeholder: "you{'@'}example.com"
       title: "E-mail addresses"
@@ -867,6 +904,12 @@ en:
     webhooks:
       title: "User webhooks"
       description: "Per-user, per-event webhook delivery is not built yet. It is tracked in CHPI-177; the browser and inbox preferences above work today."
+    experimental:
+      title: "Task console"
+      description: "Presentation preferences for the task console. Stored in this browser only."
+      markdown:
+        label: "Live transcript period (ms)"
+        hint: "How often a live answer is re-rendered as Markdown and a streaming thinking block advances its text. Allowed range: 100–5000 ms; 400 ms by default. Lower values update more often and cost more CPU."
     errors:
       load: "Failed to load account"
     signedInAs: "Signed in as {username}"
@@ -899,6 +942,7 @@ ru:
       security: "Безопасность"
       auth: "Входы"
       notifications: "Уведомления"
+      experimental: "🧪 Экспериментальные"
     emails:
       placeholder: "you{'@'}example.com"
       title: "Адреса e-mail"
@@ -968,6 +1012,12 @@ ru:
     webhooks:
       title: "Пользовательские вебхуки"
       description: "Доставка вебхуков для отдельных пользователей и событий пока не реализована. Это отслеживается в CHPI-177; настройки браузера и уведомлений выше уже работают."
+    experimental:
+      title: "Консоль задачи"
+      description: "Настройки отображения консоли задачи. Хранятся только в этом браузере."
+      markdown:
+        label: "Период обновления транскрипта (мс)"
+        hint: "Как часто живой ответ перерисовывается как Markdown и блок размышлений обновляет текст. Допустимо 100–5000 мс; по умолчанию 400 мс. Меньшие значения обновляют чаще и нагружают процессор."
     errors:
       load: "Не удалось загрузить аккаунт"
     signedInAs: "Вы вошли как {username}"

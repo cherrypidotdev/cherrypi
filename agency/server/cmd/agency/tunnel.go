@@ -106,7 +106,14 @@ func (t *tunnelServer) WS(w http.ResponseWriter, r *http.Request) {
 	}
 	remoteAddr := r.RemoteAddr
 	if err := t.checkHello(agentID, hello, remoteAddr); err != nil {
-		http.Error(w, err.Error(), http.StatusUpgradeRequired)
+
+		log.Printf(
+			"[tunnel] refusing websocket hello from agent %s at %s: %v",
+			t.agentUsername(r.Context(), agentID),
+			remoteAddr,
+			err,
+		)
+		http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		return
 	}
 

@@ -18,6 +18,7 @@ package projects
 
 import (
 	"cherrypi.vladfaust.com/agency/internal/actorprofile"
+	"cherrypi.vladfaust.com/agency/internal/notifications"
 	"cherrypi.vladfaust.com/agency/internal/store"
 	"context"
 	"database/sql"
@@ -71,6 +72,10 @@ var (
 
 type TeamOwnerChecker interface {
 	IsOwner(ctx context.Context, teamID int64, actorID ids.ActorID) (bool, error)
+}
+
+type Notifier interface {
+	Create(ctx context.Context, notification notifications.Notification) error
 }
 
 type Member struct {
@@ -1063,9 +1068,11 @@ func (s *Service) teamLink(
 	return TeamLink{}, ErrTeamHasNoAccess
 }
 
-// InviteTeam grants a team access to a project. Owner only. A team that
+// InviteTeam grants a team access to a project. Owner only. The team is
 
-// invitee team's owners approves (admins may override).
+// invitee side — an administrator, any owner of the invitee team, or a role at
+
+// that one of the invitee team's owners approves.
 func (s *Service) InviteTeam(
 	ctx context.Context,
 	projectID string,
@@ -1109,8 +1116,58 @@ func (s *Service) InviteTeam(
 	if inherits && roleWeight(role) < roleWeight(inherited) {
 		return InviteTeamResult{}, ErrRoleBelowInherited
 	}
-	if inherits && roleWeight(role) <= roleWeight(inherited) {
-		now := time.Now().UnixMilli()
+
+	now := time.Now()
+	pending, err := s.store.GetPendingProjectTeamInvitation(
+		ctx,
+		store.GetPendingProjectTeamInvitationParams{ProjectID: p.ID, TeamID: teamID},
+	)
+	hasPending := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return InviteTeamResult{}, err
+	}
+	inheritedShortcut := inherits && roleWeight(role) <= roleWeight(inherited)
+	direct := isAdmin || s.isTeamOwner(ctx, teamID, caller) || inheritedShortcut
+	if direct {
+		if hasPending {
+
+			if _, err := s.store.RevokeProjectTeamInvitation(
+				ctx,
+				store.RevokeProjectTeamInvitationParams{
+					RespondedAt:        sql.NullInt64{Int64: now.UnixMilli(), Valid: true},
+					RespondedByActorID: nullActor(caller),
+					ID:                 pending.ID,
+				},
+			); err != nil {
+				return InviteTeamResult{}, err
+			}
+		}
+		row, err := s.store.CreateProjectTeamInvitation(
+			ctx,
+			store.CreateProjectTeamInvitationParams{
+				ProjectID:        p.ID,
+				TeamID:           teamID,
+				InvitedByActorID: nullActor(caller),
+				Role:             role,
+				Note:             strings.TrimSpace(note),
+				CreatedAt:        now.UnixMilli(),
+				ExpiresAt:        now.Add(InviteTTL).UnixMilli(),
+			},
+		)
+		if err != nil {
+			return InviteTeamResult{}, err
+		}
+		if _, err := s.store.RespondProjectTeamInvitation(
+			ctx,
+			store.RespondProjectTeamInvitationParams{
+				Status:             "accepted",
+				RespondedAt:        sql.NullInt64{Int64: now.UnixMilli(), Valid: true},
+				RespondedByActorID: nullActor(caller),
+				ID:                 row.ID,
+			},
+		); err != nil {
+			return InviteTeamResult{}, err
+		}
 		if err := s.store.UpsertProjectTeamMembership(
 			ctx,
 			store.UpsertProjectTeamMembershipParams{
@@ -1118,31 +1175,30 @@ func (s *Service) InviteTeam(
 				TeamID:           teamID,
 				Role:             role,
 				GrantedByActorID: nullActor(caller),
-				CreatedAt:        now,
-				UpdatedAt:        now,
+				CreatedAt:        now.UnixMilli(),
+				UpdatedAt:        now.UnixMilli(),
 			},
 		); err != nil {
 			return InviteTeamResult{}, err
 		}
-		s.writeLog(ctx, p.ID, "team", "attached", "", role,
-			"Attached "+team.Name+" as "+role+" (already inherited "+inherited+")",
-			map[string]any{"team_id": teamID, "role": role, "inherited_role": inherited})
+		message := "Attached " + team.Name + " as " + role
+		data := map[string]any{"team_id": teamID, "role": role}
+		if inheritedShortcut {
+			message += " (already inherited " + inherited + ")"
+			data["inherited_role"] = inherited
+		}
+		s.writeLog(ctx, p.ID, "team", "attached", "", role, message, data)
+		s.notifyTeamAttached(ctx, team, p, role, caller)
 		link, err := s.teamLink(ctx, p.ID, teamID)
 		if err != nil {
 			return InviteTeamResult{}, err
 		}
 		return InviteTeamResult{Team: &link}, nil
 	}
-	if _, err := s.store.GetPendingProjectTeamInvitation(
-		ctx,
-		store.GetPendingProjectTeamInvitationParams{ProjectID: p.ID, TeamID: teamID},
-	); err == nil {
+	if hasPending {
 		return InviteTeamResult{}, ErrInvitationExists
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return InviteTeamResult{}, err
 	}
 
-	now := time.Now()
 	row, err := s.store.CreateProjectTeamInvitation(
 		ctx,
 		store.CreateProjectTeamInvitationParams{
@@ -1163,6 +1219,51 @@ func (s *Service) InviteTeam(
 		map[string]any{"team_id": teamID, "role": role})
 	invitation := toTeamInvitation(row, p.Name, p.Slug, team.Name, team.Description, "", "")
 	return InviteTeamResult{Invitation: &invitation}, nil
+}
+
+func (s *Service) isTeamOwner(ctx context.Context, teamID int64, actorID ids.ActorID) bool {
+	if s.TeamOwners == nil || actorID == 0 {
+		return false
+	}
+	owner, err := s.TeamOwners.IsOwner(ctx, teamID, actorID)
+	return err == nil && owner
+}
+
+func (s *Service) notifyTeamAttached(
+	ctx context.Context,
+	team store.Team,
+	p Project,
+	role string,
+	actorID ids.ActorID,
+) {
+	if s.Notifier == nil {
+		return
+	}
+	owners, err := s.store.ListTeamOwnerActorIDs(ctx, team.ID)
+	if err != nil {
+		return
+	}
+	inviter := actorLabel(ctx, s, actorID)
+	body := "Attached " + team.Name + " to " + p.Name + " as " + role + "."
+	if inviter != "" {
+		body = inviter + " attached " + team.Name + " to " + p.Name + " as " + role + "."
+	}
+	for _, raw := range owners {
+		owner := ids.ActorID(raw)
+		if owner == 0 || owner == actorID {
+			continue
+		}
+		if err := s.Notifier.Create(ctx, notifications.Notification{
+			RecipientActorID: owner,
+			ProjectID:        p.ID,
+			Kind:             notifications.KindTeamAdded,
+			Severity:         "info",
+			Title:            "Added to " + p.Name,
+			Body:             body,
+		}); err != nil {
+			log.Printf("notify team attach %d: %v", team.ID, err)
+		}
+	}
 }
 
 func (s *Service) Invitations(

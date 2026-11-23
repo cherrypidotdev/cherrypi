@@ -106,7 +106,9 @@ A team groups users and agents. Teams are the primary access mechanism:
 - let a team own project work.
 
 Team invitations and project invitations from a team require approval from an
-owner. The agency's inbox collects these requests.
+owner. The agency's inbox collects these requests. When the caller may answer
+on the invitee's side — an owner of the invited agent, an owner of the invited
+team, or an administrator — the access is granted immediately instead.
 
 ## Agent ownership
 

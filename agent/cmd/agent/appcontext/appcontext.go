@@ -284,6 +284,7 @@ func NewAppContext(config Config, eventHub *events.Hub) *AppContext {
 		GetTaskSessionState: newTaskSessionStateGetter(agencyClient),
 		PutTaskSessionState: newTaskSessionStatePutter(agencyClient),
 		AppendTaskEvents:    newTaskEventAppender(agencyClient),
+		ReportIntegrations:  newIntegrationReporter(agencyClient),
 	}, st)
 
 	terminals := terminal.NewManager(terminal.Config{
@@ -339,4 +340,24 @@ func (c *agentCatalog) Fetch(
 		return session.AgencyModels{}, false, err
 	}
 	return models, true, nil
+}
+
+func newIntegrationReporter(
+	client *agency.Client,
+) func(context.Context, string, string, session.IntegrationReport) error {
+	if client == nil {
+		return nil
+	}
+	return func(
+		ctx context.Context,
+		taskID, revision string,
+		report session.IntegrationReport,
+	) error {
+		_, err := client.REST(ctx, http.MethodPost, "/api/rest/task-integrations", map[string]any{
+			"taskId":   taskID,
+			"revision": revision,
+			"report":   report,
+		})
+		return err
+	}
 }

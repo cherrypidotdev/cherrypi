@@ -49,6 +49,14 @@ form.relative.shrink-0.border-t.p-3(
       span
         | {{ $t("taskConsolePage.awaitingAnswers") }}
 
+    p.text-muted-foreground.inline-flex.items-start.gap-1.text-xs(
+      v-if="promptLocked"
+      data-testid="composer-locked-hint"
+    )
+      LockIcon.size-3.shrink-0(class="mt-0.5")
+      span
+        | {{ $t("taskConsolePage.promptLocked") }}
+
     .flex.flex-col.gap-2
       .flex.flex-wrap.items-center.gap-2
         WritePreviewTabs(
@@ -65,7 +73,7 @@ form.relative.shrink-0.border-t.p-3(
             :selection="modelSelection"
             :use-defaults="false"
             @change="emit('model-change', $event)"
-            :disabled="modelSaving || !config"
+            :disabled="modelSaving || !config || promptLocked"
           )
           Button.shrink-0(
             v-if="steer"
@@ -178,6 +186,7 @@ import { TaskState } from "@cherrypi/sdk";
 import {
   CircleSlashIcon,
   InfoIcon,
+  LockIcon,
   PencilIcon,
   SendIcon,
   SquareIcon,
@@ -198,6 +207,8 @@ const props = withDefaults(
     canCompose: boolean;
 
     canFollowUp: boolean;
+
+    promptLocked?: boolean;
 
     awaitingAnswers: boolean;
 
@@ -220,6 +231,7 @@ const props = withDefaults(
     modelSaving: false,
     stagedAttachments: () => [],
     taskUsage: undefined,
+    promptLocked: false,
   },
 );
 
@@ -328,6 +340,7 @@ en:
   taskConsolePage:
     sessionGone: "The agent-side Pi session and workspace are gone (cleaned up, or the agent restarted with fresh data). Sending a message replays the stored conversation in a new Pi session."
     awaitingAnswers: "The agent is waiting for your answers. You can draft a follow-up now; sending unlocks once the questionnaire is submitted."
+    promptLocked: "Only this task’s owning teams, its leader, or an administrator can send follow-ups."
     attachmentsHint: "Paste, drop, or pick files to send with this prompt"
     queuesImmediately: "Sending a follow-up queues this task immediately."
     resizeHint: "Drag to resize the composer"
@@ -342,6 +355,7 @@ ru:
   taskConsolePage:
     sessionGone: "Сеанс Pi и рабочее пространство на стороне агента отсутствуют (очищены или агент перезапущен с новыми данными). Отправка сообщения воспроизведёт сохранённую переписку в новом сеансе Pi."
     awaitingAnswers: "Агент ждёт ваших ответов. Уточнение можно написать сейчас; отправка станет доступна после отправки опросника."
+    promptLocked: "Отправлять уточнения могут только владеющие команды задачи, её лидер или администратор."
     attachmentsHint: "Вставьте, перетащите или выберите файлы, чтобы отправить их с этим промптом"
     queuesImmediately: "Отправка уточнения сразу ставит задачу в очередь."
     resizeHint: "Потяните, чтобы изменить размер композера"

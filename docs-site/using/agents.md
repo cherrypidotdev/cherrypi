@@ -72,9 +72,10 @@ report the whole machine. The card labels the scope as **host** or
 
 ## Ownership and roles
 
-Creating an agent makes you its first owner. Owners can edit the agent, approve
-team invitations, manage other owners and open root terminals. Administrators
-can manage the whole fleet.
+Creating an agent makes you its first owner. Owners can edit the agent,
+approve team invitations (or add the agent to a team directly, since an owner
+can answer on its side), manage other owners and open root terminals.
+Administrators can manage the whole fleet and skip every invitation.
 
 An agent can be a **member** or an **admin** agent. Admin agents are read-only
 observers of fleet logs and metadata; only a human administrator can change

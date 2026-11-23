@@ -93,11 +93,10 @@ const { projects, loadProjects } = useProjects();
 
 const tabs = [
   { value: "overview", name: "project", labelKey: "projectView.overview" },
-  { value: "wiki", name: "project-wiki", labelKey: "knowledge.wikiTab" },
   {
-    value: "decisions",
-    name: "project-decisions",
-    labelKey: "knowledge.decisionsTab",
+    value: "knowledge",
+    name: "project-knowledge",
+    labelKey: "projectView.knowledge",
   },
   { value: "usage", name: "project-usage", labelKey: "projectView.usage" },
   {
@@ -130,8 +129,7 @@ const page = reactive({
 const activeTab = computed(() => {
   const name = String(route.name ?? "");
   if (name.startsWith("project-settings")) return "settings";
-  if (name === "project-wiki") return "wiki";
-  if (name === "project-decisions") return "decisions";
+  if (name === "project-knowledge") return "knowledge";
   if (name === "project-usage") return "usage";
   if (name === "project-concurrency") return "concurrency";
   return "overview";
@@ -223,9 +221,11 @@ onMounted(async () => {
 en:
   projectView:
     overview: "Overview"
+    knowledge: "Knowledge"
     usage: "Usage"
 ru:
   projectView:
     overview: "Обзор"
+    knowledge: "Знания"
     usage: "Использование"
 </i18n>

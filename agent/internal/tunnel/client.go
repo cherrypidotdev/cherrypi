@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"strings"
@@ -79,41 +80,72 @@ func New(cfg Config) *Client {
 	return client
 }
 
+const (
+	reconnectMinBackoff = time.Second
+	reconnectMaxBackoff = 30 * time.Second
+
+	reconnectStable = 30 * time.Second
+)
+
+type reconnectPolicy struct {
+	backoff time.Duration
+}
+
+func (p *reconnectPolicy) next(connectedFor time.Duration) time.Duration {
+	if connectedFor >= reconnectStable {
+		p.backoff = reconnectMinBackoff
+	}
+	delay := jitter(p.backoff)
+	p.backoff *= 2
+	if p.backoff > reconnectMaxBackoff {
+		p.backoff = reconnectMaxBackoff
+	}
+	return delay
+}
+
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return d/2 + time.Duration(rand.Int64N(int64(d)))
+}
+
 func (c *Client) Run(ctx context.Context) {
-	const maxBackoff = 30 * time.Second
-	backoff := time.Second
+	policy := reconnectPolicy{backoff: reconnectMinBackoff}
 
 	for {
+		started := time.Now()
 		err := c.connect(ctx)
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
-			slog.Warn(
-				"tunnel disconnected",
-				"agency", c.cfg.AgencyURL,
-				"transport", c.transportName(),
-				"error", err,
-				"reconnect_in", backoff,
-			)
-		}
 
+		connectedFor := time.Since(started)
+		delay := policy.next(connectedFor)
+		attrs := []any{
+			"agency", c.cfg.AgencyURL,
+			"transport", c.transportName(),
+			"connected_for", connectedFor.Round(time.Second),
+			"reconnect_in", delay.Round(time.Millisecond),
+		}
+		if err != nil {
+			attrs = append(attrs, "error", err)
+		}
+		slog.Warn("tunnel disconnected", attrs...)
+
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(backoff):
-		}
-
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
+		case <-timer.C:
 		}
 	}
 }
 
 func (c *Client) connect(ctx context.Context) error {
 	if c.transport == transportWebSocket {
-		return c.connectWS(ctx)
+		return c.connectWS(ctx, nil)
 	}
 
 	err := c.connectHTTP2(ctx)
@@ -124,14 +156,7 @@ func (c *Client) connect(ctx context.Context) error {
 		return err
 	}
 
-	c.transport = transportWebSocket
-	slog.Info(
-		"tunnel transport fallback",
-		"from", "http2",
-		"to", "websocket",
-		"reason", err,
-	)
-	return c.connectWS(ctx)
+	return c.connectWS(ctx, err)
 }
 
 func (c *Client) forcedHTTP2() bool {
@@ -254,7 +279,7 @@ func classifyHTTP2Failure(ctx context.Context, err error) error {
 	return &transportUnsupportedError{err: err}
 }
 
-func (c *Client) connectWS(ctx context.Context) error {
+func (c *Client) connectWS(ctx context.Context, fallback error) error {
 	header := http.Header{}
 	header.Set("Authorization", c.authHeader())
 	header.Set(sharedtunnel.HelloBuildVersionHeader, c.cfg.BuildVersion)
@@ -273,7 +298,15 @@ func (c *Client) connectWS(ctx context.Context) error {
 	}
 	defer func() { _ = session.Close() }()
 
-	c.transport = transportWebSocket
+	if c.transport != transportWebSocket {
+		slog.Info(
+			"tunnel transport fallback",
+			"from", "http2",
+			"to", "websocket",
+			"reason", fallback,
+		)
+		c.transport = transportWebSocket
+	}
 	c.logConnected("websocket")
 
 	server := &http.Server{Handler: c.cfg.Handler}

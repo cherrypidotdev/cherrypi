@@ -149,6 +149,7 @@ export const teamApi = {
     role: TeamRole,
     note = "",
   ): Promise<{ invitation: TeamInvitation }> {
+    // invitee's side (an owner of the agent, or an administrator).
     return request("POST", `${TEAMS}/${id}/invitations`, {
       username,
       role,

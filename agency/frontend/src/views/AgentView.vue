@@ -299,6 +299,8 @@ en:
     oldBuild: "This agent is running a build older than the agency's. Rebuild and redeploy the agent image to update it."
     incompatible: "This agent's protocol is incompatible with the agency, so its tunnel is refused. Rebuild and redeploy the agent image."
     noTeams: "No teams"
+  knowledge:
+    memoryTab: "Memory"
 ru:
   agentView:
     tabs:
@@ -310,4 +312,6 @@ ru:
     oldBuild: "Агент работает на сборке старше, чем у агентства. Пересоберите и разверните образ агента, чтобы обновить его."
     incompatible: "Протокол агента несовместим с агентством, поэтому туннель отклонён. Пересоберите и разверните образ агента."
     noTeams: "Команд нет"
+  knowledge:
+    memoryTab: "Память"
 </i18n>

@@ -28,7 +28,9 @@ import {
   type Task,
 } from "@cherrypi/sdk";
 
-export const CONCURRENCY_HELD_STATES = new Set<TaskState>([
+export const CONCURRENCY_HELD_STATES = new Set<TaskState>([TaskState.RUNNING]);
+
+export const CONCURRENCY_ACTIVE_STATES = new Set<TaskState>([
   TaskState.RUNNING,
   TaskState.INPUT,
   TaskState.SETTLED,
@@ -450,6 +452,9 @@ export function buildAgentBoard(options: {
     reservations,
     reservableProjectIds,
   } = options;
+  const active = tasks.filter((task) =>
+    CONCURRENCY_ACTIVE_STATES.has(task.state),
+  );
   const held = sortHeld(
     tasks.filter((task) => CONCURRENCY_HELD_STATES.has(task.state)),
   );
@@ -476,7 +481,7 @@ export function buildAgentBoard(options: {
     settled: 0,
     failed: 0,
   };
-  for (const task of held) {
+  for (const task of active) {
     if (task.state === TaskState.RUNNING) stateCounts.running += 1;
     else if (task.state === TaskState.INPUT) stateCounts.input += 1;
     else if (task.state === TaskState.SETTLED) stateCounts.settled += 1;

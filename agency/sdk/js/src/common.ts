@@ -28,10 +28,6 @@ import type {
   TaskToolCall,
 } from "./gen/buf/agency/v1/task_pb.js";
 import type { TaskTemplateArgType } from "./gen/buf/agency/v1/task_templates_pb.js";
-import type {
-  KnowledgeLinkInput,
-  KnowledgeSourceInput,
-} from "./gen/buf/agency/v1/knowledge_pb.js";
 
 export interface CallOptions {
   signal?: AbortSignal;
@@ -64,80 +60,56 @@ export interface ListSitesFilter {
   agencyWideOnly?: boolean;
 }
 
-export interface ListKnowledgeConceptsFilter {
-  scope: string;
-  scopeId?: string;
-  query?: string;
-  pathPrefix?: string;
-  status?: string;
+export interface KnowledgeSourceRef {
+  kind: string;
+  taskId?: string;
+  messageId?: string;
+  requestId?: string;
+  questionId?: string;
+  promptId?: number | bigint;
+}
+
+export interface ListKnowledgeFilter {
+  scope?: string;
+  projectId?: string;
   tag?: string;
-  limit?: number;
-}
 
-export interface CreateKnowledgeConceptInput {
-  scope: string;
-  scopeId?: string;
-  path: string;
-  type?: string;
-  title: string;
-  description?: string;
-  resource?: string;
-  body?: string;
   status?: string;
-  tags?: string[];
-  staleAfter?: Date;
-  extraFrontmatterJson?: string;
-  sources?: KnowledgeSourceInput[];
-  links?: KnowledgeLinkInput[];
-
-  decisionIds?: (number | bigint)[];
-  summary?: string;
+  query?: string;
+  taskId?: string;
+  authorActorId?: string;
+  limit?: number;
+  offset?: number;
 }
 
-export interface UpdateKnowledgeConceptInput {
-  scope: string;
-  scopeId?: string;
-  path: string;
-  baseRevision?: bigint;
-  newPath?: string;
-  type?: string;
+export interface AddKnowledgeInput {
+  projectId?: string;
   title?: string;
-  description?: string;
-  resource?: string;
-  body?: string;
-  status?: string;
+  content: string;
   tags?: string[];
-  replaceTags?: boolean;
-  staleAfter?: Date;
-  clearStaleAfter?: boolean;
-  extraFrontmatterJson?: string;
-  sources?: KnowledgeSourceInput[];
-  replaceSources?: boolean;
-  links?: KnowledgeLinkInput[];
-  replaceLinks?: boolean;
+  sources?: KnowledgeSourceRef[];
+  relatedIds?: string[];
+  supersedesIds?: string[];
 
-  decisionIds?: (number | bigint)[];
-  replaceDecisions?: boolean;
+  originTaskId?: string;
+}
+
+export interface UpdateKnowledgeInput {
+  id: string;
+
+  baseRevision?: number | bigint;
+  title?: string;
+  content?: string;
+  tags?: string[];
+  sources?: KnowledgeSourceRef[];
+  relatedIds?: string[];
+  supersedesIds?: string[];
   summary?: string;
 }
 
-export interface ListDecisionsFilter {
-  scope?: string;
-  scopeId?: string;
-  taskId?: string;
-  kind?: string;
-  limit?: number;
-  beforeId?: number | bigint;
-}
-
-export interface RecordDecisionInput {
-  scope?: string;
-  scopeId?: string;
-  taskId?: string;
-  summary: string;
-  rationale?: string;
-
-  conceptPaths?: string[];
+export interface KnowledgeTagCount {
+  tag: string;
+  count: number;
 }
 
 export interface WatchRealtimeOptions extends CallOptions {}
@@ -555,6 +527,8 @@ export interface AttentionNotification {
   agentId: string;
 
   taskId: string;
+
+  projectId?: string;
 
   kind: string;
 

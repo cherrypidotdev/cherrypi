@@ -177,7 +177,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// The stream is still encoded, so the line-by-line rewrite cannot
 
 			log.Printf(
-				"[agent-llm] %s answered a %s-encoded stream; the content-block rewrite did not run",
+				"[agent-llm] %s answered a %s-encoded stream; the SSE normalization did not run",
 				slug,
 				encoding,
 			)

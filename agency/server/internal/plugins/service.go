@@ -18,7 +18,9 @@ package plugins
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,6 +110,8 @@ type Service struct {
 		at int64,
 	)
 
+	bundlesInDB bool
+
 	eventsOnce sync.Once
 	events     chan eventJob
 }
@@ -118,6 +122,7 @@ func NewService(cfg Config, st *Store) *Service {
 		Store:          st,
 		LogRetention:   cfg.LogRetention,
 		Runtime:        NewRuntime(),
+		bundlesInDB:    isPostgres(cfg.DSN),
 		dbs:            map[string]*PluginDB{},
 		slots:          map[string]chan struct{}{},
 		tickers:        map[string]*tickLoop{},
@@ -146,12 +151,37 @@ func (s *Service) Bootstrap(ctx context.Context) error {
 		return err
 	}
 	for _, p := range list {
-		if !p.Enabled {
+		if s.bundlesInRegistry() {
+			s.backfillBundle(ctx, p)
+		}
+		if !p.Enabled && p.LoadError == "" {
+
+			continue
+		}
+		if !p.Enabled && !s.bundleAvailable(ctx, p) {
+
 			continue
 		}
 		if err := s.ensureRuntime(ctx, p); err != nil {
 			s.disableAfterLoadFailure(ctx, p, err)
 			continue
+		}
+		if !p.Enabled {
+
+			if err := s.Store.SetEnabled(ctx, p.ID, true); err != nil {
+				log.Printf("[plugins] re-enable %s after a successful load: %v", p.ID, err)
+				continue
+			}
+			p.Enabled = true
+			s.Store.Log(
+				ctx,
+				p.ID,
+				"info",
+				"lifecycle",
+				"",
+				"plugin re-enabled after a load failure",
+				map[string]any{"version": p.Version},
+			)
 		}
 		s.clearLoadError(ctx, p.ID)
 		s.startTicker(p)
@@ -254,35 +284,13 @@ func (s *Service) Install(
 			APIVersion,
 		)
 	}
-	versionDir := filepath.Join(
-		s.Config.DataDir,
-		"plugins",
-		manifest.ID,
-		"versions",
-		manifest.Version,
-	)
-	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+	versionDir := s.versionDir(manifest.ID, manifest.Version)
+	if err := writeVersionDir(versionDir, bundle); err != nil {
 		return Plugin{}, err
 	}
 	normalized, err := jsonMarshalIndent(manifest)
 	if err != nil {
 		return Plugin{}, err
-	}
-	if err := os.WriteFile(
-		filepath.Join(versionDir, "plugin.json"),
-		normalized,
-		0o644,
-	); err != nil {
-		return Plugin{}, err
-	}
-	for name, body := range bundle.Files {
-		path := filepath.Join(versionDir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return Plugin{}, err
-		}
-		if err := os.WriteFile(path, body, 0o644); err != nil {
-			return Plugin{}, err
-		}
 	}
 	now := time.Now()
 	p := Plugin{
@@ -300,6 +308,7 @@ func (s *Service) Install(
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	recovered := false
 	existing, err := s.Store.Get(ctx, manifest.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := s.Store.Insert(ctx, p); err != nil {
@@ -310,6 +319,8 @@ func (s *Service) Install(
 	} else {
 		p.CreatedAt = existing.CreatedAt
 		p.Enabled = existing.Enabled
+
+		recovered = !existing.Enabled && existing.LoadError != ""
 		if err := s.Store.Update(ctx, p); err != nil {
 			return Plugin{}, err
 		}
@@ -317,10 +328,31 @@ func (s *Service) Install(
 			s.Runtime.Unload(p.ID)
 		}
 	}
+
+	if s.bundlesInRegistry() {
+		if err := s.Store.PutBundle(ctx, p.ID, p.Version, bundle.Checksum, data); err != nil {
+			log.Printf("[plugins] keep the stored bundle %s %s: %v", p.ID, p.Version, err)
+		}
+	}
 	if err := s.ensureRuntime(ctx, p); err != nil {
 
 		s.disableAfterLoadFailure(ctx, p, err)
 		return Plugin{}, err
+	}
+	if recovered {
+		if err := s.Store.SetEnabled(ctx, p.ID, true); err != nil {
+			return Plugin{}, err
+		}
+		p.Enabled = true
+		s.Store.Log(
+			ctx,
+			p.ID,
+			"info",
+			"lifecycle",
+			"",
+			"plugin re-enabled after a reinstall",
+			map[string]any{"version": p.Version},
+		)
 	}
 	s.clearLoadError(ctx, p.ID)
 	s.startTicker(p)
@@ -395,16 +427,160 @@ func (s *Service) Uninstall(ctx context.Context, id string, purge bool) error {
 	return s.Store.Delete(ctx, id)
 }
 
-func (s *Service) ensureRuntime(ctx context.Context, p Plugin) error {
-	versionDir := filepath.Join(
-		s.Config.DataDir,
-		"plugins",
+func (s *Service) versionDir(id, version string) string {
+	return filepath.Join(s.Config.DataDir, "plugins", id, "versions", version)
+}
+
+var errNoStoredBundle = errors.New("the registry keeps no archive of this version")
+
+func (s *Service) bundlesInRegistry() bool { return s.bundlesInDB }
+
+func writeVersionDir(dir string, bundle Bundle) error {
+	normalized, err := jsonMarshalIndent(bundle.Manifest)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), normalized, 0o644); err != nil {
+		return err
+	}
+	for name, body := range bundle.Files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) restoreVersion(ctx context.Context, p Plugin, versionDir string) error {
+	stored, ok, err := s.Store.Bundle(ctx, p.ID, p.Version)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errNoStoredBundle
+	}
+	sum := sha256.Sum256(stored.Data)
+	if got := hex.EncodeToString(sum[:]); got != stored.Checksum {
+		return fmt.Errorf(
+			"the stored archive checksum is %s, the registry says %s", got, stored.Checksum,
+		)
+	}
+	bundle, err := ReadBundle(stored.Data)
+	if err != nil {
+		return fmt.Errorf("the stored archive is not a bundle: %w", err)
+	}
+	if bundle.Manifest.ID != p.ID || bundle.Manifest.Version != p.Version {
+		return fmt.Errorf(
+			"the stored archive is %s %s", bundle.Manifest.ID, bundle.Manifest.Version,
+		)
+	}
+	staging := versionDir + ".restore"
+	if err := os.RemoveAll(staging); err != nil {
+		return err
+	}
+	if err := writeVersionDir(staging, bundle); err != nil {
+		_ = os.RemoveAll(staging)
+		return err
+	}
+	if err := os.RemoveAll(versionDir); err != nil {
+		_ = os.RemoveAll(staging)
+		return err
+	}
+	if err := os.Rename(staging, versionDir); err != nil {
+		_ = os.RemoveAll(staging)
+		return err
+	}
+	s.Store.Log(
+		ctx,
 		p.ID,
-		"versions",
-		p.Version,
+		"info",
+		"lifecycle",
+		"",
+		"restored the bundle from the registry",
+		map[string]any{"version": p.Version},
 	)
+	return nil
+}
+
+func (s *Service) backfillBundle(ctx context.Context, p Plugin) {
+	versionDir := s.versionDir(p.ID, p.Version)
 	if _, err := os.Stat(filepath.Join(versionDir, p.Manifest.Entry)); err != nil {
-		return fmt.Errorf("plugin %s has no %s in %s", p.ID, p.Manifest.Entry, versionDir)
+		return
+	}
+	ok, err := s.Store.HasBundle(ctx, p.ID, p.Version)
+	if err != nil {
+		log.Printf("[plugins] look up the stored bundle %s %s: %v", p.ID, p.Version, err)
+		return
+	}
+	if ok {
+		return
+	}
+	data, err := PackInstalledVersion(versionDir)
+	if err != nil {
+		log.Printf("[plugins] backfill the stored bundle %s %s: %v", p.ID, p.Version, err)
+		return
+	}
+	bundle, err := ReadBundle(data)
+	if err != nil {
+		log.Printf("[plugins] backfill the stored bundle %s %s: %v", p.ID, p.Version, err)
+		return
+	}
+	if bundle.Manifest.ID != p.ID || bundle.Manifest.Version != p.Version {
+		log.Printf(
+			"[plugins] skip backfilling %s %s: the directory holds %s %s",
+			p.ID, p.Version, bundle.Manifest.ID, bundle.Manifest.Version,
+		)
+		return
+	}
+	if err := s.Store.PutBundle(ctx, p.ID, p.Version, bundle.Checksum, data); err != nil {
+		log.Printf("[plugins] backfill the stored bundle %s %s: %v", p.ID, p.Version, err)
+		return
+	}
+	s.Store.Log(
+		ctx,
+		p.ID,
+		"info",
+		"lifecycle",
+		"",
+		"kept the installed bundle in the registry",
+		map[string]any{"version": p.Version},
+	)
+}
+
+func (s *Service) bundleAvailable(ctx context.Context, p Plugin) bool {
+	versionDir := s.versionDir(p.ID, p.Version)
+	if _, err := os.Stat(filepath.Join(versionDir, p.Manifest.Entry)); err == nil {
+		return true
+	}
+	if !s.bundlesInRegistry() {
+		return false
+	}
+	ok, err := s.Store.HasBundle(ctx, p.ID, p.Version)
+	return err == nil && ok
+}
+
+func (s *Service) ensureRuntime(ctx context.Context, p Plugin) error {
+	versionDir := s.versionDir(p.ID, p.Version)
+	if _, err := os.Stat(filepath.Join(versionDir, p.Manifest.Entry)); err != nil {
+		if !s.bundlesInRegistry() {
+			return fmt.Errorf("plugin %s has no %s in %s", p.ID, p.Manifest.Entry, versionDir)
+		}
+		if rerr := s.restoreVersion(ctx, p, versionDir); rerr != nil {
+			if !errors.Is(rerr, errNoStoredBundle) {
+				return fmt.Errorf(
+					"plugin %s has no %s in %s, and the registry could not restore it: %w",
+					p.ID, p.Manifest.Entry, versionDir, rerr,
+				)
+			}
+			return fmt.Errorf("plugin %s has no %s in %s", p.ID, p.Manifest.Entry, versionDir)
+		}
 	}
 	if err := s.Runtime.Load(p, versionDir); err != nil {
 		return err

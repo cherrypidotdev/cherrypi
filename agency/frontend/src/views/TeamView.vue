@@ -600,7 +600,7 @@ async function invite() {
   inviting.value = true;
   inviteError.value = "";
   try {
-    await withProgress(() =>
+    const result = await withProgress(() =>
       teamApi.invite(
         id,
         inviteUsername.value.trim(),
@@ -608,7 +608,11 @@ async function invite() {
         inviteNote.value.trim(),
       ),
     );
-    toast.success(t("projectSettings.toasts.invitationSent"));
+    toast.success(
+      result.invitation.status === "accepted"
+        ? t("team.toasts.memberAdded")
+        : t("projectSettings.toasts.invitationSent"),
+    );
     inviteUsername.value = "";
     inviteNote.value = "";
     await load();
@@ -744,7 +748,7 @@ en:
     tasksHint: "Tasks owned by this team."
     membersHint: "Users and agents in this team."
     invitations:
-      hint: "Users accept their own invitation; an agent's owner approves it."
+      hint: "Users accept their own invitation and an agent's owner approves it, unless the caller may answer for that side: an owner of the agent, or an administrator, adds directly."
       empty: "No invitations"
       emptyHint: "Invite an actor above."
       searchActors: "Search actors…"
@@ -766,6 +770,7 @@ en:
     toasts:
       deleteQuestion: "Delete this team? This cannot be undone."
       updated: "Team updated"
+      memberAdded: "Member added"
       memberRemoved: "Member removed"
       left: "Left team"
       leaveQuestion: "Leave this team?"
@@ -798,7 +803,7 @@ ru:
     tasksHint: "Задачи, которыми владеет команда."
     membersHint: "Пользователи и агенты в команде."
     invitations:
-      hint: "Пользователи принимают приглашение сами; за агента его одобряет владелец."
+      hint: "Пользователи принимают приглашение сами, а за агента его одобряет владелец — если только вызывающий не может ответить за ту сторону: владелец агента или администратор добавляют сразу."
       empty: "Приглашений нет"
       emptyHint: "Пригласите субъекта выше."
       searchActors: "Поиск субъектов…"
@@ -820,6 +825,7 @@ ru:
     toasts:
       deleteQuestion: "Удалить команду? Это действие необратимо."
       updated: "Команда обновлена"
+      memberAdded: "Участник добавлен"
       memberRemoved: "Участник удалён"
       left: "Вы покинули команду"
       leaveQuestion: "Покинуть команду?"

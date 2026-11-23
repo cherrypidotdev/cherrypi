@@ -41,11 +41,11 @@ export {
   type GetTaskToolCallOptions,
   type GetDesktopResult,
   type ListSitesFilter,
-  type ListDecisionsFilter,
-  type RecordDecisionInput,
-  type ListKnowledgeConceptsFilter,
-  type CreateKnowledgeConceptInput,
-  type UpdateKnowledgeConceptInput,
+  type AddKnowledgeInput,
+  type KnowledgeSourceRef,
+  type KnowledgeTagCount,
+  type ListKnowledgeFilter,
+  type UpdateKnowledgeInput,
   type ListTagsFilter,
   type ListTaskToolCallsOptions,
   type ListTaskToolCallsResult,
@@ -168,13 +168,12 @@ export {
 export type { KpiLayout, KpiWidget } from "./gen/buf/agency/v1/kpi_pb.js";
 
 export type {
-  Decision,
-  KnowledgeConcept,
+  KnowledgeBit,
   KnowledgeRevision,
   KnowledgeSource,
   KnowledgeLink,
-  KnowledgeBacklink,
-  KnowledgeVerification,
+  KnowledgeTag,
+  MemoryFile,
 } from "./gen/buf/agency/v1/knowledge_pb.js";
 
 export * from "./gen/buf/agency/v1/plugins_pb.js";

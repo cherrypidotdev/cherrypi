@@ -129,6 +129,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                   <template v-else-if="item.kind === 'team_invitation'">
                     {{ $t("attention.event.teamInvitation") }}
                   </template>
+                  <template v-else-if="item.kind === 'team_added'">
+                    {{ $t("attention.event.teamAdded") }}
+                  </template>
+                  <template v-else-if="item.kind === 'project_linked'">
+                    {{ $t("attention.event.projectLinked") }}
+                  </template>
                   <template v-else-if="item.kind.startsWith('prompt_proposal')">
                     {{ $t("attention.event.promptProposal") }}
                   </template>
@@ -208,6 +214,7 @@ import { formatTimestamp } from "@/lib/format";
 import {
   groupRoute,
   loadPromptRouteTargets,
+  projectRoute,
   promptRoute,
 } from "@/lib/notificationLink";
 import { plainNotificationText } from "@/lib/notificationText";
@@ -283,6 +290,9 @@ function isLinked(item: AgencyNotification): boolean {
   return (
     Boolean(item.taskId) ||
     item.kind === "team_invitation" ||
+    item.kind === "team_added" ||
+    (item.kind === "project_linked" &&
+      projectRoute(item.projectId ?? "") !== null) ||
     promptRoute(item) !== null ||
     isGroupMembership(item) ||
     isGroupAccess(item)
@@ -300,7 +310,12 @@ function linkFor(item: AgencyNotification): RouteLocationRaw {
     }
     return { name: "task", params: { id: item.taskId } };
   }
-  if (item.kind === "team_invitation") return { name: "teams" };
+  if (item.kind === "team_invitation" || item.kind === "team_added") {
+    return { name: "teams" };
+  }
+  if (item.kind === "project_linked") {
+    return projectRoute(item.projectId ?? "") ?? { name: "inbox" };
+  }
   if (isGroupMembership(item)) {
     return groupRoute(item, "members") ?? { name: "inbox" };
   }
@@ -315,6 +330,12 @@ function linkLabel(item: AgencyNotification): string {
   if (item.kind === "team_invitation") {
     return t("inbox.openTeamsFor", { title: item.title });
   }
+  if (item.kind === "team_added") {
+    return t("inbox.openTeamsFor", { title: item.title });
+  }
+  if (item.kind === "project_linked") {
+    return t("inbox.openProjectFor", { title: item.title });
+  }
   if (isGroupMembership(item) || isGroupAccess(item)) {
     return t("inbox.openGroupFor", { title: item.title });
   }
@@ -324,6 +345,8 @@ function linkLabel(item: AgencyNotification): string {
 function linkTitle(item: AgencyNotification): string {
   if (item.taskId) return t("inbox.openTask", { id: item.taskId.slice(0, 8) });
   if (item.kind === "team_invitation") return t("inbox.openTeams");
+  if (item.kind === "team_added") return t("inbox.openTeams");
+  if (item.kind === "project_linked") return t("inbox.openProject");
   return t("inbox.openPrompt");
 }
 
@@ -338,6 +361,7 @@ en:
   inbox:
     openPrompt: "Open prompt"
     openTeams: "Open Teams"
+    openProject: "Open project"
     toasts:
       cleared: "Inbox cleared"
     description: "Attention signals and invitations, newest first."
@@ -354,12 +378,14 @@ en:
     openTeamsFor: "Open teams for: {title}"
     openGroupFor: "Open group for: {title}"
     openPromptFor: "Open prompt for: {title}"
+    openProjectFor: "Open project for: {title}"
     groupMembership: "Group membership"
     openTask: "Open task {id}"
 ru:
   inbox:
     openPrompt: "Открыть промпт"
     openTeams: "Открыть команды"
+    openProject: "Открыть проект"
     toasts:
       cleared: "Уведомления очищены"
     description: "Сигналы внимания и приглашения, сначала новые."
@@ -376,6 +402,7 @@ ru:
     openTeamsFor: "Открыть команды: {title}"
     openGroupFor: "Открыть группу: {title}"
     openPromptFor: "Открыть промпт: {title}"
+    openProjectFor: "Открыть проект: {title}"
     groupMembership: "Участие в группе"
     openTask: "Открыть задачу {id}"
 </i18n>

@@ -429,6 +429,83 @@ func (s *Store) ClearLoadError(ctx context.Context, id string) error {
 	return err
 }
 
+type StoredBundle struct {
+	Checksum string
+	Data     []byte
+}
+
+func (s *Store) PutBundle(
+	ctx context.Context,
+	pluginID, version, checksum string,
+	data []byte,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(
+		ctx,
+		s.q(`DELETE FROM plugin_bundles WHERE plugin_id=? AND version<>?`),
+		pluginID,
+		version,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		s.q(`INSERT INTO plugin_bundles (plugin_id,version,checksum,bytes,created_at)
+			VALUES (?,?,?,?,?)
+			ON CONFLICT (plugin_id,version) DO UPDATE SET
+				checksum=excluded.checksum,bytes=excluded.bytes,created_at=excluded.created_at`),
+		pluginID,
+		version,
+		checksum,
+		data,
+		time.Now().UnixMilli(),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) HasBundle(ctx context.Context, pluginID, version string) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(
+		ctx,
+		s.q(`SELECT 1 FROM plugin_bundles WHERE plugin_id=? AND version=?`),
+		pluginID,
+		version,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) Bundle(
+	ctx context.Context,
+	pluginID, version string,
+) (StoredBundle, bool, error) {
+	var stored StoredBundle
+	err := s.db.QueryRowContext(
+		ctx,
+		s.q(`SELECT checksum,bytes FROM plugin_bundles WHERE plugin_id=? AND version=?`),
+		pluginID,
+		version,
+	).Scan(&stored.Checksum, &stored.Data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredBundle{}, false, nil
+	}
+	if err != nil {
+		return StoredBundle{}, false, err
+	}
+	return stored, true, nil
+}
+
 func (s *Store) Delete(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, s.q(`DELETE FROM plugins WHERE id=?`), id)
 	return err

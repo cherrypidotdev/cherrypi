@@ -19,6 +19,7 @@ package knowledgegrpc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -41,100 +42,85 @@ type Server struct {
 	Agents    *agents.Registry
 }
 
-func (s *Server) ListConcepts(
+func (s *Server) ListKnowledge(
 	ctx context.Context,
-	req *agencyv1.ListConceptsRequest,
-) (*agencyv1.ListConceptsResponse, error) {
+	req *agencyv1.ListKnowledgeRequest,
+) (*agencyv1.ListKnowledgeResponse, error) {
 	actor, ok := caller(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	ref := knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId}
-	rows, err := s.Knowledge.List(
-		ctx,
-		actor,
-		ref,
-		req.Query,
-		req.PathPrefix,
-		req.Status,
-		req.Tag,
-		int(req.Limit),
-	)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	out := make([]*agencyv1.KnowledgeConcept, len(rows))
-	for i, row := range rows {
-		out[i] = s.toProto(ctx, actor, knowledge.ConceptView{Concept: row}, false)
-	}
-	return &agencyv1.ListConceptsResponse{Concepts: out}, nil
-}
-
-func (s *Server) GetConcept(
-	ctx context.Context,
-	req *agencyv1.GetConceptRequest,
-) (*agencyv1.GetConceptResponse, error) {
-	actor, ok := caller(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
-	}
-	ref := knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId}
-	view, err := s.Knowledge.Get(ctx, actor, ref, req.Path)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.GetConceptResponse{Concept: s.toProto(ctx, actor, view, true)}, nil
-}
-
-func (s *Server) CreateConcept(
-	ctx context.Context,
-	req *agencyv1.CreateConceptRequest,
-) (*agencyv1.CreateConceptResponse, error) {
-	actor, ok := caller(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
-	}
-	view, err := s.Knowledge.Create(ctx, actor, knowledge.CreateInput{
-		Scope:                knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId},
-		Path:                 req.Path,
-		Type:                 req.Type,
-		Title:                req.Title,
-		Description:          req.Description,
-		Resource:             req.Resource,
-		Body:                 req.Body,
-		Status:               req.Status,
-		Tags:                 req.Tags,
-		StaleAfter:           timePtr(req.StaleAfter),
-		ExtraFrontmatterJSON: req.ExtraFrontmatterJson,
-		Sources:              sourceInputs(req.Sources),
-		Links:                linkInputs(req.Links),
-		DecisionIDs:          req.DecisionIds,
-		Summary:              req.Summary,
+	views, err := s.Knowledge.List(ctx, actor, knowledge.BitFilter{
+		Scope:         req.Scope,
+		ProjectID:     req.ProjectId,
+		Tag:           req.Tag,
+		Status:        req.Status,
+		Query:         req.Query,
+		TaskID:        req.TaskId,
+		AuthorActorID: req.AuthorActorId,
+		Limit:         int(req.Limit),
+		Offset:        int(req.Offset),
 	})
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.CreateConceptResponse{Concept: s.toProto(ctx, actor, view, true)}, nil
+	out := make([]*agencyv1.KnowledgeBit, len(views))
+	for i, view := range views {
+		out[i] = s.bitProto(ctx, view)
+	}
+	return &agencyv1.ListKnowledgeResponse{Bits: out}, nil
 }
 
-func (s *Server) UpdateConcept(
+func (s *Server) GetKnowledge(
 	ctx context.Context,
-	req *agencyv1.UpdateConceptRequest,
-) (*agencyv1.UpdateConceptResponse, error) {
+	req *agencyv1.GetKnowledgeRequest,
+) (*agencyv1.GetKnowledgeResponse, error) {
 	actor, ok := caller(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	patch := knowledge.Patch{
-		Path:         req.NewPath,
-		Type:         req.Type,
+	view, err := s.Knowledge.Get(ctx, actor, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.GetKnowledgeResponse{Bit: s.bitProto(ctx, view)}, nil
+}
+
+func (s *Server) AddKnowledge(
+	ctx context.Context,
+	req *agencyv1.AddKnowledgeRequest,
+) (*agencyv1.AddKnowledgeResponse, error) {
+	actor, ok := caller(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
+	}
+	view, err := s.Knowledge.Add(ctx, actor, knowledge.BitInput{
+		ProjectID:     req.ProjectId,
+		Title:         req.Title,
+		Content:       req.Content,
+		Tags:          req.Tags,
+		Sources:       sourceInputs(req.Sources),
+		RelatedIDs:    req.RelatedIds,
+		SupersedesIDs: req.SupersedesIds,
+		OriginTaskID:  req.OriginTaskId,
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.AddKnowledgeResponse{Bit: s.bitProto(ctx, view)}, nil
+}
+
+func (s *Server) UpdateKnowledge(
+	ctx context.Context,
+	req *agencyv1.UpdateKnowledgeRequest,
+) (*agencyv1.UpdateKnowledgeResponse, error) {
+	actor, ok := caller(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
+	}
+	patch := knowledge.BitPatch{
 		Title:        req.Title,
-		Description:  req.Description,
-		Resource:     req.Resource,
-		Body:         req.Body,
-		Status:       req.Status,
-		StaleAfter:   timePtr(req.StaleAfter),
-		ClearStale:   req.ClearStaleAfter,
+		Content:      req.Content,
 		BaseRevision: req.BaseRevision,
 		Summary:      req.Summary,
 	}
@@ -142,116 +128,97 @@ func (s *Server) UpdateConcept(
 		tags := req.Tags
 		patch.Tags = &tags
 	}
-	if req.ExtraFrontmatterJson != nil {
-		patch.ExtraFrontmatterJSON = req.ExtraFrontmatterJson
-	}
 	if req.ReplaceSources {
 		sources := sourceInputs(req.Sources)
 		patch.Sources = &sources
 	}
-	if req.ReplaceLinks {
-		links := linkInputs(req.Links)
-		patch.Links = &links
+	if req.ReplaceRelated {
+		related := req.RelatedIds
+		patch.RelatedIDs = &related
 	}
-	if req.ReplaceDecisions {
-		decisions := req.DecisionIds
-		patch.DecisionIDs = &decisions
+	if req.ReplaceSupersedes {
+		supersedes := req.SupersedesIds
+		patch.SupersedesIDs = &supersedes
 	}
-	view, err := s.Knowledge.Update(ctx, actor, knowledge.ScopeRef{
-		Scope: req.Scope, ScopeID: req.ScopeId,
-	}, req.Path, patch)
+	view, err := s.Knowledge.Update(ctx, actor, req.Id, patch)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.UpdateConceptResponse{Concept: s.toProto(ctx, actor, view, true)}, nil
+	return &agencyv1.UpdateKnowledgeResponse{Bit: s.bitProto(ctx, view)}, nil
 }
 
-func (s *Server) DeleteConcept(
+func (s *Server) ApproveKnowledge(
 	ctx context.Context,
-	req *agencyv1.DeleteConceptRequest,
-) (*agencyv1.DeleteConceptResponse, error) {
+	req *agencyv1.ApproveKnowledgeRequest,
+) (*agencyv1.ApproveKnowledgeResponse, error) {
 	actor, ok := caller(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	err := s.Knowledge.Delete(
-		ctx,
-		actor,
-		knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId},
-		req.Path,
-		req.BaseRevision,
-	)
+	view, err := s.Knowledge.Approve(ctx, actor, req.Id, req.Note)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.DeleteConceptResponse{}, nil
+	return &agencyv1.ApproveKnowledgeResponse{Bit: s.bitProto(ctx, view)}, nil
 }
 
-func (s *Server) ListRevisions(
+func (s *Server) RejectKnowledge(
 	ctx context.Context,
-	req *agencyv1.ListRevisionsRequest,
-) (*agencyv1.ListRevisionsResponse, error) {
+	req *agencyv1.RejectKnowledgeRequest,
+) (*agencyv1.RejectKnowledgeResponse, error) {
 	actor, ok := caller(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	revisions, err := s.Knowledge.Revisions(ctx, actor, knowledge.ScopeRef{
-		Scope: req.Scope, ScopeID: req.ScopeId,
-	}, req.Path)
+	view, err := s.Knowledge.Reject(ctx, actor, req.Id, req.Note)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := make([]*agencyv1.KnowledgeRevision, len(revisions))
-	for i, revision := range revisions {
+	return &agencyv1.RejectKnowledgeResponse{Bit: s.bitProto(ctx, view)}, nil
+}
+
+func (s *Server) DeleteKnowledge(
+	ctx context.Context,
+	req *agencyv1.DeleteKnowledgeRequest,
+) (*agencyv1.DeleteKnowledgeResponse, error) {
+	actor, ok := caller(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
+	}
+	if err := s.Knowledge.Delete(ctx, actor, req.Id); err != nil {
+		return nil, mapError(err)
+	}
+	return &agencyv1.DeleteKnowledgeResponse{}, nil
+}
+
+func (s *Server) ListKnowledgeRevisions(
+	ctx context.Context,
+	req *agencyv1.ListKnowledgeRevisionsRequest,
+) (*agencyv1.ListKnowledgeRevisionsResponse, error) {
+	actor, ok := caller(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
+	}
+	rows, err := s.Knowledge.Revisions(ctx, actor, req.Id)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := make([]*agencyv1.KnowledgeRevision, len(rows))
+	for i, row := range rows {
 		out[i] = &agencyv1.KnowledgeRevision{
-			Id:        revision.ID,
-			Revision:  revision.Revision,
-			Title:     revision.Title,
-			Body:      revision.Body,
-			Status:    revision.Status,
-			ActorId:   actorid.Format(revision.ActorID.Int64),
-			ActorRef:  revision.ActorRef,
-			Summary:   revision.Summary,
-			CreatedAt: timestamppb.New(timeFromMillis(revision.CreatedAt)),
+			Id:        row.ID,
+			Revision:  row.Revision,
+			Title:     row.Title,
+			Content:   row.Content,
+			Tags:      tagsFromJSON(row.TagsJSON),
+			Status:    row.Status,
+			ActorId:   actorid.Format(ids.ActorID(row.ActorID.Int64)),
+			ActorRef:  row.ActorRef,
+			Summary:   row.Summary,
+			CreatedAt: timestamppb.New(timeFromMillis(row.CreatedAt)),
 		}
 	}
-	return &agencyv1.ListRevisionsResponse{Revisions: out}, nil
-}
-
-func (s *Server) VerifyConcept(
-	ctx context.Context,
-	req *agencyv1.VerifyConceptRequest,
-) (*agencyv1.VerifyConceptResponse, error) {
-	actor, ok := caller(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
-	}
-	view, err := s.Knowledge.Verify(ctx, actor, knowledge.ScopeRef{
-		Scope: req.Scope, ScopeID: req.ScopeId,
-	}, req.Path, req.Note)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.VerifyConceptResponse{Concept: s.toProto(ctx, actor, view, true)}, nil
-}
-
-func (s *Server) RevokeVerification(
-	ctx context.Context,
-	req *agencyv1.RevokeVerificationRequest,
-) (*agencyv1.RevokeVerificationResponse, error) {
-	actor, ok := caller(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
-	}
-	view, err := s.Knowledge.RevokeVerification(ctx, actor, knowledge.ScopeRef{
-		Scope: req.Scope, ScopeID: req.ScopeId,
-	}, req.Path, req.VerificationId)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	return &agencyv1.RevokeVerificationResponse{
-		Concept: s.toProto(ctx, actor, view, true),
-	}, nil
+	return &agencyv1.ListKnowledgeRevisionsResponse{Revisions: out}, nil
 }
 
 func (s *Server) SearchKnowledge(
@@ -262,91 +229,44 @@ func (s *Server) SearchKnowledge(
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	var scope *knowledge.ScopeRef
-	if req.Scope != "" {
-		scope = &knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId}
-	}
-	rows, err := s.Knowledge.Search(ctx, actor, req.Query, scope, int(req.Limit))
-	if err != nil {
-		return nil, mapError(err)
-	}
-	out := make([]*agencyv1.KnowledgeConcept, len(rows))
-	for i, row := range rows {
-		out[i] = s.toProto(ctx, actor, knowledge.ConceptView{Concept: row}, false)
-	}
-	return &agencyv1.SearchKnowledgeResponse{Concepts: out}, nil
-}
-
-func (s *Server) ListDecisions(
-	ctx context.Context,
-	req *agencyv1.ListDecisionsRequest,
-) (*agencyv1.ListDecisionsResponse, error) {
-	actor, ok := caller(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
-	}
-	decisions, err := s.Knowledge.Decisions(ctx, actor, knowledge.DecisionFilter{
-		Scope:    req.Scope,
-		ScopeID:  req.ScopeId,
-		TaskID:   req.TaskId,
-		Kind:     req.Kind,
-		BeforeID: req.BeforeId,
-		Limit:    int(req.Limit),
+	views, err := s.Knowledge.Search(ctx, actor, knowledge.BitFilter{
+		Scope:     req.Scope,
+		ProjectID: req.ProjectId,
+		Tag:       req.Tag,
+		Status:    req.Status,
+		Query:     req.Query,
+		Limit:     int(req.Limit),
 	})
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := make([]*agencyv1.Decision, len(decisions))
-	for i, decision := range decisions {
-		out[i] = s.decisionProto(ctx, decision)
+	out := make([]*agencyv1.KnowledgeBit, len(views))
+	for i, view := range views {
+		out[i] = s.bitProto(ctx, view)
 	}
-	return &agencyv1.ListDecisionsResponse{Decisions: out}, nil
+	return &agencyv1.SearchKnowledgeResponse{Bits: out}, nil
 }
 
-func (s *Server) RecordDecision(
+func (s *Server) ListKnowledgeTags(
 	ctx context.Context,
-	req *agencyv1.RecordDecisionRequest,
-) (*agencyv1.RecordDecisionResponse, error) {
+	req *agencyv1.ListKnowledgeTagsRequest,
+) (*agencyv1.ListKnowledgeTagsResponse, error) {
 	actor, ok := caller(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
 	}
-	decision, err := s.Knowledge.RecordDecision(ctx, actor, knowledge.DecisionInput{
-		Scope:        knowledge.ScopeRef{Scope: req.Scope, ScopeID: req.ScopeId},
-		TaskID:       req.TaskId,
-		Summary:      req.Summary,
-		Rationale:    req.Rationale,
-		ConceptPaths: req.ConceptPaths,
+	tags, err := s.Knowledge.Tags(ctx, actor, knowledge.BitFilter{
+		Scope:     req.Scope,
+		ProjectID: req.ProjectId,
 	})
 	if err != nil {
 		return nil, mapError(err)
 	}
-	return &agencyv1.RecordDecisionResponse{
-		Decision: s.decisionProto(ctx, decision),
-	}, nil
-}
-
-func (s *Server) decisionProto(
-	ctx context.Context,
-	decision knowledge.Decision,
-) *agencyv1.Decision {
-	row := decision.Row
-	out := &agencyv1.Decision{
-		Id:           row.ID,
-		TaskId:       row.TaskID,
-		Kind:         row.Kind,
-		ActorId:      actorid.Format(row.ActorID.Int64),
-		ActorRef:     row.ActorRef,
-		Summary:      row.Summary,
-		PayloadJson:  row.PayloadJson,
-		ConceptPaths: decision.ConceptPaths,
-		ProjectSlug:  decision.ProjectSlug,
-		CreatedAt:    timestamppb.New(timeFromMillis(row.CreatedAt)),
+	out := make([]*agencyv1.KnowledgeTag, len(tags))
+	for i, tag := range tags {
+		out[i] = &agencyv1.KnowledgeTag{Tag: tag.Tag, Count: int32(tag.Count)}
 	}
-	if row.ProjectID.Valid {
-		out.ProjectId = row.ProjectID.String
-	}
-	return out
+	return &agencyv1.ListKnowledgeTagsResponse{Tags: out}, nil
 }
 
 func (s *Server) GetMemoryContext(
@@ -361,23 +281,7 @@ func (s *Server) GetMemoryContext(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	layers := make([]*agencyv1.MemoryLayer, 0, len(snapshot.Layers))
-	for _, layer := range snapshot.Layers {
-		layers = append(layers, &agencyv1.MemoryLayer{
-			Name:      layer.Name,
-			Path:      layer.Path,
-			Chars:     int32(layer.Chars),
-			Truncated: layer.Truncated,
-		})
-	}
-	out := &agencyv1.GetMemoryContextResponse{
-		Text:       snapshot.Text,
-		Hash:       snapshot.Hash,
-		SnapshotAt: timestamppb.New(snapshot.SnapshotAt),
-		ProjectId:  snapshot.ProjectID,
-		Layers:     layers,
-	}
-	return out, nil
+	return memoryContextProto(snapshot), nil
 }
 
 func (s *Server) WriteMemory(
@@ -468,7 +372,7 @@ func (s *Server) GetMemoryStatus(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	files := make([]*agencyv1.KnowledgeConcept, 0, len(status.Files))
+	files := make([]*agencyv1.MemoryFile, 0, len(status.Files))
 	for _, file := range status.Files {
 		files = append(files, memoryFileProto(file))
 	}
@@ -479,6 +383,31 @@ func (s *Server) GetMemoryStatus(
 		Files:      files,
 		Context:    memoryContextProto(status.Context),
 	}, nil
+}
+
+func (s *Server) SearchMemory(
+	ctx context.Context,
+	req *agencyv1.SearchMemoryRequest,
+) (*agencyv1.SearchMemoryResponse, error) {
+	actor, ok := caller(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, knowledge.ErrForbidden)
+	}
+	rows, err := s.Knowledge.SearchMemory(ctx, actor, req.Query, int(req.Limit))
+	if err != nil {
+		return nil, mapError(err)
+	}
+	out := make([]*agencyv1.MemoryFile, len(rows))
+	for i, row := range rows {
+		out[i] = memoryFileProto(knowledge.MemoryFile{
+			Path:      row.Path,
+			Body:      row.Body,
+			Title:     row.Title,
+			UpdatedAt: timeFromMillis(row.UpdatedAt),
+			Revision:  row.Revision,
+		})
+	}
+	return &agencyv1.SearchMemoryResponse{Files: out}, nil
 }
 
 func (s *Server) ListAgentMemory(
@@ -497,14 +426,14 @@ func (s *Server) ListAgentMemory(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	out := make([]*agencyv1.KnowledgeConcept, 0, len(files))
+	out := make([]*agencyv1.MemoryFile, 0, len(files))
 	for _, file := range files {
 		summary := memoryFileProto(file)
-		summary.ScopeId = actorid.Format(agentActorID)
+		summary.BodySize = int32(utf8.RuneCountInString(summary.Body))
 		summary.Body = ""
 		out = append(out, summary)
 	}
-	return &agencyv1.ListAgentMemoryResponse{Concepts: out}, nil
+	return &agencyv1.ListAgentMemoryResponse{Files: out}, nil
 }
 
 func (s *Server) GetAgentMemoryFile(
@@ -523,9 +452,7 @@ func (s *Server) GetAgentMemoryFile(
 	if err != nil {
 		return nil, mapError(err)
 	}
-	concept := memoryFileProto(file)
-	concept.ScopeId = actorid.Format(agentActorID)
-	return &agencyv1.GetAgentMemoryFileResponse{Concept: concept}, nil
+	return &agencyv1.GetAgentMemoryFileResponse{File: memoryFileProto(file)}, nil
 }
 
 func (s *Server) agentActor(ctx context.Context, raw string) (ids.ActorID, error) {
@@ -544,104 +471,99 @@ func (s *Server) agentActor(ctx context.Context, raw string) (ids.ActorID, error
 	return 0, knowledge.ErrNotFound
 }
 
-func (s *Server) toProto(
+func (s *Server) bitProto(
 	ctx context.Context,
-	actor knowledge.Actor,
-	view knowledge.ConceptView,
-	full bool,
-) *agencyv1.KnowledgeConcept {
-	c := view.Concept
-	out := &agencyv1.KnowledgeConcept{
-		Id:                 c.ID,
-		Scope:              c.Scope,
-		ScopeId:            c.ScopeID,
-		Path:               c.Path,
-		Type:               c.Type,
-		Title:              c.Title,
-		Description:        c.Description,
-		Resource:           c.Resource,
-		Tags:               view.Tags,
-		BodySize:           int32(utf8.RuneCountInString(c.Body)),
-		Status:             c.Status,
-		GeneratedByActorId: actorid.Format(c.GeneratedByActorID.Int64),
-		GeneratedBy:        c.GeneratedBy,
-		GeneratedAt:        timestamppb.New(timeFromMillis(c.GeneratedAt)),
-		TrustTier:          c.TrustTier,
-		Revision:           c.Revision,
-		Protected:          c.Protected != 0,
-		CreatedAt:          timestamppb.New(timeFromMillis(c.CreatedAt)),
-		UpdatedAt:          timestamppb.New(timeFromMillis(c.UpdatedAt)),
+	view knowledge.BitView,
+) *agencyv1.KnowledgeBit {
+	bit := view.Bit
+	out := &agencyv1.KnowledgeBit{
+		Id:                bit.ID,
+		ProjectId:         projectOf(bit),
+		ProjectSlug:       view.ProjectSlug,
+		Title:             bit.Title,
+		Content:           bit.Content,
+		Tags:              view.Tags,
+		Status:            bit.Status,
+		OriginTaskId:      bit.OriginTaskID,
+		CreatedByActorId:  actorid.Format(ids.ActorID(bit.CreatedByActorID.Int64)),
+		CreatedBy:         bit.CreatedBy,
+		CreatedAt:         timestamppb.New(timeFromMillis(bit.CreatedAt)),
+		UpdatedAt:         timestamppb.New(timeFromMillis(bit.UpdatedAt)),
+		ReviewedByActorId: actorid.Format(ids.ActorID(bit.ReviewedByActorID.Int64)),
+		ReviewedBy:        bit.ReviewedBy,
+		ReviewNote:        bit.ReviewNote,
+		Revision:          bit.Revision,
+		ContentSize:       int32(utf8.RuneCountInString(bit.Content)),
+		SupersededById:    bit.SupersededByID.String,
+		CanEdit:           view.CanEdit,
+		CanReview:         view.CanReview,
+		CanDelete:         view.CanDelete,
 	}
-	if full {
-		out.Body = c.Body
-		out.FrontmatterJson = c.FrontmatterJson
+	if bit.ReviewedAt.Valid {
+		out.ReviewedAt = timestamppb.New(timeFromMillis(bit.ReviewedAt.Int64))
 	}
-	if c.StaleAfter.Valid {
-		out.StaleAfter = timestamppb.New(timeFromMillis(c.StaleAfter.Int64))
-	}
-	ref := knowledge.ScopeRef{Scope: c.Scope, ScopeID: c.ScopeID}
-	if ok, err := s.Knowledge.CanWrite(ctx, actor, ref); err == nil {
-		out.CanEdit = ok
-	}
-
-	projectSlug := ""
-	if len(view.Decisions) > 0 && c.Scope == knowledge.ScopeProject {
-		if slug, err := s.Knowledge.ProjectSlug(ctx, c.ScopeID); err == nil {
-			projectSlug = slug
-		}
-	}
-	out.CanVerify = actor.IsHuman() && out.CanEdit
 	for _, source := range view.Sources {
-		item := &agencyv1.KnowledgeSource{
-			Id:       source.SourceID,
-			Resource: source.Resource,
-			Title:    source.Title,
-			Author:   source.AuthorRef,
-		}
-		if source.UsageCount.Valid {
-			v := source.UsageCount.Int64
-			item.UsageCount = &v
-		}
-		if source.LastModified.Valid {
-			v := source.LastModified.Int64
-			item.LastModified = &v
-		}
-		out.Sources = append(out.Sources, item)
+		out.Sources = append(out.Sources, &agencyv1.KnowledgeSource{
+			Id:                source.ID,
+			Kind:              source.Kind,
+			TaskId:            source.TaskID,
+			MessageId:         source.MessageID,
+			RequestId:         source.RequestID,
+			QuestionId:        source.QuestionID,
+			AnsweredByActorId: actorid.Format(ids.ActorID(source.AnsweredByActorID.Int64)),
+			AnsweredBy:        source.AnsweredBy,
+			PromptId:          source.PromptID.Int64,
+			PromptScope:       source.PromptScope,
+			PromptTargetId:    source.PromptTargetID,
+			Label:             source.Label,
+			Href:              source.Href,
+			At:                timestampOrNil(source.At),
+		})
 	}
 	for _, link := range view.Links {
-		out.Links = append(out.Links, &agencyv1.KnowledgeLink{
-			TargetPath: link.TargetPath,
-			Kind:       link.Kind,
+		out.Links = append(out.Links, linkProto(link))
+	}
+	for _, link := range view.Backlinks {
+		out.Backlinks = append(out.Backlinks, linkProto(link))
+	}
+	for _, rev := range view.Revisions {
+		out.Revisions = append(out.Revisions, &agencyv1.KnowledgeRevision{
+			Id:        rev.ID,
+			Revision:  rev.Revision,
+			Title:     rev.Title,
+			Content:   rev.Content,
+			Tags:      tagsFromJSON(rev.TagsJSON),
+			Status:    rev.Status,
+			ActorId:   actorid.Format(ids.ActorID(rev.ActorID.Int64)),
+			ActorRef:  rev.ActorRef,
+			Summary:   rev.Summary,
+			CreatedAt: timestamppb.New(timeFromMillis(rev.CreatedAt)),
 		})
 	}
-	for _, backlink := range view.Backlinks {
-		out.Backlinks = append(out.Backlinks, &agencyv1.KnowledgeBacklink{
-			Id:      backlink.ID,
-			Scope:   backlink.Scope,
-			ScopeId: backlink.ScopeID,
-			Path:    backlink.Path,
-			Title:   backlink.Title,
+	return out
+}
+
+func linkProto(link store.KnowledgeBitLinkRow) *agencyv1.KnowledgeLink {
+	return &agencyv1.KnowledgeLink{
+		KnowledgeId: link.LinkedID,
+		Title:       link.Title,
+		ProjectId:   link.ProjectID.String,
+		Status:      link.Status,
+		Kind:        link.Kind,
+	}
+}
+
+func sourceInputs(items []*agencyv1.KnowledgeSourceInput) []knowledge.BitSourceInput {
+	out := make([]knowledge.BitSourceInput, 0, len(items))
+	for _, item := range items {
+		out = append(out, knowledge.BitSourceInput{
+			Kind:       item.Kind,
+			TaskID:     item.TaskId,
+			MessageID:  item.MessageId,
+			RequestID:  item.RequestId,
+			QuestionID: item.QuestionId,
+			PromptID:   item.PromptId,
 		})
-	}
-	for _, decision := range view.Decisions {
-		out.Decisions = append(out.Decisions, s.decisionProto(ctx, knowledge.Decision{
-			Row:         decision,
-			ProjectSlug: projectSlug,
-		}))
-	}
-	for _, verification := range view.Verifications {
-		item := &agencyv1.KnowledgeVerification{
-			Id:               verification.ID,
-			ActorId:          actorid.Format(verification.ActorID.Int64),
-			ActorRef:         verification.ActorRef,
-			Note:             verification.Note,
-			CreatedAt:        timestamppb.New(timeFromMillis(verification.CreatedAt)),
-			RevokedByActorId: actorid.Format(verification.RevokedByActorID.Int64),
-		}
-		if verification.RevokedAt.Valid {
-			item.RevokedAt = timestamppb.New(timeFromMillis(verification.RevokedAt.Int64))
-		}
-		out.Verifications = append(out.Verifications, item)
 	}
 	return out
 }
@@ -654,35 +576,9 @@ func caller(ctx context.Context) (knowledge.Actor, bool) {
 	return knowledge.ActorFromIdentity(identity), true
 }
 
-func sourceInputs(items []*agencyv1.KnowledgeSourceInput) []knowledge.SourceInput {
-	out := make([]knowledge.SourceInput, 0, len(items))
-	for _, item := range items {
-		out = append(out, knowledge.SourceInput{
-			ID:        item.Id,
-			Resource:  item.Resource,
-			Title:     item.Title,
-			AuthorRef: item.Author,
-		})
-	}
-	return out
-}
-
-func linkInputs(items []*agencyv1.KnowledgeLinkInput) []knowledge.LinkInput {
-	out := make([]knowledge.LinkInput, 0, len(items))
-	for _, item := range items {
-		out = append(out, knowledge.LinkInput{
-			TargetPath: item.TargetPath,
-			Kind:       item.Kind,
-		})
-	}
-	return out
-}
-
-func memoryFileProto(file knowledge.MemoryFile) *agencyv1.KnowledgeConcept {
-	return &agencyv1.KnowledgeConcept{
-		Scope:     knowledge.ScopeAgent,
+func memoryFileProto(file knowledge.MemoryFile) *agencyv1.MemoryFile {
+	return &agencyv1.MemoryFile{
 		Path:      file.Path,
-		Type:      "Memory",
 		Title:     file.Title,
 		Body:      file.Body,
 		BodySize:  int32(utf8.RuneCountInString(file.Body)),
@@ -712,16 +608,35 @@ func memoryContextProto(snapshot knowledge.MemoryContext) *agencyv1.GetMemoryCon
 	}
 }
 
-func timeFromMillis(ms int64) time.Time {
-	return time.UnixMilli(ms).UTC()
+func projectOf(bit store.KnowledgeBitRow) string {
+	if !bit.ProjectID.Valid {
+		return ""
+	}
+	return bit.ProjectID.String
 }
 
-func timePtr(ts *timestamppb.Timestamp) *time.Time {
-	if ts == nil {
+func tagsFromJSON(raw string) []string {
+	var tags []string
+	_ = jsonUnmarshal(raw, &tags)
+	return tags
+}
+
+func jsonUnmarshal(raw string, out any) error {
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
-	t := ts.AsTime()
-	return &t
+	return json.Unmarshal([]byte(raw), out)
+}
+
+func timestampOrNil(ms sql.NullInt64) *timestamppb.Timestamp {
+	if !ms.Valid {
+		return nil
+	}
+	return timestamppb.New(timeFromMillis(ms.Int64))
+}
+
+func timeFromMillis(ms int64) time.Time {
+	return time.UnixMilli(ms).UTC()
 }
 
 func mapError(err error) *connect.Error {
@@ -730,16 +645,18 @@ func mapError(err error) *connect.Error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, knowledge.ErrForbidden),
 		errors.Is(err, knowledge.ErrAgentMemoryOnly),
-		errors.Is(err, knowledge.ErrVerifyNotAllowed):
+		errors.Is(err, knowledge.ErrReviewNotAllowed):
 		return connect.NewError(connect.CodePermissionDenied, err)
-	case errors.Is(err, knowledge.ErrProtected):
+	case errors.Is(err, knowledge.ErrProtected),
+		errors.Is(err, knowledge.ErrOriginTaskRequired):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, knowledge.ErrConflict),
 		errors.Is(err, store.ErrKnowledgeConflict):
 		return connect.NewError(connect.CodeAborted, err)
 	case errors.Is(err, knowledge.ErrInvalidPath),
 		errors.Is(err, knowledge.ErrInvalidInput),
-		errors.Is(err, knowledge.ErrInvalidScope):
+		errors.Is(err, knowledge.ErrInvalidScope),
+		errors.Is(err, knowledge.ErrSourceInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 

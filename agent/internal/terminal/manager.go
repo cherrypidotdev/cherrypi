@@ -325,9 +325,15 @@ func (m *Manager) CloseAll() {
 	m.byID = map[string]*Terminal{}
 	m.mu.Unlock()
 
+	var wg sync.WaitGroup
 	for _, t := range all {
-		t.close("agent shutting down")
+		wg.Add(1)
+		go func(t *Terminal) {
+			defer wg.Done()
+			t.close("agent shutting down")
+		}(t)
 	}
+	wg.Wait()
 }
 
 func (m *Manager) Recover(ctx context.Context) error {

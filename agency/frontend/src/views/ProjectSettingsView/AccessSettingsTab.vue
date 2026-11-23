@@ -192,14 +192,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               ) {{ $t(PROJECT_ROLE_KEY[role]) }}
           Button(@click="inviteTeam" :disabled="!newTeamId || accessBusy")
             PlusIcon(data-icon="inline-start")
-            span {{ selectedTeamInheritedRole ? "Add" : "Invite" }}
+            span {{ selectedTeamDirect ? "Add" : "Invite" }}
         p.text-muted-foreground.text-xs(
-          v-if="selectedTeamInheritedRole && !selectedTeamUpgrade"
+          v-if="selectedTeamInheritedRole && !selectedTeamUpgrade && !selectedTeamAddsDirectly"
         )
           | {{ $t("projectSettings.teamAlreadyInherited", { role: $t(PROJECT_ROLE_KEY[selectedTeamInheritedRole]), project: selectedTeamInheritedFrom }) }}
           | {{ $t("projectSettings.teams.linksWithoutApproval") }}
-        p.text-muted-foreground.text-xs(v-else-if="selectedTeamUpgrade")
+        p.text-muted-foreground.text-xs(
+          v-else-if="selectedTeamUpgrade && !selectedTeamAddsDirectly"
+        )
           | {{ $t("projectSettings.teams.needsApproval") }}
+        p.text-muted-foreground.text-xs(v-else-if="selectedTeamAddsDirectly")
+          | {{ $t("projectSettings.teams.ownerDirect") }}
         p.text-muted-foreground.text-xs(v-if="!invitableTeams.length")
           | {{ $t("projectSettings.teams.noOtherTeams") }}
 
@@ -304,6 +308,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { currentAccount } from "@/lib/account";
 import {
   PROJECT_ROLE_KEY,
   projectAccessApi,
@@ -391,6 +396,20 @@ const selectedTeamUpgrade = computed(
     !!selectedTeamInheritedRole.value &&
     ROLE_WEIGHT[newTeamRole.value] >
       ROLE_WEIGHT[selectedTeamInheritedRole.value],
+);
+const isAdmin = computed(() => currentAccount.value?.is_admin ?? false);
+
+// or administer the agency, so the team is attached instead of invited.
+const selectedTeamAddsDirectly = computed(
+  () =>
+    isAdmin.value ||
+    allTeams.value.find((team) => String(team.id) === newTeamId.value)?.role ===
+      "owner",
+);
+const selectedTeamDirect = computed(
+  () =>
+    selectedTeamAddsDirectly.value ||
+    (!!selectedTeamInheritedRole.value && !selectedTeamUpgrade.value),
 );
 
 function roleOptionsAbove(inherited?: ProjectRole): ProjectRole[] {
@@ -576,6 +595,7 @@ en:
       inviteAria: "Team to invite"
       linksWithoutApproval: "links it without another approval."
       needsApproval: "A role above the inherited role needs the team owner's approval."
+      ownerDirect: "You own this team or you are an administrator, so it is attached immediately."
       noOtherTeams: "No other teams available to invite."
       inherited: "Inherited teams"
       inheritedHint: "These teams reach this project through an ancestor project. Their access is read-only here; attach the team explicitly above to give it a project-specific role."
@@ -610,6 +630,7 @@ ru:
       inviteAria: "Команда для приглашения"
       linksWithoutApproval: "подключает её без дополнительного одобрения."
       needsApproval: "Роль выше унаследованной требует одобрения владельца команды."
+      ownerDirect: "Вы владеете этой командой или являетесь администратором, поэтому она подключается сразу."
       noOtherTeams: "Нет других команд для приглашения."
       inherited: "Унаследованные команды"
       inheritedHint: "Эти команды получают доступ к проекту через родительский проект. Здесь их доступ только для чтения; подключите команду явно выше, чтобы задать роль в проекте."

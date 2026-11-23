@@ -42,6 +42,8 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/integrations"
 	pluginhost "cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/processlog"
 	"cherrypi.vladfaust.com/agency/internal/projects"
@@ -106,6 +108,18 @@ func main() {
 	appCtx.Variables = variablesService
 	catalog.SetVariables(variablesService)
 
+	library, err := integrations.New(
+		appCtx.Store,
+		os.Getenv("CHERRYPI_SECRET_KEY"),
+		integrationsAuthorizer(appCtx),
+	)
+	if err != nil {
+		log.Fatalf("MCP & Skills Library: %v", err)
+	}
+	appCtx.Integrations = library
+
+	catalog.Integrations = library
+
 	if count, err := appCtx.Accounts.CountUsers(context.Background()); err == nil && count == 0 {
 		log.Print("No user accounts configured: the agency is un-authenticate-able")
 	}
@@ -123,6 +137,7 @@ func main() {
 	serveSpeech(mux, appCtx)
 	serveSites(mux, appCtx)
 	serveAgentConfig(mux, appCtx)
+	serveIntegrations(mux, appCtx)
 	serveTaskHistory(mux, appCtx)
 	serveTerminals(mux, appCtx)
 	serveRealtime(mux, appCtx)
@@ -464,6 +479,136 @@ func taskScope(appCtx *appcontext.AppContext) agentconfig.TaskScope {
 			teams = append(teams, strconv.FormatInt(int64(team), 10))
 		}
 		return task.ProjectID, teams, true
+	}
+}
+
+func serveIntegrations(mux *http.ServeMux, appCtx *appcontext.AppContext) {
+	handler := &integrations.Handler{
+		Service: appCtx.Integrations,
+		Identity: func(r *http.Request) (integrations.Identity, bool) {
+
+			id, ok := auth.IdentityFrom(r.Context())
+			if !ok {
+				return integrations.Identity{}, false
+			}
+			return integrations.Identity{
+				ActorID: int64(id.ActorID),
+				Admin:   id.IsAdmin(),
+			}, true
+		},
+		AgentActorID: func(ctx context.Context) string {
+			id, ok := auth.IdentityFrom(ctx)
+			if !ok || id.Kind != "agent" {
+				return ""
+			}
+			return strconv.FormatInt(int64(id.ActorID), 10)
+		},
+		TaskForAgent: integrations.TaskScope(taskScope(appCtx)),
+		TaskVisible: func(
+			ctx context.Context,
+			identity integrations.Identity,
+			taskID string,
+		) (bool, error) {
+			task, err := appCtx.Tasks.Get(ctx, taskID)
+			if err != nil {
+				return false, nil
+			}
+			if identity.Admin || task.ProjectID == "" {
+				return true, nil
+			}
+			role, ok, err := appCtx.Projects.EffectiveRole(
+				ctx, task.ProjectID, ids.ActorID(identity.ActorID), false,
+			)
+			if err != nil {
+				return false, err
+			}
+			return ok && role != "", nil
+		},
+		Groups: func(ctx context.Context, agentActorID string) ([]string, error) {
+			actorID, err := strconv.ParseInt(agentActorID, 10, 64)
+			if err != nil {
+				return nil, nil
+			}
+			groups, err := appCtx.Store.ListAgentGroupIDsForAgentActor(ctx, actorID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]string, 0, len(groups))
+			for _, group := range groups {
+				out = append(out, strconv.FormatInt(group, 10))
+			}
+			return out, nil
+		},
+	}
+	report := &integrations.Handler{Service: appCtx.Integrations}
+	report.AgentActorID = handler.AgentActorID
+	report.TaskForAgent = handler.TaskForAgent
+	mux.Handle(integrations.AdminPath, handler)
+	mux.Handle(integrations.AdminPath+"/", handler)
+	mux.Handle(
+		integrations.ReportPath,
+		withAgentAuth(appCtx.Accounts, appCtx.Agents, report),
+	)
+
+	proxy := &integrations.Proxy{
+		Service:      appCtx.Integrations,
+		AgentActorID: handler.AgentActorID,
+		TaskScope:    handler.TaskForAgent,
+		Groups:       handler.Groups,
+	}
+	mux.Handle(
+		integrations.ProxyPrefix+"/",
+		withAgentAuth(appCtx.Accounts, appCtx.Agents, proxy),
+	)
+}
+
+func integrationsAuthorizer(appCtx *appcontext.AppContext) *integrations.Authorizer {
+	return &integrations.Authorizer{
+		IsAdmin: func(ctx context.Context, actorID int64) bool {
+			actor, err := appCtx.Accounts.GetActor(ctx, ids.ActorID(actorID))
+			if err != nil {
+				return false
+			}
+			return actor.IsAdmin()
+		},
+		ProjectRole: func(
+			ctx context.Context,
+			projectID string,
+			actorID ids.ActorID,
+			isAdmin bool,
+		) (string, bool, error) {
+			return appCtx.Projects.EffectiveRole(ctx, projectID, actorID, isAdmin)
+		},
+		TeamRole: func(
+			ctx context.Context,
+			teamID int64,
+			actorID ids.ActorID,
+		) (string, bool, error) {
+			memberships, err := appCtx.Teams.MembershipsForActor(ctx, actorID)
+			if err != nil {
+				return "", false, err
+			}
+			for _, team := range memberships {
+				if team.ID == teamID {
+					return team.Role, true, nil
+				}
+			}
+			return "", false, nil
+		},
+		GroupOwner: func(
+			ctx context.Context,
+			groupID int64,
+			actorID ids.ActorID,
+		) (bool, error) {
+			return appCtx.Groups.IsOwner(ctx, groupID, actorID)
+		},
+		AgentOwner: func(
+			ctx context.Context,
+			agentActorID int64,
+			actorID ids.ActorID,
+		) (bool, error) {
+			return appCtx.Agents.IsActorOwner(ctx, ids.ActorID(agentActorID), actorID)
+		},
 	}
 }
 

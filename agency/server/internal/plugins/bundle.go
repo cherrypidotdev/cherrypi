@@ -338,6 +338,66 @@ func PackBundleDir(dir string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return packBundle(bundle.ManifestRaw, bundle.Files)
+}
+
+func PackInstalledVersion(dir string) ([]byte, error) {
+	files := map[string][]byte{}
+	var manifestRaw []byte
+	total := 0
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("bundle entry %q is not a regular file", path)
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(rel)
+		if err := checkBundlePath(name); err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > maxBundleFile {
+			return fmt.Errorf("bundle entry %q is too large", name)
+		}
+		if len(files) >= maxBundleFiles {
+			return errors.New("bundle has too many files")
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		total += len(body)
+		if total > maxBundleBytes {
+			return errors.New("bundle exceeds the size limit")
+		}
+		if name == "plugin.json" {
+			manifestRaw = body
+			return nil
+		}
+		files[name] = body
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(manifestRaw) == 0 {
+		return nil, errors.New("bundle needs plugin.json")
+	}
+	return packBundle(manifestRaw, files)
+}
+
+func packBundle(manifestRaw []byte, files map[string][]byte) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	write := func(name string, body []byte) error {
@@ -348,16 +408,16 @@ func PackBundleDir(dir string) ([]byte, error) {
 		_, err = w.Write(body)
 		return err
 	}
-	if err := write("plugin.json", bundle.ManifestRaw); err != nil {
+	if err := write("plugin.json", manifestRaw); err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(bundle.Files))
-	for name := range bundle.Files {
+	names := make([]string, 0, len(files))
+	for name := range files {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := write(name, bundle.Files[name]); err != nil {
+		if err := write(name, files[name]); err != nil {
 			return nil, err
 		}
 	}

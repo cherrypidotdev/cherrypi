@@ -67,9 +67,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         PlayIcon(data-icon="inline-start")
         span {{ $t("taskConsolePage.requeue") }}
 
-  TaskPrompt.flex-1.overflow-hidden(
+  TaskPrompt.overflow-hidden(
     v-if="task && showPrompt"
     :hint="promptHint"
+    :class="promptCardClass"
     :task="task"
     :editable="canEditPrompt"
     :agent-id="task.assigneeActorId ? agentIdForActor(task.assigneeActorId) : ''"
@@ -79,14 +80,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     @open-attachment="$emit('open-attachment', $event)"
   )
 
-  .flex.flex-1.items-center.justify-center.p-6(
-    v-else-if="task && !isStarted && !canFollowUp"
-  )
-    p.text-muted-foreground.max-w-md.text-center.text-sm
-      | {{ $t("taskConsolePage.noConsole") }}
-
   .relative.flex.min-h-0.flex-1.flex-col.overflow-hidden(
-    v-else-if="task"
+    v-if="task && (isStarted || canFollowUp || hasPendingMessages)"
     @dragenter.prevent="$emit('drag-enter', $event)"
     @dragover.prevent
     @dragleave.prevent="$emit('drag-leave')"
@@ -124,6 +119,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :can-interrupt="steer"
       :state-changes="stateChanges"
       :unsent="unsent"
+      :focus="focus"
       @queue="$emit('queue', $event)"
       @cancel-unsent="$emit('cancel-unsent', $event)"
       @open-attachment="$emit('open-attachment', $event)"
@@ -152,6 +148,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :tab="tab"
       :can-compose="canCompose"
       :can-follow-up="canFollowUp"
+      :prompt-locked="promptLocked"
       :awaiting-answers="awaitingAnswers"
       :steer="steer"
       :sending="sending"
@@ -223,6 +220,8 @@ const props = defineProps<{
   canFollowUp: boolean;
   canCompose: boolean;
 
+  canPrompt: boolean;
+
   canAnswer: boolean;
   prompt: string;
   tab: "write" | "preview";
@@ -235,6 +234,8 @@ const props = defineProps<{
   stopping: boolean;
 
   stateChanges: StateChange[];
+
+  focus?: { messageId?: string; requestId?: string; questionId?: string };
 }>();
 
 defineEmits<{
@@ -309,6 +310,16 @@ const runOver = computed(() => {
 });
 
 const showPrompt = computed(() => !isStarted.value && !isPostponed.value);
+
+const hasPendingMessages = computed(
+  () => (props.task?.pendingMessages.length ?? 0) > 0,
+);
+
+const promptCardClass = computed(() =>
+  props.canFollowUp || hasPendingMessages.value
+    ? "max-h-[45vh] shrink-0"
+    : "flex-1",
+);
 const waitingReason = computed(() =>
   props.task ? taskWaitingReason(props.task) : "",
 );
@@ -323,43 +334,52 @@ const promptHint = computed(() => {
 });
 
 const sessionDeleted = computed(() => Boolean(props.task?.sessionDeletedAt));
-
-const showPendingPrompt = computed(
-  () => !!props.task?.pendingPrompt && isStarted.value,
-);
-
-const stashCancellable = computed(() => {
-  const state = props.task?.state;
-  return state === TaskState.INPUT || state === TaskState.RUNNING;
-});
 const busy = computed(() => !props.task || props.task.runtime?.runInProgress);
 
-const steer = computed(() => props.task?.runtime?.runInProgress === true);
+const promptLocked = computed(() => !!props.task && !props.canPrompt);
 
-const PENDING_PROMPT_KEY = "pending-prompt";
+const steer = computed(() => props.task?.runtime?.runInProgress === true);
 
 const unsent = computed<UnsentMessage[]>(() => {
   const rows: UnsentMessage[] = [];
   const task = props.task;
-  if (task && showPendingPrompt.value) {
-    rows.push({
-      key: PENDING_PROMPT_KEY,
-      queueId: "",
-      text: task.pendingPrompt,
-      attachmentIds: [],
-      sender: pendingPromptSender(task),
+  if (task) {
+    for (const message of task.pendingMessages) {
+      rows.push({
+        key: `pending-${message.id}`,
+        pendingId: message.id,
+        queueId: "",
+        text: message.text,
+        attachmentIds: message.attachments.map((a) => String(a.id)),
 
-      cancellable: stashCancellable.value,
-      busy: props.cancellingUnsent === PENDING_PROMPT_KEY,
-    });
+        messageId: message.id,
+
+        sender: namedSender(
+          message.actorId || message.actorName
+            ? {
+                id: message.actorId,
+                username: message.actorUsername,
+                name: message.actorName || message.actorId,
+                kind: message.actorKind || "user",
+              }
+            : undefined,
+          actorNames.value,
+        ),
+        cancellable: message.canCancel,
+        busy: props.cancellingUnsent === `pending-${message.id}`,
+      });
+    }
   }
   for (const item of props.taskQueue) {
     const key = item.queueId || `queue-${item.id}`;
     rows.push({
       key,
+      pendingId: "",
       queueId: item.queueId,
       text: item.text,
       attachmentIds: item.attachmentIds,
+
+      messageId: item.messageId,
 
       sender: namedSender(item.sender, actorNames.value),
 
@@ -369,16 +389,6 @@ const unsent = computed<UnsentMessage[]>(() => {
   }
   return rows;
 });
-
-function pendingPromptSender(task: Task): UnsentMessage["sender"] {
-  const id = task.pendingPromptActorId;
-  const name = task.pendingPromptActorName;
-  if (!id && !name) return undefined;
-  return namedSender(
-    { id, username: "", name: name || id, kind: "user" },
-    actorNames.value,
-  );
-}
 </script>
 
 <style lang="postcss" scoped></style>
@@ -389,11 +399,9 @@ en:
     failed: "The task failed."
     needsOperator: "Needs an operator:"
     requeue: "Re-queue"
-    noConsole: "This task has no console yet. Its Pi session starts when the scheduler finds an eligible agent with a free slot."
 ru:
   taskConsolePage:
     failed: "Задача завершилась ошибкой."
     needsOperator: "Требуется оператор:"
     requeue: "Поставить в очередь снова"
-    noConsole: "У задачи пока нет консоли. Сеанс Pi запустится, когда планировщик найдёт подходящего агента со свободным слотом."
 </i18n>

@@ -27,6 +27,7 @@ import {
   type Project,
   type Tag,
   type Task,
+  type TaskCompaction,
   type TaskHold,
   type TaskProgress,
   type TaskReference,
@@ -837,6 +838,7 @@ export interface DetailsPreview {
   comments?: ListTaskCommentsResult;
   tools?: { tools: TaskTool[]; recorded: boolean };
   toolCalls?: ListTaskToolCallsResult;
+  compactions?: TaskCompaction[];
 }
 
 export function taskProgressCurrent(

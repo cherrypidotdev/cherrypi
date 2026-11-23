@@ -24,6 +24,7 @@ import { navigateAttention, showAttentionToast } from "@/lib/attentionToast";
 import {
   groupRoute,
   loadPromptRouteTargets,
+  projectRoute,
   promptRoute,
 } from "@/lib/notificationLink";
 import { agency } from "@/lib/sdk";
@@ -123,8 +124,11 @@ function openFromToast(n: AttentionNotification) {
 
       query: n.kind === "task_mention" ? { tab: "comments" } : undefined,
     });
-  } else if (n.kind === "team_invitation") {
+  } else if (n.kind === "team_invitation" || n.kind === "team_added") {
     navigateAttention({ name: "teams" });
+  } else if (n.kind === "project_linked") {
+    const route = projectRoute(n.projectId ?? "");
+    if (route) navigateAttention(route);
   } else if (n.kind.startsWith("agent_group_member")) {
     const route = groupRoute(n, "members");
     if (route) navigateAttention(route);

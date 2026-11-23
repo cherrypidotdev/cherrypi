@@ -29,6 +29,9 @@ type AgencyModels struct {
 	Providers []AgencyProvider `json:"providers"`
 
 	Variables []AgencyVariable `json:"variables"`
+
+	MCP    AgencyMCP    `json:"mcp"`
+	Skills AgencySkills `json:"skills"`
 }
 
 type AgencyVariable struct {
@@ -56,13 +59,16 @@ type AgencyProvider struct {
 }
 
 type AgencyModel struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	Reasoning     bool            `json:"reasoning"`
-	Input         []string        `json:"input"`
-	ContextWindow int             `json:"contextWindow"`
-	MaxTokens     int             `json:"maxTokens"`
-	Cost          AgencyModelCost `json:"cost"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Reasoning     bool     `json:"reasoning"`
+	Input         []string `json:"input"`
+	ContextWindow int      `json:"contextWindow"`
+	MaxTokens     int      `json:"maxTokens"`
+
+	CompactionReserveTokens    int             `json:"compactionReserveTokens"`
+	CompactionKeepRecentTokens int             `json:"compactionKeepRecentTokens"`
+	Cost                       AgencyModelCost `json:"cost"`
 
 	ThinkingLevels []string `json:"thinkingLevels"`
 
@@ -109,7 +115,13 @@ func applyAgencyModels(
 			if strings.TrimSpace(model.ID) == "" {
 				continue
 			}
-			catalog.declareModel(provider.Slug, model.ID, model.ForcePlan)
+			catalog.declareModel(
+				provider.Slug,
+				model.ID,
+				model.ForcePlan,
+				model.CompactionReserveTokens,
+				model.CompactionKeepRecentTokens,
+			)
 		}
 
 		headers := provider.Headers

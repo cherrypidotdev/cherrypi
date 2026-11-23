@@ -28,6 +28,8 @@ export const ATTENTION_EVENTS: AttentionEventOption[] = [
   { kind: "task_completed", labelKey: "attention.event.completed" },
   { kind: "task_cancelled", labelKey: "attention.event.cancelled" },
   { kind: "team_invitation", labelKey: "attention.event.teamInvitation" },
+  { kind: "team_added", labelKey: "attention.event.teamAdded" },
+  { kind: "project_linked", labelKey: "attention.event.projectLinked" },
   { kind: "task_comment", labelKey: "attention.event.comment" },
 
   {

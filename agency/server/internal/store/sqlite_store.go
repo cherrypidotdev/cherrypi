@@ -1337,6 +1337,15 @@ func (s *SqliteStore) TransitionTask(
 			SessionID: p.SessionID,
 			NotBefore: p.NotBefore,
 		}))
+	case TaskRequeueLostSession:
+		return s.q.RequeueLostSessionTask(
+			ctx,
+			sqlitedb.RequeueLostSessionTaskParams(RequeueLostSessionTaskParams{
+				QueuedAt:  p.QueuedAt,
+				UpdatedAt: p.UpdatedAt,
+				ID:        p.ID,
+			}),
+		)
 	case TaskRequeue:
 		return s.q.RequeueTask(ctx, sqlitedb.RequeueTaskParams(RequeueTaskParams{
 			Error:     p.Error,

@@ -22,7 +22,7 @@
 -- name: CreateNotification :one
 INSERT INTO notifications (
   agent_id, task_rowid, kind, severity, title, body, created_at, recipient_actor_id,
-  prompt_scope, prompt_project_id, prompt_team_id, prompt_group_id
+  project_id, prompt_scope, prompt_project_id, prompt_team_id, prompt_group_id
 )
 VALUES (
   sqlc.arg(agent_id),
@@ -33,6 +33,7 @@ VALUES (
   sqlc.arg(body),
   sqlc.arg(created_at),
   sqlc.narg(recipient_actor_id),
+  sqlc.narg(project_id),
   sqlc.arg(prompt_scope),
   sqlc.narg(prompt_project_id),
   sqlc.narg(prompt_team_id),
@@ -85,7 +86,23 @@ WHERE id = (
 RETURNING *;
 
 -- name: ListNotifications :many
-SELECT n.*, t.id AS task_id, t.project_id AS project_id
+SELECT
+  n.id,
+  n.agent_id,
+  n.task_rowid,
+  n.kind,
+  n.severity,
+  n.title,
+  n.body,
+  n.created_at,
+  n.read_at,
+  n.recipient_actor_id,
+  n.prompt_scope,
+  n.prompt_project_id,
+  n.prompt_team_id,
+  n.prompt_group_id,
+  t.id AS task_id,
+  COALESCE(n.project_id, t.project_id) AS project_id
 FROM notifications n
 LEFT JOIN tasks t ON t.rowid = n.task_rowid
 WHERE n.recipient_actor_id IS NULL OR n.recipient_actor_id = sqlc.arg(recipient_actor_id)
@@ -133,5 +150,5 @@ WHERE task_rowid = (SELECT t.rowid FROM tasks t WHERE t.id = sqlc.arg(task_id));
 
 UPDATE notifications SET task_rowid = NULL WHERE task_rowid IN (
   SELECT rowid FROM tasks
-  WHERE project_id = sqlc.arg(project_id) AND assignee_actor_id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(agent_id))
+  WHERE tasks.project_id = sqlc.arg(project_id) AND assignee_actor_id = (SELECT actor_id FROM agents WHERE agents.id = sqlc.arg(agent_id))
 );

@@ -20,8 +20,8 @@ INSERT INTO tasks (
   assignee_actor_id, assignee_pinned, priority, size, state,
   creator_actor_id,
   session_id, org_prompt_id, agent_prompt_id, project_prompt_id, agent_project_prompt_id,
-  error, model_provider, model_id, thinking_level, automated, workspace, auto_title,
-  queued_at, started_at, settled_at, created_at, updated_at
+  error, model_provider, model_id, thinking_level, automated, reaction, workspace,
+  auto_title, queued_at, started_at, settled_at, created_at, updated_at
 ) VALUES (
   sqlc.arg(id),
   sqlc.arg(seq),
@@ -45,6 +45,7 @@ INSERT INTO tasks (
   sqlc.arg(model_id),
   sqlc.arg(thinking_level),
   sqlc.arg(automated),
+  sqlc.arg(reaction),
   sqlc.arg(workspace),
   sqlc.arg(auto_title),
   sqlc.arg(queued_at),
@@ -480,6 +481,17 @@ WHERE id = $3 AND archived_at IS NULL AND state IN ('completed', 'cancelled');
 UPDATE tasks SET archived_at = NULL, updated_at = $1
 WHERE id = $2 AND archived_at IS NOT NULL;
 
+-- name: RequeueLostSessionTask :execrows
+
+
+
+
+
+UPDATE tasks SET state = 'queued', error = '',
+  queued_at = COALESCE(queued_at, sqlc.arg(queued_at)),
+  updated_at = sqlc.arg(updated_at), archived_at = NULL
+WHERE id = sqlc.arg(id) AND state IN ('running', 'input');
+
 -- name: RequeueTaskWithPrompt :execrows
 
 
@@ -786,8 +798,11 @@ WHERE id = sqlc.arg(id);
 
 
 
+
+
 SELECT * FROM tasks
 WHERE origin_task_id = sqlc.arg(origin_task_id)
+  AND reaction = 1
   AND automated = 1
   AND archived_at IS NULL
   AND state NOT IN ('completed', 'cancelled', 'failed')
@@ -800,7 +815,8 @@ ORDER BY rowid DESC;
 
 SELECT t.* FROM tasks t
 JOIN agents g ON g.actor_id = t.assignee_actor_id
-WHERE t.automated = 1
+WHERE t.reaction = 1
+  AND t.automated = 1
   AND t.origin_task_id IS NOT NULL
   AND t.archived_at IS NULL
   AND t.state IN ('waiting', 'queued', 'input', 'settled')

@@ -108,6 +108,8 @@ export const QUESTIONNAIRE_DIALOG_KIND = "cherrypi.questionnaire";
 
 export interface QuestionnaireAnswerReview {
   questionIndex: number;
+
+  questionId?: string;
   question: string;
   kind: "option" | "custom" | "multi";
 
@@ -126,6 +128,7 @@ export interface QuestionnaireAnsweredBy {
 }
 
 export interface QuestionnaireReview {
+  requestId?: string;
   questions: QuestionnaireQuestion[];
   answers: QuestionnaireAnswerReview[];
   cancelled: boolean;
@@ -154,6 +157,7 @@ export function parseQuestionnaireReview(
     return null;
   }
   const raw = details as {
+    requestId?: unknown;
     answers?: unknown;
     cancelled?: unknown;
     unavailable?: unknown;
@@ -173,6 +177,9 @@ export function parseQuestionnaireReview(
     answers.push({
       questionIndex:
         typeof a.questionIndex === "number" ? a.questionIndex : answers.length,
+      ...(typeof a.questionId === "string" && a.questionId
+        ? { questionId: a.questionId }
+        : {}),
       question: a.question,
       kind: a.kind === "custom" || a.kind === "multi" ? a.kind : "option",
       answer: typeof a.answer === "string" ? a.answer : null,
@@ -187,7 +194,10 @@ export function parseQuestionnaireReview(
       ? raw.finalNote
       : undefined;
   const answeredBy = parseAnsweredBy(raw.answeredBy);
+  const requestId =
+    typeof raw.requestId === "string" ? raw.requestId.trim() : "";
   return {
+    ...(requestId ? { requestId } : {}),
     questions: parsed.questions,
     answers,
     cancelled: raw.cancelled === true,
@@ -228,6 +238,7 @@ export function questionnaireAnswersFromReview(
     const notes = answer.notes ?? "";
     if (answer.kind === "custom") {
       return {
+        ...(answer.questionId ? { questionId: answer.questionId } : {}),
         selected: [],
         customSelected: true,
         custom: answer.answer ?? "",
@@ -243,7 +254,13 @@ export function questionnaireAnswersFromReview(
     const selected = labels
       .map((label) => question.options.findIndex((o) => o.label === label))
       .filter((i) => i >= 0);
-    return { selected, customSelected: false, custom: "", notes };
+    return {
+      ...(answer.questionId ? { questionId: answer.questionId } : {}),
+      selected,
+      customSelected: false,
+      custom: "",
+      notes,
+    };
   });
 }
 
@@ -268,6 +285,8 @@ export function parseQuestionnaireDialog(request: {
 }
 
 export interface QuestionnaireAnswer {
+  questionId?: string;
+
   selected: number[];
 
   customSelected: boolean;

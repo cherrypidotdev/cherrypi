@@ -16,6 +16,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/hashicorp/yamux v0.1.2
 	github.com/joho/godotenv v1.5.1
+	github.com/mark3labs/mcp-go v1.5.0
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/sky-valley/pi v1.5.31
@@ -25,14 +26,18 @@ require (
 	github.com/dustin/go-humanize v1.0.1 
 	github.com/ebitengine/purego v0.11.2 
 	github.com/go-ole/go-ole v1.2.6 
+	github.com/google/jsonschema-go v0.4.2 
 	github.com/google/uuid v1.6.0 
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 
 	github.com/mattn/go-isatty v0.0.24 
 	github.com/ncruces/go-strftime v1.0.0 
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec 
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 
+	github.com/spf13/cast v1.7.1 
 	github.com/tklauser/go-sysconf v0.4.0 
 	github.com/tklauser/numcpus v0.12.0 
+	github.com/yosida95/uritemplate/v3 v3.0.2 
 	github.com/yusufpapurcu/wmi v1.2.4 
 	golang.org/x/image v0.41.0 
 	golang.org/x/mod v0.41.0 

@@ -59,3 +59,17 @@ export function sortThinkingLevels(levels: readonly string[]): string[] {
   const declared = new Set(levels);
   return THINKING_LEVELS.filter((level) => declared.has(level));
 }
+
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "XHigh",
+  max: "Max",
+};
+
+export function thinkingLevelLabel(level: string): string {
+  return THINKING_LEVEL_LABELS[level] ?? level;
+}

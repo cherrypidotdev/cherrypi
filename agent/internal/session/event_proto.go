@@ -97,12 +97,14 @@ func TaskEventProto(sessionID string, ev Event) *agentv1.TaskEvent {
 
 		if parsed, ok := ParsePromptEnvelope(ev.Text); ok {
 			message.Body = parsed.Body
+			message.MessageId = parsed.MessageID
 			if parsed.Sender != nil {
 				message.Sender = &agentv1.PromptSender{
-					ActorId:  parsed.Sender.ActorID,
-					Username: parsed.Sender.Username,
-					Name:     parsed.Sender.Name,
-					Kind:     parsed.Sender.Kind,
+					ActorId:   parsed.Sender.ActorID,
+					Username:  parsed.Sender.Username,
+					Name:      parsed.Sender.Name,
+					Kind:      parsed.Sender.Kind,
+					MessageId: parsed.Sender.MessageID,
 				}
 			}
 			for _, attachment := range parsed.Attachments {
@@ -135,6 +137,8 @@ func TaskEventProto(sessionID string, ev Event) *agentv1.TaskEvent {
 			wait.Error = ev.ModelWait.Error
 			wait.Attempt = ev.ModelWait.Attempt
 			wait.Reason = ev.ModelWait.Reason
+			wait.ContextTokensBefore = ev.ModelWait.ContextTokensBefore
+			wait.ContextTokensAfter = ev.ModelWait.ContextTokensAfter
 		}
 		out.Event = &agentv1.TaskEvent_ModelWait{ModelWait: wait}
 	case EventQueue:

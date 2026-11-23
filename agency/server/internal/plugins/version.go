@@ -26,7 +26,7 @@ import (
 
 // either, so the whole line moves to >=0.3.0 <0.4.0.
 
-const APIVersion = "0.3.3"
+const APIVersion = "0.3.4"
 
 type VersionRange struct {
 	alternatives [][]comparator

@@ -286,7 +286,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :disabled="busy"
               ) {{ $t("common.remove") }}
               .grid.gap-2.rounded-md.p-2(
-                class="bg-muted/40 sm:col-span-full sm:grid-cols-4"
+                class="bg-muted/40 sm:col-span-full sm:grid-cols-6"
               )
                 label.flex.flex-col.gap-1
                   span.text-2xs.text-muted-foreground
@@ -327,6 +327,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                     step="0.0001"
                     :model-value="String(entry.model.cost.cacheWrite)"
                     @update:model-value="entry.model.cost.cacheWrite = Number($event) || 0"
+                  )
+                label.flex.flex-col.gap-1(
+                  :title="$t('providerEditor.compactionReserveHint')"
+                )
+                  span.text-2xs.text-muted-foreground
+                    | {{ $t("providerEditor.compactionReserve") }}
+                  Input(
+                    type="number"
+                    min="1"
+                    :model-value="String(entry.model.compactionReserveTokens)"
+                    @update:model-value="entry.model.compactionReserveTokens = Number($event) || 0"
+                    data-test="model-compaction-reserve"
+                  )
+                label.flex.flex-col.gap-1(
+                  :title="$t('providerEditor.compactionKeepRecentHint')"
+                )
+                  span.text-2xs.text-muted-foreground
+                    | {{ $t("providerEditor.compactionKeepRecent") }}
+                  Input(
+                    type="number"
+                    min="1"
+                    :model-value="String(entry.model.compactionKeepRecentTokens)"
+                    @update:model-value="entry.model.compactionKeepRecentTokens = Number($event) || 0"
+                    data-test="model-compaction-keep-recent"
                   )
 
                 .flex.flex-wrap.items-center.gap-1(class="sm:col-span-full")
@@ -593,6 +617,8 @@ function draftModel(model: AgentModel): DraftModel {
     ...model,
     thinkingLevels: sortThinkingLevels(model.thinkingLevels ?? []),
     forcePlan: model.forcePlan ?? false,
+    compactionReserveTokens: model.compactionReserveTokens || 16_384,
+    compactionKeepRecentTokens: model.compactionKeepRecentTokens || 20_000,
   };
 }
 
@@ -929,6 +955,8 @@ function toProviderInput(current: DraftProvider): ProviderInput {
       forcePlan: model.forcePlan,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
+      compactionReserveTokens: model.compactionReserveTokens,
+      compactionKeepRecentTokens: model.compactionKeepRecentTokens,
       cost: { ...model.cost },
       enabled: model.enabled,
     })),
@@ -1052,6 +1080,10 @@ en:
     costCacheRead: "cached input $/1M"
     costCacheWrite: "cache write $/1M"
     costHint: "Prices are per 1M tokens. Fetched models take the provider's own pricing (or the built-in catalog's when the provider omits it); usage is priced with these values, so correct a missing one here."
+    compactionReserve: "compact reserve"
+    compactionReserveHint: "Headroom kept free before automatic compaction: the context compacts after context window minus this value. Default 16,384 tokens."
+    compactionKeepRecent: "keep recent"
+    compactionKeepRecentHint: "How many tokens of the newest transcript a compaction summary leaves intact. Default 20,000 tokens."
     thinkingLevels: "Thinking levels"
     thinkingLevelsEmpty: "None declared; the worker falls back to the built-in catalog."
     thinkingLevelsHint: "The levels this model accepts. A level that is not listed is one the provider rejects, so a task cannot be pinned to it. Fetched from the provider's reasoning efforts."
@@ -1131,6 +1163,10 @@ ru:
     costCacheRead: "кэш-вход $/1M"
     costCacheWrite: "запись кэша $/1M"
     costHint: "Цены указаны за 1M токенов. Полученные модели берут цены провайдера (или встроенного каталога, если провайдер их не прислал); по ним считается стоимость использования, поэтому исправьте пропущенное значение здесь."
+    compactionReserve: "резерв сжатия"
+    compactionReserveHint: "Запас, который остаётся свободным до автоматического сжатия: контекст сжимается после «окно контекста минус это значение». По умолчанию 16 384 токена."
+    compactionKeepRecent: "оставить недавних"
+    compactionKeepRecentHint: "Сколько токенов последней части транскрипта сжатие оставляет нетронутыми. По умолчанию 20 000 токенов."
     thinkingLevels: "Уровни размышления"
     thinkingLevelsEmpty: "Ничего не объявлено; агент возьмёт данные из встроенного каталога."
     thinkingLevelsHint: "Уровни, которые принимает эта модель. Уровень, которого нет в списке, провайдер отвергает, поэтому задачу нельзя закрепить на нём. Заполняется из reasoning efforts провайдера."

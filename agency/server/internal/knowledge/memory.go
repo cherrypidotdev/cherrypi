@@ -265,7 +265,7 @@ func memoryWrite(c store.KnowledgeConcept, actor Actor, now time.Time) store.Kno
 }
 
 func memoryFrontmatter(w store.KnowledgeConceptWrite, ref ScopeRef, path string) string {
-	return renderFrontmatter(w, ref, path, "", nil, nil, nil)
+	return renderFrontmatter(w, ref, path, "")
 }
 
 func toMemoryFile(c store.KnowledgeConcept) MemoryFile {
@@ -737,10 +737,10 @@ func (s *Service) Context(
 	var b strings.Builder
 	b.WriteString("## CherryPi knowledge\n\n")
 	b.WriteString(
-		"The organization and project wiki is the authoritative shared knowledge; agent memory is a lower-priority personal aid. ",
+		"Recorded knowledge bits are the authoritative shared knowledge; agent memory is a lower-priority personal aid. ",
 	)
 	b.WriteString(
-		"Consult the wiki with `wiki_list`, `wiki_read` and `wiki_search`; prefer a verified wiki page over a memory entry when they disagree.\n",
+		"Search with `search_knowledge` or `list_knowledge`, read a bit with `read_knowledge`, and record one with `add_knowledge`; prefer an approved bit over a memory entry when they disagree.\n",
 	)
 
 	layers := make([]MemoryLayer, 0, len(durable)+len(daily))

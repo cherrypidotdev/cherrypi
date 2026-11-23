@@ -110,7 +110,9 @@ func (s *Service) OnEvent(ctx context.Context, taskID string) {
 		AssigneeActorID: t.LeaderActorID,
 		OriginTaskID:    t.ID,
 		Automated:       true,
-		State:           tasks.StateQueued,
+
+		Reaction: true,
+		State:    tasks.StateQueued,
 
 		AutoTitle: false,
 	}); err != nil {
@@ -158,7 +160,7 @@ func (s *Service) OnFinished(
 	t tasks.Task,
 	outcome tasks.FinishOutcome,
 ) {
-	if s.Tasks == nil || !t.Automated || t.OriginTaskID == "" {
+	if s.Tasks == nil || !t.Reaction || t.OriginTaskID == "" {
 		return
 	}
 	switch outcome {

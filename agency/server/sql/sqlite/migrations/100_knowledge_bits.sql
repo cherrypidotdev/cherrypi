@@ -1,0 +1,233 @@
+-- CherryPi: A multi-agent-multi-human self-hosted agency
+-- Copyright (C) 2026 CherryPi authors <cherrypi.dev>
+--
+-- This program is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU Affero General Public License as published
+-- by the Free Software Foundation, either version 3 of the License, or
+-- (at your option) any later version.
+--
+-- This program is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU Affero General Public License for more details.
+--
+-- You should have received a copy of the GNU Affero General Public License
+-- along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+-- +goose Up
+
+-- 096 already sit above a 095 and goose refuses to apply one below their
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE TABLE knowledge_bits (
+  id TEXT PRIMARY KEY,
+  
+  project_id TEXT REFERENCES projects (id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'superseded')),
+  origin_task_id TEXT NOT NULL DEFAULT '',
+  origin_task_rowid INTEGER REFERENCES tasks (rowid) ON DELETE SET NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  superseded_by_id TEXT REFERENCES knowledge_bits (id) ON DELETE SET NULL,
+  created_by_actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  reviewed_by_actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at INTEGER,
+  review_note TEXT NOT NULL DEFAULT '',
+  deleted_at INTEGER
+);
+CREATE INDEX idx_knowledge_bits_project
+  ON knowledge_bits (project_id, status, updated_at DESC);
+CREATE INDEX idx_knowledge_bits_status
+  ON knowledge_bits (status, updated_at DESC, id);
+CREATE INDEX idx_knowledge_bits_origin_task
+  ON knowledge_bits (origin_task_id);
+CREATE INDEX idx_knowledge_bits_author
+  ON knowledge_bits (created_by_actor_id, updated_at DESC);
+
+
+
+CREATE TABLE knowledge_bit_tags (
+  bit_id TEXT NOT NULL REFERENCES knowledge_bits (id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bit_id, tag)
+);
+CREATE INDEX idx_knowledge_bit_tags_tag
+  ON knowledge_bit_tags (tag, bit_id);
+
+
+
+
+
+CREATE TABLE knowledge_bit_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bit_id TEXT NOT NULL REFERENCES knowledge_bits (id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN (
+    'task_prompt', 'follow_up', 'questionnaire', 'system_prompt'
+  )),
+  task_id TEXT NOT NULL DEFAULT '',
+  task_rowid INTEGER REFERENCES tasks (rowid) ON DELETE SET NULL,
+  message_id TEXT NOT NULL DEFAULT '',
+  request_id TEXT NOT NULL DEFAULT '',
+  question_id TEXT NOT NULL DEFAULT '',
+  answered_by_actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  answered_by TEXT NOT NULL DEFAULT '',
+  prompt_id INTEGER REFERENCES prompts (id) ON DELETE SET NULL,
+  prompt_scope TEXT NOT NULL DEFAULT '',
+  prompt_target_id TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  at INTEGER,
+  href TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_knowledge_bit_sources_bit
+  ON knowledge_bit_sources (bit_id, position);
+CREATE INDEX idx_knowledge_bit_sources_task
+  ON knowledge_bit_sources (task_id);
+CREATE INDEX idx_knowledge_bit_sources_prompt
+  ON knowledge_bit_sources (prompt_id);
+
+
+
+CREATE TABLE knowledge_bit_links (
+  bit_id TEXT NOT NULL REFERENCES knowledge_bits (id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES knowledge_bits (id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('related', 'supersedes')),
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bit_id, target_id, kind)
+);
+CREATE INDEX idx_knowledge_bit_links_target
+  ON knowledge_bit_links (target_id, kind);
+
+
+
+CREATE TABLE knowledge_bit_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bit_id TEXT NOT NULL REFERENCES knowledge_bits (id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'pending',
+  actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  actor_ref TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  UNIQUE (bit_id, revision)
+);
+CREATE INDEX idx_knowledge_bit_revisions_bit
+  ON knowledge_bit_revisions (bit_id, revision DESC);
+
+
+
+
+DELETE FROM knowledge_revisions WHERE concept_id IN (
+  SELECT id FROM knowledge_concepts WHERE scope <> 'agent'
+);
+DELETE FROM knowledge_concepts WHERE scope <> 'agent';
+DROP TABLE knowledge_decision_concepts;
+DROP TABLE knowledge_decisions;
+DROP TABLE knowledge_links;
+DROP TABLE knowledge_sources;
+DROP TABLE knowledge_verifications;
+
+-- +goose Down
+DROP TABLE knowledge_bit_revisions;
+DROP TABLE knowledge_bit_links;
+DROP TABLE knowledge_bit_sources;
+DROP TABLE knowledge_bit_tags;
+DROP TABLE knowledge_bits;
+
+
+
+CREATE TABLE knowledge_verifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concept_id TEXT NOT NULL REFERENCES knowledge_concepts (id) ON DELETE CASCADE,
+  actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  actor_ref TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  revoked_by_actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL
+);
+CREATE INDEX idx_knowledge_verifications_concept
+  ON knowledge_verifications (concept_id, created_at DESC);
+
+CREATE TABLE knowledge_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  concept_id TEXT NOT NULL REFERENCES knowledge_concepts (id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL DEFAULT '',
+  resource TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  author_ref TEXT NOT NULL DEFAULT '',
+  usage_count INTEGER,
+  last_modified INTEGER,
+  position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_knowledge_sources_concept
+  ON knowledge_sources (concept_id, position);
+
+CREATE TABLE knowledge_links (
+  concept_id TEXT NOT NULL REFERENCES knowledge_concepts (id) ON DELETE CASCADE,
+  target_path TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'link'
+    CHECK (kind IN ('link', 'source', 'decision')),
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (concept_id, target_path, kind)
+);
+CREATE INDEX idx_knowledge_links_target ON knowledge_links (target_path, kind);
+
+CREATE TABLE knowledge_decisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT REFERENCES projects (id) ON DELETE SET NULL,
+  task_rowid INTEGER REFERENCES tasks (rowid) ON DELETE SET NULL,
+  task_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL CHECK (kind IN (
+    'task_created', 'follow_up', 'question_answered', 'task_settled',
+    'recorded'
+  )),
+  actor_id INTEGER REFERENCES actors (id) ON DELETE SET NULL,
+  actor_ref TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  event_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  UNIQUE (kind, task_id, event_id)
+);
+CREATE INDEX idx_knowledge_decisions_project
+  ON knowledge_decisions (project_id, created_at DESC, id DESC);
+CREATE INDEX idx_knowledge_decisions_task
+  ON knowledge_decisions (task_id, created_at DESC, id DESC);
+CREATE INDEX idx_knowledge_decisions_at
+  ON knowledge_decisions (created_at DESC, id DESC);
+
+CREATE TABLE knowledge_decision_concepts (
+  decision_id INTEGER NOT NULL
+    REFERENCES knowledge_decisions (id) ON DELETE CASCADE,
+  concept_id TEXT NOT NULL
+    REFERENCES knowledge_concepts (id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (decision_id, concept_id)
+);
+CREATE INDEX idx_knowledge_decision_concepts_concept
+  ON knowledge_decision_concepts (concept_id);

@@ -126,6 +126,12 @@ func NewManager(cfg Config, st store.Store) *Manager {
 	if cfg.TitleTimeout <= 0 {
 		cfg.TitleTimeout = titleTimeout
 	}
+	if cfg.RecoverRetryWindow <= 0 {
+		cfg.RecoverRetryWindow = recoverRetryWindow
+	}
+	if cfg.RecoverRetryDelay <= 0 {
+		cfg.RecoverRetryDelay = recoverRetryDelay
+	}
 	return &Manager{
 		cfg:      cfg,
 		store:    st,
@@ -530,6 +536,23 @@ func (m *Manager) Stop(ctx context.Context, id, actor string) error {
 	return nil
 }
 
+func (m *Manager) Compact(ctx context.Context, id string) error {
+	row, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	s := m.get(id)
+	if s == nil {
+		s = m.sessionFor(row)
+	}
+	if err := s.Compact(ctx); err != nil {
+		slog.Info("task compact failed", "session_id", id, "error", err)
+		return err
+	}
+	slog.Info("task compacted", "session_id", id)
+	return nil
+}
+
 func (m *Manager) InterruptToolCall(
 	ctx context.Context,
 	id, toolCallID, actor string,
@@ -543,7 +566,44 @@ func (m *Manager) InterruptToolCall(
 	}
 	s := m.get(id)
 	if s == nil {
-		return ErrToolCallNotRunning
+		if !row.PendingPrompt.Valid || row.PendingPrompt.String == "" {
+			return ErrToolCallNotRunning
+		}
+		_, err := m.sessionFor(row).foldInterruptedRun(ctx)
+		if err != nil {
+			slog.Info("tool call interrupt failed",
+				"session_id", id,
+				"tool_call_id", toolCallID,
+				"error", err,
+			)
+			return err
+		}
+		slog.Info("tool call interrupted an orphaned run",
+			"session_id", id,
+			"tool_call_id", toolCallID,
+			"actor", actor,
+		)
+		return nil
+	}
+	if !s.isRunning() {
+		folded, err := s.foldInterruptedRun(ctx)
+		if err != nil {
+			slog.Info("tool call interrupt failed",
+				"session_id", id,
+				"tool_call_id", toolCallID,
+				"error", err,
+			)
+			return err
+		}
+		if !folded {
+			return ErrToolCallNotRunning
+		}
+		slog.Info("tool call interrupted an orphaned run",
+			"session_id", id,
+			"tool_call_id", toolCallID,
+			"actor", actor,
+		)
+		return nil
 	}
 	if err := s.InterruptToolCall(ctx, toolCallID, actor); err != nil {
 		slog.Info("tool call interrupt failed",
@@ -893,6 +953,9 @@ func (m *Manager) Defaults(ctx context.Context) (SessionConfig, error) {
 	s.catalogFn = func(ctx context.Context) *modelCatalog {
 		return m.modelsRegistry(ctx, "")
 	}
+	s.integrationsFn = func(ctx context.Context) AgencyIntegrations {
+		return m.integrationsFor(ctx, "")
+	}
 	s.probe = true
 	defer s.stopEngine()
 
@@ -960,14 +1023,41 @@ func (m *Manager) Recover(ctx context.Context) error {
 	return nil
 }
 
+const (
+	recoverRetryWindow = 5 * time.Minute
+	recoverRetryDelay  = 2 * time.Second
+	recoverRetryMax    = 30 * time.Second
+)
+
 func (m *Manager) autoContinue(row sqlitedb.Task, s *Session) {
+	pending := row.PendingPrompt.String
+
+	retryCtx, retryCancel := context.WithTimeout(
+		context.Background(),
+		m.cfg.RecoverRetryWindow,
+	)
+	err := m.waitForRuntime(retryCtx, s)
+	retryCancel()
+	if err != nil {
+
+		s.fail(fmt.Sprintf(
+			"the agent restarted and could not resume the run: %v",
+			err,
+		))
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	pending := row.PendingPrompt.String
-
-	if err := s.ensureRunning(ctx); err != nil {
-		log.Printf("[session %s] recover: %v", row.ID, err)
+	current, err := m.store.GetSession(ctx, row.ID)
+	if err != nil {
+		log.Printf("[session %s] recover re-read: %v", row.ID, err)
+		return
+	}
+	if s.isRunning() ||
+		!current.PendingPrompt.Valid ||
+		current.PendingPrompt.String != pending {
 		return
 	}
 
@@ -979,6 +1069,46 @@ func (m *Manager) autoContinue(row sqlitedb.Task, s *Session) {
 	if err := s.prompt(ctx, text); err != nil {
 		log.Printf("[session %s] recover prompt: %v", row.ID, err)
 	}
+}
+
+func (m *Manager) waitForRuntime(ctx context.Context, s *Session) error {
+	delay := m.cfg.RecoverRetryDelay
+	var last, cause error
+	for {
+		last = s.ensureRunning(ctx)
+		if last == nil {
+			return nil
+		}
+
+		if !errors.Is(last, context.Canceled) && !errors.Is(last, context.DeadlineExceeded) {
+			cause = last
+		}
+		if ctx.Err() != nil {
+			return recoveryCause(cause, last)
+		}
+		slog.Warn("recovery start failed; retrying",
+			"session_id", s.ID,
+			"error", last,
+			"retry_in", delay,
+		)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return recoveryCause(cause, last)
+		case <-timer.C:
+		}
+		if delay *= 2; delay > recoverRetryMax {
+			delay = recoverRetryMax
+		}
+	}
+}
+
+func recoveryCause(cause, last error) error {
+	if cause != nil {
+		return cause
+	}
+	return last
 }
 
 func (m *Manager) Shutdown(ctx context.Context) {
@@ -1098,6 +1228,9 @@ func (m *Manager) sessionFor(row sqlitedb.Task) *Session {
 
 	s.refreshFn = func(ctx context.Context) *modelCatalog {
 		return m.modelsRegistryForced(ctx, s.agencyTaskID)
+	}
+	s.integrationsFn = func(ctx context.Context) AgencyIntegrations {
+		return m.integrationsFor(ctx, s.agencyTaskID)
 	}
 	s.appendSystemPrompt = row.AppendSystemPrompt
 	s.loadQueue(row.PendingQueue)

@@ -79,19 +79,19 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { formatBytes } from "@/lib/format";
 import { agency } from "@/lib/sdk";
-import type { KnowledgeConcept } from "@cherrypi/sdk";
+import type { MemoryFile } from "@cherrypi/sdk";
 import { FileTextIcon } from "@lucide/vue";
 import { onMounted, ref, watch } from "vue";
 
 const props = defineProps<{ agentId: string }>();
 
-const files = ref<KnowledgeConcept[]>([]);
-const selected = ref<KnowledgeConcept>();
+const files = ref<MemoryFile[]>([]);
+const selected = ref<MemoryFile>();
 const loading = ref(false);
 const error = ref("");
 const forbidden = ref(false);
 
-async function select(file: KnowledgeConcept) {
+async function select(file: MemoryFile) {
   try {
     selected.value = await agency.getAgentMemoryFile(props.agentId, file.path);
   } catch (err) {
@@ -132,7 +132,7 @@ onMounted(() => void load());
 en:
   agentMemory:
     title: "Agent memory"
-    hint: "The agent's private working memory. It is read-only here: only the agent writes it, and it ranks below the wiki in its context."
+    hint: "The agent's private working memory. It is read-only here: only the agent writes it, and it ranks below approved knowledge in its context."
     refresh: "Refresh"
     private: "This memory is private to the agent. Its owners and administrators may inspect it; nobody else can."
     files: "Files"
@@ -142,7 +142,7 @@ en:
 ru:
   agentMemory:
     title: "Память агента"
-    hint: "Приватная рабочая память агента. Здесь она только для чтения: писать может лишь сам агент, и в его контексте она ниже вики."
+    hint: "Приватная рабочая память агента. Здесь она только для чтения: писать может лишь сам агент, и в его контексте она ниже подтверждённых знаний."
     refresh: "Обновить"
     private: "Эта память приватна для агента. Её владельцы и администраторы могут просматривать её; больше никто."
     files: "Файлы"

@@ -100,6 +100,36 @@ write-only. The agency redacts it in responses, and submitting an empty value
 keeps the stored one.
 :::
 
+### Model and thinking pickers
+
+`"format": "model"` renders an agency model picker: the options are the enabled
+providers and models whose grants cover the edited scope, and the value is
+`provider/modelId` (or empty for "inherit").
+
+A thinking level is its own property, bound to the model property with
+`x-thinking-of`:
+
+```json
+"model": { "type": "string", "format": "model", "title": "Model for review tasks" },
+"thinking_level": {
+  "type": "string",
+  "title": "Thinking level",
+  "x-thinking-of": "model",
+  "enum": ["", "off", "low", "medium", "high"],
+  "enumNames": ["Agent default", "Off", "Low", "Medium", "High"]
+}
+```
+
+The picker offers exactly the levels the selected model accepts, from the
+agency catalog. It is disabled until a model is selected and for a model whose
+levels the catalog does not declare. The empty value is the default entry
+(labeled by the `enumNames` entry for `""`, or "Use default"); changing the
+model drops a level the new model does not accept, and clearing the model drops
+it too, because the empty selection inherits a level this form cannot see. The
+annotation must name a
+`format: model` field in the same surface, or the install fails. A bundle that
+uses it declares `>=0.3.4 <0.4.0`; an older agency renders the static enum.
+
 ### Setup help
 
 A surface may carry a setup guide next to its fields. It renders as a
@@ -649,19 +679,39 @@ cherrypi.release_task(task_id, "ci", {
 
 ## Storage and restarts
 
-A plugin lives in two places, and both have to survive a restart:
+A plugin is split across two stores, and which one holds what follows the agency
+database's dialect:
 
 - the **registry** — id, version, manifest, enabled flag, settings, actor, and
   Activity Log — is in the agency database;
 - the **bundle** — `plugin.json`, the Lua sources, and migrations — is on disk
-  under `$CHERRYPI_AGENCY_DIR/plugins/<id>/versions/<version>/`, and the
-  plugin's own database under `$CHERRYPI_AGENCY_DIR/plugins/<id>/data/`.
-  `CHERRYPI_PLUGIN_DATA_DIR` moves that root.
+  under `plugins/<id>/versions/<version>/` in the plugin data directory,
+  `CHERRYPI_PLUGIN_DATA_DIR` (default `$CHERRYPI_AGENCY_DIR`);
+- the plugin's **own database** is beside it, under `plugins/<id>/data/`, on a
+  SQLite agency, and in a dedicated PostgreSQL database (or schema) otherwise.
 
-Persist `$CHERRYPI_AGENCY_DIR` (or `CHERRYPI_PLUGIN_DATA_DIR`) across
-redeploys and container recreations, the same way you persist the SQLite file.
-A PostgreSQL agency still keeps plugin code on disk: persisting only the
-database keeps the registry rows while losing the bundles they point at.
+`CHERRYPI_PLUGIN_DATA_DIR` moves the on-disk root; when it is set, that
+directory — not `$CHERRYPI_AGENCY_DIR` — is where the bundles are extracted.
+
+**PostgreSQL.** The plugin databases are on the server, so losing the data
+volume would leave the registry rows naming code that is not there. The uploaded
+archive is kept too, in `plugin_bundles`: boot rebuilds a missing
+`versions/<version>/` from it, installs from before the table are backfilled
+from the directory, and a plugin the agency disabled comes back once its bundle
+is available again.
+
+**SQLite.** By default the registry is a file
+(`$CHERRYPI_AGENCY_DIR/agency.sqlite3`) beside the extracted bundles, so one
+directory already holds the row and the code together and the archive is not
+copied into the database. `CHERRYPI_PLUGIN_DATA_DIR` moves the bundles out of
+that directory, and then both roots have to be preserved.
+
+Preserve that root as a whole — `$CHERRYPI_AGENCY_DIR`, or
+`CHERRYPI_PLUGIN_DATA_DIR` when it moves the bundles elsewhere. Copying only
+`agency.sqlite3`, or preserving `$CHERRYPI_AGENCY_DIR` while
+`CHERRYPI_PLUGIN_DATA_DIR` points outside it, keeps the registry rows while
+losing the bundles and the plugin databases, with no archive to rebuild them
+from.
 
 The agency logs the directory it resolved at startup:
 
@@ -670,16 +720,18 @@ The agency logs the directory it resolved at startup:
 [plugins] data dir /srv/plugins (CHERRYPI_PLUGIN_DATA_DIR)
 ```
 
-Compare it with the volume your deployment mounts. The two stores diverge
-whenever the **install** ran somewhere other than the preserved root — a pod or
-job whose filesystem was not the volume, a release that predated the volume
-mount, or a `HOME` that resolves the default directory outside it. Nothing
-looks wrong until the next restart re-reads the registry.
+Compare it with the volume your deployment mounts: on PostgreSQL the stores
+diverge whenever the **install** ran somewhere other than the preserved root — a
+pod or job whose filesystem was not the volume, a release that predated the
+volume mount, or a `HOME` that resolves the default directory outside it.
 
-When the code is gone, the agency disables the plugin and records the reason on
-its page instead of leaving it green-but-dead — every route under
-`/plugins/<id>/` answers `404` until the bundle is reinstalled and the plugin
-enabled again.
+A plugin whose code is unavailable and whose archive the registry does not keep
+cannot be rebuilt: the agency disables it and records the reason on its page
+instead of leaving it green-but-dead, and every route under `/plugins/<id>/`
+answers `404` until the bundle is reinstalled. A successful install clears the
+recorded failure and re-enables the plugin, and so does a later boot that finds
+the bundle again. Plugin data is separate: a SQLite plugin whose `data/`
+directory was lost starts with an empty database.
 
 ## Runtime and security
 

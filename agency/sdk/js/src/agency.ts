@@ -15,7 +15,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { create, fromJson } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   createClient,
   type Client,
@@ -45,6 +44,7 @@ import {
   type Tag,
   type Task,
   type TaskComment,
+  type TaskCompaction,
   type TaskTool,
   type TaskToolCallDetail,
 } from "./gen/buf/agency/v1/task_pb.js";
@@ -143,9 +143,9 @@ import {
 import { SiteService, type Site } from "./gen/buf/agency/v1/sites_pb.js";
 import {
   KnowledgeService,
-  type Decision,
-  type KnowledgeConcept,
+  type KnowledgeBit,
   type KnowledgeRevision,
+  type MemoryFile,
 } from "./gen/buf/agency/v1/knowledge_pb.js";
 import type {
   AgentHealthSample,
@@ -222,11 +222,11 @@ import {
   type TaskTemplateContentInput,
   type TaskTemplateValidationResult,
   type WatchTaskOptions,
-  type ListDecisionsFilter,
-  type RecordDecisionInput,
-  type ListKnowledgeConceptsFilter,
-  type CreateKnowledgeConceptInput,
-  type UpdateKnowledgeConceptInput,
+  type AddKnowledgeInput,
+  type KnowledgeSourceRef,
+  type KnowledgeTagCount,
+  type ListKnowledgeFilter,
+  type UpdateKnowledgeInput,
 } from "./common.js";
 
 export type { Agent, AgentDefaults, AgentLog, AgentToken };
@@ -2237,7 +2237,7 @@ export class AgencyClient {
     id: string,
     prompt: string,
     options?: AddToTaskOptions,
-  ): Promise<string> {
+  ): Promise<{ messageId: string; queued: boolean }> {
     const res = await this.tasks.addToTask(
       {
         id,
@@ -2247,7 +2247,7 @@ export class AgencyClient {
       },
       options,
     );
-    return res.messageId;
+    return { messageId: res.messageId, queued: res.queued };
   }
 
   async uploadAttachment(
@@ -2702,6 +2702,14 @@ export class AgencyClient {
     return { calls: res.calls, total: res.total, names: res.names };
   }
 
+  async listTaskCompactions(
+    taskId: string,
+    options?: CallOptions,
+  ): Promise<TaskCompaction[]> {
+    const res = await this.tasks.listTaskCompactions({ taskId }, options);
+    return res.compactions;
+  }
+
   async listTaskTools(
     taskId: string,
     options?: CallOptions,
@@ -2790,8 +2798,24 @@ export class AgencyClient {
     await this.tasks.removeTaskQueuedMessage({ id, queueId }, options);
   }
 
+  async removeTaskPendingMessage(
+    id: string,
+    messageId: string,
+    options?: CallOptions,
+  ): Promise<Task> {
+    const res = await this.tasks.removeTaskPendingMessage(
+      { id, messageId },
+      options,
+    );
+    return res.task!;
+  }
+
   async restartTaskSession(id: string, options?: CallOptions): Promise<void> {
     await this.tasks.restartTaskSession({ id }, options);
+  }
+
+  async compactTaskSession(id: string, options?: CallOptions): Promise<void> {
+    await this.tasks.compactTask({ id }, options);
   }
 
   async listTags(
@@ -3347,231 +3371,180 @@ export class AgencyClient {
     return { secretsEnabled: res.secretsEnabled };
   }
 
-  async listConcepts(
-    filter: ListKnowledgeConceptsFilter,
+  async listKnowledge(
+    filter: ListKnowledgeFilter = {},
     options?: CallOptions,
-  ): Promise<KnowledgeConcept[]> {
-    const res = await this.knowledge.listConcepts(
+  ): Promise<KnowledgeBit[]> {
+    const res = await this.knowledge.listKnowledge(
       {
-        scope: filter.scope,
-        scopeId: filter.scopeId ?? "",
-        query: filter.query ?? "",
-        pathPrefix: filter.pathPrefix ?? "",
-        status: filter.status ?? "",
+        scope: filter.scope ?? "",
+        projectId: filter.projectId ?? "",
         tag: filter.tag ?? "",
-        limit: filter.limit ?? 100,
+        status: filter.status ?? "",
+        query: filter.query ?? "",
+        taskId: filter.taskId ?? "",
+        authorActorId: filter.authorActorId ?? "",
+        limit: filter.limit ?? 50,
+        offset: filter.offset ?? 0,
       },
       options,
     );
-    return res.concepts;
+    return res.bits;
   }
 
-  async getConcept(
-    scope: string,
-    scopeId: string,
-    path: string,
-    options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
-    const res = await this.knowledge.getConcept(
-      { scope, scopeId, path },
-      options,
-    );
-    return res.concept!;
+  async getKnowledge(id: string, options?: CallOptions): Promise<KnowledgeBit> {
+    const res = await this.knowledge.getKnowledge({ id }, options);
+    return res.bit!;
   }
 
-  async createConcept(
-    input: CreateKnowledgeConceptInput,
+  async addKnowledge(
+    input: AddKnowledgeInput,
     options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
-    const res = await this.knowledge.createConcept(
+  ): Promise<KnowledgeBit> {
+    const res = await this.knowledge.addKnowledge(
       {
-        scope: input.scope,
-        scopeId: input.scopeId ?? "",
-        path: input.path,
-        type: input.type ?? "",
-        title: input.title,
-        description: input.description ?? "",
-        resource: input.resource ?? "",
-        body: input.body ?? "",
-        status: input.status ?? "",
+        projectId: input.projectId,
+        title: input.title ?? "",
+        content: input.content,
         tags: input.tags ?? [],
-        staleAfter: input.staleAfter
-          ? timestampFromDate(input.staleAfter)
-          : undefined,
-        extraFrontmatterJson: input.extraFrontmatterJson ?? "",
-        sources: input.sources ?? [],
-        links: input.links ?? [],
-        summary: input.summary ?? "",
-        decisionIds: (input.decisionIds ?? []).map((id) => BigInt(id)),
+        sources: knowledgeSources(input.sources),
+        relatedIds: input.relatedIds ?? [],
+        supersedesIds: input.supersedesIds ?? [],
+        originTaskId: input.originTaskId ?? "",
       },
       options,
     );
-    return res.concept!;
+    return res.bit!;
   }
 
-  async updateConcept(
-    input: UpdateKnowledgeConceptInput,
+  async updateKnowledge(
+    input: UpdateKnowledgeInput,
     options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
-    const res = await this.knowledge.updateConcept(
+  ): Promise<KnowledgeBit> {
+    const res = await this.knowledge.updateKnowledge(
       {
-        scope: input.scope,
-        scopeId: input.scopeId ?? "",
-        path: input.path,
-        baseRevision: input.baseRevision ?? 0n,
-        newPath: input.newPath,
-        type: input.type,
+        id: input.id,
+        baseRevision: BigInt(input.baseRevision ?? 0),
         title: input.title,
-        description: input.description,
-        resource: input.resource,
-        body: input.body,
-        status: input.status,
+        content: input.content,
         tags: input.tags ?? [],
-        replaceTags: input.replaceTags ?? false,
-        staleAfter: input.staleAfter
-          ? timestampFromDate(input.staleAfter)
-          : undefined,
-        clearStaleAfter: input.clearStaleAfter ?? false,
-        extraFrontmatterJson: input.extraFrontmatterJson,
-        sources: input.sources ?? [],
-        replaceSources: input.replaceSources ?? false,
-        links: input.links ?? [],
-        replaceLinks: input.replaceLinks ?? false,
+        replaceTags: input.tags !== undefined,
+        sources: knowledgeSources(input.sources),
+        replaceSources: input.sources !== undefined,
+        relatedIds: input.relatedIds ?? [],
+        replaceRelated: input.relatedIds !== undefined,
+        supersedesIds: input.supersedesIds ?? [],
+        replaceSupersedes: input.supersedesIds !== undefined,
         summary: input.summary ?? "",
-        decisionIds: (input.decisionIds ?? []).map((id) => BigInt(id)),
-        replaceDecisions: input.replaceDecisions ?? false,
       },
       options,
     );
-    return res.concept!;
+    return res.bit!;
   }
 
-  async deleteConcept(
-    scope: string,
-    scopeId: string,
-    path: string,
-    baseRevision: number | bigint = 0,
-    options?: CallOptions,
-  ): Promise<void> {
-    await this.knowledge.deleteConcept(
-      { scope, scopeId, path, baseRevision: BigInt(baseRevision) },
-      options,
-    );
-  }
-
-  async listConceptRevisions(
-    scope: string,
-    scopeId: string,
-    path: string,
-    options?: CallOptions,
-  ): Promise<KnowledgeRevision[]> {
-    const res = await this.knowledge.listRevisions(
-      { scope, scopeId, path },
-      options,
-    );
-    return res.revisions;
-  }
-
-  async verifyConcept(
-    scope: string,
-    scopeId: string,
-    path: string,
+  async approveKnowledge(
+    id: string,
     note = "",
     options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
-    const res = await this.knowledge.verifyConcept(
-      { scope, scopeId, path, note },
-      options,
-    );
-    return res.concept!;
+  ): Promise<KnowledgeBit> {
+    const res = await this.knowledge.approveKnowledge({ id, note }, options);
+    return res.bit!;
   }
 
-  async revokeVerification(
-    scope: string,
-    scopeId: string,
-    path: string,
-    verificationId: bigint,
+  async rejectKnowledge(
+    id: string,
+    note = "",
     options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
-    const res = await this.knowledge.revokeVerification(
-      { scope, scopeId, path, verificationId },
-      options,
-    );
-    return res.concept!;
+  ): Promise<KnowledgeBit> {
+    const res = await this.knowledge.rejectKnowledge({ id, note }, options);
+    return res.bit!;
+  }
+
+  async deleteKnowledge(id: string, options?: CallOptions): Promise<void> {
+    await this.knowledge.deleteKnowledge({ id }, options);
+  }
+
+  async listKnowledgeRevisions(
+    id: string,
+    options?: CallOptions,
+  ): Promise<KnowledgeRevision[]> {
+    const res = await this.knowledge.listKnowledgeRevisions({ id }, options);
+    return res.revisions;
   }
 
   async searchKnowledge(
     query: string,
-    filter?: { scope?: string; scopeId?: string; limit?: number },
+    filter?: {
+      scope?: string;
+      projectId?: string;
+      tag?: string;
+      status?: string;
+      limit?: number;
+    },
     options?: CallOptions,
-  ): Promise<KnowledgeConcept[]> {
+  ): Promise<KnowledgeBit[]> {
     const res = await this.knowledge.searchKnowledge(
       {
         query,
         scope: filter?.scope ?? "",
-        scopeId: filter?.scopeId ?? "",
+        projectId: filter?.projectId ?? "",
+        tag: filter?.tag ?? "",
+        status: filter?.status ?? "",
         limit: filter?.limit ?? 50,
       },
       options,
     );
-    return res.concepts;
+    return res.bits;
   }
 
-  async listDecisions(
-    filter: ListDecisionsFilter,
+  async listKnowledgeTags(
+    filter: { projectId?: string; scope?: string } = {},
     options?: CallOptions,
-  ): Promise<Decision[]> {
-    const res = await this.knowledge.listDecisions(
-      {
-        scope: filter.scope ?? "",
-        scopeId: filter.scopeId ?? "",
-        taskId: filter.taskId ?? "",
-        kind: filter.kind ?? "",
-        limit: filter.limit ?? 100,
-        beforeId: BigInt(filter.beforeId ?? 0),
-      },
+  ): Promise<KnowledgeTagCount[]> {
+    const res = await this.knowledge.listKnowledgeTags(
+      { projectId: filter.projectId ?? "", scope: filter.scope ?? "" },
       options,
     );
-    return res.decisions;
-  }
-
-  async recordDecision(
-    input: RecordDecisionInput,
-    options?: CallOptions,
-  ): Promise<Decision> {
-    const res = await this.knowledge.recordDecision(
-      {
-        scope: input.scope ?? "",
-        scopeId: input.scopeId ?? "",
-        taskId: input.taskId ?? "",
-        summary: input.summary,
-        rationale: input.rationale ?? "",
-        conceptPaths: input.conceptPaths ?? [],
-      },
-      options,
-    );
-    return res.decision!;
+    return res.tags.map((tag) => ({ tag: tag.tag, count: tag.count }));
   }
 
   async listAgentMemory(
     agentId: string,
     options?: CallOptions,
-  ): Promise<KnowledgeConcept[]> {
+  ): Promise<MemoryFile[]> {
     const res = await this.knowledge.listAgentMemory({ agentId }, options);
-    return res.concepts;
+    return res.files;
   }
 
   async getAgentMemoryFile(
     agentId: string,
     path: string,
     options?: CallOptions,
-  ): Promise<KnowledgeConcept> {
+  ): Promise<MemoryFile> {
     const res = await this.knowledge.getAgentMemoryFile(
       { agentId, path },
       options,
     );
-    return res.concept!;
+    return res.file!;
   }
+}
+
+function knowledgeSources(sources?: KnowledgeSourceRef[]): {
+  kind: string;
+  taskId: string;
+  messageId: string;
+  requestId: string;
+  questionId: string;
+  promptId: bigint;
+}[] {
+  return (sources ?? []).map((source) => ({
+    kind: source.kind,
+    taskId: source.taskId ?? "",
+    messageId: source.messageId ?? "",
+    requestId: source.requestId ?? "",
+    questionId: source.questionId ?? "",
+    promptId: BigInt(source.promptId ?? 0),
+  }));
 }
 
 function realtimeKindName(event: RealtimeEventPb): RealtimeKind | undefined {

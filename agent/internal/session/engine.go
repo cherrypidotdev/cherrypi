@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -40,6 +41,10 @@ type engine struct {
 	sess *coding.Session
 
 	compaction *coding.CompactionSettings
+
+	manualCompaction atomic.Bool
+
+	queuedCompaction atomic.Bool
 
 	tokensMu      sync.Mutex
 	tokens        int
@@ -63,20 +68,49 @@ type modelCatalog struct {
 
 	forcePlan map[string]bool
 
+	compaction map[string]modelCompaction
+
 	variables []AgencyVariable
 }
 
-func (c *modelCatalog) declareModel(provider, model string, forcePlan bool) {
+type modelCompaction struct {
+	reserveTokens    int
+	keepRecentTokens int
+}
+
+func (c *modelCatalog) declareModel(
+	provider, model string,
+	forcePlan bool,
+	reserveTokens, keepRecentTokens int,
+) {
+	key := provider + "/" + model
 	if c.declared == nil {
 		c.declared = map[string]bool{}
 	}
-	c.declared[provider+"/"+model] = true
+	c.declared[key] = true
 	if forcePlan {
 		if c.forcePlan == nil {
 			c.forcePlan = map[string]bool{}
 		}
-		c.forcePlan[provider+"/"+model] = true
+		c.forcePlan[key] = true
 	}
+	if reserveTokens > 0 || keepRecentTokens > 0 {
+		if c.compaction == nil {
+			c.compaction = map[string]modelCompaction{}
+		}
+		c.compaction[key] = modelCompaction{
+			reserveTokens:    reserveTokens,
+			keepRecentTokens: keepRecentTokens,
+		}
+	}
+}
+
+func (c *modelCatalog) compactionFor(model *ai.Model) (reserveTokens, keepRecentTokens int) {
+	if c == nil || model == nil || c.compaction == nil {
+		return 0, 0
+	}
+	settings := c.compaction[string(model.Provider)+"/"+model.ID]
+	return settings.reserveTokens, settings.keepRecentTokens
 }
 
 func (c *modelCatalog) forcesPlan(model *ai.Model) bool {
@@ -299,9 +333,18 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 		)
 	}
 
-	tools := s.tools()
+	integrations := s.integrations(ctx)
+	mcpTools, skillPrompt, integrationReport := s.startIntegrations(ctx, integrations)
+	if len(mcpTools) > 0 {
+		slog.Info("mcp servers connected",
+			"session_id", s.ID,
+			"tools", len(mcpTools),
+		)
+	}
 
-	systemPrompt := s.appendSystemPrompt
+	tools := append(s.tools(), mcpTools...)
+
+	systemPrompt := appendPromptBlock(s.appendSystemPrompt, skillPrompt)
 	memoryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	if snapshot, err := s.memoryContext(memoryCtx); err == nil && snapshot != "" {
 		systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + snapshot)
@@ -327,13 +370,8 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 
 		opts.Models = catalog.models
 	}
-	var compaction *coding.CompactionSettings
-	if s.compactionEnabled() {
-		compaction = coding.DefaultCompactionSettings()
-		if s.cfg.CompactionSettings != nil {
-			settings := *s.cfg.CompactionSettings
-			compaction = &settings
-		}
+	compaction := s.compactionSettings(catalog, model)
+	if compaction != nil {
 		opts.Compaction = compaction
 	}
 
@@ -363,9 +401,25 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 		messages []agent.AgentMessage,
 	) []agent.AgentMessage {
 		view, _, trustedFrom := eng.modelView()
-		compacting := eng.needsCompaction(view, trustedFrom)
+		manual := eng.manualCompaction.Load()
+		queued := eng.queuedCompaction.Swap(false) && eng.compaction != nil
+		reason := "threshold"
+		if manual || queued {
+			reason = "manual"
+		}
+		if queued {
+
+			restoreProbe := eng.probeSummaries(&compactionProbe{})
+			defer restoreProbe()
+			forced := *eng.compaction
+			forced.ReserveTokens = max(forced.ReserveTokens, eng.sess.Model.ContextWindow)
+			eng.sess.EnableCompaction(forced)
+			defer eng.sess.EnableCompaction(*eng.compaction)
+		}
+		compacting := manual || queued || eng.needsCompaction(view, trustedFrom)
+		beforeTokens := estimateViewTokens(view, trustedFrom)
 		if compacting {
-			s.beginCompaction(time.Now())
+			s.beginCompaction(time.Now(), reason, beforeTokens)
 		}
 		transformed := messages
 		if previousTransform != nil {
@@ -373,7 +427,8 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 		}
 		eng.observeProjection(messages, transformed)
 		if compacting {
-			s.finishCompaction(time.Now())
+
+			s.finishCompaction(time.Now(), reason, !manual, estimateContextTokens(eng))
 		}
 		return transformed
 	}
@@ -392,6 +447,7 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 	s.mu.Unlock()
 
 	go s.syncLoop(syncCtx)
+	s.reportIntegrations(ctx, integrationReport, integrations.Revision)
 
 	slog.Info("pi session started",
 		"session_id", s.ID,
@@ -417,6 +473,8 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 func (s *Session) stopEngine() {
 
 	s.closeThinking("")
+
+	s.closeIntegrations()
 
 	if s.stateEnabled() || s.eventsEnabled() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -960,6 +1018,28 @@ func (s *Session) compactionEnabled() bool {
 	return *s.cfg.Compaction
 }
 
+func (s *Session) compactionSettings(
+	catalog *modelCatalog,
+	model *ai.Model,
+) *coding.CompactionSettings {
+	if !s.compactionEnabled() {
+		return nil
+	}
+	if s.cfg.CompactionSettings != nil {
+		settings := *s.cfg.CompactionSettings
+		return &settings
+	}
+	settings := coding.DefaultCompactionSettings()
+	reserve, keepRecent := catalog.compactionFor(model)
+	if reserve > 0 {
+		settings.ReserveTokens = reserve
+	}
+	if keepRecent > 0 {
+		settings.KeepRecentTokens = keepRecent
+	}
+	return settings
+}
+
 func encodeBase64(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
@@ -1165,4 +1245,32 @@ func (s *Session) limitToolImages(
 		return nil
 	}
 	return &agent.AfterToolCallResult{Content: kept, HasContent: true}
+}
+
+func (m *Manager) integrationsFor(
+	ctx context.Context,
+	taskID string,
+) AgencyIntegrations {
+	m.modelsRegistry(ctx, taskID)
+	m.catalogMu.Lock()
+	defer m.catalogMu.Unlock()
+	entry := m.catalogs[taskID]
+	if entry == nil {
+		return AgencyIntegrations{}
+	}
+	return AgencyIntegrations{
+		Revision: entry.declared.Revision,
+		MCP:      entry.declared.MCP,
+		Skills:   entry.declared.Skills,
+	}
+}
+
+func appendPromptBlock(prompt, block string) string {
+	if strings.TrimSpace(block) == "" {
+		return prompt
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return block
+	}
+	return prompt + "\n\n" + block
 }

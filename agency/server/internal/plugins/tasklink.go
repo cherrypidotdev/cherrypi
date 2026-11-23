@@ -136,31 +136,13 @@ func (s *Service) deliverFollowUp(
 	if s.FollowUp != nil {
 		return s.FollowUp(ctx, t, text, actorID, force)
 	}
-	switch t.State {
-	case tasks.StateSettled, tasks.StateFailed,
-		tasks.StateCompleted, tasks.StateCancelled:
-		_, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, text, actorID)
-		return err
-	case tasks.StateQueued, tasks.StateWaiting:
-		if force {
-			woken, err := s.Tasks.ForceWake(ctx, t, text, actorID)
-			if err != nil {
-				return err
-			}
-			if woken {
-				return nil
-			}
-		}
-		return s.Tasks.AppendPendingPrompt(ctx, t.ID, text, actorID)
-	case tasks.StateInput:
-		return errors.New(
-			"the task is waiting for input; answer the dialog first",
-		)
-	default:
-		return fmt.Errorf(
-			"a task in state %q does not accept a follow-up", t.State,
-		)
-	}
+	_, err := s.Tasks.FollowUp(ctx, tasks.FollowUpParams{
+		TaskID:  t.ID,
+		Text:    text,
+		ActorID: actorID,
+		Force:   force,
+	})
+	return err
 }
 
 func (s *Service) rollBackRequirement(

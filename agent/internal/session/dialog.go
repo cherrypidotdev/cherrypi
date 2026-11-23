@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-func (s *Session) askDialog(ctx context.Context, title, prefill string) (string, bool) {
+func (s *Session) askDialog(ctx context.Context, title, prefill string) (string, string, bool) {
 	requestID := fmt.Sprintf("dialog-%d", dialogSeq.Add(1))
 	answers := make(chan ExtensionResponse, 1)
 
@@ -72,15 +72,15 @@ func (s *Session) askDialog(ctx context.Context, title, prefill string) (string,
 		s.mu.Unlock()
 		s.clearWaitingStore(context.Background())
 		if answer.Kind == ExtensionResponseCancelled {
-			return "", true
+			return "", requestID, true
 		}
-		return answer.Value, false
+		return answer.Value, requestID, false
 	case <-expired:
 		s.closeDialog(requestID)
-		return "", true
+		return "", requestID, true
 	case <-ctx.Done():
 		s.closeDialog(requestID)
-		return "", true
+		return "", requestID, true
 	}
 }
 

@@ -134,6 +134,12 @@ function agentGroupSlug(groupID: string): string {
   );
 }
 
+export function projectRoute(projectID: string): RouteLocationRaw | null {
+  const slug = projectSlug(projectID);
+  if (!slug) return null;
+  return { name: "project-settings", params: { slug } };
+}
+
 function projectSlug(projectID: string): string {
   if (!projectID) return "";
   return (

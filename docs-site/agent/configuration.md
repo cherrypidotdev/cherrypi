@@ -86,6 +86,35 @@ An edited catalog reaches a running agent:
   while a run is in flight or a questionnaire waits for an answer, because
   restarting would drop that work.
 
+## MCP servers
+
+MCP servers come from two places and are merged by name:
+
+- the **agency's MCP & Skills Library**, installed for the organization, a
+  project, a team, an agent group or this agent, and delivered in the config
+  bundle a task fetches. These are **HTTP endpoints the agency calls itself**:
+  the worker gets a proxy path (`/api/rest/agent-mcp/<name>`), never the
+  server's address, and the agency attaches the entry's sealed headers, so this
+  machine holds neither the address nor a credential.
+- `~/.agents/mcp-settings.json` on the host, the AGENTS convention
+  (`mcpServers`, the shape `pi-mcp-adapter` and [CC] read). It may declare stdio
+  (`command`/`args`/`env`) and HTTP (`url`/`headers`) servers, both dialed
+  directly by the worker.
+
+The agency's definition wins a shared name, and an agency entry switched off
+hides the host's item of that name. A host entry takes `command`/`args`/`env`
+(stdio) or `url`/`headers` (HTTP), plus `disabled`, `description`,
+`connectTimeoutMs` (default 15s), `requestTimeoutMs` (default 15m),
+`includeTools`/`excludeTools` globs and `directTools` (`true`, `false`, or the
+names to declare). For a **host** server, `${VAR}` and `${VAR:-default}` expand
+from the worker's environment and one with an unresolved reference is skipped
+and reported; a declared server carries no values here, because the agency
+resolved them when it built the request.
+
+Servers connect when a task's runtime starts and close when it is reaped. A
+server that fails is a log line and a row in the task's **System** tab, never a
+failed task, and its tools reach the model as `mcp__<server>__<tool>`.
+
 ## Health sampling
 
 The agent reports host CPU, load, memory, swap, disk, network, uptime and NVIDIA

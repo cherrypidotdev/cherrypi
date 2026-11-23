@@ -506,19 +506,24 @@ func (s *Service) releaseQueue(
 			return false, err
 		}
 	}
-	pendingActor := nullID(actorID)
-	if stashed := strings.TrimSpace(cur.PendingPrompt); stashed != "" {
-		if prompt == "" {
-			prompt = stashed
-		} else {
-			prompt = stashed + "\n\n" + prompt
+
+	if strings.TrimSpace(prompt) != "" {
+		if _, err := s.queuePendingMessage(ctx, cur.ID, QueueParams{
+			Text:    prompt,
+			ActorID: actorID,
+		}); err != nil {
+			return false, err
 		}
-		pendingActor = nullID(cur.PendingPromptActorID)
 	}
+	messages, err := s.PendingMessages(ctx, cur.ID)
+	if err != nil {
+		return false, err
+	}
+	pending, pendingActor := joinPending(messages)
 	n, err := s.store.TransitionTask(ctx, store.TransitionTaskParams{
 		Event:                store.TaskReleaseQueue,
-		PendingPrompt:        prompt,
-		PendingPromptActorID: pendingActor,
+		PendingPrompt:        pending,
+		PendingPromptActorID: nullID(pendingActor),
 		QueuedAt:             sql.NullInt64{Int64: now, Valid: true},
 		UpdatedAt:            now,
 		ID:                   cur.ID,

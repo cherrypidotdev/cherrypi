@@ -18,13 +18,52 @@ package session
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/sky-valley/pi/agent"
 	"github.com/sky-valley/pi/ai"
 )
 
 const defaultBashTimeoutSeconds = 300
+
+const maxToolCallDuration = time.Hour
+
+func waitsForAPerson(name string) bool {
+	return name == "ask_user_question"
+}
+
+func toolCallCapText(d time.Duration) string {
+	if d%time.Hour == 0 {
+		h := int(d / time.Hour)
+		if h == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", h)
+	}
+	if d%time.Minute == 0 {
+		m := int(d / time.Minute)
+		if m == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", m)
+	}
+	return d.String()
+}
+
+func toolCallTimedOutResult(d time.Duration) agent.AgentToolResult {
+	return agent.AgentToolResult{
+		Content: ai.ContentList{ai.TextContent{Text: fmt.Sprintf(
+			"Tool call timed out: the worker caps every tool call at %s.",
+			toolCallCapText(d),
+		)}},
+		Details: map[string]any{"timedOut": true, "timeoutSeconds": int(d.Seconds())},
+		IsError: true,
+	}
+}
 
 func (s *Session) wrapTools(tools []agent.AgentTool) []agent.AgentTool {
 	out := make([]agent.AgentTool, len(tools))
@@ -35,6 +74,14 @@ func (s *Session) wrapTools(tools []agent.AgentTool) []agent.AgentTool {
 }
 
 func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
+
+	if !waitsForAPerson(tool.Name) {
+		tool.Description = fmt.Sprintf(
+			"%s Every call is stopped after %s at most.",
+			tool.Description,
+			toolCallCapText(maxToolCallDuration),
+		)
+	}
 	if tool.Name == "bash" {
 		tool.Description = strings.Replace(
 			tool.Description,
@@ -87,6 +134,19 @@ func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
 		s.registerToolCall(toolCallID, cancel)
 		defer s.unregisterToolCall(toolCallID)
 
+		cap := s.toolTimeout
+		if cap <= 0 {
+			cap = maxToolCallDuration
+		}
+		var capped atomic.Bool
+		if !waitsForAPerson(tool.Name) {
+			capTimer := time.AfterFunc(cap, func() {
+				capped.Store(true)
+				cancel()
+			})
+			defer capTimer.Stop()
+		}
+
 		result, err := execute(callCtx, toolCallID, params, redactUpdate(onUpdate))
 		result = s.redactResult(result)
 
@@ -100,6 +160,11 @@ func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
 			return interruptedToolResult(actor), nil
 		}
 
+		if capped.Load() &&
+			(errors.Is(err, context.Canceled) || (err == nil && toolResultEmpty(result))) {
+			return toolCallTimedOutResult(cap), nil
+		}
+
 		if err == nil && !result.IsError && s.markRequiredToolCalled(tool.Name) {
 			s.notify("task_required_tool", map[string]any{
 				"tool":           tool.Name,
@@ -109,6 +174,10 @@ func (s *Session) wrapTool(tool agent.AgentTool) agent.AgentTool {
 		return result, err
 	}
 	return tool
+}
+
+func toolResultEmpty(result agent.AgentToolResult) bool {
+	return len(result.Content) == 0 && result.Details == nil
 }
 
 func withBashTimeoutDefault(schema *ai.Schema) *ai.Schema {

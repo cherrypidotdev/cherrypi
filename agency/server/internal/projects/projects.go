@@ -101,6 +101,8 @@ type Service struct {
 	store store.Store
 
 	TeamOwners TeamOwnerChecker
+
+	Notifier Notifier
 }
 
 func New(st store.Store) *Service { return &Service{store: st} }

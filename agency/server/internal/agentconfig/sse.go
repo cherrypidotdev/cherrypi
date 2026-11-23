@@ -77,7 +77,9 @@ func normalizeSSELine(line []byte) []byte {
 		return line
 	}
 
-	if !bytes.Contains(payload, []byte(`"content"`)) {
+	if !bytes.Contains(payload, []byte(`"content"`)) &&
+		(!bytes.Contains(payload, []byte(`"reasoning"`)) ||
+			!bytes.Contains(payload, []byte(`"reasoning_content"`))) {
 		return line
 	}
 	normalized, changed := normalizeContentBlocks(payload)
@@ -105,20 +107,22 @@ func normalizeContentBlocks(payload []byte) ([]byte, bool) {
 		if delta == nil {
 			continue
 		}
-		blocks, ok := contentBlocks(delta["content"])
-		if !ok {
-			continue
-		}
-		reasoning, text := splitContentBlocks(blocks)
-		delta["content"] = text
-		if reasoning != "" {
 
-			if existing, ok := delta["reasoning_content"].(string); ok {
-				reasoning = existing + reasoning
-			}
-			delta["reasoning_content"] = reasoning
+		if collapseDoubledReasoning(delta) {
+			changed = true
 		}
-		changed = true
+		if blocks, ok := contentBlocks(delta["content"]); ok {
+			reasoning, text := splitContentBlocks(blocks)
+			delta["content"] = text
+			if reasoning != "" {
+
+				if existing, ok := delta["reasoning_content"].(string); ok {
+					reasoning = existing + reasoning
+				}
+				delta["reasoning_content"] = reasoning
+			}
+			changed = true
+		}
 	}
 	if !changed {
 		return payload, false
@@ -128,6 +132,24 @@ func normalizeContentBlocks(payload []byte) ([]byte, bool) {
 		return payload, false
 	}
 	return rewritten, true
+}
+
+func collapseDoubledReasoning(delta map[string]any) bool {
+	content, _ := delta["reasoning_content"].(string)
+	single, _ := delta["reasoning"].(string)
+	if content == "" || single == "" || len(content) <= len(single) {
+		return false
+	}
+	copies, rest := 0, content
+	for strings.HasPrefix(rest, single) {
+		rest = rest[len(single):]
+		copies++
+	}
+	if rest != "" || copies < 2 {
+		return false
+	}
+	delta["reasoning_content"] = single
+	return true
 }
 
 func contentBlocks(value any) ([]any, bool) {

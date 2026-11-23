@@ -19,7 +19,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"math/rand/v2"
 	"sort"
@@ -93,6 +92,8 @@ type Scheduler struct {
 	AgentTasks func(ctx context.Context, agentID ids.AgentID) ([]*agentv1.Task, error)
 
 	Rand func(n int) int
+
+	Now func() time.Time
 
 	wake chan struct{}
 	mu   sync.Mutex
@@ -249,51 +250,20 @@ func (s *Scheduler) FollowUp(
 	actorID ids.ActorID,
 	force bool,
 ) error {
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
+	if strings.TrimSpace(prompt) == "" {
 		return errors.New("the message is empty")
 	}
-	switch t.State {
-	case tasks.StateSettled, tasks.StateFailed,
-		tasks.StateCompleted, tasks.StateCancelled:
-		if _, err := s.Tasks.RequeueWithPrompt(ctx, t.ID, prompt, actorID); err != nil {
-			return err
-		}
-		s.Wake()
-		return nil
-	case tasks.StateQueued, tasks.StateWaiting:
-		if force {
-			woken, err := s.Tasks.ForceWake(ctx, t, prompt, actorID)
-			if err != nil {
-				return err
-			}
-			if woken {
-				s.Wake()
-				return nil
-			}
-		}
-		if err := s.Tasks.AppendPendingPrompt(ctx, t.ID, prompt, actorID); err != nil {
-			return err
-		}
-		s.Wake()
-		return nil
-	case tasks.StateInput:
 
-		return s.Tasks.AppendPendingPrompt(ctx, t.ID, prompt, actorID)
-	case tasks.StateRunning:
-		if t.SessionID == "" || s.AddToTask == nil {
-			return errors.New("the task has no warm session to steer")
-		}
-		return s.AddToTask(
-			ctx, t.SessionAgentID, t.SessionID, prompt,
-			taskRef(t), s.sender(ctx, actorID), nil, t.RequiredTools,
-			s.ResumeModel(ctx, t, t.SessionAgentID),
-		)
-	default:
-		return fmt.Errorf(
-			"a task in state %q does not accept a follow-up", t.State,
-		)
+	if _, err := s.Tasks.FollowUp(ctx, tasks.FollowUpParams{
+		TaskID:  t.ID,
+		Text:    prompt,
+		ActorID: actorID,
+		Force:   force,
+	}); err != nil {
+		return err
 	}
+	s.Wake()
+	return nil
 }
 
 func (s *Scheduler) DeliverPendingPrompt(ctx context.Context, t tasks.Task) bool {
@@ -305,7 +275,7 @@ func (s *Scheduler) DeliverPendingPrompt(ctx context.Context, t tasks.Task) bool
 	}
 	err := s.AddToTask(
 		ctx, t.SessionAgentID, t.SessionID, t.PendingPrompt,
-		taskRef(t), s.sender(ctx, t.PendingPromptActorID),
+		taskRef(t), s.PendingSender(ctx, t),
 		s.pendingAttachments(ctx, t), t.RequiredTools,
 		s.ResumeModel(ctx, t, t.SessionAgentID),
 	)
@@ -496,12 +466,26 @@ func (s *Scheduler) sessionLost(ctx context.Context, task tasks.Task) {
 		log.Printf("[scheduler] mark session lost %s: %v", task.ID, err)
 		return
 	}
-	if task.State == tasks.StateRunning || task.State == tasks.StateInput {
-		failReason := sessionLostReason +
-			"; re-queue or follow up to recreate it"
-		if _, err := s.Tasks.Fail(ctx, task.ID, failReason); err != nil {
-			log.Printf("[scheduler] fail lost session %s: %v", task.ID, err)
-		}
+	if task.State != tasks.StateRunning && task.State != tasks.StateInput {
+		return
+	}
+
+	requeued, err := s.Tasks.RequeueAfterSessionLost(ctx, task.ID)
+	if err != nil {
+		log.Printf("[scheduler] requeue lost session %s: %v", task.ID, err)
+	}
+	if requeued {
+		log.Printf(
+			"[scheduler] re-queued %s after its session was lost, with a "+
+				"follow-up waiting", task.ID,
+		)
+		s.Wake()
+		return
+	}
+	failReason := sessionLostReason +
+		"; re-queue or follow up to recreate it"
+	if _, err := s.Tasks.Fail(ctx, task.ID, failReason); err != nil {
+		log.Printf("[scheduler] fail lost session %s: %v", task.ID, err)
 	}
 }
 
@@ -874,6 +858,43 @@ func (s *Scheduler) pendingAttachments(
 	if s.Attachments == nil || task.PendingPrompt == "" {
 		return nil
 	}
+	queued, err := s.Tasks.PendingMessages(ctx, task.ID)
+	if err != nil {
+		return nil
+	}
+	messageIDs := map[string]bool{}
+	for _, message := range queued {
+		if message.MessageID != "" {
+			messageIDs[message.MessageID] = true
+		}
+	}
+	all, err := s.Attachments.TaskAttachments(ctx, task.ID)
+	if err != nil {
+		return nil
+	}
+	refs := make([]*agentv1.AttachmentRef, 0, len(all))
+	for _, a := range all {
+		if !messageIDs[a.MessageID] {
+			continue
+		}
+		refs = append(refs, &agentv1.AttachmentRef{
+			Id:          a.ID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+			Url:         attachments.URLFor(a.ID),
+		})
+	}
+	if len(refs) > 0 {
+		return refs
+	}
+	return s.pendingAttachmentsByText(ctx, task)
+}
+
+func (s *Scheduler) pendingAttachmentsByText(
+	ctx context.Context,
+	task tasks.Task,
+) []*agentv1.AttachmentRef {
 	messages, err := s.Attachments.TaskMessages(ctx, task.ID)
 	if err != nil {
 		return nil
@@ -904,20 +925,28 @@ func (s *Scheduler) pendingAttachments(
 
 func (s *Scheduler) recordInitialMessage(
 	ctx context.Context,
-	taskID, prompt string,
+	task tasks.Task,
+	prompt string,
 	actorID ids.ActorID,
 	now int64,
 ) {
 	if s.Attachments == nil {
 		return
 	}
-
-	existing, err := s.Attachments.TaskMessages(ctx, taskID)
-	if err != nil || len(existing) > 0 {
+	existing, err := s.Attachments.TaskMessages(ctx, task.ID)
+	if err != nil {
 		return
 	}
+	for _, message := range existing {
+		if strings.TrimSpace(message.Text) == strings.TrimSpace(prompt) {
+			return
+		}
+	}
+	if task.StartedAt.IsZero() && !task.CreatedAt.IsZero() {
+		now = task.CreatedAt.UnixMilli()
+	}
 
-	list, err := s.Attachments.TaskAttachments(ctx, taskID)
+	list, err := s.Attachments.TaskAttachments(ctx, task.ID)
 	if err != nil {
 		return
 	}
@@ -929,10 +958,22 @@ func (s *Scheduler) recordInitialMessage(
 	}
 
 	if err := s.Attachments.RecordMessage(
-		ctx, taskID, uuid.NewString(), prompt, actorID, ids, now,
+		ctx, task.ID, uuid.NewString(), prompt, actorID, ids, now,
 	); err != nil {
-		log.Printf("[scheduler] record initial message %s: %v", taskID, err)
+		log.Printf("[scheduler] record initial message %s: %v", task.ID, err)
 	}
+}
+
+func (s *Scheduler) PendingSender(
+	ctx context.Context,
+	task tasks.Task,
+) *agentv1.PromptSender {
+	sender := s.sender(ctx, task.PendingPromptActorID)
+	if queued, err := s.Tasks.PendingMessages(ctx, task.ID); err == nil &&
+		len(queued) == 1 {
+		sender.MessageId = queued[0].MessageID
+	}
+	return sender
 }
 
 func (s *Scheduler) sender(ctx context.Context, actorID ids.ActorID) *agentv1.PromptSender {
@@ -960,7 +1001,14 @@ func (s *Scheduler) coolingDown(agentID ids.AgentID) bool {
 	if !ok {
 		return false
 	}
-	return time.Now().Before(cool.until)
+	return s.now().Before(cool.until)
+}
+
+func (s *Scheduler) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 func (s *Scheduler) coolDown(agentID ids.AgentID) {
@@ -978,7 +1026,7 @@ func (s *Scheduler) coolDown(agentID ids.AgentID) {
 		window = min(prev.window*2, maxStartRefusalCooldown)
 	}
 	s.cooling[agentID] = cooldown{
-		until:  time.Now().Add(window),
+		until:  s.now().Add(window),
 		window: window,
 	}
 	s.coolMu.Unlock()
@@ -1363,7 +1411,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 			task.SessionID,
 			task.PendingPrompt,
 			taskRef(task),
-			s.sender(ctx, task.PendingPromptActorID),
+			s.PendingSender(ctx, task),
 			s.pendingAttachments(ctx, task),
 			task.RequiredTools,
 			s.ResumeModel(ctx, task, agent.ID),
@@ -1413,12 +1461,14 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 
 	prompt := task.Prompt
 	promptActorID := task.CreatorActorID
-	if task.PendingPrompt != "" {
+	deliveringQueue := false
+	if task.PendingPrompt != "" && !task.StartedAt.IsZero() {
 		prompt = task.PendingPrompt
 		promptActorID = task.PendingPromptActorID
+		deliveringQueue = true
 	}
 
-	s.recordInitialMessage(ctx, task.ID, prompt, promptActorID, now)
+	s.recordInitialMessage(ctx, task, prompt, promptActorID, now)
 
 	var model ModelSelection
 	if task.StartedAt.IsZero() {
@@ -1428,6 +1478,11 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	}
 
 	interactive := !task.Automated
+
+	sender := s.sender(ctx, promptActorID)
+	if deliveringQueue {
+		sender = s.PendingSender(ctx, task)
+	}
 	sessionID, err := s.CreateTask(ctx, agent.ID, &agentv1.CreateTaskRequest{
 		Prompt:             prompt,
 		Workspace:          task.Workspace,
@@ -1441,7 +1496,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 		Attachments:        s.attachmentRefs(ctx, task.ID),
 		TaskId:             task.ID,
 		Ref:                taskRef(task),
-		Sender:             s.sender(ctx, promptActorID),
+		Sender:             sender,
 		Tools:              s.pluginTools(ctx, task),
 		RequiredTools:      task.RequiredTools,
 	})
@@ -1457,7 +1512,7 @@ func (s *Scheduler) start(ctx context.Context, task tasks.Task, agent agents.Age
 	}
 	s.WarmAgent(agent.ID)
 	log.Printf("[scheduler] started %s on agent %d session=%s", task.ID, agent.ID, sessionID)
-	if task.PendingPrompt != "" {
+	if deliveringQueue {
 		s.clearDeliveredPrompt(ctx, task.ID, task.PendingPrompt)
 	}
 }

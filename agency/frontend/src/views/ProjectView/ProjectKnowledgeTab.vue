@@ -17,11 +17,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <template lang="pug">
-DecisionLedger(v-if="page.project" scope="project" :scope-id="page.project.id")
+KnowledgeWorkspace(
+  v-if="page.project"
+  scope="project"
+  :project-id="page.project.id"
+)
 </template>
 
 <script setup lang="ts">
-import DecisionLedger from "@/components/knowledge/DecisionLedger.vue";
+import KnowledgeWorkspace from "@/components/knowledge/KnowledgeWorkspace.vue";
 import type { ProjectPageState } from "@/lib/projectPage";
 
 defineProps<{ page: ProjectPageState }>();

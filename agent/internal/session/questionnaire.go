@@ -147,6 +147,7 @@ func questionnaireQuestionSchema() *ai.Schema {
 func intPtr(value int) *int { return &value }
 
 type questionnaireQuestion struct {
+	ID          string
 	Question    string
 	Header      string
 	MultiSelect bool
@@ -167,12 +168,13 @@ func normalizeQuestionnaire(params map[string]any) []questionnaireQuestion {
 		raw = raw[:maxQuestions]
 	}
 	out := make([]questionnaireQuestion, 0, len(raw))
-	for _, entry := range raw {
+	for index, entry := range raw {
 		question, ok := entry.(map[string]any)
 		if !ok {
 			continue
 		}
 		normalized := questionnaireQuestion{
+			ID:       fmt.Sprintf("q%d", index+1),
 			Question: normalizeNewlines(stringArg(question, "question")),
 			Header:   stringArg(question, "header"),
 		}
@@ -284,6 +286,7 @@ const (
 )
 
 type questionAnswer struct {
+	QuestionID    string     `json:"questionId"`
 	QuestionIndex int        `json:"questionIndex"`
 	Question      string     `json:"question"`
 	Kind          answerKind `json:"kind"`
@@ -319,6 +322,7 @@ func answerFromWire(
 	wire questionnaireAnswer,
 ) questionAnswer {
 	out := questionAnswer{
+		QuestionID:    question.ID,
 		QuestionIndex: index,
 		Question:      question.Question,
 		Notes:         wire.Notes,
@@ -417,7 +421,7 @@ func buildQuestionnaireEnvelope(
 }
 
 func questionnaireResult(
-	value string,
+	value, requestID string,
 	answers []questionAnswer,
 	cancelled bool,
 	unavailable bool,
@@ -427,6 +431,9 @@ func questionnaireResult(
 	details := map[string]any{
 		"answers":   answers,
 		"cancelled": cancelled,
+	}
+	if requestID != "" {
+		details["requestId"] = requestID
 	}
 	if unavailable {
 		details["unavailable"] = true
@@ -464,7 +471,7 @@ func (s *Session) askUserQuestion() agent.AgentTool {
 		Execute: func(ctx context.Context, _ string, params map[string]any, _ agent.ToolUpdateFunc) (agent.AgentToolResult, error) {
 			questions := normalizeQuestionnaire(params)
 			if invalid := validateQuestionnaire(questions); invalid != "" {
-				return questionnaireResult(invalid, nil, true, false, "", nil), nil
+				return questionnaireResult(invalid, "", nil, true, false, "", nil), nil
 			}
 			prefill, err := json.Marshal(map[string]any{
 				"kind":      questionnaireDialogKind,
@@ -478,10 +485,11 @@ func (s *Session) askUserQuestion() agent.AgentTool {
 				len(questions),
 				plural(len(questions), "question", "questions"),
 			)
-			raw, cancelled := s.askDialog(ctx, title, string(prefill))
+			raw, requestID, cancelled := s.askDialog(ctx, title, string(prefill))
 			if cancelled {
 				return questionnaireResult(
 					buildQuestionnaireEnvelope(nil, true, "", nil),
+					requestID,
 					nil,
 					true,
 					false,
@@ -497,6 +505,7 @@ func (s *Session) askUserQuestion() agent.AgentTool {
 				}
 				return questionnaireResult(
 					"Error: "+reason,
+					requestID,
 					nil,
 					false,
 					true,
@@ -511,6 +520,7 @@ func (s *Session) askUserQuestion() agent.AgentTool {
 					payload.Note,
 					payload.AnsweredBy,
 				),
+				requestID,
 				answers,
 				false,
 				false,
@@ -533,6 +543,7 @@ func questionnaireWire(questions []questionnaireQuestion) []map[string]any {
 			})
 		}
 		out = append(out, map[string]any{
+			"id":          question.ID,
 			"question":    question.Question,
 			"header":      question.Header,
 			"options":     options,

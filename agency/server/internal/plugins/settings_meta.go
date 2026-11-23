@@ -78,6 +78,8 @@ type settingsPropertyMeta struct {
 	Title     string          `json:"title"`
 	Default   json.RawMessage `json:"default"`
 	XTemplate *TemplateSpec   `json:"x-template"`
+
+	XThinkingOf string `json:"x-thinking-of"`
 }
 
 type settingsSchemaMeta struct {
@@ -201,6 +203,35 @@ func validateSettingsSchema(name string, raw json.RawMessage) error {
 			if err := validateTemplateSource(def, property.XTemplate.Variables); err != nil {
 				return fmt.Errorf("%s.%s default: %w", name, key, err)
 			}
+		}
+	}
+
+	for key, property := range meta.Properties {
+		if property.XThinkingOf == "" {
+			continue
+		}
+		if property.Type != "" && property.Type != "string" {
+			return fmt.Errorf(
+				"%s.%s: x-thinking-of needs a string field", name, key,
+			)
+		}
+		if property.XThinkingOf == key {
+			return fmt.Errorf(
+				"%s.%s: x-thinking-of cannot name its own field", name, key,
+			)
+		}
+		target, ok := meta.Properties[property.XThinkingOf]
+		if !ok {
+			return fmt.Errorf(
+				"%s.%s: x-thinking-of names unknown field %q",
+				name, key, property.XThinkingOf,
+			)
+		}
+		if target.Format != "model" {
+			return fmt.Errorf(
+				"%s.%s: x-thinking-of must name a format: model field",
+				name, key,
+			)
 		}
 	}
 

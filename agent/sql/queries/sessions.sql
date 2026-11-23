@@ -78,6 +78,11 @@ UPDATE tasks
 SET name = ?, updated_at = ?
 WHERE id = ?;
 
+-- name: SetSessionContext :exec
+UPDATE tasks
+SET context_tokens = ?, context_window = ?, context_updated_at = ?, updated_at = ?
+WHERE id = ?;
+
 -- name: EndSession :exec
 UPDATE tasks
 SET status = ?, error = ?, ended_at = ?, updated_at = ?, pid = NULL, pending_prompt = NULL,

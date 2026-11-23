@@ -113,7 +113,19 @@ form.flex.flex-col.gap-4(@submit.prevent="save")
               :model-value="String(values[fieldOf(row).key] ?? '')"
               :models="modelCatalog"
               :empty-label="scope === 'project' ? $t('pluginModelSelect.inherit') : $t('pluginModelSelect.useRouting')"
+              @update:model-value="setModelValue(fieldOf(row), $event)"
+            )
+            PluginThinkingSelect(
+              v-else-if="fieldOf(row).thinkingOf"
+              :label="fieldOf(row).title"
+              :hint="thinkingHint(fieldOf(row))"
+              :id="`plugin-setting-${fieldOf(row).key}`"
+              :model-value="String(values[fieldOf(row).key] ?? '')"
+              :levels="thinkingLevels(fieldOf(row))"
+              :labels="thinkingLabels(fieldOf(row))"
+              :default-label="thinkingDefaultLabel(fieldOf(row))"
               @update:model-value="values[fieldOf(row).key] = $event"
+              :disabled="thinkingDisabled(fieldOf(row))"
             )
             template(v-else-if="fieldOf(row).kind === 'boolean'")
               Switch(
@@ -299,6 +311,7 @@ import MarkdownText from "@/components/MarkdownText.vue";
 import PluginModelSelect from "@/components/plugins/PluginModelSelect.vue";
 import PluginTemplateField from "@/components/plugins/PluginTemplateField.vue";
 import PluginTemplateSamplesDialog from "@/components/plugins/PluginTemplateSamplesDialog.vue";
+import PluginThinkingSelect from "@/components/plugins/PluginThinkingSelect.vue";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -322,6 +335,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { sortThinkingLevels, thinkingLevelLabel } from "@/lib/model";
 import {
   parseJSONSchema,
   pluginSchemaForm,
@@ -329,6 +343,7 @@ import {
   pluginTemplateDefault,
   pluginTemplateMeta,
   pluginTemplateVariables,
+  pluginThinkingModelOf,
   type PluginTemplateMeta,
   type PluginTemplateVariable,
 } from "@/lib/plugins";
@@ -345,7 +360,10 @@ import {
   PlusIcon,
 } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue3-toastify";
+
+const { t } = useI18n();
 
 interface SettingsSetup {
   title?: string;
@@ -367,6 +385,8 @@ interface SchemaProperty {
   default?: unknown;
   multiline?: boolean;
   "x-template"?: unknown;
+
+  "x-thinking-of"?: unknown;
   properties?: Record<string, SchemaProperty>;
   items?: SchemaProperty;
 }
@@ -452,6 +472,8 @@ interface FieldSpec {
   defaultValue?: string;
   template?: PluginTemplateMeta | null;
   templateHint?: string;
+
+  thinkingOf?: string;
 }
 
 function enumLabels(options: unknown, names: unknown): string[] {
@@ -534,12 +556,13 @@ const fields = computed<FieldSpec[]>(() => {
       templateHint: template
         ? "Rendered by the agency with each event's variables."
         : undefined,
+      thinkingOf: pluginThinkingModelOf(property as Record<string, unknown>),
     };
   });
 });
 
 const hasModelField = computed(() =>
-  fields.value.some((field) => field.kind === "model"),
+  fields.value.some((field) => field.kind === "model" || !!field.thinkingOf),
 );
 
 function catalogTarget(): string {
@@ -575,6 +598,75 @@ watch(
   },
   { immediate: true },
 );
+
+function catalogKeyOf(model: RoutingModelOption): string {
+  return `${model.provider}/${model.modelId}`;
+}
+
+function thinkingModelKey(field: FieldSpec): string {
+  if (!field.thinkingOf) return "";
+  return String(values[field.thinkingOf] ?? "");
+}
+
+function linkedModel(field: FieldSpec): RoutingModelOption | undefined {
+  const key = thinkingModelKey(field);
+  if (!key) return undefined;
+  return modelCatalog.value.find((model) => catalogKeyOf(model) === key);
+}
+
+function thinkingLevels(field: FieldSpec): string[] {
+  return sortThinkingLevels(linkedModel(field)?.thinkingLevels ?? []);
+}
+
+function thinkingDisabled(field: FieldSpec): boolean {
+  return !linkedModel(field) || thinkingLevels(field).length === 0;
+}
+
+function thinkingHint(field: FieldSpec): string {
+  if (!field.thinkingOf) return "";
+  if (!thinkingModelKey(field)) return t("pluginSettings.thinkingSelectModel");
+  if (!thinkingLevels(field).length) {
+    return t("pluginSettings.thinkingUnknownLevels");
+  }
+  return "";
+}
+
+function thinkingLabels(field: FieldSpec): Record<string, string> {
+  const labels: Record<string, string> = {};
+  field.options.forEach((option, index) => {
+    if (typeof option !== "string") return;
+    labels[option] = field.optionLabels[index] || thinkingLevelLabel(option);
+  });
+  return labels;
+}
+
+function thinkingDefaultLabel(field: FieldSpec): string {
+  const index = field.options.findIndex((option) => option === "");
+  return (
+    (index >= 0 ? field.optionLabels[index] : "") ||
+    t("pluginSettings.thinkingDefault")
+  );
+}
+
+function setModelValue(field: FieldSpec, value: unknown) {
+  const key = typeof value === "string" ? value : "";
+  values[field.key] = key;
+
+  const model = key
+    ? modelCatalog.value.find((entry) => catalogKeyOf(entry) === key)
+    : undefined;
+  for (const thinking of fields.value) {
+    if (thinking.thinkingOf !== field.key) continue;
+    const current = String(values[thinking.key] ?? "");
+    if (!current) continue;
+    if (!key) {
+      values[thinking.key] = "";
+      continue;
+    }
+    if (!model || !model.thinkingLevels.length) continue;
+    if (!model.thinkingLevels.includes(current)) values[thinking.key] = "";
+  }
+}
 
 const settingsGroups = computed(() => pluginSettingsGroups(props.schema));
 const templateVariables = computed<Record<string, PluginTemplateVariable>>(() =>
@@ -982,6 +1074,9 @@ en:
     sampleData: "Sample data"
     hideValue: "Hide value"
     revealValue: "Reveal value"
+    thinkingDefault: "Use default"
+    thinkingSelectModel: "Select a model to choose its thinking levels"
+    thinkingUnknownLevels: "The agency catalog does not declare this model's thinking levels"
     settingsCount: "{count} setting | {count} settings"
 ru:
   pluginSettings:
@@ -1000,5 +1095,8 @@ ru:
     sampleData: "Пример данных"
     hideValue: "Скрыть значение"
     revealValue: "Показать значение"
+    thinkingDefault: "Использовать по умолчанию"
+    thinkingSelectModel: "Выберите модель, чтобы выбрать уровень рассуждения"
+    thinkingUnknownLevels: "Каталог агентства не объявляет уровни рассуждения для этой модели"
     settingsCount: "{count} настройка | {count} настройки | {count} настроек"
 </i18n>

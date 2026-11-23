@@ -51,16 +51,17 @@ details.rounded-md.border(
         span.tabular-nums {{ elapsed }}
 
   p.text-muted-foreground.max-h-60.overflow-auto.border-t.px-2.py-2.text-xs.whitespace-pre-wrap(
-    v-if="text"
+    v-if="renderedText"
     ref="body"
     @scroll.passive="onBodyScroll"
     data-testid="thinking-text"
-  ) {{ text }}
+  ) {{ renderedText }}
 </template>
 
 <script setup lang="ts">
 import LiveSpan from "@/components/tasks/LiveSpan.vue";
 import { Spinner } from "@/components/ui/spinner";
+import { markdownIntervalMs } from "@/composables/useConsolePreferences";
 import { formatCharRate, formatChars, formatElapsed } from "@/lib/format";
 import { BrainIcon, ChevronRightIcon } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
@@ -88,7 +89,44 @@ const props = withDefaults(
   },
 );
 
-const chars = computed(() => Array.from(props.text).length);
+const renderedText = ref(props.text);
+let renderTimer: ReturnType<typeof setTimeout> | undefined;
+let renderedAt = Date.now();
+
+function renderTextNow() {
+  if (renderTimer !== undefined) {
+    clearTimeout(renderTimer);
+    renderTimer = undefined;
+  }
+  renderedAt = Date.now();
+  renderedText.value = props.text;
+}
+
+function scheduleTextRender() {
+  if (!props.running) {
+    renderTextNow();
+    return;
+  }
+  const wait = markdownIntervalMs.value - (Date.now() - renderedAt);
+  if (wait <= 0) {
+    renderTextNow();
+    return;
+  }
+  renderTimer ??= setTimeout(renderTextNow, wait);
+}
+
+watch(() => props.text, scheduleTextRender);
+watch(
+  () => props.running,
+  (running) => {
+    if (!running) renderTextNow();
+  },
+);
+onBeforeUnmount(() => {
+  if (renderTimer !== undefined) clearTimeout(renderTimer);
+});
+
+const chars = computed(() => Array.from(renderedText.value).length);
 
 const start = computed(() => props.startedAt ?? props.endedAt);
 
@@ -191,15 +229,12 @@ function onBodyScroll() {
     el.scrollHeight - el.scrollTop - el.clientHeight < STICK_TOLERANCE;
 }
 
-watch(
-  () => props.text,
-  async () => {
-    await nextTick();
-    const el = body.value;
-    if (!el || !open.value || !bodyStuck.value) return;
-    el.scrollTop = el.scrollHeight;
-  },
-);
+watch(renderedText, async () => {
+  await nextTick();
+  const el = body.value;
+  if (!el || !open.value || !bodyStuck.value) return;
+  el.scrollTop = el.scrollHeight;
+});
 
 watch(open, async (isOpen) => {
   if (!isOpen) return;

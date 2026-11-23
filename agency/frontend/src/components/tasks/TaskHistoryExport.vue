@@ -38,6 +38,7 @@ import {
   buildTaskHistoryExport,
   collectTaskHistory,
   downloadTaskHistory,
+  type TaskHistoryDetails,
 } from "@/lib/taskExport";
 import type { Task } from "@cherrypi/sdk";
 import { DownloadIcon } from "@lucide/vue";
@@ -55,6 +56,25 @@ watch(
   () => inFlight?.abort(),
 );
 
+async function collectDetails(
+  task: Task,
+  signal: AbortSignal,
+): Promise<TaskHistoryDetails> {
+  const [project, agents, prompts] = await Promise.all([
+    task.projectId
+      ? agency.getProject(task.projectId, { signal })
+      : Promise.resolve(null),
+    task.assigneeActorId ? agency.listAgents({ signal }) : Promise.resolve([]),
+    agency.getTaskSystemPrompt(task.id, { signal }),
+  ]);
+  const assignee =
+    agents.find((agent) => agent.actorId === task.assigneeActorId) ?? null;
+  const groups = assignee
+    ? await agency.listAgentGroupsForAgent(assignee.id, { signal })
+    : [];
+  return { project, assignee, groups, prompts };
+}
+
 async function exportHistory() {
   if (exporting.value) return;
 
@@ -63,11 +83,13 @@ async function exportHistory() {
   inFlight = controller;
   exporting.value = true;
   try {
-    const events = await collectTaskHistory(
-      (page) => agency.getTaskHistory(task.id, page),
-      { signal: controller.signal },
-    );
-    downloadTaskHistory(buildTaskHistoryExport(task, events), task.id);
+    const [events, details] = await Promise.all([
+      collectTaskHistory((page) => agency.getTaskHistory(task.id, page), {
+        signal: controller.signal,
+      }),
+      collectDetails(task, controller.signal),
+    ]);
+    downloadTaskHistory(buildTaskHistoryExport(task, events, details), task.id);
   } catch (err) {
     if (!controller.signal.aborted) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -86,10 +108,10 @@ en:
   taskExport:
     export: "Export history as JSON"
     exporting: "Exporting history…"
-    hint: "Download the whole stored conversation as one JSON file: the task's header plus every console event"
+    hint: "Download the task as one JSON file: header, system events, messages, system prompts, project and agent context, plus every console event"
 ru:
   taskExport:
     export: "Экспортировать историю в JSON"
     exporting: "Экспорт истории…"
-    hint: "Скачать всю сохранённую переписку одним JSON-файлом: заголовок задачи и все события консоли"
+    hint: "Скачать задачу одним JSON-файлом: заголовок, системные события, сообщения, системные промпты, проект и агент, а также все события консоли"
 </i18n>

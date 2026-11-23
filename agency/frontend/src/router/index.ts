@@ -39,6 +39,7 @@ import GroupsView from "@/views/GroupsView.vue";
 import InboxView from "@/views/InboxView.vue";
 import InviteView from "@/views/InviteView.vue";
 import KnowledgeView from "@/views/KnowledgeView.vue";
+import LibraryView from "@/views/LibraryView.vue";
 import LoginView from "@/views/LoginView.vue";
 import MagicLinkView from "@/views/MagicLinkView.vue";
 import ProjectSettingsView from "@/views/ProjectSettingsView.vue";
@@ -53,10 +54,9 @@ import ProjectTemplatesSettingsTab from "@/views/ProjectSettingsView/TemplatesSe
 import ProjectVariablesSettingsTab from "@/views/ProjectSettingsView/VariablesSettingsTab.vue";
 import ProjectView from "@/views/ProjectView.vue";
 import ProjectConcurrencyTab from "@/views/ProjectView/ProjectConcurrencyTab.vue";
-import ProjectDecisionsTab from "@/views/ProjectView/ProjectDecisionsTab.vue";
+import ProjectKnowledgeTab from "@/views/ProjectView/ProjectKnowledgeTab.vue";
 import ProjectOverviewTab from "@/views/ProjectView/ProjectOverviewTab.vue";
 import ProjectUsageTab from "@/views/ProjectView/ProjectUsageTab.vue";
-import ProjectWikiTab from "@/views/ProjectView/ProjectWikiTab.vue";
 import ProjectsView from "@/views/ProjectsView.vue";
 import ProviderEditorView from "@/views/ProviderEditorView.vue";
 import ResetPasswordView from "@/views/ResetPasswordView.vue";
@@ -265,17 +265,14 @@ const router = createRouter({
               meta: { titleKey: "pageTitle.project" },
             },
             {
-              path: "wiki",
-              name: "project-wiki",
-              component: ProjectWikiTab,
+              path: "knowledge",
+              name: "project-knowledge",
+              component: ProjectKnowledgeTab,
               meta: { titleKey: "pageTitle.project" },
             },
-            {
-              path: "decisions",
-              name: "project-decisions",
-              component: ProjectDecisionsTab,
-              meta: { titleKey: "pageTitle.project" },
-            },
+
+            { path: "wiki", redirect: { name: "project-knowledge" } },
+            { path: "decisions", redirect: { name: "project-knowledge" } },
             {
               path: "usage",
               name: "project-usage",
@@ -349,6 +346,12 @@ const router = createRouter({
               ],
             },
           ],
+        },
+        {
+          path: "library",
+          name: "library",
+          component: LibraryView,
+          meta: { titleKey: "pageTitle.library" },
         },
         {
           path: "settings",

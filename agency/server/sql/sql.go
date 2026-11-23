@@ -35,6 +35,16 @@ var Migrations fs.FS = mustSub(SqliteMigrations, "sqlite")
 //go:embed pg/migrations/*.sql
 var PgMigrations embed.FS
 
+// SqliteMigrationClaim is the one-line claim in `sqlite/migration_claim`: the
+
+// git instead of merging into a tree goose refuses to migrate.
+
+//go:embed sqlite/migration_claim
+var SqliteMigrationClaim []byte
+
+//go:embed pg/migration_claim
+var PgMigrationClaim []byte
+
 func mustSub(fsys fs.FS, dir string) fs.FS {
 	sub, err := fs.Sub(fsys, dir)
 	if err != nil {

@@ -112,6 +112,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         )
           NotebookTextIcon.size-4.shrink-0
           span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ $t("nav.knowledge") }}
+        RouterLink.flex.items-center.gap-2.rounded-md.px-3.py-2.text-sm.font-medium.transition-colors(
+          :to="{ name: 'library' }"
+          :title="collapsed ? $t('nav.library') : undefined"
+          :class="[route.name === 'library' ? 'text-primary' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground', collapsed ? 'justify-center px-0' : '']"
+          data-testid="nav-library"
+        )
+          LibraryIcon.size-4.shrink-0
+          span(:class="collapsed ? 'sr-only' : 'min-w-0 truncate'") {{ $t("nav.library") }}
       .mt-2.border-t.pt-2
         SidebarSection(
           :icon="BotIcon"
@@ -452,7 +460,9 @@ import {
   FolderIcon,
   GlobeIcon,
   InboxIcon,
+  LibraryIcon,
   MoonIcon,
+  NotebookTextIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PlusIcon,
@@ -897,6 +907,7 @@ en:
     inbox: "Inbox"
     userSettings: "User settings"
     orgSettings: "Organization settings"
+    library: "MCP & Skills"
     documentation: "Documentation"
     newTask: "New task"
     expandSidebar: "Expand sidebar"
@@ -1009,6 +1020,7 @@ en:
     openTeams: "Open teams"
     openGroup: "Open group"
     openPrompt: "Open prompt"
+    openProject: "Open project"
   concurrency:
     agentNotFound: "Agent not found"
   sketch:
@@ -1115,6 +1127,7 @@ en:
     resetPassword: "Reset password"
     acceptInvitation: "Accept invitation"
     orgSettings: "Organization settings"
+    library: "MCP & Skills"
     provider: "Provider"
     agents: "Agents"
     tasks: "Tasks"
@@ -1218,6 +1231,7 @@ ru:
     inbox: "Уведомления"
     userSettings: "Настройки пользователя"
     orgSettings: "Настройки организации"
+    library: "MCP и навыки"
     documentation: "Документация"
     newTask: "Новая задача"
     expandSidebar: "Развернуть панель"
@@ -1330,6 +1344,7 @@ ru:
     openTeams: "Открыть команды"
     openGroup: "Открыть группу"
     openPrompt: "Открыть промпт"
+    openProject: "Открыть проект"
   concurrency:
     agentNotFound: "Агент не найден"
   sketch:
@@ -1436,6 +1451,7 @@ ru:
     resetPassword: "Сброс пароля"
     acceptInvitation: "Принятие приглашения"
     orgSettings: "Настройки организации"
+    library: "MCP и навыки"
     provider: "Провайдер"
     agents: "Агенты"
     tasks: "Задачи"

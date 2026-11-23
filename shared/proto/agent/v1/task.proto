@@ -79,6 +79,11 @@ service TaskService {
   
   
   rpc RestartTaskSession(RestartTaskSessionRequest) returns (RestartTaskSessionResponse);
+  
+  
+  
+  
+  rpc CompactTask(CompactTaskRequest) returns (CompactTaskResponse);
 }
 
 enum TaskStatus {
@@ -280,6 +285,9 @@ message PromptSender {
   string name = 3;
   
   string kind = 4;
+  
+  
+  string message_id = 5;
 }
 
 message AddToTaskResponse {}
@@ -585,6 +593,10 @@ message ModelWait {
   string reason = 7;
   
   string provider = 8;
+  
+  
+  int64 context_tokens_before = 9;
+  int64 context_tokens_after = 10;
 }
 
 enum ToolPhase {
@@ -633,6 +645,9 @@ message UserMessage {
   
   
   repeated MessageAttachment attachments = 4;
+  
+  
+  string message_id = 5;
 }
 
 
@@ -729,3 +744,8 @@ message RestartTaskSessionRequest {
   string id = 1;
 }
 message RestartTaskSessionResponse {}
+
+message CompactTaskRequest {
+  string id = 1;
+}
+message CompactTaskResponse {}

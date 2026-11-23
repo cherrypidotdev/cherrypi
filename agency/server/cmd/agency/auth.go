@@ -28,6 +28,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/agents"
 	"cherrypi.vladfaust.com/agency/internal/auth"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/integrations"
 	"cherrypi.vladfaust.com/agency/internal/taskhistory"
 	sharedtunnel "cherrypi.vladfaust.com/shared/tunnel"
 )
@@ -63,6 +64,8 @@ func withAuth(a accountAuthenticator, agents agentAuthenticator, next http.Handl
 			strings.HasPrefix(r.URL.Path, attachmentsPathPrefix) ||
 			r.URL.Path == agentconfig.BundlePath ||
 			strings.HasPrefix(r.URL.Path, agentconfig.ProxyPrefix+"/") ||
+			r.URL.Path == integrations.ReportPath ||
+			strings.HasPrefix(r.URL.Path, integrations.ProxyPrefix+"/") ||
 			strings.HasPrefix(r.URL.Path, taskhistory.Prefix) {
 			next.ServeHTTP(w, r)
 			return

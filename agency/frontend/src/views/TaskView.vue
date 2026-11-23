@@ -116,6 +116,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :saving="saving"
       :can-follow-up="canFollowUp"
       :can-compose="canCompose"
+      :can-prompt="canPromptTask"
       :can-answer="canAnswerInput"
       :prompt="prompt"
       :tab="tab"
@@ -123,6 +124,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       :dragging-files="draggingFiles"
       :task-queue="taskQueue"
       :state-changes="stateChanges"
+      :focus="sourceFocus"
       :cancelling-unsent="cancellingUnsent"
       :sending="sending"
       :stopping="stopping"
@@ -206,6 +208,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       @unarchive="unarchive"
       @cleanup-session="cleanupSession"
       @restart-session="restartSession"
+      @compact-session="compactSession"
       @delete="remove"
     )
 
@@ -383,6 +386,17 @@ const SketchDialog = defineAsyncComponent(
 
 const router = useRouter();
 const route = useRoute();
+
+const sourceFocus = computed(() => {
+  const messageId =
+    typeof route.query.message === "string" ? route.query.message : "";
+  const requestId =
+    typeof route.query.request === "string" ? route.query.request : "";
+  const questionId =
+    typeof route.query.question === "string" ? route.query.question : "";
+  if (!messageId && !requestId) return undefined;
+  return { messageId, requestId, questionId };
+});
 const { agents, loadAgents, actorIdFor, agentIdForActor } = useAgents();
 const { loadActorPictures } = useActorPictures();
 const { active: allProjects, loadProjects } = useProjects();
@@ -634,14 +648,20 @@ const awaitingAnswers = computed(
   () => isInput.value || task.value?.runtime?.waitingForInput === true,
 );
 
-const canFollowUp = computed(
-  () =>
-    !!task.value &&
-    !awaitingAnswers.value &&
-    (acceptsPrompt(task.value.state) || isPostponed.value),
+const canPromptTask = computed(
+  () => !!task.value && task.value.canPrompt === true,
 );
 
-const canCompose = computed(() => canFollowUp.value || awaitingAnswers.value);
+const canFollowUp = computed(
+  () =>
+    canPromptTask.value &&
+    !awaitingAnswers.value &&
+    (acceptsPrompt(task.value!.state) || isPostponed.value),
+);
+
+const canCompose = computed(
+  () => canPromptTask.value && (canFollowUp.value || awaitingAnswers.value),
+);
 
 const canAnswerInput = computed(() => Boolean(task.value?.canAnswerInput));
 
@@ -651,7 +671,9 @@ function acceptsPrompt(state: TaskState): boolean {
     state === TaskState.SETTLED ||
     state === TaskState.FAILED ||
     state === TaskState.COMPLETED ||
-    state === TaskState.CANCELLED
+    state === TaskState.CANCELLED ||
+    state === TaskState.QUEUED ||
+    state === TaskState.WAITING
   );
 }
 
@@ -1227,6 +1249,20 @@ async function restartSession() {
   }
 }
 
+async function compactSession() {
+  actionBusy.value = true;
+  try {
+    await withProgress(() => agent.compactTaskSession(props.id));
+    const sessionId = task.value?.sessionId;
+    if (sessionId) await loadUsage(sessionId);
+    toast.success("Context compaction requested");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    actionBusy.value = false;
+  }
+}
+
 function closeOut() {
   closeOutDialogOpen.value = true;
 }
@@ -1489,15 +1525,14 @@ function onQueue(steering: { id: string; text: string }[]) {
 async function cancelUnsent(item: UnsentMessage) {
   cancellingUnsent.value = item.key;
   try {
-    if (item.queueId) {
+    if (item.pendingId) {
+      task.value = await withProgress(() =>
+        agent.removeTaskPendingMessage(props.id, item.pendingId),
+      );
+    } else if (item.queueId) {
       await withProgress(() =>
         agency.removeTaskQueuedMessage(props.id, item.queueId),
       );
-    } else {
-      await withProgress(() =>
-        agency.updateTask(props.id, { setPendingPrompt: "" }),
-      );
-      await load();
     }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));

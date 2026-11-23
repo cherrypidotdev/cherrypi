@@ -157,22 +157,45 @@ func main() {
 
 	log.Println("Shutting down: waiting for runs to finish (Ctrl+C again to force)")
 
-	done := make(chan struct{})
+	drained := make(chan struct{})
 	go func() {
 		appCtx.Sessions.Shutdown(context.Background())
-		close(done)
+		close(drained)
 	}()
 
+	forced := false
 	select {
-	case <-done:
-		log.Println("All runs finished")
+	case <-drained:
 	case <-sig:
-		log.Println("Forced shutdown")
-		appCtx.Sessions.Kill()
+		forced = true
 	}
 
+	// The guard is armed before the first line that reports the drain and
+
+	stopGuard := guardShutdown(
+		sig,
+		shutdownTeardownTimeout,
+		shutdownNote,
+		dumpGoroutines,
+		os.Exit,
+	)
+
+	if forced {
+		log.Println("Forced shutdown")
+		appCtx.Sessions.Kill()
+	} else {
+		log.Println("All runs finished")
+	}
+
+	log.Println("Closing terminals")
 	appCtx.Terminals.CloseAll()
+	log.Println("Terminals closed")
 	appCtx.Desktops.Stop()
+	log.Println("Desktop bridges stopped")
+
+	// same sinks that can block, so the final line must stay inside the
+
+	finishShutdown(stopGuard, func(message string) { log.Println(message) })
 }
 
 func serveTerminals(mux *http.ServeMux, appCtx *appcontext.AppContext) {

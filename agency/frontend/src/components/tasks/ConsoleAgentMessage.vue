@@ -27,7 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     MarkdownText.prose.prose-sm(
       class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
       zoomable
-      :text="item.text"
+      :text="renderedText"
       @open-image="emit('openImage', $event)"
       @open-diagram="emit('openDiagram', $event)"
     )
@@ -55,6 +55,7 @@ import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
 import RunUsageLabel from "@/components/tasks/RunUsageLabel.vue";
+import { markdownIntervalMs } from "@/composables/useConsolePreferences";
 import type {
   MessageSender as ChatSender,
   Item,
@@ -64,8 +65,9 @@ import { formatClock, formatInstant, isoInstant } from "@/lib/format";
 import type { DiagramSource, InlineImage } from "@/lib/lightbox";
 import type { Attachment } from "@cherrypi/sdk";
 import { CheckIcon, CopyIcon } from "@lucide/vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     item: Extract<Item, { kind: "text" }>;
 
@@ -76,12 +78,15 @@ withDefaults(
     usage?: RunUsage;
 
     copied?: boolean;
+
+    streaming?: boolean;
   }>(),
   {
     sender: undefined,
     picture: undefined,
     usage: undefined,
     copied: false,
+    streaming: false,
   },
 );
 
@@ -92,6 +97,45 @@ const emit = defineEmits<{
 
   openDiagram: [diagram: DiagramSource];
 }>();
+
+const renderedText = ref(props.item.text);
+let renderTimer: ReturnType<typeof setTimeout> | undefined;
+let lastRenderedAt = Date.now();
+
+function renderNow() {
+  if (renderTimer !== undefined) {
+    clearTimeout(renderTimer);
+    renderTimer = undefined;
+  }
+  lastRenderedAt = Date.now();
+  renderedText.value = props.item.text;
+}
+
+function scheduleRender() {
+  if (!props.streaming) {
+    renderNow();
+    return;
+  }
+  const wait = markdownIntervalMs.value - (Date.now() - lastRenderedAt);
+  if (wait <= 0) {
+    renderNow();
+    return;
+  }
+  if (renderTimer === undefined) {
+    renderTimer = setTimeout(renderNow, wait);
+  }
+}
+
+watch(() => props.item.text, scheduleRender);
+watch(
+  () => props.streaming,
+  (streaming) => {
+    if (!streaming) renderNow();
+  },
+);
+onBeforeUnmount(() => {
+  if (renderTimer !== undefined) clearTimeout(renderTimer);
+});
 </script>
 
 <i18n lang="yaml">

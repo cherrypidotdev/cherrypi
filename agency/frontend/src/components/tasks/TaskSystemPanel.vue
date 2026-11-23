@@ -47,6 +47,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       DisclosurePanel.mt-2
         TaskPromptList(:sections="prompts")
 
+    TaskIntegrations(:task-id="taskId" :preview="integrationsPreview")
+
     Disclosure(v-slot="{ open }")
       DisclosureButton.group.flex.w-full.items-center.gap-1.text-left
         ChevronRightIcon.size-3.shrink-0.transition-transform(
@@ -104,8 +106,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import TaskIntegrations from "@/components/tasks/TaskIntegrations.vue";
 import TaskPromptList from "@/components/tasks/TaskPromptList.vue";
 import TaskToolList from "@/components/tasks/TaskToolList.vue";
+import type { TaskIntegrationReport } from "@/lib/integrations";
 import { agency } from "@/lib/sdk";
 import {
   PromptScope,
@@ -125,6 +129,8 @@ const props = defineProps<{
   sections: SystemPromptSection[];
 
   preview?: boolean | { tools: TaskTool[]; recorded: boolean };
+
+  integrationsPreview?: TaskIntegrationReport;
 }>();
 
 defineEmits<{

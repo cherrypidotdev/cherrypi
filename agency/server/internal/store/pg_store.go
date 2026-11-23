@@ -1217,6 +1217,15 @@ func (s *PgStore) TransitionTask(
 			SessionID: p.SessionID,
 			NotBefore: p.NotBefore,
 		}))
+	case TaskRequeueLostSession:
+		return s.q.RequeueLostSessionTask(
+			ctx,
+			pgdb.RequeueLostSessionTaskParams(RequeueLostSessionTaskParams{
+				QueuedAt:  p.QueuedAt,
+				UpdatedAt: p.UpdatedAt,
+				ID:        p.ID,
+			}),
+		)
 	case TaskRequeue:
 		return s.q.RequeueTask(ctx, pgdb.RequeueTaskParams(RequeueTaskParams{
 			Error:     p.Error,

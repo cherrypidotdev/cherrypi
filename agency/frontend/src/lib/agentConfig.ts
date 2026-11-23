@@ -34,6 +34,10 @@ export interface AgentModel {
   forcePlan: boolean;
   contextWindow: number;
   maxTokens: number;
+
+  compactionReserveTokens: number;
+
+  compactionKeepRecentTokens: number;
   cost: ModelCost;
   enabled: boolean;
 }
@@ -144,6 +148,8 @@ export function emptyModel(): AgentModel {
     forcePlan: false,
     contextWindow: 128000,
     maxTokens: 8192,
+    compactionReserveTokens: 16_384,
+    compactionKeepRecentTokens: 20_000,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     enabled: true,
   };

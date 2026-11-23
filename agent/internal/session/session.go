@@ -37,6 +37,7 @@ import (
 
 	"cherrypi.vladfaust.com/agent/internal/agency"
 	sqlitedb "cherrypi.vladfaust.com/agent/internal/gen/sqlc"
+	"cherrypi.vladfaust.com/agent/internal/mcp"
 	"cherrypi.vladfaust.com/agent/internal/store"
 )
 
@@ -102,6 +103,16 @@ type Config struct {
 	TitleGenerator TitleGenerator
 
 	TitleTimeout time.Duration
+
+	RecoverRetryWindow time.Duration
+
+	RecoverRetryDelay time.Duration
+
+	ReportIntegrations func(
+		ctx context.Context,
+		taskID, revision string,
+		report IntegrationReport,
+	) error
 }
 
 type TitleGenerator func(ctx context.Context, prompt, provider, modelID, level string) (string, error)
@@ -147,7 +158,8 @@ type Session struct {
 
 	requestStartedAt time.Time
 
-	compactionStartedAt time.Time
+	compactionStartedAt    time.Time
+	compactionTokensBefore int64
 
 	openTools map[string]time.Time
 
@@ -165,6 +177,10 @@ type Session struct {
 	interactive bool
 
 	appendSystemPrompt string
+
+	integrationsFn func(ctx context.Context) AgencyIntegrations
+
+	mcpConns []*mcp.Conn
 
 	probe bool
 
@@ -243,6 +259,8 @@ type Session struct {
 
 	dialogTimeout time.Duration
 
+	toolTimeout time.Duration
+
 	liveInput      int64
 	liveOutput     int64
 	liveCacheRead  int64
@@ -320,6 +338,7 @@ func newSession(
 		toolCancels:    map[string]context.CancelFunc{},
 		toolInterrupts: map[string]string{},
 		subs:           map[chan Event]struct{}{},
+		toolTimeout:    maxToolCallDuration,
 	}
 }
 
@@ -407,6 +426,10 @@ func (s *Session) selectModel(
 	if eng != nil {
 		if model != nil {
 			eng.sess.SetModel(model)
+			if settings := s.compactionSettings(catalog, model); settings != nil {
+				eng.compaction = settings
+				eng.sess.EnableCompaction(*settings)
+			}
 		}
 		if level != "" {
 			eng.sess.SetThinkingLevel(agent.ThinkingLevel(level))
@@ -564,6 +587,10 @@ func (s *Session) SetModel(ctx context.Context, provider, modelID string) (Sessi
 	s.mu.Unlock()
 	if eng != nil {
 		eng.sess.SetModel(model)
+		if settings := s.compactionSettings(catalog, model); settings != nil {
+			eng.compaction = settings
+			eng.sess.EnableCompaction(*settings)
+		}
 	}
 	return s.configFromRegistry(ctx, provider, modelID, level), nil
 }
@@ -633,7 +660,8 @@ func (s *Session) Stop(ctx context.Context, actor string) error {
 	s.stopActor = actor
 	s.toolMu.Unlock()
 	if !running || eng == nil {
-		return s.foldInterruptedRun(ctx)
+		_, err := s.foldInterruptedRun(ctx)
+		return err
 	}
 
 	s.holdQueue()
@@ -700,7 +728,7 @@ func (s *Session) waitSettled(ctx context.Context, timeout time.Duration) bool {
 	}
 }
 
-func (s *Session) foldInterruptedRun(ctx context.Context) error {
+func (s *Session) foldInterruptedRun(ctx context.Context) (bool, error) {
 	s.mu.Lock()
 	eng := s.eng
 	s.mu.Unlock()
@@ -710,14 +738,14 @@ func (s *Session) foldInterruptedRun(ctx context.Context) error {
 
 	row, err := s.store.GetSession(ctx, s.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !row.PendingPrompt.Valid || row.PendingPrompt.String == "" {
-		return nil
+		return false, nil
 	}
 	slog.Info("folding interrupted run into done", "session_id", s.ID)
 	s.finishStoppedRun(ctx)
-	return nil
+	return true, nil
 }
 
 func (s *Session) finishStoppedRun(ctx context.Context) {
@@ -966,6 +994,12 @@ func (s *Session) busy() bool {
 	return s.running || s.waiting || len(s.dialogs) > 0
 }
 
+func (s *Session) isRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
+}
+
 func (s *Session) scheduleIdleReap() {
 	ttl := s.cfg.IdleTTL
 	if ttl <= 0 {
@@ -1138,22 +1172,31 @@ func (s *Session) firstToken(now time.Time) ModelWaitEvent {
 	return event
 }
 
-func (s *Session) beginCompaction(now time.Time) {
+func (s *Session) beginCompaction(now time.Time, reason string, beforeTokens int) {
 	s.mu.Lock()
 	s.requestStartedAt = time.Time{}
 	if s.compactionStartedAt.IsZero() {
 		s.compactionStartedAt = now
+		s.compactionTokensBefore = int64(beforeTokens)
 	}
 	s.mu.Unlock()
-
-	s.emitPending(&PendingActivityEvent{Kind: PendingCompaction, Reason: "threshold"})
+	s.emitPending(&PendingActivityEvent{Kind: PendingCompaction, Reason: reason})
 }
 
-func (s *Session) finishCompaction(now time.Time) {
+func (s *Session) finishCompaction(
+	now time.Time,
+	reason string,
+	resumeTurn bool,
+	afterTokens int,
+) {
 	s.mu.Lock()
 	started := s.compactionStartedAt
+	beforeTokens := s.compactionTokensBefore
 	s.compactionStartedAt = time.Time{}
-	s.requestStartedAt = now
+	s.compactionTokensBefore = 0
+	if resumeTurn {
+		s.requestStartedAt = now
+	}
 	waited := time.Duration(0)
 	if !started.IsZero() {
 		waited = now.Sub(started)
@@ -1165,15 +1208,20 @@ func (s *Session) finishCompaction(now time.Time) {
 	s.mu.Unlock()
 	if waited > 0 {
 		s.emit(Event{Kind: EventModelWait, At: now, ModelWait: &ModelWaitEvent{
-			Kind:       PendingCompaction,
-			Provider:   provider,
-			Model:      model,
-			DurationMs: waited.Milliseconds(),
-
-			Reason: "threshold",
+			Kind:                PendingCompaction,
+			Provider:            provider,
+			Model:               model,
+			DurationMs:          waited.Milliseconds(),
+			Reason:              reason,
+			ContextTokensBefore: beforeTokens,
+			ContextTokensAfter:  int64(afterTokens),
 		}})
 	}
-	s.emitPending(&PendingActivityEvent{Kind: PendingModelRequest})
+	if resumeTurn {
+		s.emitPending(&PendingActivityEvent{Kind: PendingModelRequest})
+		return
+	}
+	s.emitPending(nil)
 }
 
 func (s *Session) startTool(callID string, now time.Time) {

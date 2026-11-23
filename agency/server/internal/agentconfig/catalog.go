@@ -58,6 +58,8 @@ type Service struct {
 	now    func() time.Time
 
 	variables VariableResolver
+
+	Integrations Integrations
 }
 
 type VariableResolver interface {
@@ -76,6 +78,11 @@ func New(st store.AgentConfigStore, secretKey string) (*Service, error) {
 
 func (s *Service) Enabled() bool { return s.sealer.Enabled() }
 
+const (
+	DefaultCompactionReserveTokens    int64 = 16_384
+	DefaultCompactionKeepRecentTokens int64 = 20_000
+)
+
 type Model struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
@@ -84,10 +91,13 @@ type Model struct {
 
 	ThinkingLevels []string `json:"thinkingLevels,omitempty"`
 
-	ForcePlan     bool      `json:"forcePlan,omitempty"`
-	ContextWindow int64     `json:"contextWindow"`
-	MaxTokens     int64     `json:"maxTokens"`
-	Cost          ModelCost `json:"cost"`
+	ForcePlan     bool  `json:"forcePlan,omitempty"`
+	ContextWindow int64 `json:"contextWindow"`
+	MaxTokens     int64 `json:"maxTokens"`
+
+	CompactionReserveTokens    int64     `json:"compactionReserveTokens"`
+	CompactionKeepRecentTokens int64     `json:"compactionKeepRecentTokens"`
+	Cost                       ModelCost `json:"cost"`
 }
 
 var ThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
@@ -140,6 +150,17 @@ type Bundle struct {
 	Providers []Provider `json:"providers"`
 
 	Variables []BundleVariable `json:"variables,omitempty"`
+
+	MCP    any `json:"mcp,omitempty"`
+	Skills any `json:"skills,omitempty"`
+}
+
+type Integrations interface {
+	ResolveBundle(
+		ctx context.Context,
+		agentActorID, projectID string,
+		teamIDs, groupIDs []string,
+	) (mcp, skills any, err error)
 }
 
 type BundleVariable struct {
@@ -311,6 +332,19 @@ func (s *Service) Bundle(
 	} else {
 		bundle.Variables = resolved
 	}
+	if s.Integrations != nil && caller.AgentActorID != "" {
+		mcp, skills, err := s.Integrations.ResolveBundle(
+			ctx,
+			caller.AgentActorID,
+			caller.ProjectID,
+			caller.TeamIDs,
+			caller.GroupIDs,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		bundle.MCP, bundle.Skills = mcp, skills
+	}
 	return bundle, true, nil
 }
 
@@ -388,16 +422,25 @@ func modelOf(row store.Model) Model {
 	if len(input) == 0 {
 		input = []string{"text"}
 	}
+	reserve, keepRecent := row.CompactionReserveTokens, row.CompactionKeepRecentTokens
+	if reserve <= 0 {
+		reserve = DefaultCompactionReserveTokens
+	}
+	if keepRecent <= 0 {
+		keepRecent = DefaultCompactionKeepRecentTokens
+	}
 	return Model{
-		ID:             row.ModelID,
-		Name:           row.Name,
-		Reasoning:      row.Reasoning != 0,
-		Input:          input,
-		ThinkingLevels: decodeStrings(row.ThinkingLevelsJson),
-		ForcePlan:      row.ForcePlan != 0,
-		ContextWindow:  row.ContextWindow,
-		MaxTokens:      row.MaxTokens,
-		Cost:           decodeCost(row.CostJson),
+		ID:                         row.ModelID,
+		Name:                       row.Name,
+		Reasoning:                  row.Reasoning != 0,
+		Input:                      input,
+		ThinkingLevels:             decodeStrings(row.ThinkingLevelsJson),
+		ForcePlan:                  row.ForcePlan != 0,
+		ContextWindow:              row.ContextWindow,
+		MaxTokens:                  row.MaxTokens,
+		CompactionReserveTokens:    reserve,
+		CompactionKeepRecentTokens: keepRecent,
+		Cost:                       decodeCost(row.CostJson),
 	}
 }
 

@@ -21,12 +21,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/audit"
 	"cherrypi.vladfaust.com/agency/internal/ids"
+	"cherrypi.vladfaust.com/agency/internal/notifications"
 	storepkg "cherrypi.vladfaust.com/agency/internal/store"
 )
 
@@ -391,7 +393,7 @@ func (s *Service) childOptions(
 	return out, nil
 }
 
-// invite; a shared owner team still allows a direct link without that. The
+// the caller must own the parent side to invite. The link is direct when the
 
 func (s *Service) parentOption(
 	ctx context.Context,
@@ -413,7 +415,9 @@ func (s *Service) parentOption(
 		}
 		canInvite = ok && role == RoleOwner
 	}
-	direct := isAdmin || len(shared) > 0
+
+	direct := canInvite &&
+		(isAdmin || len(shared) > 0 || s.ownsProject(ctx, child.ID, actorID))
 	if !canInvite && !direct {
 		return ParentOption{}, false, nil
 	}
@@ -443,7 +447,7 @@ func (s *Service) sharedOwnerTeams(
 	return out, nil
 }
 
-// InviteParent links a child to a parent when the caller may shortcut the
+// InviteParent links a child to a parent. The parent side initiates it; the
 
 func (s *Service) InviteParent(
 	ctx context.Context,
@@ -465,14 +469,6 @@ func (s *Service) InviteParent(
 	if child.ParentID != "" {
 		return ParentLinkResult{}, ErrAlreadyHasParent
 	}
-	if _, err := s.store.GetPendingProjectParentInvitationForChild(
-		ctx,
-		child.ID,
-	); err == nil {
-		return ParentLinkResult{}, ErrInvitationExists
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return ParentLinkResult{}, err
-	}
 	cycle, err := s.store.IsProjectDescendant(ctx, parent.ID, child.ID)
 	if err != nil {
 		return ParentLinkResult{}, err
@@ -485,20 +481,96 @@ func (s *Service) InviteParent(
 	if err != nil {
 		return ParentLinkResult{}, err
 	}
-	direct := isAdmin || len(shared) > 0
-	if !direct {
-		if _, err := s.RequireRole(ctx, parent.ID, actorID, isAdmin, RoleOwner); err != nil {
+
+	direct := isAdmin || len(shared) > 0 ||
+		(s.ownsProject(ctx, parent.ID, actorID) &&
+			s.ownsProject(ctx, child.ID, actorID))
+	if direct {
+
+		if err := s.validateHierarchyChange(ctx, child.ID, parent.ID); err != nil {
 			return ParentLinkResult{}, err
 		}
-	}
-	if direct {
-		updated, err := s.linkParent(ctx, child, parent, actorID)
+		pending, err := s.store.GetPendingProjectParentInvitationForChild(
+			ctx,
+			child.ID,
+		)
+		hasPending := err == nil
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return ParentLinkResult{}, err
+		}
+		now := time.Now()
+		invitationID := int64(0)
+		reuse := hasPending && pending.ParentProjectID == parent.ID &&
+			pending.ExpiresAt >= now.UnixMilli()
+		if hasPending && !reuse {
+
+			if _, err := s.store.RespondProjectParentInvitation(
+				ctx,
+				storepkg.RespondProjectParentInvitationParams{
+					Status:             "revoked",
+					RespondedAt:        sql.NullInt64{Int64: now.UnixMilli(), Valid: true},
+					RespondedByActorID: nullActor(actorID),
+					ID:                 pending.ID,
+				},
+			); err != nil {
+				return ParentLinkResult{}, err
+			}
+		}
+		if reuse {
+			invitationID = pending.ID
+		} else {
+			created, err := s.store.CreateProjectParentInvitation(
+				ctx,
+				storepkg.CreateProjectParentInvitationParams{
+					ParentProjectID:  parent.ID,
+					ChildProjectID:   child.ID,
+					InvitedByActorID: nullActor(actorID),
+					Note:             strings.TrimSpace(note),
+					CreatedAt:        now.UnixMilli(),
+					ExpiresAt:        now.Add(InviteTTL).UnixMilli(),
+				},
+			)
+			if err != nil {
+				return ParentLinkResult{}, err
+			}
+			invitationID = created.ID
+		}
+
+		if _, err := s.RespondParentInvitation(
+			ctx, invitationID, actorID, isAdmin, true,
+		); err != nil {
+			if !reuse {
+				_, _ = s.store.RespondProjectParentInvitation(
+					ctx,
+					storepkg.RespondProjectParentInvitationParams{
+						Status:             "revoked",
+						RespondedAt:        sql.NullInt64{Int64: now.UnixMilli(), Valid: true},
+						RespondedByActorID: nullActor(actorID),
+						ID:                 invitationID,
+					},
+				)
+			}
+			return ParentLinkResult{}, err
+		}
+		updated, err := s.Get(ctx, child.ID)
 		if err != nil {
 			return ParentLinkResult{}, err
 		}
+		s.notifyProjectLinked(ctx, updated, parent, actorID)
 		return ParentLinkResult{Project: updated, Direct: true}, nil
 	}
 
+	if _, err := s.RequireRole(ctx, parent.ID, actorID, isAdmin, RoleOwner); err != nil {
+		return ParentLinkResult{}, err
+	}
+	if _, err := s.store.GetPendingProjectParentInvitationForChild(
+		ctx,
+		child.ID,
+	); err == nil {
+		return ParentLinkResult{}, ErrInvitationExists
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return ParentLinkResult{}, err
+	}
 	if err := s.validateHierarchyChange(ctx, child.ID, parent.ID); err != nil {
 		return ParentLinkResult{}, err
 	}
@@ -531,6 +603,57 @@ func (s *Service) InviteParent(
 		child.Slug,
 	)
 	return ParentLinkResult{Project: child, Invitation: &invitation}, nil
+}
+
+func (s *Service) ownsProject(
+	ctx context.Context,
+	projectID string,
+	actorID ids.ActorID,
+) bool {
+	if actorID == 0 {
+		return false
+	}
+	weight, err := s.store.GetEffectiveProjectRole(ctx, projectID, actorID)
+	if err != nil {
+		return false
+	}
+	return roleFromWeight(weight) == RoleOwner
+}
+
+func (s *Service) notifyProjectLinked(
+	ctx context.Context,
+	child Project,
+	parent Project,
+	actorID ids.ActorID,
+) {
+	if s.Notifier == nil {
+		return
+	}
+	owners, err := s.store.ListProjectOwnerActorIDs(ctx, child.ID)
+	if err != nil {
+		return
+	}
+	inviter := actorLabel(ctx, s, actorID)
+	body := "Linked " + child.Name + " under " + parent.Name + "."
+	if inviter != "" {
+		body = inviter + " linked " + child.Name + " under " + parent.Name + "."
+	}
+	for _, raw := range owners {
+		owner := ids.ActorID(raw)
+		if owner == 0 || owner == actorID {
+			continue
+		}
+		if err := s.Notifier.Create(ctx, notifications.Notification{
+			RecipientActorID: owner,
+			ProjectID:        child.ID,
+			Kind:             notifications.KindProjectLinked,
+			Severity:         "info",
+			Title:            "Subproject: " + child.Name,
+			Body:             body,
+		}); err != nil {
+			log.Printf("notify project link %s: %v", child.ID, err)
+		}
+	}
 }
 
 func (s *Service) RespondParentInvitation(

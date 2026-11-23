@@ -158,6 +158,10 @@ func (s Store) SetSessionPid(ctx context.Context, p sqlitedb.SetSessionPidParams
 	return s.queries.SetSessionPid(ctx, p)
 }
 
+func (s Store) SetSessionContext(ctx context.Context, p sqlitedb.SetSessionContextParams) error {
+	return s.queries.SetSessionContext(ctx, p)
+}
+
 func (s Store) SetSessionAgencyRef(
 	ctx context.Context,
 	p sqlitedb.SetSessionAgencyRefParams,

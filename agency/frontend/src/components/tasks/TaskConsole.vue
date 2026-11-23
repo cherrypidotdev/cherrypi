@@ -57,11 +57,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         v-else-if="historyLoaded && !nextBefore && items.length"
       ) {{ $t("taskConsole.beginning") }}
 
-      template(v-for="group in groups" :key="groupKey(group)")
+      template(v-for="group in groups" :key="rowKey(group)")
         template(v-if="group.kind === 'single'")
           .d-chat.d-chat-start(
             v-if="group.item.kind === 'user' && group.item.system === true"
             :data-item-id="group.id"
+            :data-message-id="group.item.messageId"
             data-testid="system-turn"
           )
             ChatAvatar(
@@ -111,12 +112,31 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :picture="pictureFor(group.item.sender)"
             :attachments="attachmentsFor(group.item.attachmentIds)"
             :copied="copiedId === group.id"
+            :pending="group.unsent !== undefined"
             @copy="copyResponse(group.item.text, group.id)"
             @open-attachment="emit('openAttachment', $event)"
             @open-image="emit('openImage', $event)"
             @open-diagram="emit('openDiagram', $event)"
-            :data-item-id="group.id"
+            :data-item-id="group.unsent ? undefined : group.id"
+            :data-message-id="group.unsent ? undefined : group.item.messageId"
+            :data-unsent-key="group.unsent?.key"
+            :data-row-key="rowKey(group)"
+            :data-testid="group.unsent ? 'unsent-message' : undefined"
           )
+            template(#pending-actions)
+              Button(
+                v-if="group.unsent?.cancellable"
+                variant="ghost"
+                size="xs"
+                :aria-label="$t('taskConsole.cancelUnsentTitle')"
+                :title="$t('taskConsole.cancelUnsentTitle')"
+                @click="group.unsent && emit('cancelUnsent', group.unsent)"
+                :disabled="group.unsent.busy"
+                data-testid="unsent-cancel"
+              )
+                Spinner(v-if="group.unsent.busy" data-icon="inline-start")
+                XIcon(v-else data-icon="inline-start")
+                span {{ $t("taskConsole.cancelUnsent") }}
 
           ConsoleAgentMessage(
             v-else-if="group.item.kind === 'text'"
@@ -125,6 +145,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :picture="agentPicture"
             :usage="runUsageByItem.get(group.item.id)"
             :copied="copiedId === group.id"
+            :streaming="isStreamingText(group.item)"
             @copy="copyResponse(group.item.text, group.id)"
             @open-image="emit('openImage', $event)"
             @open-diagram="emit('openDiagram', $event)"
@@ -135,6 +156,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             v-else
             :data-item-id="group.id"
           ) {{ group.item.text }}
+
+        CompactionLine(
+          v-else-if="group.kind === 'compaction'"
+          :before-tokens="group.item.contextTokensBefore"
+          :after-tokens="group.item.contextTokensAfter"
+          :duration-ms="group.item.durationMs"
+          :reason="group.item.reason"
+          :at="group.item.endedAt"
+          :data-item-id="group.id"
+        )
 
         ConsoleActivity(
           v-else-if="group.kind === 'activity'"
@@ -215,9 +246,26 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             @model-change="emit('modelChange', $event)"
           )
 
+        .d-chat.d-chat-start(
+          v-else-if="group.kind === 'dialog'"
+          :data-request-id="group.request.requestId"
+        )
+          ChatAvatar(:sender="agentSender" :picture="agentPicture")
+
+          ExtensionUiPrompt.w-full(
+            :request="group.request"
+            :busy="resolving[group.request.requestId]"
+            :blocked-reason="blockedReason"
+            @respond="(response) => answer(group.request, response)"
+          )
+
         //- so it stays collapsed to one line until the reader opens it; the
 
-        .d-chat.d-chat-start(v-else :data-item-id="group.id")
+        .d-chat.d-chat-start(
+          v-else
+          :data-item-id="group.id"
+          :data-request-id="group.requestId"
+        )
           ChatAvatar(:sender="agentSender" :picture="agentPicture")
 
           details.group.w-full.overflow-hidden.rounded-lg.border(
@@ -242,6 +290,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               QuestionnaireWizard.w-full(
                 :key="`review-${group.id}`"
                 readonly
+                :focus-question-id="focus?.questionId"
                 :questions="group.questions"
                 :review-answers="questionnaireAnswersFromReview(group.questions, group.answers)"
                 :review-final-note="group.finalNote"
@@ -252,59 +301,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
                 :unavailable="group.unavailable"
                 :submitting="false"
               )
-
-      template(v-if="!showWizard && !questionnaireRetired")
-        .d-chat.d-chat-start(v-for="dialog in dialogs" :key="dialog.requestId")
-          ChatAvatar(:sender="agentSender" :picture="agentPicture")
-
-          ExtensionUiPrompt.w-full(
-            :request="dialog"
-            :busy="resolving[dialog.requestId]"
-            :blocked-reason="blockedReason"
-            @respond="(response) => answer(dialog, response)"
-          )
-
-      .d-chat.d-chat-end(
-        v-for="item in unsent"
-        :key="item.key"
-        :data-unsent-key="item.key"
-        data-testid="unsent-message"
-      )
-        ChatAvatar(
-          v-if="item.sender"
-          :sender="item.sender"
-          :picture="pictureFor(item.sender)"
-        )
-        .d-chat-header.mb-1(v-if="item.sender")
-          MessageSender(:sender="item.sender" :avatar="false")
-        .d-chat-bubble.border.border-dashed(class="bg-muted/60 max-w-[80%]")
-          MarkdownText.prose.prose-sm.max-w-none(
-            class="dark:prose-invert prose-p:my-1 prose-pre:my-2"
-            zoomable
-            :text="item.text"
-            @open-image="emit('openImage', $event)"
-            @open-diagram="emit('openDiagram', $event)"
-          )
-        .d-chat-footer.mt-1.items-center.gap-2
-          AttachmentChips(
-            v-if="item.attachmentIds.length"
-            :attachments="attachmentsFor(item.attachmentIds)"
-            @open="emit('openAttachment', $event)"
-          )
-
-          Button(
-            v-if="item.cancellable"
-            variant="ghost"
-            size="xs"
-            :aria-label="$t('taskConsole.cancelUnsentTitle')"
-            :title="$t('taskConsole.cancelUnsentTitle')"
-            @click="emit('cancelUnsent', item)"
-            :disabled="item.busy"
-            data-testid="unsent-cancel"
-          )
-            Spinner(v-if="item.busy" data-icon="inline-start")
-            XIcon(v-else data-icon="inline-start")
-            span {{ $t("taskConsole.cancelUnsent") }}
 
       .flex.flex-col.items-center.gap-3.py-10(
         v-if="!items.length && !groups.length && !unsent.length && !error"
@@ -352,6 +348,7 @@ import AttachmentChips from "@/components/attachments/AttachmentChips.vue";
 import MarkdownText from "@/components/MarkdownText.vue";
 import MessageSender from "@/components/MessageSender.vue";
 import ChatAvatar from "@/components/tasks/ChatAvatar.vue";
+import CompactionLine from "@/components/tasks/CompactionLine.vue";
 import ConsoleActivity from "@/components/tasks/ConsoleActivity.vue";
 import ConsoleAgentMessage from "@/components/tasks/ConsoleAgentMessage.vue";
 import ConsoleNotice from "@/components/tasks/ConsoleNotice.vue";
@@ -493,6 +490,12 @@ const props = withDefaults(
     unsent?: UnsentMessage[];
 
     history?: TaskEvent[];
+
+    focus?: {
+      messageId?: string;
+      requestId?: string;
+      questionId?: string;
+    };
   }>(),
   {
     projectId: "",
@@ -730,18 +733,48 @@ interface RenderQuestionnaire {
   id: number;
   kind: "questionnaire-live";
 }
+
+interface RenderSingle extends Extract<Group, { kind: "single" }> {
+  unsent?: UnsentMessage;
+
+  pendingKey?: string | number;
+}
+
 type RenderGroup =
-  | Extract<Group, { kind: "single" }>
+  | RenderSingle
   | Extract<Group, { kind: "questionnaire" }>
+  | Extract<Group, { kind: "compaction" }>
   | Extract<Group, { kind: "state" }>
   | RenderActivity
   | RenderQuestionnaire;
+
+interface RenderDialog {
+  id: number;
+  kind: "dialog";
+  request: ExtensionUiRequest;
+}
+
+type RenderRow = RenderGroup | RenderDialog;
+
+const UNSENT_ROW_ID_BASE = -1_000_000;
+const DIALOG_ROW_ID_BASE = -2_000_000;
 
 const QUESTIONNAIRE_SLOT_ID = -1;
 
 function pendingSlotId(): number {
   reservedId ??= allocateId();
   return reservedId;
+}
+
+function isStreamingText(item: Item): boolean {
+  const last = items.value[items.value.length - 1];
+  return (
+    live.value &&
+    !waitingForInput.value &&
+    liveTextId.value === item.id &&
+    last?.kind === "text" &&
+    last.id === item.id
+  );
 }
 
 function groupHoldsCall(group: RenderGroup, callId: string): boolean {
@@ -751,8 +784,45 @@ function groupHoldsCall(group: RenderGroup, callId: string): boolean {
   );
 }
 
-const groups = computed<RenderGroup[]>(() => {
-  const raw = groupItems(items.value);
+const duplicatedMessageIds = computed(() => {
+  const seen = new Set<string>();
+  const duplicated = new Set<string>();
+  for (const item of items.value) {
+    if (item.kind !== "user" || !item.messageId) continue;
+    if (seen.has(item.messageId)) duplicated.add(item.messageId);
+    else seen.add(item.messageId);
+  }
+  return duplicated;
+});
+
+const unsentMatch = computed(() => {
+  const shadowed = new Set<number>();
+  const delivered = items.value.filter(
+    (item): item is Extract<Item, { kind: "user" }> => item.kind === "user",
+  );
+  for (const row of props.unsent) {
+    if (!row.messageId) continue;
+    for (let i = delivered.length - 1; i >= 0; i--) {
+      const candidate = delivered[i]!;
+      if (candidate.messageId !== row.messageId) continue;
+      if (shadowed.has(candidate.id)) continue;
+      shadowed.add(candidate.id);
+      break;
+    }
+  }
+  return { shadowed };
+});
+
+const visibleItems = computed(() =>
+  unsentMatch.value.shadowed.size
+    ? items.value.filter((item) => !unsentMatch.value.shadowed.has(item.id))
+    : items.value,
+);
+
+const dialogs = ref<ExtensionUiRequest[]>([]);
+
+const groups = computed<RenderRow[]>(() => {
+  const raw = groupItems(visibleItems.value);
   const out: RenderGroup[] = raw.flatMap((group, index): RenderGroup[] => {
     if (group.kind === "activity") {
       const items = group.items.filter(
@@ -814,7 +884,38 @@ const groups = computed<RenderGroup[]>(() => {
     (group) =>
       group.kind !== "activity" || group.items.length > 0 || group.pending,
   );
-  return mergeStateChanges(drawn, props.stateChanges, items.value);
+  const rows: RenderRow[] = [
+    ...mergeStateChanges(drawn, props.stateChanges, items.value),
+  ];
+
+  if (!showWizard.value && !questionnaireRetired.value) {
+    dialogs.value.forEach((request, index) => {
+      rows.push({ id: DIALOG_ROW_ID_BASE - index, kind: "dialog", request });
+    });
+  }
+  props.unsent.forEach((row, index) => {
+    rows.push({
+      id: UNSENT_ROW_ID_BASE - index,
+      kind: "single",
+      item: {
+        id: UNSENT_ROW_ID_BASE - index,
+        kind: "user",
+        text: row.text,
+        attachmentIds: row.attachmentIds,
+        sender: row.sender ?? SYSTEM_SENDER,
+        system: false,
+        messageId: row.messageId,
+        at: undefined,
+      },
+      unsent: row,
+
+      pendingKey:
+        row.messageId && !duplicatedMessageIds.value.has(row.messageId)
+          ? `msg:${row.messageId}`
+          : `unsent:${row.key}`,
+    });
+  });
+  return rows;
 });
 
 // each run reads as one line without duplicating its numbers across the blocks
@@ -992,7 +1093,20 @@ const showPending = computed(
 );
 
 function groupKey(group: RenderGroup): string | number {
-  return group.kind === "state" ? `state:${group.change.key}` : group.id;
+  if (group.kind === "state") return `state:${group.change.key}`;
+  if (group.kind === "single" && group.item.kind === "user") {
+    const id = group.item.messageId;
+    if (id && !duplicatedMessageIds.value.has(id)) return `msg:${id}`;
+
+    if (id) return `msg:${id}#${group.id}`;
+  }
+  return group.id;
+}
+
+function rowKey(row: RenderRow): string | number {
+  if (row.kind === "single" && row.unsent) return row.pendingKey ?? row.id;
+  if (row.kind === "dialog") return `dialog:${row.request.requestId}`;
+  return groupKey(row);
 }
 
 function stateChangeLabel(change: StateChange): string {
@@ -1179,7 +1293,6 @@ watch(
   { immediate: true },
 );
 
-const dialogs = ref<ExtensionUiRequest[]>([]);
 const resolving = reactive<Record<string, boolean>>({});
 
 const copiedId = ref<number | null>(null);
@@ -1235,6 +1348,8 @@ const nextBefore = ref("");
 const liveQueue: TaskEvent[] = [];
 
 let nextId = 0;
+
+const liveTextId = ref<number | undefined>(undefined);
 
 let reservedId: number | undefined;
 
@@ -1379,7 +1494,10 @@ function appendText(
     return;
   } else {
     push({ kind: "text", text: delta, at: startedAt });
-    return;
+  }
+  if (kind === "text") {
+    const appended = items.value[items.value.length - 1];
+    liveTextId.value = appended?.kind === "text" ? appended.id : undefined;
   }
   if (stickToBottom.value) {
     void scrollToBottom();
@@ -1435,6 +1553,7 @@ function dropDeltas() {
     deltaTimer = undefined;
   }
   pendingDeltas = [];
+  liveTextId.value = undefined;
 }
 
 async function scrollToBottom() {
@@ -1480,6 +1599,70 @@ function scrollToUser(id: number) {
     el.scrollTo({ top: node.offsetTop - 8, behavior: "smooth" });
   }
 }
+
+const focusedKey = ref("");
+async function focusSource() {
+  const focus = props.focus;
+  if (!focus || (!focus.messageId && !focus.requestId)) return;
+  const key = [focus.messageId, focus.requestId, focus.questionId].join("|");
+  if (focusedKey.value === key) return;
+  await nextTick();
+  const el = scroller.value;
+  if (!el) return;
+  let node: HTMLElement | null = null;
+  if (focus.messageId) {
+    node = el.querySelector<HTMLElement>(
+      `[data-message-id="${focus.messageId}"]`,
+    );
+  }
+  if (!node && focus.requestId) {
+    node = el.querySelector<HTMLElement>(
+      `[data-request-id="${focus.requestId}"]`,
+    );
+    if (node && focus.questionId) {
+      const details = node.querySelector<HTMLDetailsElement>("details");
+      if (details) details.open = true;
+      await nextTick();
+      const question = node.querySelector<HTMLElement>(
+        `[data-question-id="${focus.questionId}"]`,
+      );
+      if (question) node = question;
+    }
+  }
+  if (!node) return;
+  focusedKey.value = key;
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  const highlight = [
+    "ring-2",
+    "ring-primary",
+    "ring-offset-2",
+    "ring-offset-background",
+    "rounded-lg",
+  ];
+  node.classList.add(...highlight);
+  const target = node;
+  setTimeout(() => target.classList.remove(...highlight), 2500);
+}
+
+watch(
+  () => props.focus,
+  () => {
+    focusedKey.value = "";
+    void focusSource();
+  },
+  { deep: true },
+);
+
+watch(
+  () => [historyLoaded.value, items.value.length],
+  () => {
+    if (historyLoaded.value && props.focus) void focusSource();
+  },
+);
+
+onMounted(() => {
+  void focusSource();
+});
 
 function onActivityToggle(id: number, event: Event) {
   const activity = event.target as HTMLDetailsElement;
@@ -1592,6 +1775,10 @@ function applyEvent(event: TaskEvent) {
     payload.case !== "modelWait"
   ) {
     flushDeltas();
+  }
+
+  if (payload.case !== "text") {
+    liveTextId.value = undefined;
   }
   switch (payload.case) {
     case "text":

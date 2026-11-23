@@ -27,6 +27,8 @@ type PromptSender struct {
 	Name     string
 
 	Kind string
+
+	MessageID string
 }
 
 type PromptAttachment struct {
@@ -41,10 +43,11 @@ type promptEnvelope struct {
 }
 
 type envelopeSender struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
-	Name     string `json:"name"`
-	Kind     string `json:"kind,omitempty"`
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
 }
 
 type envelopeBody struct {
@@ -62,6 +65,7 @@ type ParsedPrompt struct {
 	Body        string
 	Sender      *PromptSender
 	Attachments []PromptAttachment
+	MessageID   string
 }
 
 func BuildPromptEnvelope(
@@ -72,10 +76,11 @@ func BuildPromptEnvelope(
 	actor := envelopeSender{Username: "system", Name: "CherryPi", Kind: "system"}
 	if sender != nil && (sender.Username != "" || sender.ActorID != 0 || sender.Kind != "") {
 		actor = envelopeSender{
-			ID:       sender.ActorID,
-			Username: sender.Username,
-			Name:     sender.Name,
-			Kind:     sender.Kind,
+			ID:        sender.ActorID,
+			Username:  sender.Username,
+			Name:      sender.Name,
+			Kind:      sender.Kind,
+			MessageID: sender.MessageID,
 		}
 		if actor.Kind == "" {
 			actor.Kind = "user"
@@ -106,12 +111,14 @@ func ParsePromptEnvelope(text string) (ParsedPrompt, bool) {
 		return ParsedPrompt{}, false
 	}
 	parsed := ParsedPrompt{
-		Body: env.MessageBody.Text,
+		Body:      env.MessageBody.Text,
+		MessageID: env.SendingActor.MessageID,
 		Sender: &PromptSender{
-			ActorID:  env.SendingActor.ID,
-			Username: env.SendingActor.Username,
-			Name:     env.SendingActor.Name,
-			Kind:     env.SendingActor.Kind,
+			ActorID:   env.SendingActor.ID,
+			Username:  env.SendingActor.Username,
+			Name:      env.SendingActor.Name,
+			MessageID: env.SendingActor.MessageID,
+			Kind:      env.SendingActor.Kind,
 		},
 	}
 	for _, attachment := range env.MessageBody.Attachments {

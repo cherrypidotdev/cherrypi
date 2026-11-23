@@ -18,19 +18,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .flex.flex-col.gap-4
-  .flex.flex-wrap.items-center.justify-between.gap-3
+  .flex.flex-wrap.items-start.justify-between.gap-3
     .flex.flex-col
-      h2.text-lg.font-semibold
-        | {{ heading || (scope === "project" ? $t("knowledge.projectHeading") : $t("knowledge.orgHeading")) }}
-      p.text-muted-foreground.max-w-3xl.text-sm
-        | {{ description || (scope === "project" ? $t("knowledge.projectWikiDescription") : $t("knowledge.orgDescription")) }}
-    Button(v-if="selected?.canEdit || !selected" @click="openCreate")
-      PlusIcon(data-icon="inline-start")
-      span {{ $t("knowledge.newPage") }}
-  .grid.items-start.gap-4(class="lg:grid-cols-[18rem_minmax(0,1fr)]")
+      h2.text-lg.font-semibold {{ heading || defaultHeading }}
+      p.text-muted-foreground.max-w-3xl.text-sm {{ description || defaultDescription }}
+    .flex.items-center.gap-2
+      Button(variant="outline" size="sm" @click="load()" :disabled="loading")
+        RefreshCwIcon(data-icon="inline-start")
+        span {{ $t("knowledge.refresh") }}
+      Button(v-if="canCreate" size="sm" @click="openCreate")
+        PlusIcon(data-icon="inline-start")
+        span {{ $t("knowledge.newBit") }}
+
+  .grid.items-start.gap-4(class="lg:grid-cols-[20rem_minmax(0,1fr)]")
     Card
       CardHeader.pb-3
-        CardTitle.text-sm {{ $t("knowledge.pages") }}
+        CardTitle.text-sm {{ $t("knowledge.bits") }}
       CardContent.flex.flex-col.gap-3
         .relative
           SearchIcon.text-muted-foreground.absolute.top-2.left-2.size-4
@@ -39,31 +42,55 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :placeholder="$t('knowledge.searchPlaceholder')"
             @keyup.enter="load()"
           )
-        .flex.items-center.justify-between.gap-2
-          span.text-muted-foreground.text-xs {{ pages.length }}
-          Button(variant="ghost" size="sm" @click="load()" :disabled="loading")
-            Spinner(v-if="loading" data-icon="inline-start")
-            RefreshCwIcon(v-else data-icon="inline-start")
-            span {{ $t("knowledge.refresh") }}
+        select.border-input.w-full.rounded-lg.border.bg-transparent.px-2.py-1.text-sm(
+          v-if="scope === 'all'"
+          v-model="projectFilter"
+          @change="load()"
+        )
+          option(value) {{ $t("knowledge.allProjects") }}
+          option(
+            v-for="project in projects"
+            :key="project.id"
+            :value="project.id"
+          )
+            | {{ project.name }}
+        .flex.flex-wrap.items-center.gap-1
+          Button(
+            v-for="option in statuses"
+            :key="option.value"
+            size="sm"
+            :variant="status === option.value ? 'default' : 'outline'"
+            @click="setStatus(option.value)"
+          ) {{ option.label }}
+        .flex.flex-wrap.items-center.gap-1(v-if="tags.length")
+          button.rounded-full.px-2.text-xs(
+            v-for="item in tags"
+            :key="item.tag"
+            type="button"
+            class="py-0.5"
+            :class="tag === item.tag ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'"
+            @click="setTag(item.tag)"
+          ) {{ tagLabel(item.tag) }} {{ item.count }}
         p.text-destructive.text-xs(v-if="error") {{ error }}
+        .flex.items-center.justify-between.gap-2
+          span.text-muted-foreground.text-xs {{ bits.length }}
+          Spinner.size-3(v-if="loading")
         .flex.flex-col.gap-1
           button.w-full.rounded-lg.border.border-transparent.px-2.py-2.text-left.transition-colors(
-            v-for="page in pages"
-            :key="page.id"
+            v-for="bit in bits"
+            :key="bit.id"
             type="button"
-            :class="selected?.id === page.id ? 'bg-muted' : 'hover:bg-muted/60'"
-            @click="select(page)"
+            :class="selected?.id === bit.id ? 'bg-muted' : 'hover:bg-muted/60'"
+            @click="select(bit)"
           )
             .flex.items-center.gap-2
-              FileTextIcon.text-muted-foreground.size-3.shrink-0
-              span.min-w-0.flex-1.truncate.text-sm.font-medium {{ page.title || page.path }}
-            .flex.flex-wrap.items-center.gap-1.pl-5(class="mt-0.5")
-              span.text-muted-foreground.truncate.font-mono(class="text-[10px]") {{ page.path }}
-            .mt-1.flex.flex-wrap.items-center.gap-1.pl-5
-              Badge(class="text-[10px]" :variant="trustVariant(page.trustTier)") {{ trustLabel(page.trustTier) }}
-              Badge(class="text-[10px]" variant="outline") {{ page.status }}
-          p.text-muted-foreground.text-sm(v-if="!pages.length && !loading")
-            | {{ $t("knowledge.empty") }}
+              span.min-w-0.flex-1.truncate.text-sm.font-medium {{ bit.title || bit.content }}
+              Badge(class="text-[10px]" :variant="statusVariant(bit.status)") {{ statusLabel(bit.status) }}
+            .flex.flex-wrap.items-center.gap-1.pl-0(class="mt-0.5")
+              span.text-muted-foreground.font-mono(class="text-[10px]") {{ shortId(bit.id) }}
+              span.text-muted-foreground(v-if="bit.projectSlug" class="text-[10px]") · {{ bit.projectSlug }}
+              span.text-muted-foreground(v-if="bit.tags.length" class="text-[10px]") · {{ bit.tags.map((tag) => "#" + tag).join(" ") }}
+          p.text-muted-foreground.text-sm(v-if="!bits.length && !loading") {{ $t("knowledge.empty") }}
 
     div(v-if="selected")
       Card
@@ -71,10 +98,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           .flex.flex-wrap.items-start.justify-between.gap-3
             .flex.min-w-0.flex-col.gap-1
               .flex.flex-wrap.items-center.gap-2
-                h3.min-w-0.truncate.text-xl.font-semibold {{ selected.title || selected.path }}
-                Badge(:variant="trustVariant(selected.trustTier)") {{ trustLabel(selected.trustTier) }}
-                Badge(variant="outline") {{ selected.status }}
-              span.text-muted-foreground.truncate.font-mono.text-xs {{ selected.path }}
+                h3.min-w-0.text-xl.font-semibold.break-words {{ selected.title || selected.content }}
+                Badge(:variant="statusVariant(selected.status)") {{ statusLabel(selected.status) }}
+                Badge(v-if="selected.projectSlug" variant="outline") {{ selected.projectSlug }}
+              p.text-muted-foreground.text-xs
+                | {{ $t("knowledge.by") }} {{ selected.createdBy }}
+                template(v-if="selected.reviewedBy")
+                  | · {{ $t("knowledge.reviewedBy") }} {{ selected.reviewedBy }}
+                | · r{{ selected.revision }}
             .flex.flex-wrap.items-center.gap-1
               Button(
                 v-if="selected.canEdit"
@@ -84,150 +115,125 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
               )
                 PencilIcon(data-icon="inline-start")
                 span {{ $t("knowledge.edit") }}
-              Button(variant="outline" size="sm" @click="openHistory")
-                HistoryIcon(data-icon="inline-start")
-                span {{ $t("knowledge.history") }}
               Button(
-                v-if="selected.canVerify"
+                v-if="selected.canReview"
                 variant="outline"
                 size="sm"
-                @click="showVerify = true"
+                @click="openReview('approve')"
               )
                 ShieldCheckIcon(data-icon="inline-start")
-                span {{ $t("knowledge.verify") }}
+                span {{ $t("knowledge.approve") }}
               Button(
-                v-if="selected.canEdit"
-                variant="destructive"
+                v-if="selected.canReview"
+                variant="outline"
+                size="sm"
+                @click="openReview('reject')"
+              )
+                XIcon(data-icon="inline-start")
+                span {{ $t("knowledge.reject") }}
+              Button(
+                v-if="selected.canDelete"
+                variant="ghost"
                 size="sm"
                 @click="remove"
               )
                 Trash2Icon(data-icon="inline-start")
-                span {{ $t("knowledge.delete") }}
-          p.text-muted-foreground.text-sm(v-if="selected.description") {{ selected.description }}
-          .text-muted-foreground.flex.flex-wrap.items-center.gap-3.text-xs
-            span {{ $t("knowledge.generatedBy") }}
-              strong.text-foreground {{ " " + (selected.generatedBy || "unknown") }}
-            span {{ formatTimestamp(selected.generatedAt) }}
-            span {{ $t("knowledge.revision", { revision: String(selected.revision) }) }}
-            span(v-if="selected.staleAfter") {{ $t("knowledge.staleAfter", { date: formatTimestamp(selected.staleAfter) }) }}
           .flex.flex-wrap.items-center.gap-1(v-if="selected.tags.length")
-            Badge(v-for="tag in selected.tags" :key="tag" variant="secondary")
-              | {{ "#" + tag }}
-        CardContent.pt-0
-          .rounded-lg.border.p-3.text-sm.text-amber-700(
-            v-if="isStale"
-            class="border-amber-500/40 bg-amber-500/10 dark:text-amber-300"
-          )
-            | {{ $t("knowledge.staleBanner") }}
-          MarkdownText.prose.prose-sm.mt-4.max-w-none(
-            class="prose-p:my-1 prose-pre:my-2"
-            :text="bodyMarkdown"
-          )
-          .mt-6.flex.flex-col.gap-2(v-if="selected.sources.length")
+            Badge(v-for="tag in selected.tags" :key="tag" variant="secondary") {{ tagLabel(tag) }}
+        CardContent.flex.flex-col.gap-4
+          p.text-muted-foreground.text-sm(v-if="selected.reviewNote")
+            span.font-medium {{ $t("knowledge.reviewNote") }}:
+            | {{ selected.reviewNote }}
+          RouterLink.text-muted-foreground.text-xs.underline.underline-offset-2(
+            v-if="selected.originTaskId"
+            class-hover="text-foreground"
+            :to="{ name: 'task', params: { id: selected.originTaskId } }"
+          ) {{ $t("knowledge.originTask") }} {{ selected.originTaskId }}
+          MarkdownText.prose.prose-sm.max-w-none(:text="selected.content")
+
+          section.flex.flex-col.gap-2(v-if="selected.sources.length")
             h4.text-sm.font-semibold {{ $t("knowledge.sources") }}
-            template(v-for="source in selected.sources" :key="source.id")
-              a.text-primary.text-sm.underline(
-                v-if="isLink(source.resource)"
-                rel="noopener noreferrer"
-                :href="source.resource"
-                target="_blank"
-              ) {{ source.title || source.resource }}
-              span.text-sm(v-else) {{ source.title || source.resource }}
-          .mt-6.flex.flex-col.gap-2(v-if="selected.backlinks.length")
-            h4.text-sm.font-semibold {{ $t("knowledge.referencedBy") }}
-            RouterLink.text-primary.text-sm.underline(
-              v-for="backlink in selected.backlinks"
-              :key="backlink.id"
-              :to="{ path: route.path, query: { ...route.query, path: backlink.path } }"
-            ) {{ backlink.title || backlink.path }}
-          .mt-6.flex.flex-col.gap-2(v-if="selected.decisions.length")
-            .flex.flex-wrap.items-center.justify-between.gap-2
-              h4.text-sm.font-semibold {{ $t("knowledge.decisions") }}
-            .rounded-lg.border.p-2(
-              v-for="decision in selected.decisions"
-              :key="String(decision.id)"
-            )
-              .flex.flex-wrap.items-center.gap-2
-                Badge(:variant="decisionKindVariant(decision.kind)")
-                  | {{ decisionKindLabel(decision.kind) }}
-                span.text-sm.font-medium {{ decisionActorName(decision.actorRef) }}
-                span.text-muted-foreground.text-xs(v-if="decision.createdAt") {{ formatTimestamp(decision.createdAt) }}
-              p.mt-1.text-sm.break-words(v-if="decision.summary") {{ decision.summary }}
-          .mt-6.flex.flex-col.gap-2(v-if="selected.canEdit")
-            Button(
-              variant="outline"
-              size="sm"
-              @click="recordDecisionAboutPage"
-            )
-              PlusIcon(data-icon="inline-start")
-              span {{ $t("knowledge.recordDecisionAboutPage") }}
-          .mt-6.flex.flex-col.gap-2(v-if="selected.verifications.length")
-            h4.text-sm.font-semibold {{ $t("knowledge.verifications") }}
-            .flex.flex-wrap.items-center.gap-2.text-xs(
-              v-for="verification in selected.verifications"
-              :key="String(verification.id)"
-            )
-              Badge(
-                :variant="verification.revokedAt ? 'outline' : 'secondary'"
+            .flex.flex-col.gap-1
+              template(v-for="source in selected.sources" :key="source.id")
+                RouterLink.text-primary.text-sm.underline.underline-offset-2(
+                  v-if="source.href.startsWith('/')"
+                  :to="source.href"
+                ) {{ source.label || source.kind }}
+                a.text-primary.text-sm.underline.underline-offset-2(
+                  v-else-if="source.href"
+                  rel="noopener"
+                  :href="source.href"
+                  target="_blank"
+                ) {{ source.label || source.kind }}
+                span.text-sm(v-else) {{ source.label || source.kind }}
+
+          section.flex.flex-col.gap-2(
+            v-if="selected.links.length || selected.backlinks.length"
+          )
+            h4.text-sm.font-semibold {{ $t("knowledge.related") }}
+            .flex.flex-wrap.items-center.gap-1
+              button.bg-muted.rounded-full.px-2.text-xs(
+                v-for="link in selected.links"
+                :key="'out-' + link.knowledgeId + link.kind"
+                type="button"
+                class="hover:bg-muted/70 py-0.5"
+                @click="selectById(link.knowledgeId)"
               )
-                | {{ verification.actorRef }}
-              span.text-muted-foreground {{ formatTimestamp(verification.createdAt) }}
-              span.text-muted-foreground(v-if="verification.note") {{ verification.note }}
+                | {{ link.kind === "supersedes" ? $t("knowledge.supersedes") : $t("knowledge.related") }}: {{ link.title || shortId(link.knowledgeId) }}
+              button.bg-muted.rounded-full.px-2.text-xs(
+                v-for="link in selected.backlinks"
+                :key="'in-' + link.knowledgeId + link.kind"
+                type="button"
+                class="hover:bg-muted/70 py-0.5"
+                @click="selectById(link.knowledgeId)"
+              )
+                | {{ link.kind === "supersedes" ? $t("knowledge.supersededBy") : $t("knowledge.linkedFrom") }}: {{ link.title || shortId(link.knowledgeId) }}
+
+          details(v-if="selected.revisions.length")
+            summary.cursor-pointer.text-sm.font-semibold {{ $t("knowledge.history") }}
+            .mt-2.flex.flex-col.gap-2
+              .flex.flex-col.gap-1.rounded-lg.border.p-2(
+                v-for="revision in selected.revisions"
+                :key="String(revision.revision)"
+              )
+                .flex.items-center.justify-between.gap-2.text-xs
+                  span.font-medium r{{ revision.revision }} · {{ revision.status }}
+                  span.text-muted-foreground {{ revision.actorRef }}
+                p.text-muted-foreground.text-xs {{ revision.summary }}
+                MarkdownText.prose.prose-sm.max-w-none(
+                  :text="revision.content"
+                )
     Card(v-else)
-      CardContent.flex.flex-col.items-center.gap-3.p-10.text-center
-        FileTextIcon.text-muted-foreground.size-8
-        p.text-sm.font-medium {{ $t("knowledge.selectPage") }}
-        p.text-muted-foreground.text-sm
-          | {{ $t("knowledge.selectHint") }}
+      CardContent.py-10
+        p.text-muted-foreground.text-center.text-sm {{ $t("knowledge.selectHint") }}
 
   KnowledgeEditor(
     v-model:open="showEditor"
-    :scope="scope"
-    :scope-id="scopeId"
-    :concept="editing"
+    :project-id="editorProjectId"
+    :bit="editing"
     @saved="onSaved"
   )
 
-  Dialog(:open="showHistory" @update:open="showHistory = $event")
-    DialogContent.overflow-y-auto(class="max-h-[85vh] sm:max-w-2xl")
-      DialogHeader
-        DialogTitle {{ $t("knowledge.historyTitle") }}
-        DialogDescription {{ $t("knowledge.historyHint") }}
-      .flex.flex-col.gap-2(v-if="revisions.length")
-        .rounded-lg.border.p-3(
-          v-for="revision in revisions"
-          :key="String(revision.id)"
-        )
-          .flex.flex-wrap.items-center.justify-between.gap-2
-            span.text-sm.font-medium {{ $t("knowledge.revisionLine", { revision: String(revision.revision), title: revision.title }) }}
-            span.text-muted-foreground.text-xs {{ formatTimestamp(revision.createdAt) }}
-          p.text-muted-foreground.text-xs
-            | {{ revision.actorRef }} · {{ revision.summary || "No summary" }}
-          details.mt-2
-            summary.text-primary.cursor-pointer.text-xs {{ $t("knowledge.showBody") }}
-            MarkdownText.mt-2.max-h-64.overflow-auto.text-xs(
-              :text="revision.body"
-            )
-      p.text-muted-foreground.text-sm(v-else) {{ $t("knowledge.noRevisions") }}
-
-  Dialog(:open="showVerify" @update:open="showVerify = $event")
+  Dialog(:open="Boolean(reviewing)" @update:open="closeReview")
     DialogContent(class="sm:max-w-md")
       DialogHeader
-        DialogTitle {{ $t("knowledge.verifyTitle") }}
-        DialogDescription {{ $t("knowledge.verifyHint") }}
+        DialogTitle {{ reviewing === "reject" ? $t("knowledge.rejectTitle") : $t("knowledge.approveTitle") }}
+        DialogDescription {{ reviewing === "reject" ? $t("knowledge.rejectHint") : $t("knowledge.approveHint") }}
       Field
-        FieldLabel(for="knowledge-verify-note") {{ $t("knowledge.note") }}
-        Input#knowledge-verify-note(
-          v-model="verifyNote"
-          :placeholder="$t('knowledge.verifyPlaceholder')"
-        )
-      p.text-destructive.text-sm(v-if="verifyError") {{ verifyError }}
+        FieldLabel(for="knowledge-review-note") {{ $t("knowledge.reviewNote") }}
+        Textarea#knowledge-review-note(v-model="reviewNote" rows="3")
+      p.text-destructive.text-sm(v-if="reviewError") {{ reviewError }}
       DialogFooter
         DialogClose
           Button(type="button" variant="ghost") {{ $t("knowledge.cancel") }}
-        Button(type="button" @click="verify" :disabled="verifying")
-          Spinner(v-if="verifying" data-icon="inline-start")
-          span {{ $t("knowledge.verify") }}
+        Button(
+          type="button"
+          :variant="reviewing === 'reject' ? 'destructive' : 'default'"
+          @click="submitReview"
+          :disabled="reviewSaving"
+        )
+          Spinner(v-if="reviewSaving" data-icon="inline-start")
+          span {{ reviewing === "reject" ? $t("knowledge.reject") : $t("knowledge.approve") }}
 </template>
 
 <script setup lang="ts">
@@ -248,152 +254,151 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { useRealtime } from "@/composables/useRealtime";
-import { formatTimestamp } from "@/lib/format";
 import { agency } from "@/lib/sdk";
-import type { KnowledgeConcept, KnowledgeRevision } from "@cherrypi/sdk";
+import type { KnowledgeBit, KnowledgeTagCount, Project } from "@cherrypi/sdk";
 import {
-  FileTextIcon,
-  HistoryIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   ShieldCheckIcon,
   Trash2Icon,
+  XIcon,
 } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 
 const props = defineProps<{
-  scope: "org" | "project";
-  scopeId?: string;
+  scope: "org" | "project" | "all";
+  projectId?: string;
+
+  taskId?: string;
   heading?: string;
   description?: string;
+  initialStatus?: string;
 }>();
 
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 
-const pages = ref<KnowledgeConcept[]>([]);
-const selected = ref<KnowledgeConcept>();
+const bits = ref<KnowledgeBit[]>([]);
+const selected = ref<KnowledgeBit>();
+const tags = ref<KnowledgeTagCount[]>([]);
+const projects = ref<Project[]>([]);
+const projectFilter = ref("");
 const search = ref("");
+const tag = ref("");
+const status = ref(props.initialStatus ?? "approved");
 const loading = ref(false);
 const error = ref("");
 const showEditor = ref(false);
-const editing = ref<KnowledgeConcept>();
-const showHistory = ref(false);
-const revisions = ref<KnowledgeRevision[]>([]);
-const showVerify = ref(false);
-const verifyNote = ref("");
-const verifyError = ref("");
-const verifying = ref(false);
+const editing = ref<KnowledgeBit>();
+const reviewing = ref<"" | "approve" | "reject">("");
+const reviewNote = ref("");
+const reviewError = ref("");
+const reviewSaving = ref(false);
 
-const isStale = computed(() => {
-  const value = selected.value?.staleAfter;
-  if (!value) return false;
-  return Number(value.seconds) * 1000 < Date.now();
+const statuses = computed(() => [
+  { value: "approved", label: t("knowledge.approved") },
+  { value: "pending", label: t("knowledge.pending") },
+  { value: "rejected", label: t("knowledge.rejected") },
+  { value: "superseded", label: t("knowledge.superseded") },
+]);
+
+const defaultHeading = computed(() =>
+  props.scope === "project"
+    ? t("knowledge.projectHeading")
+    : t("knowledge.orgHeading"),
+);
+const defaultDescription = computed(() =>
+  props.scope === "project"
+    ? t("knowledge.projectDescription")
+    : t("knowledge.orgDescription"),
+);
+const canCreate = computed(
+  () => props.scope !== "project" || Boolean(props.projectId),
+);
+const editorProjectId = computed(() => {
+  if (props.scope === "project") return props.projectId;
+  return projectFilter.value || "";
 });
 
-const bodyMarkdown = computed(() => {
-  const body = selected.value?.body ?? "";
-  const base = route.path;
-  return body.replace(/\[\[([a-z0-9][a-z0-9._/-]*)\]\]/g, (_match, path) => {
-    const target = `${base}?path=${encodeURIComponent(path)}`;
-    return `[${path}](${target})`;
-  });
-});
-
-function isLink(resource: string): boolean {
-  return /^https?:\/\//i.test(resource);
-}
-
-function decisionKindLabel(kind: string): string {
-  switch (kind) {
-    case "task_created":
-      return t("knowledge.decisionKind.taskCreated");
-    case "follow_up":
-      return t("knowledge.decisionKind.followUp");
-    case "question_answered":
-      return t("knowledge.decisionKind.questionAnswered");
-    case "task_settled":
-      return t("knowledge.decisionKind.taskSettled");
-    case "recorded":
-      return t("knowledge.decisionKind.recorded");
+function statusLabel(value: string): string {
+  switch (value) {
+    case "pending":
+      return t("knowledge.pending");
+    case "rejected":
+      return t("knowledge.rejected");
+    case "superseded":
+      return t("knowledge.superseded");
     default:
-      return kind.replace(/_/g, " ");
+      return t("knowledge.approved");
   }
 }
 
-function decisionKindVariant(
-  kind: string,
-): "default" | "secondary" | "outline" {
-  return kind === "recorded" ? "default" : "outline";
-}
-
-function decisionActorName(ref: string): string {
-  if (ref.startsWith("human:")) return ref.slice("human:".length);
-  if (ref.startsWith("cherrypi-agent/")) {
-    return ref.slice("cherrypi-agent/".length);
-  }
-  return ref;
-}
-
-function recordDecisionAboutPage() {
-  if (!selected.value) return;
-
-  void router.push({
-    name: route.name,
-    query: {
-      ...route.query,
-      ...(route.name === "project" ? { tab: "decisions" } : {}),
-      record: "decision",
-      page: selected.value.path,
-    },
-  });
-}
-
-function trustLabel(tier: string): string {
-  switch (tier) {
-    case "human-reviewed":
-      return "human reviewed";
-    case "machine-confirmed":
-      return "machine confirmed";
-    default:
-      return "unverified";
-  }
-}
-
-function trustVariant(
-  tier: string,
+function statusVariant(
+  value: string,
 ): "default" | "secondary" | "outline" | "destructive" {
-  switch (tier) {
-    case "human-reviewed":
-      return "default";
-    case "machine-confirmed":
+  switch (value) {
+    case "pending":
       return "secondary";
-    default:
+    case "rejected":
+      return "destructive";
+    case "superseded":
       return "outline";
+    default:
+      return "default";
   }
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+function tagLabel(tag: string): string {
+  return `#${tag}`;
+}
+
+function setStatus(value: string) {
+  status.value = value;
+  void load();
+}
+
+function setTag(value: string) {
+  tag.value = tag.value === value ? "" : value;
+  void load();
 }
 
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    pages.value = await agency.listConcepts({
+    const projectId =
+      props.scope === "project" ? props.projectId : projectFilter.value;
+    bits.value = await agency.listKnowledge({
       scope: props.scope,
-      scopeId: props.scopeId,
+      projectId: projectId || undefined,
+      tag: tag.value,
+      status: status.value,
       query: search.value.trim(),
-      limit: 200,
+      taskId: props.taskId,
+      limit: 100,
+    });
+    tags.value = await agency.listKnowledgeTags({
+      scope: props.scope,
+      projectId: projectId || undefined,
     });
     const wanted =
-      typeof route.query.path === "string" ? route.query.path : undefined;
-    const current = wanted || selected.value?.path || pages.value[0]?.path;
+      typeof route.query.bit === "string" ? route.query.bit : undefined;
+    const current = wanted || selected.value?.id || bits.value[0]?.id;
     if (current) {
-      await selectPath(current, current !== route.query.path);
+      await selectById(current, current !== route.query.bit);
+    } else {
+      selected.value = undefined;
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -402,24 +407,19 @@ async function load() {
   }
 }
 
-async function selectPath(path: string, updateRoute = true) {
+async function selectById(id: string, updateRoute = true) {
   try {
-    selected.value = await agency.getConcept(
-      props.scope,
-      props.scopeId ?? "",
-      path,
-    );
+    selected.value = await agency.getKnowledge(id);
     if (updateRoute) {
-      const next = { ...route.query, path };
-      void router.replace({ query: next });
+      void router.replace({ query: { ...route.query, bit: id } });
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
 }
 
-async function select(page: KnowledgeConcept) {
-  await selectPath(page.path);
+async function select(bit: KnowledgeBit) {
+  await selectById(bit.id);
 }
 
 function openCreate() {
@@ -432,65 +432,48 @@ function openEdit() {
   showEditor.value = true;
 }
 
-async function onSaved(concept: KnowledgeConcept) {
+async function onSaved(bit: KnowledgeBit) {
+  selected.value = bit;
+  void router.replace({ query: { ...route.query, bit: bit.id } });
   await load();
-  await selectPath(concept.path);
 }
 
-async function openHistory() {
-  if (!selected.value) return;
-  showHistory.value = true;
-  try {
-    revisions.value = await agency.listConceptRevisions(
-      props.scope,
-      props.scopeId ?? "",
-      selected.value.path,
-    );
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-  }
+function openReview(kind: "approve" | "reject") {
+  reviewing.value = kind;
+  reviewNote.value = "";
+  reviewError.value = "";
 }
 
-async function verify() {
-  if (!selected.value) return;
-  verifying.value = true;
-  verifyError.value = "";
+function closeReview() {
+  reviewing.value = "";
+}
+
+async function submitReview() {
+  if (!selected.value || !reviewing.value) return;
+  reviewSaving.value = true;
+  reviewError.value = "";
   try {
-    selected.value = await agency.verifyConcept(
-      props.scope,
-      props.scopeId ?? "",
-      selected.value.path,
-      verifyNote.value.trim(),
-    );
-    verifyNote.value = "";
-    showVerify.value = false;
+    selected.value =
+      reviewing.value === "approve"
+        ? await agency.approveKnowledge(selected.value.id, reviewNote.value)
+        : await agency.rejectKnowledge(selected.value.id, reviewNote.value);
+    closeReview();
     await load();
   } catch (err) {
-    verifyError.value = err instanceof Error ? err.message : String(err);
+    reviewError.value = err instanceof Error ? err.message : String(err);
   } finally {
-    verifying.value = false;
+    reviewSaving.value = false;
   }
 }
 
 async function remove() {
   if (!selected.value) return;
-  if (
-    !window.confirm(
-      `Delete “${selected.value.title}”? It disappears from the wiki; the agency keeps its history.`,
-    )
-  ) {
-    return;
-  }
+  if (!window.confirm(t("knowledge.deleteConfirm"))) return;
   try {
-    await agency.deleteConcept(
-      props.scope,
-      props.scopeId ?? "",
-      selected.value.path,
-      selected.value.revision,
-    );
+    await agency.deleteKnowledge(selected.value.id);
     selected.value = undefined;
     const next = Object.fromEntries(
-      Object.entries(route.query).filter(([key]) => key !== "path"),
+      Object.entries(route.query).filter(([key]) => key !== "bit"),
     );
     void router.replace({ query: next });
     await load();
@@ -506,7 +489,7 @@ watch(search, () => {
 });
 
 watch(
-  () => [props.scope, props.scopeId],
+  () => [props.scope, props.projectId],
   () => {
     selected.value = undefined;
     void load();
@@ -514,16 +497,23 @@ watch(
 );
 
 watch(
-  () => route.query.path,
+  () => route.query.bit,
   (value) => {
-    if (typeof value === "string" && value && value !== selected.value?.path) {
-      void selectPath(value, false);
+    if (typeof value === "string" && value && value !== selected.value?.id) {
+      void selectById(value, false);
     }
   },
 );
 
-onMounted(() => {
-  void load();
+onMounted(async () => {
+  if (props.scope === "all") {
+    try {
+      projects.value = await agency.listProjects();
+    } catch {
+      projects.value = [];
+    }
+  }
+  await load();
 });
 
 useRealtime(["knowledge"], () => {
@@ -534,92 +524,74 @@ useRealtime(["knowledge"], () => {
 <i18n lang="yaml">
 en:
   knowledge:
-    newPage: "New page"
-    pages: "Pages"
-    searchPlaceholder: "Search the wiki…"
+    newBit: "New knowledge"
+    bits: "Knowledge"
+    searchPlaceholder: "Search knowledge…"
     refresh: "Refresh"
-    empty: "No pages yet. Create the first one."
-    edit: "Edit"
-    history: "History"
-    verify: "Verify"
-    delete: "Delete"
-    generatedBy: "Generated by"
-    revision: "Revision {revision}"
-    staleAfter: "Stale after {date}"
-    staleBanner: "This page is past its stale-after date. Verify it or refresh it before relying on it."
+    empty: "No knowledge here yet."
+    allProjects: "All projects"
+    approved: "Approved"
+    pending: "Pending"
+    rejected: "Rejected"
+    superseded: "Superseded"
+    by: "by"
+    reviewedBy: "reviewed by"
+    reviewNote: "Review note"
+    originTask: "Recorded in task"
     sources: "Sources"
-    referencedBy: "Referenced by"
-    verifications: "Verifications"
-    decisions: "Decisions"
-    recordDecisionAboutPage: "Record a decision about this page"
-    decisionKind:
-      taskCreated: "task created"
-      followUp: "follow-up"
-      questionAnswered: "question answered"
-      taskSettled: "task settled"
-      recorded: "recorded"
-    selectPage: "Select a page"
-    selectHint: "Pick a page from the list, or create a new one. The wiki is shared by humans and agents; every write is attributed."
-    historyTitle: "Revision history"
-    historyHint: "Every write snapshots the page; older revisions stay readable."
-    revisionLine: "Revision {revision} · {title}"
-    showBody: "Show body"
-    noRevisions: "No revisions recorded."
-    verifyTitle: "Verify page"
-    verifyHint: "A verification records that a human checked this page. It does not change the body."
-    note: "Note"
-    verifyPlaceholder: "What did you check?"
+    related: "Related knowledge"
+    supersedes: "supersedes"
+    supersededBy: "superseded by"
+    linkedFrom: "linked from"
+    history: "Revision history"
+    edit: "Edit"
+    approve: "Approve"
+    reject: "Reject"
+    approveTitle: "Approve knowledge"
+    approveHint: "Approving makes this bit the shared truth and retires the bits it supersedes."
+    rejectTitle: "Reject knowledge"
+    rejectHint: "A rejected bit stays readable to reviewers; its author can edit it back into review."
     cancel: "Cancel"
-    wikiTab: "Wiki"
-    decisionsTab: "Decisions"
-    projectWikiDescription: "OKF pages shared by this project's humans and agents. Writes are attributed and unverified until a human verifies them."
-    projectHeading: "Project wiki"
-    orgHeading: "Organization wiki"
-    orgDescription: "The agency-wide OKF knowledge base. Humans and agents write here; every page carries its author, revision history and verification state. Project wikis live on each project's Wiki tab."
-    memoryTab: "Memory"
+    deleteConfirm: "Delete this knowledge bit? Its history stays in the agency."
+    selectHint: "Pick a bit from the list, or record a new one. Approved bits are the shared truth; pending ones wait for a human."
+    projectHeading: "Project knowledge"
+    orgHeading: "Knowledge"
+    projectDescription: "Recorded facts shared by this project's humans and agents. Bits are attributed to their author and their real sources."
+    orgDescription: "Recorded facts with hard links to the inputs they came from. Filter by project, tag or status; agents record them during a task and a human approves them."
 ru:
   knowledge:
-    newPage: "Новая страница"
-    pages: "Страницы"
-    searchPlaceholder: "Искать по вики…"
+    newBit: "Новый факт"
+    bits: "Знания"
+    searchPlaceholder: "Искать знания…"
     refresh: "Обновить"
-    empty: "Страниц пока нет. Создайте первую."
-    edit: "Редактировать"
-    history: "История"
-    verify: "Подтвердить"
-    delete: "Удалить"
-    generatedBy: "Автор"
-    revision: "Ревизия {revision}"
-    staleAfter: "Устаревает после {date}"
-    staleBanner: "Срок актуальности страницы истёк. Подтвердите или обновите её, прежде чем полагаться на неё."
+    empty: "Здесь пока нет знаний."
+    allProjects: "Все проекты"
+    approved: "Подтверждено"
+    pending: "На проверке"
+    rejected: "Отклонено"
+    superseded: "Заменено"
+    by: "автор"
+    reviewedBy: "проверил"
+    reviewNote: "Заметка проверки"
+    originTask: "Записано в задаче"
     sources: "Источники"
-    referencedBy: "Ссылаются на страницу"
-    verifications: "Подтверждения"
-    decisions: "Решения"
-    recordDecisionAboutPage: "Записать решение по этой странице"
-    decisionKind:
-      taskCreated: "задача создана"
-      followUp: "доп. промпт"
-      questionAnswered: "ответ на вопрос"
-      taskSettled: "прогон завершён"
-      recorded: "записано"
-    selectPage: "Выберите страницу"
-    selectHint: "Выберите страницу из списка или создайте новую. Вики общая для людей и агентов; каждая запись атрибутируется."
-    historyTitle: "История ревизий"
-    historyHint: "Каждая запись фиксирует снимок страницы; старые ревизии остаются доступными."
-    revisionLine: "Ревизия {revision} · {title}"
-    showBody: "Показать текст"
-    noRevisions: "Ревизий пока нет."
-    verifyTitle: "Подтвердить страницу"
-    verifyHint: "Подтверждение фиксирует, что человек проверил страницу. Текст при этом не меняется."
-    note: "Заметка"
-    verifyPlaceholder: "Что вы проверили?"
+    related: "Связанные знания"
+    supersedes: "заменяет"
+    supersededBy: "заменено на"
+    linkedFrom: "ссылается"
+    history: "История ревизий"
+    edit: "Редактировать"
+    approve: "Подтвердить"
+    reject: "Отклонить"
+    approveTitle: "Подтвердить знание"
+    approveHint: "Подтверждение делает факт общей истиной и снимает заменённые им факты."
+    rejectTitle: "Отклонить знание"
+    rejectHint: "Отклонённый факт остаётся доступным проверяющим; автор может отредактировать его и вернуть на проверку."
     cancel: "Отмена"
-    wikiTab: "Вики"
-    decisionsTab: "Решения"
-    projectWikiDescription: "Страницы OKF, общие для людей и агентов этого проекта. Записи атрибутируются и остаются неподтверждёнными, пока человек их не проверит."
-    projectHeading: "Вики проекта"
-    orgHeading: "Вики организации"
-    orgDescription: "Общая база знаний агентства в формате OKF. Здесь пишут люди и агенты; у каждой страницы есть автор, история ревизий и состояние проверки. Вики проектов живут на вкладке Wiki соответствующего проекта."
-    memoryTab: "Память"
+    deleteConfirm: "Удалить этот факт? История останется в агентстве."
+    selectHint: "Выберите факт из списка или запишите новый. Подтверждённые факты — общая истина; ожидающие ждут человека."
+    projectHeading: "Знания проекта"
+    orgHeading: "Знания"
+    projectDescription: "Записанные факты, общие для людей и агентов проекта. У факта есть автор и жёсткие ссылки на реальные источники."
+    orgDescription: "Записанные факты с жёсткими ссылками на исходные данные. Фильтруйте по проекту, тегу или статусу; агенты записывают их во время задачи, а человек подтверждает."
 </i18n>

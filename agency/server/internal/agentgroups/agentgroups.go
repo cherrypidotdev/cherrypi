@@ -478,20 +478,18 @@ func (s *Service) AddMember(
 	}
 
 	now := time.Now()
-	if identity.IsAdmin() {
+	direct := identity.IsAdmin()
+	if !direct {
+		direct, err = s.Agents.IsOwner(ctx, agentID, identity.ActorID)
+		if err != nil {
+			return MembershipResult{}, err
+		}
+	}
+	if direct {
 		if err := s.addMemberRow(ctx, groupID, agentID, identity.ActorID, now); err != nil {
 			return MembershipResult{}, err
 		}
-		return MembershipResult{Added: true}, nil
-	}
-	agentOwner, err := s.Agents.IsOwner(ctx, agentID, identity.ActorID)
-	if err != nil {
-		return MembershipResult{}, err
-	}
-	if agentOwner {
-		if err := s.addMemberRow(ctx, groupID, agentID, identity.ActorID, now); err != nil {
-			return MembershipResult{}, err
-		}
+		s.notifyAgentDirectAdd(ctx, group, agent, identity.ActorID)
 		return MembershipResult{Added: true}, nil
 	}
 
@@ -1298,6 +1296,42 @@ func (s *Service) notifyAgentOwners(
 		n.PromptScope = "group"
 		n.PromptGroupID = group.ID
 		if err := s.Notifications.Create(ctx, n); err != nil {
+			continue
+		}
+	}
+}
+
+func (s *Service) notifyAgentDirectAdd(
+	ctx context.Context,
+	group Group,
+	agent agents.Agent,
+	actorID ids.ActorID,
+) {
+	if s.Notifications == nil || s.Agents == nil {
+		return
+	}
+	owners, err := s.Agents.Owners(ctx, agent.ID)
+	if err != nil {
+		return
+	}
+	body := "Added " + agent.Username + " to the " + group.Name + " group."
+	if actor := actorUsername(ctx, s.store, actorID); actor != "" {
+		body = actor + " added " + agent.Username + " to the " + group.Name +
+			" group."
+	}
+	for _, owner := range owners {
+		if owner.ActorID == 0 || owner.ActorID == actorID {
+			continue
+		}
+		if err := s.Notifications.Create(ctx, notifications.Notification{
+			RecipientActorID: owner.ActorID,
+			Kind:             KindMemberApproved,
+			Severity:         "info",
+			Title:            "Added to " + group.Name,
+			Body:             body,
+			PromptScope:      "group",
+			PromptGroupID:    group.ID,
+		}); err != nil {
 			continue
 		}
 	}

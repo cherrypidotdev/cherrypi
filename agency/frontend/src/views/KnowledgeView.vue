@@ -18,12 +18,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 <template lang="pug">
 .mx-auto.flex.w-full.max-w-6xl.flex-col.gap-6.p-6
-  KnowledgeWorkspace(scope="org")
-  DecisionLedger(scope="org")
+  KnowledgeWorkspace(scope="all")
 </template>
 
 <script setup lang="ts">
-import DecisionLedger from "@/components/knowledge/DecisionLedger.vue";
 import KnowledgeWorkspace from "@/components/knowledge/KnowledgeWorkspace.vue";
 import { setPageTitle } from "@/composables/usePageTitle";
 import { onMounted } from "vue";

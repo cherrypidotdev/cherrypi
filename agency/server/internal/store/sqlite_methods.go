@@ -2377,6 +2377,44 @@ func (s *SqliteStore) ListTaskMessages(
 	return fromSqliteListTaskMessagesRowSlice(rows), nil
 }
 
+func (s *SqliteStore) CreateTaskPendingMessage(
+	ctx context.Context,
+	p CreateTaskPendingMessageParams,
+) error {
+	return s.q.CreateTaskPendingMessage(
+		ctx,
+		sqlitedb.CreateTaskPendingMessageParams(p),
+	)
+}
+
+func (s *SqliteStore) ListTaskPendingMessages(
+	ctx context.Context,
+	taskID string,
+) ([]ListTaskPendingMessagesRow, error) {
+	rows, err := s.q.ListTaskPendingMessages(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return fromSqliteListTaskPendingMessagesRowSlice(rows), nil
+}
+
+func (s *SqliteStore) DeleteTaskPendingMessage(
+	ctx context.Context,
+	p DeleteTaskPendingMessageParams,
+) (int64, error) {
+	return s.q.DeleteTaskPendingMessage(
+		ctx,
+		sqlitedb.DeleteTaskPendingMessageParams(p),
+	)
+}
+
+func (s *SqliteStore) DeleteTaskPendingMessages(
+	ctx context.Context,
+	taskID string,
+) (int64, error) {
+	return s.q.DeleteTaskPendingMessages(ctx, taskID)
+}
+
 func (s *SqliteStore) LinkMessageAttachment(
 	ctx context.Context,
 	p LinkMessageAttachmentParams,

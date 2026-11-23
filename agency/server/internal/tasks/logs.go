@@ -73,6 +73,8 @@ const (
 
 	LogHold = "hold"
 
+	LogMessage = "message"
+
 	LogStop = "stop"
 )
 
@@ -335,6 +337,7 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 			),
 			stateData,
 		)
+		s.logBlockingStateChange(ctx, before, after, at)
 	}
 	if before.Name != after.Name {
 		s.recordLog(
@@ -453,6 +456,89 @@ func (s *Service) logChanges(ctx context.Context, before, after Task) {
 			map[string]any{"added": added, "removed": removed},
 		)
 	}
+}
+
+func (s *Service) logBlockingStateChange(
+	ctx context.Context,
+	before, after Task,
+	at int64,
+) {
+	if after.ID == "" {
+		return
+	}
+	blocked, err := s.BlockedEdges(ctx, after.ID)
+	if err != nil {
+		log.Printf("[tasks] list blocked edges of %s: %v", after.ID, err)
+		return
+	}
+	if len(blocked) == 0 {
+		return
+	}
+	data := map[string]any{
+		"refId":   after.ID,
+		"refName": displayName(after.Name),
+		"old":     string(before.State),
+		"new":     string(after.State),
+	}
+	if reason := stateReasonFrom(ctx); reason != "" {
+		data["reason"] = reason
+	}
+	message := fmt.Sprintf(
+		"Blocker %s moved from %s to %s",
+		after.ID, stateLabel(before.State), stateLabel(after.State),
+	)
+	for _, edge := range blocked {
+		s.recordLog(
+			ctx, actorFrom(ctx), at, edge.BlockedTaskID,
+			LogReferences, "state",
+			stateLabel(before.State), stateLabel(after.State),
+			message, data,
+		)
+	}
+}
+
+const messagePreviewRunes = 140
+
+func (s *Service) logQueuedMessage(
+	ctx context.Context,
+	taskID, prompt string,
+	actorID ids.ActorID,
+) {
+	if strings.TrimSpace(prompt) == "" {
+		return
+	}
+	if actorID != 0 {
+		ctx = WithActorID(ctx, actorID)
+	}
+	s.recordLog(
+		ctx, actorFrom(ctx), time.Now().UnixMilli(), taskID,
+		LogMessage, "queued", "", "", "Message queued",
+		messagePreview(prompt),
+	)
+}
+
+func (s *Service) logDeliveredMessage(
+	ctx context.Context,
+	taskID, prompt string,
+) {
+	if strings.TrimSpace(prompt) == "" {
+		return
+	}
+	s.recordLog(
+		ctx, ActorSystem, time.Now().UnixMilli(), taskID,
+		LogMessage, "delivered", "", "", "Queued message delivered",
+		messagePreview(prompt),
+	)
+}
+
+func messagePreview(prompt string) map[string]any {
+	text := strings.TrimSpace(textutil.Clean(prompt))
+	runes := []rune(text)
+	count := len(runes)
+	if count > messagePreviewRunes {
+		text = string(runes[:messagePreviewRunes]) + "…"
+	}
+	return map[string]any{"preview": text, "chars": count}
 }
 
 func enumChange(oldValue, newValue string) map[string]any {

@@ -17,7 +17,7 @@ startup; restart the agency after changing them.
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | External origin without a trailing slash. Used for links, cookies and OIDC callbacks. Shown read-only in **Org → General**. |
 | `CHERRYPI_H2C` | off | Enable cleartext HTTP/2 on the listener. Diagnostic/direct-agent use only; do not force it through a proxy. |
 | `CHERRYPI_AGENCY_LOG_FILES` | `7` | Number of timestamped process-log files to keep. |
-| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the plugin storage: `<dir>/plugins/<id>/versions/<version>/` holds the installed bundles and `<dir>/plugins/<id>/data/` each plugin's own database. Preserve it across restarts and redeploys; a plugin whose bundle is gone is disabled with the reason on its page. See [plugins](/advanced/plugins#storage-and-restarts). |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Root of the plugin storage: `<dir>/plugins/<id>/versions/<version>/` holds the extracted bundles and `<dir>/plugins/<id>/data/` each plugin's own database. Preserve it across restarts and redeploys. On a PostgreSQL agency the installed archive is also kept in the agency database, so a missing version directory is rebuilt on boot. On a SQLite agency the agency file and this root both have to be preserved — the default puts them in `$CHERRYPI_AGENCY_DIR`, while setting this variable moves the bundles and their databases out of it — and a plugin whose code is gone is disabled with the reason on its page. See [plugins](/advanced/plugins#storage-and-restarts). |
 
 ## Provider secrets
 

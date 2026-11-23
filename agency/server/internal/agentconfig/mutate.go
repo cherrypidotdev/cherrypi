@@ -49,11 +49,14 @@ type ModelInput struct {
 
 	ThinkingLevels []string `json:"thinkingLevels"`
 
-	ForcePlan     bool      `json:"forcePlan"`
-	ContextWindow int64     `json:"contextWindow"`
-	MaxTokens     int64     `json:"maxTokens"`
-	Cost          ModelCost `json:"cost"`
-	Enabled       bool      `json:"enabled"`
+	ForcePlan     bool  `json:"forcePlan"`
+	ContextWindow int64 `json:"contextWindow"`
+	MaxTokens     int64 `json:"maxTokens"`
+
+	CompactionReserveTokens    int64     `json:"compactionReserveTokens"`
+	CompactionKeepRecentTokens int64     `json:"compactionKeepRecentTokens"`
+	Cost                       ModelCost `json:"cost"`
+	Enabled                    bool      `json:"enabled"`
 }
 
 func (s *Service) SaveProvider(ctx context.Context, input ProviderInput) error {
@@ -118,17 +121,29 @@ func (s *Service) SaveProvider(ctx context.Context, input ProviderInput) error {
 		Revision: s.nextRevision(),
 	}
 	for _, model := range input.Models {
+		reserve, keepRecent := model.CompactionReserveTokens, model.CompactionKeepRecentTokens
+		if reserve <= 0 {
+			reserve = DefaultCompactionReserveTokens
+		}
+		if keepRecent <= 0 {
+			keepRecent = DefaultCompactionKeepRecentTokens
+		}
 		save.Models = append(save.Models, store.UpsertModelParams{
-			ModelID:            strings.TrimSpace(model.ID),
-			Name:               strings.TrimSpace(model.Name),
-			Reasoning:          boolInt(model.Reasoning),
-			InputJson:          encodeJSON(model.Input, `["text"]`),
-			ContextWindow:      model.ContextWindow,
-			MaxTokens:          model.MaxTokens,
-			CostJson:           encodeJSON(model.Cost, "{}"),
-			ThinkingLevelsJson: encodeJSON(NormalizeThinkingLevels(model.ThinkingLevels), "[]"),
-			ForcePlan:          boolInt(model.ForcePlan),
-			Enabled:            boolInt(model.Enabled),
+			ModelID:       strings.TrimSpace(model.ID),
+			Name:          strings.TrimSpace(model.Name),
+			Reasoning:     boolInt(model.Reasoning),
+			InputJson:     encodeJSON(model.Input, `["text"]`),
+			ContextWindow: model.ContextWindow,
+			MaxTokens:     model.MaxTokens,
+			CostJson:      encodeJSON(model.Cost, "{}"),
+			ThinkingLevelsJson: encodeJSON(
+				NormalizeThinkingLevels(model.ThinkingLevels),
+				"[]",
+			),
+			ForcePlan:                  boolInt(model.ForcePlan),
+			Enabled:                    boolInt(model.Enabled),
+			CompactionReserveTokens:    reserve,
+			CompactionKeepRecentTokens: keepRecent,
 		})
 	}
 

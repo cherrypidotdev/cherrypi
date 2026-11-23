@@ -81,6 +81,7 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
             :tabindex="active === String(index + 1) ? 0 : -1"
             @click="selectTab(index)"
             @keydown="onTabKeydown($event, index)"
+            :data-question-id="reviewAnswers?.[index]?.questionId"
           )
             span.truncate
               MarkdownText(
@@ -119,6 +120,7 @@ section.d-card.bg-base-100.border-base-300.w-full.min-w-0.border
       @toggle-custom="toggleCustom(0)"
       @notes="setNotes(0, $event)"
       :disabled="disabled"
+      :data-question-id="reviewAnswers?.[0]?.questionId"
     )
 
     .d-alert.d-alert-error.d-alert-soft.py-2.text-xs(
@@ -267,6 +269,8 @@ const props = withDefaults(
 
     answeredAt?: number;
 
+    focusQuestionId?: string;
+
     blockedReason?: string;
 
     unavailable?: boolean;
@@ -290,6 +294,7 @@ const props = withDefaults(
     answeredBy: undefined,
     answeredByPicture: undefined,
     answeredAt: undefined,
+    focusQuestionId: undefined,
     blockedReason: undefined,
     modelConfig: undefined,
     modelSelection: () => ({ ...EMPTY_TASK_MODEL_SELECTION }),
@@ -503,6 +508,18 @@ function answered(index: number): boolean {
 function selectTab(index: number) {
   active.value = String(index + 1);
 }
+
+watch(
+  () => props.focusQuestionId,
+  (id) => {
+    if (!id || !props.readonly) return;
+    const index =
+      props.reviewAnswers?.findIndex((answer) => answer.questionId === id) ??
+      -1;
+    if (index >= 0) selectTab(index);
+  },
+  { immediate: true },
+);
 
 function onTabKeydown(event: KeyboardEvent, index: number) {
   const last = props.questions.length - 1;

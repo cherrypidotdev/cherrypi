@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"time"
 
+	sqlitedb "cherrypi.vladfaust.com/agent/internal/gen/sqlc"
 	agentv1 "cherrypi.vladfaust.com/shared/gen/buf/agent/v1"
 	"github.com/sky-valley/pi/agent"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -260,6 +261,7 @@ func (s *Session) checkpointState(ctx context.Context) {
 	if eng == nil {
 		return
 	}
+	s.recordContextSize(ctx, eng)
 	taskID := s.ensureAgencyTaskID(ctx)
 	if taskID == "" {
 		return
@@ -325,6 +327,27 @@ func (s *Session) checkpointState(ctx context.Context) {
 	s.stateRevision = newRevision
 	s.historyRaw = historyLinesFromMessages(eng.sess.History())
 	s.mu.Unlock()
+}
+
+func (s *Session) recordContextSize(ctx context.Context, eng *engine) {
+	window := 0
+	if eng.sess.Model != nil {
+		window = eng.sess.Model.ContextWindow
+	}
+	if window <= 0 {
+		return
+	}
+	tokens := estimateContextTokens(eng)
+	now := time.Now().UnixMilli()
+	if err := s.store.SetSessionContext(ctx, sqlitedb.SetSessionContextParams{
+		ContextTokens:    int64(tokens),
+		ContextWindow:    int64(window),
+		ContextUpdatedAt: now,
+		UpdatedAt:        now,
+		ID:               s.ID,
+	}); err != nil {
+		slog.Debug("record context size", "session_id", s.ID, "error", err)
+	}
 }
 
 func (s *Session) enqueueEvent(event *agentv1.TaskEvent, kind string) {

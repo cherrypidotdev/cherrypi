@@ -353,6 +353,13 @@ export function pluginSettingsGroups(
     .filter((group) => group.id && group.title);
 }
 
+export function pluginThinkingModelOf(
+  property: Record<string, unknown> | undefined,
+): string {
+  const raw = property?.["x-thinking-of"];
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 export function pluginTemplateMeta(
   property: Record<string, unknown> | undefined,
 ): PluginTemplateMeta | null {

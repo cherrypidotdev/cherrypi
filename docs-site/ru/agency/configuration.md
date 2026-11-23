@@ -17,7 +17,7 @@ Agency настраивается переменными окружения и, 
 | `CHERRYPI_AGENCY_PORT` | `8080` | HTTP-порт. |
 | `CHERRYPI_AGENCY_DATABASE_DSN` | `$CHERRYPI_AGENCY_DIR/agency.sqlite3` | Путь SQLite или URL PostgreSQL. |
 | `CHERRYPI_PUBLIC_URL` | `http://localhost:<port>` | Внешний origin для ссылок и OIDC callback. |
-| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Корень установленных пакетов плагинов и их баз. Должен переживать перезапуск и перевыкладку, как и файл SQLite. |
+| `CHERRYPI_PLUGIN_DATA_DIR` | `$CHERRYPI_AGENCY_DIR` | Корень распакованных пакетов плагинов и их баз. На SQLite сохраняйте его целиком вместе с файлом agency: по умолчанию оба лежат в `$CHERRYPI_AGENCY_DIR`, но эта переменная может вынести бандлы за его пределы, а архива, чтобы их восстановить, нет. На PostgreSQL установленный архив хранится ещё и в базе agency, поэтому пропавший каталог версии восстанавливается при старте. |
 | `CHERRYPI_ADMIN_USERNAME` | `admin` | Имя первого администратора. |
 | `CHERRYPI_ADMIN_PASSWORD` | генерируется и печатается один раз | Пароль первого администратора. |
 | `CHERRYPI_INSECURE_FIRST_REGISTERED_USER_BECOMES_ADMIN` | выкл. | Открытая регистрация, где первый пользователь становится админом. |

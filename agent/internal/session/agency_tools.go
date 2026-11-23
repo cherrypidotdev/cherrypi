@@ -816,9 +816,8 @@ func taskCreateSchema(child bool) *ai.Schema {
 			),
 		),
 	}
-	if child {
 
-	} else {
+	if !child {
 		props = append(props, ai.Opt(
 			"queue",
 			ai.Boolean(
@@ -864,7 +863,7 @@ func (s *Session) createTaskRequest(
 
 			refs = append(refs, &agencyv1.TaskReferenceInput{
 				ReferencedTaskId: own,
-				Kind:             agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKED_BY,
+				Kind:             agencyv1.TaskReferenceKind_TASK_REFERENCE_KIND_BLOCKS,
 			})
 		}
 		state = agencyv1.TaskState_TASK_STATE_QUEUED

@@ -216,6 +216,52 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           LinkIcon.shrink-0(class="size-3.5")
           span.font-medium {{ link.label || link.url }}
 
+      template(v-else-if="row.blocker")
+        .flex.flex-wrap.items-center(class="gap-1.5")
+          span.text-muted-foreground.text-xs {{ $t("taskLog.blocker") }}
+          RouterLink.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs(
+            class="hover:bg-muted/50 py-0.5"
+            :to="`/tasks/${row.blocker.id}`"
+          )
+            strong.font-semibold {{ row.blocker.id }}
+            span(v-if="row.blocker.name") {{ row.blocker.name }}
+          span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium.opacity-60(
+            v-if="row.blocker.oldState !== undefined"
+            class="py-0.5"
+            :class="taskStateClass(row.blocker.oldState)"
+          )
+            component.size-3.shrink-0(
+              :is="taskStateIcon(row.blocker.oldState)"
+            )
+            | {{ $t(taskStateKey(row.blocker.oldState)) }}
+          ArrowRightIcon.text-muted-foreground.shrink-0(class="size-3.5")
+          span.inline-flex.items-center.gap-1.rounded-full.border.px-2.text-xs.font-medium(
+            v-if="row.blocker.newState !== undefined"
+            class="py-0.5"
+            :class="taskStateClass(row.blocker.newState)"
+          )
+            component.size-3.shrink-0(
+              :is="taskStateIcon(row.blocker.newState)"
+            )
+            | {{ $t(taskStateKey(row.blocker.newState)) }}
+        p.text-muted-foreground.text-xs(v-if="row.blocker.reason") {{ row.blocker.reason }}
+
+      .flex.flex-wrap.items-center.gap-1(v-else-if="row.message")
+        span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium.text-amber-600(
+          v-if="row.message.state === 'queued'"
+          class="border-amber-500/50 py-0.5 dark:text-amber-400"
+        ) {{ $t("taskLog.messageQueued") }}
+        span.text-muted-foreground.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium(
+          v-else-if="row.message.state === 'cancelled'"
+          class="border-muted-foreground/40 py-0.5"
+        ) {{ $t("taskLog.messageCancelled") }}
+        span.inline-flex.items-center.rounded-full.border.px-2.text-xs.font-medium.text-emerald-600(
+          v-else
+          class="border-emerald-500/50 py-0.5 dark:text-emerald-400"
+        ) {{ $t("taskLog.messageDelivered") }}
+        span.line-clamp-2.text-xs.leading-snug(v-if="row.message.preview")
+          | {{ row.message.preview }}
+
       .flex.flex-wrap.items-center.gap-1(
         v-else-if="row.badges && row.badges.length"
       )
@@ -291,6 +337,7 @@ import {
   PlugIcon,
   PlusIcon,
   RulerIcon,
+  SendIcon,
   SettingsIcon,
   SquareIcon,
   TagIcon,
@@ -344,6 +391,7 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   plugin: PlugIcon,
   hold: LockOpenIcon,
   stop: SquareIcon,
+  message: SendIcon,
 };
 
 const KIND_LABEL_KEYS: Record<string, string> = {
@@ -369,6 +417,7 @@ const KIND_LABEL_KEYS: Record<string, string> = {
   plugin: "taskLog.kind.plugin",
   hold: "taskLog.kind.hold",
   stop: "taskLog.kind.stop",
+  message: "taskLog.kind.message",
 };
 
 const SIZE_VALUES: Record<string, TaskSize> = {
@@ -444,6 +493,29 @@ interface LogRow {
   changedRefs?: LogReference[];
   addedLinks?: LogLink[];
   removedLinks?: LogLink[];
+
+  blocker?: LogBlocker;
+
+  message?: LogMessage;
+}
+
+interface LogBlocker {
+  id: string;
+  name: string;
+  oldState?: TaskState;
+  newState?: TaskState;
+  reason?: string;
+}
+
+interface LogMessage {
+  preview: string;
+
+  state: "queued" | "delivered" | "cancelled";
+}
+
+function messageState(field: string): LogMessage["state"] {
+  if (field === "queued" || field === "cancelled") return field;
+  return "delivered";
 }
 
 function parseData(log: TaskLog): Record<string, any> | undefined {
@@ -513,6 +585,16 @@ function buildRow(log: TaskLog): LogRow {
       row.removedTags = (data.removed ?? []) as LogTag[];
       break;
     case "references": {
+      if (log.field === "state") {
+        row.blocker = {
+          id: data.refId ?? "",
+          name: data.refName ?? "",
+          oldState: taskStateFromStored(data.old),
+          newState: taskStateFromStored(data.new),
+          reason: typeof data.reason === "string" ? data.reason : undefined,
+        };
+        break;
+      }
       const withState = (refs: LogReference[]) =>
         refs.map((ref) => ({
           ...ref,
@@ -526,6 +608,12 @@ function buildRow(log: TaskLog): LogRow {
     case "links":
       row.addedLinks = (data.added ?? []) as LogLink[];
       row.removedLinks = (data.removed ?? []) as LogLink[];
+      break;
+    case "message":
+      row.message = {
+        preview: typeof data.preview === "string" ? data.preview : "",
+        state: messageState(log.field),
+      };
       break;
     case "plugin":
       row.pluginName = (data.plugin as string) ?? "";
@@ -604,8 +692,13 @@ en:
       plugin: "Plugin badges"
       hold: "Plugin hold"
       stop: "Stop requested"
+      message: "Message"
     kindChanged: "Kind changed to {kind}"
     pluginBadge: "{plugin} — {badge}"
+    blocker: "Blocker"
+    messageQueued: "Queued"
+    messageDelivered: "Delivered"
+    messageCancelled: "Cancelled"
 ru:
   taskLog:
     kind:
@@ -631,6 +724,11 @@ ru:
       plugin: "Значки плагинов"
       hold: "Удержание плагином"
       stop: "Запрошена остановка"
+      message: "Сообщение"
     kindChanged: "Тип изменён на {kind}"
     pluginBadge: "{plugin} — {badge}"
+    blocker: "Блокер"
+    messageQueued: "В очереди"
+    messageDelivered: "Доставлено"
+    messageCancelled: "Отменено"
 </i18n>

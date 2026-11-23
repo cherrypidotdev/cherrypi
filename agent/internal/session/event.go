@@ -126,6 +126,9 @@ type ModelWaitEvent struct {
 	Error      string
 	Attempt    uint32
 	Reason     string
+
+	ContextTokensBefore int64
+	ContextTokensAfter  int64
 }
 
 type ThinkingSpanEvent struct {

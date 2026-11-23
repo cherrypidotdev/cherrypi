@@ -141,6 +141,13 @@ func (d *DashboardServer) taskUsage(
 
 		bucket = mergeBucket(bucket, id, usage)
 	}
+	if bucket.ContextWindow == 0 {
+
+		if row, err := d.Store.GetSession(ctx, id); err == nil {
+			bucket.ContextTokens = row.ContextTokens
+			bucket.ContextWindow = row.ContextWindow
+		}
+	}
 
 	return &agentv1.GetUsageResponse{
 		InputTokens:      bucket.InputTokens,

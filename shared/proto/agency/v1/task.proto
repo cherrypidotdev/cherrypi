@@ -181,6 +181,10 @@ service TaskService {
   
   
   
+  rpc ListTaskCompactions(ListTaskCompactionsRequest) returns (ListTaskCompactionsResponse);
+  
+  
+  
   
   
   rpc GetTaskInput(GetTaskInputRequest) returns (GetTaskInputResponse);
@@ -223,7 +227,19 @@ service TaskService {
   
   
   
+  rpc RemoveTaskPendingMessage(RemoveTaskPendingMessageRequest)
+      returns (RemoveTaskPendingMessageResponse);
+  
+  
+  
+  
   rpc RestartTaskSession(RestartTaskSessionRequest) returns (RestartTaskSessionResponse);
+  
+  
+  
+  
+  
+  rpc CompactTask(CompactTaskRequest) returns (CompactTaskResponse);
 }
 
 
@@ -417,6 +433,7 @@ message Task {
   
   
   
+  
   string pending_prompt = 38;
   
   
@@ -526,6 +543,21 @@ message Task {
   
   
   repeated TaskReference origin_chain = 68;
+  
+  
+  
+  
+  
+  repeated TaskPendingMessage pending_messages = 77;
+  
+  
+  
+  
+  
+  
+  
+  
+  bool can_prompt = 69;
 }
 
 
@@ -601,6 +633,8 @@ message TaskLog {
   string kind = 4;
   
   
+  
+  
   string field = 5;
   
   
@@ -609,6 +643,11 @@ message TaskLog {
   string new_value = 7;
   
   string message = 8;
+  
+  
+  
+  
+  
   
   
   
@@ -655,6 +694,31 @@ message TaskMessage {
   string actor_username = 7;
   
   string actor_kind = 8;
+}
+
+
+
+
+
+message TaskPendingMessage {
+  
+  
+  string id = 1;
+  string text = 2;
+  google.protobuf.Timestamp created_at = 3;
+  
+  repeated Attachment attachments = 4;
+  
+  
+  string actor_id = 5;
+  string actor_name = 6;
+  string actor_username = 7;
+  
+  string actor_kind = 8;
+  
+  
+  
+  bool can_cancel = 9;
 }
 
 
@@ -1255,6 +1319,11 @@ message AddToTaskRequest {
 message AddToTaskResponse {
   
   string message_id = 1;
+  
+  
+  
+  
+  bool queued = 2;
 }
 
 message StopTaskRequest {
@@ -1319,6 +1388,26 @@ message TaskToolCall {
   string args_json = 8;
   
   int64 result_bytes = 9;
+}
+
+
+message TaskCompaction {
+  google.protobuf.Timestamp at = 1;
+  int64 duration_ms = 2;
+  
+  string reason = 3;
+  string model = 4;
+  string provider = 5;
+  int64 context_tokens_before = 6;
+  int64 context_tokens_after = 7;
+}
+
+message ListTaskCompactionsRequest {
+  string task_id = 1;
+}
+
+message ListTaskCompactionsResponse {
+  repeated TaskCompaction compactions = 1;
 }
 
 message ListTaskToolCallsRequest {
@@ -1618,10 +1707,27 @@ message RemoveTaskQueuedMessageRequest {
 }
 message RemoveTaskQueuedMessageResponse {}
 
+message RemoveTaskPendingMessageRequest {
+  
+  string id = 1;
+  
+  string message_id = 2;
+}
+message RemoveTaskPendingMessageResponse {
+  
+  
+  Task task = 1;
+}
+
 message RestartTaskSessionRequest {
   string id = 1;
 }
 message RestartTaskSessionResponse {}
+
+message CompactTaskRequest {
+  string id = 1;
+}
+message CompactTaskResponse {}
 
 
 service TagService {
