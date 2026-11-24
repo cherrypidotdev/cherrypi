@@ -66,6 +66,15 @@ type AgencyIntegrations struct {
 type IntegrationReport struct {
 	Skills  []ReportedSkill  `json:"skills"`
 	Servers []ReportedServer `json:"servers"`
+
+	Tools []ReportedTool `json:"tools"`
+}
+
+type ReportedTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+
+	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
 type ReportedSkill struct {
@@ -102,6 +111,7 @@ func (s *Session) startIntegrations(
 	report := IntegrationReport{
 		Skills:  []ReportedSkill{},
 		Servers: []ReportedServer{},
+		Tools:   []ReportedTool{},
 	}
 
 	hostSkills, _ := hostSkills(s.Workspace)
@@ -405,4 +415,23 @@ func (s *Session) reportIntegrations(
 			"error", err,
 		)
 	}
+}
+
+func reportedTools(tools []agent.AgentTool) []ReportedTool {
+	out := make([]ReportedTool, 0, len(tools))
+	for _, tool := range tools {
+		entry := ReportedTool{Name: tool.Name, Description: tool.Description}
+		if tool.Parameters != nil {
+			if raw, err := json.Marshal(tool.Parameters); err == nil {
+				entry.Parameters = raw
+			} else {
+				slog.Warn("report tool schema",
+					"tool", tool.Name,
+					"error", err,
+				)
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
 }

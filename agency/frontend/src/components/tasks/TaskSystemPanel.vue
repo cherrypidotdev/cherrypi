@@ -57,13 +57,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         span.text-muted-foreground.text-xs.font-medium {{ $t("taskTools.title") }}
         span.text-muted-foreground.text-xs.tabular-nums {{ tools.length }}
       DisclosurePanel.mt-2.flex.flex-col.gap-2
-        p.text-muted-foreground.text-xs(v-if="!recorded") {{ $t("taskTools.notRecorded") }}
-        p.text-muted-foreground.text-xs(v-else-if="!tools.length") {{ $t("taskTools.empty") }}
-        TaskToolList(v-else :tools="tools" @filter="$emit('filter', $event)")
+        p.text-muted-foreground.text-xs(v-if="!tools.length")
+          | {{ recorded ? $t("taskTools.empty") : $t("taskTools.notRecorded") }}
+        p.text-muted-foreground.text-xs(v-else-if="!recorded")
+          | {{ $t("taskTools.baseline") }}
+        TaskToolList(
+          v-if="tools.length"
+          :tools="tools"
+          :baseline="!recorded"
+          @filter="$emit('filter', $event)"
+        )
 
   template(v-else)
-    p.text-muted-foreground.text-xs(v-if="!recorded") {{ $t("taskTools.notRecorded") }}
-    p.text-muted-foreground.text-xs(v-else-if="!tools.length") {{ $t("taskTools.empty") }}
+    p.text-muted-foreground.text-xs(v-if="!tools.length")
+      | {{ recorded ? $t("taskTools.empty") : $t("taskTools.notRecorded") }}
+    p.text-muted-foreground.text-xs(v-else-if="!recorded")
+      | {{ $t("taskTools.baseline") }}
     Disclosure.flex.flex-col.gap-2(
       v-for="origin in origins"
       :key="origin.key"
@@ -101,6 +110,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             TaskToolList(
               :tools="origin.tools"
               :group-by-origin="false"
+              :baseline="!recorded"
               @filter="$emit('filter', $event)"
             )
 </template>
@@ -236,6 +246,7 @@ en:
     loading: "Loading tools…"
     notRecorded: "Tools are recorded when the task's first run starts."
     empty: "No tools were declared for this task."
+    baseline: "This is the built-in baseline every run starts with. The run's exact set, including plugin, skill, and MCP tools, replaces it when it starts."
   taskSystem:
     view: "Group by"
     byKind: "Prompts / Tools"
@@ -252,6 +263,7 @@ ru:
     loading: "Загружаем инструменты…"
     notRecorded: "Инструменты записываются при первом запуске задачи."
     empty: "Для этой задачи не объявлено ни одного инструмента."
+    baseline: "Это встроенный набор, с которым начинается каждый запуск. Точный набор запуска, включая инструменты плагинов, навыков и MCP, заменит его при старте."
   taskSystem:
     view: "Группировать"
     byKind: "Промпты / Инструменты"

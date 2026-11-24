@@ -671,23 +671,42 @@ func (s *Scheduler) waitingReason(
 		}
 		reasons = append(reasons, strings.Join(holds, "; "))
 	}
+
+	woken := false
 	if blockers := tasks.IncompleteBlockerIDs(task.References); len(blockers) > 0 {
 		sort.SliceStable(blockers, func(i, j int) bool {
 			return taskIDLess(blockers[i], blockers[j])
 		})
-		reasons = append(
-			reasons,
-			"Waiting for blocking tasks to complete or be cancelled: "+
-				strings.Join(blockers, ", "),
-		)
+		if task.State == tasks.StateQueued {
+			woken = true
+			reasons = append(
+				reasons,
+				"Woken for one run despite blocking tasks: "+
+					strings.Join(blockers, ", "),
+			)
+		} else {
+			reasons = append(
+				reasons,
+				"Waiting for blocking tasks to complete or be cancelled: "+
+					strings.Join(blockers, ", "),
+			)
+		}
 	}
-	if len(reasons) > 0 {
+
+	if len(reasons) > 0 && !woken {
 		return strings.Join(reasons, "; ")
 	}
 	if task.State == tasks.StateWaiting {
-		return "Waiting for the scheduler"
+		return joinReason(reasons, "Waiting for the scheduler")
 	}
+	return joinReason(reasons, s.startObstacle(ctx, task, view))
+}
 
+func (s *Scheduler) startObstacle(
+	ctx context.Context,
+	task tasks.Task,
+	view *fitView,
+) string {
 	candidates := s.candidates(ctx, task)
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
 	if len(candidates) == 0 {
@@ -753,6 +772,15 @@ func (s *Scheduler) waitingReason(
 		return "Waiting for an eligible agent"
 	}
 	return "Waiting for an agent to connect"
+}
+
+func joinReason(reasons []string, clause string) string {
+	if clause == "" {
+		return strings.Join(reasons, "; ")
+	}
+	joined := make([]string, 0, len(reasons)+1)
+	joined = append(joined, reasons...)
+	return strings.Join(append(joined, clause), "; ")
 }
 
 func taskIDLess(a, b string) bool {

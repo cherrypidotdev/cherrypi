@@ -59,6 +59,14 @@ export interface SkillFile {
   text?: string;
 }
 
+export interface SkillOrigin {
+  sourceId: number;
+  slug: string;
+  path: string;
+  commit: string;
+  missing: boolean;
+}
+
 export interface SkillEntry {
   id: number;
   name: string;
@@ -69,13 +77,135 @@ export interface SkillEntry {
   disableModelInvocation: boolean;
   enabled: boolean;
   installs: IntegrationInstall[];
+
+  source?: SkillOrigin;
+  managed: boolean;
   updatedAt: string;
+}
+
+export interface GitCLIStatus {
+  path: string;
+  version: string;
+  ok: boolean;
+}
+
+export interface GitSourcesStatus {
+  enabled: boolean;
+  ready: boolean;
+  git: GitCLIStatus;
+  ssh: GitCLIStatus;
+  message?: string;
+}
+
+export interface GitHostKey {
+  type: string;
+  fingerprint: string;
+}
+
+export interface GitCredential {
+  id: number;
+  name: string;
+  kind: "token" | "ssh_key";
+  host: string;
+  port: number;
+  username: string;
+  hasSecret: boolean;
+  knownHosts: string;
+  publicKey: string;
+  fingerprint: string;
+  sources: number;
+  updatedAt: string;
+}
+
+export interface GitCredentialInput {
+  id?: number;
+  name: string;
+  kind: "token" | "ssh_key";
+  host: string;
+  port: number;
+  username: string;
+  secret: string;
+  keepSecret: boolean;
+  knownHosts: string;
+}
+
+export interface GitSourceSkill {
+  path: string;
+  rawName: string;
+  name: string;
+  description: string;
+  body?: string;
+  files?: SkillFile[];
+  disableModelInvocation: boolean;
+  status: "added" | "updated" | "unchanged" | "removed" | "conflict";
+  entryId?: number;
+  error?: string;
+}
+
+export interface GitSourceProblem {
+  path: string;
+  message: string;
+}
+
+export interface GitSource {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  owner: IntegrationScope;
+  repoUrl: string;
+  ref: string;
+  pathGlob: string;
+  credentialId: number;
+  credentialName: string;
+  updateMode: "staged" | "auto";
+  pollIntervalSeconds: number;
+  paused: boolean;
+  installs: IntegrationInstall[];
+  syncState: "" | "ok" | "pending" | "error";
+  syncError: string;
+  syncedCommit: string;
+  syncedAt: string;
+  checkedAt: string;
+  pendingCommit: string;
+  pending: GitSourceSkill[];
+  problems: GitSourceProblem[];
+  skillCount: number;
+  updatedAt: string;
+}
+
+export interface GitSourceInput {
+  id?: number;
+  slug: string;
+  name: string;
+  description: string;
+  owner: IntegrationScope;
+  repoUrl: string;
+  ref: string;
+  pathGlob: string;
+  credentialId: number;
+  updateMode: "staged" | "auto";
+  pollIntervalSeconds: number;
+  paused: boolean;
+  installs: IntegrationInstall[];
+}
+
+export interface GitSourcePreview {
+  commit: string;
+  ref: string;
+  skills: GitSourceSkill[];
+  problems: GitSourceProblem[];
 }
 
 export interface IntegrationLibrary {
   servers: McpServerEntry[];
   skills: SkillEntry[];
   seal: boolean;
+  git?: GitSourcesStatus;
+  sources?: GitSource[];
+  credentials?: GitCredential[];
+
+  admin?: boolean;
 }
 
 export interface IntegrationInput {
@@ -212,5 +342,69 @@ export const integrationsApi = {
 
   taskReport(taskId: string): Promise<TaskIntegrationReport> {
     return request<TaskIntegrationReport>("GET", `${BASE}/task/${taskId}`);
+  },
+
+  setGitSources(enabled: boolean): Promise<GitSourcesStatus> {
+    return request<GitSourcesStatus>("POST", `${BASE}/git`, { enabled });
+  },
+  saveCredential(input: GitCredentialInput): Promise<GitCredential> {
+    return request<GitCredential>("POST", `${BASE}/git-credentials`, input);
+  },
+  deleteCredential(id: number): Promise<void> {
+    return request<void>("DELETE", `${BASE}/git-credentials/${id}`);
+  },
+
+  scanHostKeys(
+    host: string,
+    port: number,
+  ): Promise<{ keys: GitHostKey[]; knownHosts: string }> {
+    return request<{ keys: GitHostKey[]; knownHosts: string }>(
+      "POST",
+      `${BASE}/git-credentials/scan`,
+      { host, port },
+    );
+  },
+  getSource(id: number): Promise<GitSource> {
+    return request<GitSource>("GET", `${BASE}/sources/${id}`);
+  },
+  saveSource(input: GitSourceInput): Promise<GitSource> {
+    return request<GitSource>("POST", `${BASE}/sources`, input);
+  },
+
+  previewSource(input: GitSourceInput): Promise<GitSourcePreview> {
+    return request<GitSourcePreview>("POST", `${BASE}/sources/preview`, input);
+  },
+  deleteSource(id: number): Promise<void> {
+    return request<void>("DELETE", `${BASE}/sources/${id}`);
+  },
+
+  syncSource(id: number): Promise<GitSource> {
+    return request<GitSource>("POST", `${BASE}/sources/${id}/sync`);
+  },
+
+  applySource(id: number): Promise<GitSource> {
+    return request<GitSource>("POST", `${BASE}/sources/${id}/apply`);
+  },
+
+  setSourceInstall(
+    id: number,
+    scope: IntegrationScope,
+    enabled: boolean,
+  ): Promise<void> {
+    return request<void>("PUT", `${BASE}/sources/${id}/install`, {
+      scope,
+      enabled,
+    });
+  },
+  removeSourceInstall(id: number, scope: IntegrationScope): Promise<void> {
+    return request<void>("DELETE", `${BASE}/sources/${id}/install`, { scope });
+  },
+
+  detachSkill(id: number): Promise<SkillEntry> {
+    return request<SkillEntry>("POST", `${BASE}/skills/${id}/detach`);
+  },
+
+  setSkillEnabled(id: number, enabled: boolean): Promise<void> {
+    return request<void>("PUT", `${BASE}/skills/${id}/enabled`, { enabled });
   },
 };

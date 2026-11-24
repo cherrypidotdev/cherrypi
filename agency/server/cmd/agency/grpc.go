@@ -280,15 +280,16 @@ func serveGrpc(mux *http.ServeMux, appCtx *appcontext.AppContext) {
 		return info
 	}
 	taskService := &taskgrpc.TaskServer{
-		Tasks:       appCtx.Tasks,
-		Tags:        appCtx.Tags,
-		Agents:      appCtx.Agents,
-		Hub:         appCtx.Hub,
-		Scheduler:   appCtx.Scheduler,
-		Attachments: appCtx.Attachments,
-		Artifacts:   appCtx.Artifacts,
-		Templates:   appCtx.Templates,
-		Plugins:     appCtx.Plugins,
+		Tasks:        appCtx.Tasks,
+		Tags:         appCtx.Tags,
+		Agents:       appCtx.Agents,
+		Hub:          appCtx.Hub,
+		Scheduler:    appCtx.Scheduler,
+		Attachments:  appCtx.Attachments,
+		Artifacts:    appCtx.Artifacts,
+		Templates:    appCtx.Templates,
+		Plugins:      appCtx.Plugins,
+		Integrations: appCtx.Integrations,
 		Actors: func(ctx context.Context, id ids.ActorID) (taskgrpc.ActorInfo, error) {
 			actor, err := appCtx.Accounts.GetActor(ctx, id)
 			if err != nil {

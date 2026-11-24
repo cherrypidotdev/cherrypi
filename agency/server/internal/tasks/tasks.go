@@ -316,6 +316,8 @@ type Task struct {
 	Progress       Progress
 	References     []Reference
 
+	OriginChildren []string
+
 	ReferencedBy []Reference
 
 	PendingSteering string
@@ -561,6 +563,8 @@ type Service struct {
 	OnMention func(ctx context.Context, taskID string, comment Comment)
 
 	OnCreated func(ctx context.Context, taskID string)
+
+	OnProgress func(ctx context.Context, taskID string)
 
 	OnTaskFinished func(ctx context.Context, t Task, outcome FinishOutcome)
 
@@ -869,11 +873,16 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	originChildren, err := s.store.ListTaskOriginChildren(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
 	progress, err := s.progressForTask(ctx, id)
 	if err != nil {
 		return Task{}, err
 	}
 	t := toTask(row, tags, links, refs, referencedBy, progress)
+	t.OriginChildren = originChildren
 	holds, err := s.Holds(ctx, id)
 	if err != nil {
 		return Task{}, err

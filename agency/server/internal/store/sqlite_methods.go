@@ -1490,6 +1490,16 @@ func (s *SqliteStore) SetTaskReactionReminders(
 	return s.q.SetTaskReactionReminders(ctx, sqlitedb.SetTaskReactionRemindersParams(p))
 }
 
+func (s *SqliteStore) ListTaskOriginChildren(
+	ctx context.Context,
+	originID string,
+) ([]string, error) {
+	return s.q.ListTaskOriginChildren(
+		ctx,
+		sql.NullString{String: originID, Valid: originID != ""},
+	)
+}
+
 func (s *SqliteStore) ListLiveReactionTasksByOrigin(
 	ctx context.Context,
 	originID string,

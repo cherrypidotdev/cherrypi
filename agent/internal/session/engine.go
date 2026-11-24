@@ -382,6 +382,8 @@ func (s *Session) ensureEngineLocked(ctx context.Context) error {
 
 	sess.Agent.SetTools(strictTools(s.wrapTools(s.withVariableShell(sess.Agent.State().Tools))))
 
+	integrationReport.Tools = reportedTools(sess.Agent.State().Tools)
+
 	eng := &engine{sess: sess, compaction: compaction}
 	enableAllSteering(sess.Agent)
 

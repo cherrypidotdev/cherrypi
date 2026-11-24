@@ -161,6 +161,10 @@ func (s *Service) Resolve(ctx context.Context, caller Caller) (Resolution, error
 	sort.Strings(resolution.DenyMCP)
 
 	for _, row := range skills {
+
+		if row.SourceMissing != 0 {
+			continue
+		}
 		source, denied := applicableSkillInstall(row.ID, applicable, skillInstalls)
 		if source == nil && !denied {
 			continue
@@ -369,6 +373,15 @@ func (s *Service) openValues(raw string) (map[string]string, error) {
 type Report struct {
 	Skills  []ReportedSkill  `json:"skills"`
 	Servers []ReportedServer `json:"servers"`
+
+	Tools []ReportedTool `json:"tools,omitempty"`
+}
+
+type ReportedTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+
+	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
 type ReportedSkill struct {

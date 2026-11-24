@@ -1069,8 +1069,8 @@ en:
       projectTag: "{project} × #{tag}"
       projectTagCap: "project × tag cap {cap}"
     reason:
-      blockersPrefix: "Waiting for tasks to become completed:"
-      blockingTasks: "Waiting for blocking tasks to become completed"
+      blockersPrefix: "Waiting for blocking tasks to complete or be cancelled:"
+      blockingTasks: "Waiting for blocking tasks to complete or be cancelled"
       freeSlot: "Waiting for free agent slot"
   tagPreset:
     feature: "New functionality"

@@ -509,6 +509,8 @@ func NewAppContext(config Config, processLog *processlog.Log) *AppContext {
 		pluginsSvc.DispatchEvent(ctx, pluginhost.Event{Name: "task_created", TaskID: taskID})
 	}
 
+	wireTaskProgressEvent(tasksSvc, pluginsSvc)
+
 	tasksSvc.OnHoldReleased = func(ctx context.Context, release tasks.HoldRelease) {
 		pluginsSvc.DispatchEvent(ctx, pluginhost.HoldReleaseEvent(release))
 	}
@@ -818,6 +820,19 @@ func pluginEventForState(state tasks.State) string {
 		return "task_cancelled"
 	default:
 		return ""
+	}
+}
+
+type pluginEventDispatcher interface {
+	DispatchEvent(ctx context.Context, ev pluginhost.Event)
+}
+
+func wireTaskProgressEvent(tasksSvc *tasks.Service, dispatcher pluginEventDispatcher) {
+	tasksSvc.OnProgress = func(ctx context.Context, taskID string) {
+		dispatcher.DispatchEvent(ctx, pluginhost.Event{
+			Name:   "task_progress_updated",
+			TaskID: taskID,
+		})
 	}
 }
 

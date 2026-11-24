@@ -26,6 +26,7 @@ import (
 
 	"cherrypi.vladfaust.com/agency/internal/ids"
 	"cherrypi.vladfaust.com/agency/internal/store"
+	"cherrypi.vladfaust.com/agency/internal/textutil"
 	"github.com/google/uuid"
 )
 
@@ -176,7 +177,8 @@ func (s *Service) queuePendingMessage(
 	taskID string,
 	p QueueParams,
 ) ([]PendingMessage, error) {
-	text := strings.TrimSpace(p.Text)
+
+	text := textutil.Clean(strings.TrimSpace(p.Text))
 	if text == "" {
 		return nil, nil
 	}
@@ -237,7 +239,7 @@ func (s *Service) PendingMessages(
 		out = append(out, PendingMessage{
 			ID:         row.ID,
 			MessageID:  row.MessageID.String,
-			Text:       row.Text,
+			Text:       textutil.Clean(row.Text),
 			ActorID:    ids.ActorID(row.ActorID.Int64),
 			Cancelable: row.Cancelable != 0,
 			CreatedAt:  time.UnixMilli(row.CreatedAt),

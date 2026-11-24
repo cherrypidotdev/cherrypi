@@ -355,7 +355,7 @@ func (h *Host) getProjectTasks(projectID string, opts *lua.LTable) ([]map[string
 	}
 	out := make([]map[string]any, len(list))
 	for i, t := range list {
-		out[i] = taskMap(t)
+		out[i] = taskListMap(t)
 	}
 	return out, nil
 }
@@ -877,6 +877,14 @@ func actorMap(a accounts.Actor) map[string]any {
 }
 
 func taskMap(t tasks.Task) map[string]any {
+	return taskMapWithProgress(t, true)
+}
+
+func taskListMap(t tasks.Task) map[string]any {
+	return taskMapWithProgress(t, false)
+}
+
+func taskMapWithProgress(t tasks.Task, withItems bool) map[string]any {
 	tagsOut := make([]map[string]any, len(t.Tags))
 	for i, tag := range t.Tags {
 		tagsOut[i] = map[string]any{
@@ -885,24 +893,62 @@ func taskMap(t tasks.Task) map[string]any {
 			"color": tag.Color,
 		}
 	}
-	return map[string]any{
-		"id":            t.ID,
-		"name":          t.Name,
-		"prompt":        t.Prompt,
-		"project_id":    t.ProjectID,
-		"assignee":      int64(t.AssigneeActorID),
-		"creator":       int64(t.CreatorActorID),
-		"priority":      t.Priority,
-		"size":          t.Size,
-		"state":         string(t.State),
-		"tags":          tagsOut,
-		"references":    t.References,
-		"session_id":    t.SessionID,
-		"error":         t.Error,
-		"created_at":    t.CreatedAt.UnixMilli(),
-		"updated_at":    t.UpdatedAt.UnixMilli(),
-		"state_updated": t.StateUpdatedAt.UnixMilli(),
+
+	references := t.References
+	if references == nil {
+		references = []tasks.Reference{}
 	}
+	referencedBy := t.ReferencedBy
+	if referencedBy == nil {
+		referencedBy = []tasks.Reference{}
+	}
+	out := map[string]any{
+		"id":              t.ID,
+		"name":            t.Name,
+		"prompt":          t.Prompt,
+		"project_id":      t.ProjectID,
+		"assignee":        int64(t.AssigneeActorID),
+		"creator":         int64(t.CreatorActorID),
+		"priority":        t.Priority,
+		"size":            t.Size,
+		"state":           string(t.State),
+		"tags":            tagsOut,
+		"references":      references,
+		"referenced_by":   referencedBy,
+		"origin_task_id":  t.OriginTaskID,
+		"origin_children": t.OriginChildren,
+		"session_id":      t.SessionID,
+		"error":           t.Error,
+		"created_at":      t.CreatedAt.UnixMilli(),
+		"updated_at":      t.UpdatedAt.UnixMilli(),
+		"state_updated":   t.StateUpdatedAt.UnixMilli(),
+	}
+	if progress, ok := progressMap(t.Progress, withItems); ok {
+		out["progress"] = progress
+	}
+	return out
+}
+
+func progressMap(progress tasks.Progress, withItems bool) (map[string]any, bool) {
+	if progress.Summary == "" && len(progress.Items) == 0 &&
+		progress.Done == 0 && progress.Total == 0 {
+		return nil, false
+	}
+	items := make([]map[string]any, 0, len(progress.Items))
+	if withItems {
+		for _, item := range progress.Items {
+			items = append(items, map[string]any{
+				"text":   item.Text,
+				"status": item.Status.String(),
+			})
+		}
+	}
+	return map[string]any{
+		"summary": progress.Summary,
+		"done":    progress.Done,
+		"total":   progress.Total,
+		"items":   items,
+	}, true
 }
 
 func parsePriorityInput(value lua.LValue) (int64, error) {

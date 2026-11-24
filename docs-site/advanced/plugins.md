@@ -289,18 +289,24 @@ Ungrouped fields fall into an **Other** group. Groups always start collapsed.
 | `limits` | Lower the timeout, response size, request size, or concurrency. |
 
 `requires_agency` is the plugin API range the bundle supports. The current API
-is `0.2.8`, which added `cherrypi.update_settings`, on top of `0.2.7`'s
-`task_input_answered` event, `0.2.6`'s
-`cherrypi.respond_task_input` and the dialog fields on `task_requested_input`,
-`0.2.5`'s templated settings, `x-groups`, and
+is `0.3.5`, which added the task snapshot's `progress`, `origin_task_id`,
+`origin_children`, and `referenced_by` plus the `task_progress_updated` event,
+on top of `0.3.4`'s `x-thinking-of` annotation, `0.3.3`'s `force` option,
+`0.3.2`'s badge `color`, `0.3.1`'s `icon`, hold `url`, and `required_tools`,
+and `0.3.0`'s `create_task` leader/automated shape. Earlier lines added
+`0.2.8`'s `cherrypi.update_settings`, `0.2.7`'s `task_input_answered` event,
+`0.2.6`'s `cherrypi.respond_task_input` and the dialog fields on
+`task_requested_input`, `0.2.5`'s templated settings, `x-groups`, and
 `cherrypi.template.render(source, vars)`, `0.2.4`'s optional `setup` block and
 `get_org().url`, `0.2.3`'s `task_tools` handler, `0.2.2`'s `schedule` field and
 `handle_tick`, and `0.2.1`'s `task_hold_released` event. A bundle that uses
 templated settings or `x-groups` declares `>=0.2.5 <0.3.0`; one that answers a
 dialog declares `>=0.2.6 <0.3.0`; one that subscribes to `task_input_answered`
 declares `>=0.2.7 <0.3.0`; one that writes its own settings rows declares
-`>=0.2.8 <0.3.0`. Because these are patch bumps, bundles that already accept
-the `0.2.x` line keep working.
+`>=0.2.8 <0.3.0`; one that calls `create_task` without both the `leader` and
+`automated` fields declares `>=0.3.0 <0.4.0`; one that subscribes to
+`task_progress_updated` declares `>=0.3.5 <0.4.0`. Because these are patch
+bumps, bundles that already accept the line keep working.
 
 ### Network allowlist
 
@@ -368,6 +374,10 @@ JSON-encoded). `handle_event` returns nothing. Besides the task lifecycle
 events, `handle_event` receives `task_input_answered` after a pending dialog is
 answered, with `request_id`, `method`, `title`, `message`, a readable `answer`,
 and the `answered_by` attribution. An answer that fails emits nothing.
+`task_progress_updated` fires once after a task's plan is replaced — the running
+agent is the only writer today, through its `task_progress` report — and carries
+the refreshed task snapshot. A bundle that subscribes to it declares
+`>=0.3.5 <0.4.0`.
 
 ### Scheduled ticks
 
@@ -490,7 +500,7 @@ whose assignee has none, instead of being offered and failing at call time.
 | `cherrypi.get_team(id)` | Team metadata. Requires plugin team membership. |
 | `cherrypi.get_agent(id_or_actor)` | Agent metadata. Requires the agent or a shared project to have enabled the plugin. |
 | `cherrypi.get_user(id_or_username)` | User metadata. Requires that user to have enabled the plugin. |
-| `cherrypi.get_task(id)` | Task snapshot. Requires a plugin-created task or an enabled project. |
+| `cherrypi.get_task(id)` | Task snapshot with the plan, origin children, and incoming references. Requires a plugin-created task or an enabled project. |
 | `cherrypi.get_project_tasks(project_id, opts)` | Project tasks (`limit`, `state`, `search`, `archived`). |
 | `cherrypi.get_task_history(task_id, opts)` | The task's persisted conversation. |
 | `cherrypi.create_task(input)` | Create a task. `automated = true` authors an automated task (queued, no leader, no user-input tools); otherwise the input must name an explicit `leader`. See below. |
@@ -504,6 +514,18 @@ whose assignee has none, instead of being offered and failing at call time.
 | `cherrypi.list_agents()` | Agents that enabled the plugin, with their agent settings. |
 | `cherrypi.list_settings(scope)` | The plugin's own settings rows for a surface. |
 | `cherrypi.update_settings(scope, target_id, values)` | Write one of the plugin's own settings rows. The scope must be a surface the bundle declares; a project write needs the plugin enabled there and the plugin's project membership, an agent or user write needs that target's surface enabled. The bundle's own `update_settings` hook validates the values; `values` replaces the whole row, so a field the caller omits is removed. The agency does not interpret them. The hook is a separate invocation, so the bundle needs a free `max_concurrent` slot (the default is 2). |
+
+**Task snapshot.** Besides the base fields, `get_task` and an event payload's
+`task` carry `progress` (`{ summary, done, total, items }`, with `status` one of
+`pending`, `in_progress`, or `done`), `origin_task_id`, `origin_children` (the
+ids of tasks created from this one, oldest first), and `referenced_by` (the
+incoming side of `references`, with the same entry shape). A task that never
+published a plan has no `progress` key at all, so test `task.progress == nil`.
+Only a single-task read (`get_task`, or an event payload's `task`) fills
+`items`, `origin_children`, and `referenced_by`; a list read keeps the plan's
+summary and counts with an empty `items` list. These
+fields are additive: reading them on an older 0.3.x agency yields the empty
+state, not an error.
 
 `create_task` takes:
 

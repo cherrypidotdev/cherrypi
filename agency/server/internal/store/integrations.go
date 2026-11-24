@@ -45,6 +45,31 @@ type IntegrationsStore interface {
 	SetSkillInstall(ctx context.Context, p SetInstallParams) error
 	RemoveSkillInstall(ctx context.Context, p RemoveInstallParams) error
 
+	ListGitCredentials(ctx context.Context) ([]GitCredential, error)
+	GetGitCredential(ctx context.Context, id int64) (GitCredential, error)
+	CountGitCredentialSources(ctx context.Context, id int64) (int64, error)
+	CreateGitCredential(ctx context.Context, p GitCredentialParams) (GitCredential, error)
+	UpdateGitCredential(ctx context.Context, p GitCredentialParams) (GitCredential, error)
+	DeleteGitCredential(ctx context.Context, id int64) (bool, error)
+
+	ListSkillSources(ctx context.Context) ([]SkillSource, error)
+	GetSkillSource(ctx context.Context, id int64) (SkillSource, error)
+
+	ListSkillsBySource(ctx context.Context, sourceID int64) ([]Skill, error)
+	SaveSkillSource(ctx context.Context, p SaveSkillSourceParams) (SkillSource, error)
+	DeleteSkillSource(ctx context.Context, id int64, revision string) (bool, error)
+
+	SetSkillSourceCheck(ctx context.Context, p SkillSourceCheckParams) error
+	SetSkillSourceApplied(ctx context.Context, p SkillSourceAppliedParams) error
+
+	ListSkillSourceInstalls(ctx context.Context) ([]SkillSourceInstall, error)
+	SetSkillSourceInstall(ctx context.Context, p SetInstallParams) error
+	RemoveSkillSourceInstall(ctx context.Context, p RemoveInstallParams) error
+
+	ApplySkillSource(ctx context.Context, p ApplySkillSourceParams) (ApplySkillSourceResult, error)
+
+	DetachSkill(ctx context.Context, id int64, updatedAt int64, revision string) error
+
 	GetTaskIntegrationReport(ctx context.Context, taskID string) (TaskIntegrationReport, error)
 	PutTaskIntegrationReport(ctx context.Context, p PutTaskIntegrationReportParams) error
 }

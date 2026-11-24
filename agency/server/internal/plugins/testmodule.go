@@ -176,9 +176,14 @@ func (h *Host) attachTest(L *lua.LState) {
 			Name:            stringField(tbl, "name"),
 			Prompt:          stringField(tbl, "prompt"),
 			ProjectID:       stringField(tbl, "project_id"),
+			OriginTaskID:    stringField(tbl, "origin_task_id"),
+			OriginChildren:  stringList(tbl.RawGetString("origin_children")),
 			AssigneeActorID: ids.ActorID(int64Opt(tbl, "assignee", 0)),
 			State:           tasks.State(stringOpt(tbl, "state", string(tasks.StateQueued))),
 			Size:            stringOpt(tbl, "size", tasks.SizeMedium),
+			Progress:        progressField(tbl.RawGetString("progress")),
+			References:      referenceList(tbl.RawGetString("references")),
+			ReferencedBy:    referenceList(tbl.RawGetString("referenced_by")),
 		}
 		fake.SetTask(t)
 		return 0
@@ -717,6 +722,73 @@ func stringList(value lua.LValue) []string {
 	out := make([]string, 0, tbl.Len())
 	for i := 1; i <= tbl.Len(); i++ {
 		out = append(out, luaValueString(tbl.RawGetInt(i)))
+	}
+	return out
+}
+
+func progressField(value lua.LValue) tasks.Progress {
+	tbl, ok := value.(*lua.LTable)
+	if !ok {
+		return tasks.Progress{}
+	}
+	out := tasks.Progress{Summary: stringField(tbl, "summary")}
+	items, _ := tbl.RawGetString("items").(*lua.LTable)
+	if items == nil {
+		return out
+	}
+	for i := 1; i <= items.Len(); i++ {
+		row, ok := items.RawGetInt(i).(*lua.LTable)
+		if !ok {
+			continue
+		}
+		text := stringField(row, "text")
+		if text == "" {
+			continue
+		}
+		status := progressItemStatus(stringOpt(row, "status", "pending"))
+		out.Items = append(out.Items, tasks.ProgressItem{Text: text, Status: status})
+		if status == tasks.ProgressItemDone {
+			out.Done++
+		}
+	}
+	out.Total = len(out.Items)
+	return out
+}
+
+func progressItemStatus(value string) tasks.ProgressItemStatus {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "in_progress", "in-progress", "inprogress":
+		return tasks.ProgressItemInProgress
+	case "done", "completed":
+		return tasks.ProgressItemDone
+	default:
+		return tasks.ProgressItemPending
+	}
+}
+
+func referenceList(value lua.LValue) []tasks.Reference {
+	tbl, ok := value.(*lua.LTable)
+	if !ok {
+		return nil
+	}
+	out := make([]tasks.Reference, 0, tbl.Len())
+	for i := 1; i <= tbl.Len(); i++ {
+		row, ok := tbl.RawGetInt(i).(*lua.LTable)
+		if !ok {
+			continue
+		}
+		priority, _ := parsePriorityInput(row.RawGetString("priority"))
+		out = append(out, tasks.Reference{
+			ID:     stringField(row, "id"),
+			Name:   stringField(row, "name"),
+			Prompt: stringField(row, "prompt"),
+			State:  tasks.State(stringOpt(row, "state", string(tasks.StateQueued))),
+			Kind: tasks.ReferenceKind(
+				stringOpt(row, "kind", string(tasks.ReferenceInformational)),
+			),
+			Priority: priority,
+			Size:     stringOpt(row, "size", tasks.SizeMedium),
+		})
 	}
 	return out
 }

@@ -70,6 +70,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.servers(w, r)
 	case strings.HasPrefix(r.URL.Path, AdminPath+"/skills"):
 		h.skills(w, r)
+	case strings.HasPrefix(r.URL.Path, AdminPath+"/sources"):
+		h.sources(w, r)
+	case strings.HasPrefix(r.URL.Path, AdminPath+"/git-credentials"):
+		h.credentials(w, r)
+	case r.URL.Path == AdminPath+"/git":
+		h.gitFeature(w, r)
 	case strings.HasPrefix(r.URL.Path, AdminPath+"/task/"):
 		h.task(w, r)
 	case r.URL.Path == ReportPath:
@@ -148,6 +154,9 @@ func (h *Handler) skills(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, AdminPath+"/skills")
 	if handled := h.installRoute(w, r, identity, KindSkill, rest); handled {
+		return
+	}
+	if handled := h.skillActions(w, r, identity, rest); handled {
 		return
 	}
 	if rest == "" || rest == "/" {
@@ -239,6 +248,272 @@ func (h *Handler) installRoute(
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 	return true
+}
+
+func (h *Handler) skillActions(
+	w http.ResponseWriter,
+	r *http.Request,
+	identity Identity,
+	rest string,
+) bool {
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) != 2 {
+		return false
+	}
+	id, ok := parseID(w, "/"+parts[0])
+	if !ok {
+		return true
+	}
+	switch parts[1] {
+	case "detach":
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return true
+		}
+		entry, err := h.Service.DetachSkill(r.Context(), identity.ActorID, id)
+		if err != nil {
+			writeServiceError(w, err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, entry)
+		return true
+	case "enabled":
+		if r.Method != http.MethodPut {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return true
+		}
+		var body struct {
+			Enabled bool `json:"enabled"`
+		}
+		if !decodeBody(w, r, &body) {
+			return true
+		}
+		if err := h.Service.SetSkillEnabled(
+			r.Context(), identity.ActorID, id, body.Enabled,
+		); err != nil {
+			writeServiceError(w, err)
+			return true
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) gitFeature(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	identity, ok := h.identity(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := h.Service.SetGitSources(r.Context(), identity.ActorID, body.Enabled); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	status, err := h.Service.GitStatus(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) credentials(w http.ResponseWriter, r *http.Request) {
+	identity, ok := h.identity(w, r)
+	if !ok {
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, AdminPath+"/git-credentials")
+	trimmed := strings.Trim(rest, "/")
+	if trimmed == "" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var input CredentialInput
+		if !decodeBody(w, r, &input) {
+			return
+		}
+		saved, err := h.Service.SaveCredential(r.Context(), identity.ActorID, input)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, saved)
+		return
+	}
+	if trimmed == "scan" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			Host string `json:"host"`
+			Port int64  `json:"port"`
+		}
+		if !decodeBody(w, r, &body) {
+			return
+		}
+		keys, knownHosts, err := h.Service.ScanHostKeys(
+			r.Context(), identity.ActorID, body.Host, body.Port,
+		)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"keys":       keys,
+			"knownHosts": knownHosts,
+		})
+		return
+	}
+	id, ok := parseID(w, "/"+trimmed)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodDelete {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := h.Service.DeleteCredential(r.Context(), identity.ActorID, id); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) sources(w http.ResponseWriter, r *http.Request) {
+	identity, ok := h.identity(w, r)
+	if !ok {
+		return
+	}
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, AdminPath+"/sources"), "/")
+	if rest == "" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var input SourceInput
+		if !decodeBody(w, r, &input) {
+			return
+		}
+		saved, err := h.Service.SaveSource(r.Context(), identity.ActorID, input)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, saved)
+		return
+	}
+	if rest == "preview" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var input SourceInput
+		if !decodeBody(w, r, &input) {
+			return
+		}
+		preview, err := h.Service.PreviewSource(r.Context(), identity.ActorID, input)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+		return
+	}
+	parts := strings.Split(rest, "/")
+	id, ok := parseID(w, "/"+parts[0])
+	if !ok {
+		return
+	}
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			source, err := h.Service.GetSource(r.Context(), identity.ActorID, id)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, source)
+		case http.MethodDelete:
+			if err := h.Service.DeleteSource(r.Context(), identity.ActorID, id); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+	switch parts[1] {
+	case "sync", "apply":
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var (
+			source Source
+			err    error
+		)
+		if parts[1] == "sync" {
+			source, err = h.Service.SyncSource(r.Context(), identity.ActorID, id)
+		} else {
+			source, err = h.Service.ApplySource(r.Context(), identity.ActorID, id)
+		}
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, source)
+	case "install":
+		switch r.Method {
+		case http.MethodPut:
+			var body struct {
+				Scope   Scope `json:"scope"`
+				Enabled bool  `json:"enabled"`
+			}
+			if !decodeBody(w, r, &body) {
+				return
+			}
+			if err := h.Service.SetSourceInstall(
+				r.Context(), identity.ActorID, id, body.Scope, body.Enabled, false,
+			); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodDelete:
+			var body struct {
+				Scope Scope `json:"scope"`
+			}
+			if !decodeBody(w, r, &body) {
+				return
+			}
+			if err := h.Service.SetSourceInstall(
+				r.Context(), identity.ActorID, id, body.Scope, false, true,
+			); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	default:
+		writeError(w, http.StatusNotFound, "not found")
+	}
 }
 
 func (h *Handler) task(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +631,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "library entry not found")
 	case errors.Is(err, ErrForbidden):
 		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, ErrFeatureDisabled):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrGitUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, err.Error())
 	}

@@ -72,7 +72,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             | {{ tool.description }}
           span.text-muted-foreground.text-xs.italic(v-else)
             | {{ $t("taskTools.noDescription") }}
-          .flex.flex-col.gap-1
+
+          .flex.flex-col.gap-1(v-if="!baseline || args(tool).length")
             span.text-muted-foreground.text-xs.font-medium {{ $t("taskTools.arguments") }}
             p.text-muted-foreground.text-xs(v-if="!args(tool).length")
               | {{ $t("taskTools.noArguments") }}
@@ -106,8 +107,10 @@ const props = withDefaults(
     tools: TaskTool[];
 
     groupByOrigin?: boolean;
+
+    baseline?: boolean;
   }>(),
-  { groupByOrigin: true },
+  { groupByOrigin: true, baseline: false },
 );
 defineEmits<{
   (e: "filter", name: string): void;

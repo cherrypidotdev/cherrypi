@@ -34,6 +34,7 @@ import (
 	"cherrypi.vladfaust.com/agency/internal/artifacts"
 	"cherrypi.vladfaust.com/agency/internal/attachments"
 	"cherrypi.vladfaust.com/agency/internal/auth"
+	"cherrypi.vladfaust.com/agency/internal/integrations"
 	"cherrypi.vladfaust.com/agency/internal/plugins"
 	"cherrypi.vladfaust.com/agency/internal/projects"
 	"cherrypi.vladfaust.com/agency/internal/scheduler"
@@ -86,6 +87,8 @@ type TaskServer struct {
 
 	Plugins *plugins.Service
 
+	Integrations *integrations.Service
+
 	Input *taskinput.Service
 
 	EnrichTimeout time.Duration
@@ -99,7 +102,7 @@ type TaskServer struct {
 }
 
 type cachedToolLoadout struct {
-	tip      string
+	source   string
 	tools    []taskhistory.Tool
 	recorded bool
 }
@@ -2470,6 +2473,79 @@ func (s *TaskServer) taskToolLoadout(
 	ctx context.Context,
 	t tasks.Task,
 ) ([]taskhistory.Tool, bool, error) {
+	if tools, ok := s.reportedToolLoadout(ctx, t); ok {
+		return tools, true, nil
+	}
+	tools, recorded, err := s.projectedToolLoadout(ctx, t)
+	if err != nil {
+		return nil, false, err
+	}
+	if recorded {
+		return tools, true, nil
+	}
+	tools, recorded, err = s.legacyToolLoadout(ctx, t)
+	if err != nil {
+		return nil, false, err
+	}
+	if recorded {
+		return tools, true, nil
+	}
+	return taskhistory.BuiltinBaseline(!t.Automated), false, nil
+}
+
+func (s *TaskServer) reportedToolLoadout(
+	ctx context.Context,
+	t tasks.Task,
+) ([]taskhistory.Tool, bool) {
+	if s.Integrations == nil {
+		return nil, false
+	}
+	report, err := s.Integrations.TaskReport(ctx, t.ID)
+	if err != nil {
+		log.Printf("[task %s] tool report: %v", t.ID, err)
+		return nil, false
+	}
+	tools := make([]taskhistory.Tool, 0, len(report.Report.Tools))
+	for _, tool := range report.Report.Tools {
+		if tool.Name == "" {
+			continue
+		}
+		tools = append(tools, taskhistory.Tool{
+			Name:           tool.Name,
+			Description:    tool.Description,
+			ParametersJSON: string(tool.Parameters),
+		})
+	}
+	return tools, len(tools) > 0
+}
+
+func (s *TaskServer) projectedToolLoadout(
+	ctx context.Context,
+	t tasks.Task,
+) ([]taskhistory.Tool, bool, error) {
+	state, found, err := s.Tasks.SessionState(ctx, t.ID)
+	if err != nil {
+		return nil, false, mapError(err)
+	}
+	if !found || state.EntriesJSON == "" {
+		return nil, false, nil
+	}
+	source := "state:" + strconv.FormatInt(state.Revision, 10)
+	if tools, recorded, ok := s.cachedToolLoadout(t.ID, source); ok && recorded {
+		return tools, true, nil
+	}
+	tools, recorded := taskhistory.CollectProjectedToolLoadout(state.EntriesJSON)
+	if recorded {
+		s.storeToolLoadout(t.ID, source, tools, recorded)
+		return tools, true, nil
+	}
+	return nil, false, nil
+}
+
+func (s *TaskServer) legacyToolLoadout(
+	ctx context.Context,
+	t tasks.Task,
+) ([]taskhistory.Tool, bool, error) {
 	tip, _, err := s.Tasks.SessionHistoryTip(ctx, t.ID)
 	if err != nil {
 		return nil, false, mapError(err)
@@ -2491,19 +2567,19 @@ func (s *TaskServer) taskToolLoadout(
 }
 
 func (s *TaskServer) cachedToolLoadout(
-	id, tip string,
+	id, source string,
 ) ([]taskhistory.Tool, bool, bool) {
 	s.toolCallMu.Lock()
 	defer s.toolCallMu.Unlock()
 	entry, ok := s.toolLoadoutCache[id]
-	if !ok || entry.tip != tip {
+	if !ok || entry.source != source {
 		return nil, false, false
 	}
 	return entry.tools, entry.recorded, true
 }
 
 func (s *TaskServer) storeToolLoadout(
-	id, tip string,
+	id, source string,
 	tools []taskhistory.Tool,
 	recorded bool,
 ) {
@@ -2513,7 +2589,7 @@ func (s *TaskServer) storeToolLoadout(
 		s.toolLoadoutCache = make(map[string]cachedToolLoadout, maxToolCallCache)
 	}
 	s.toolLoadoutCache[id] = cachedToolLoadout{
-		tip:      tip,
+		source:   source,
 		tools:    tools,
 		recorded: recorded,
 	}

@@ -174,3 +174,213 @@ ON CONFLICT(task_id) DO UPDATE SET
   payload_json = excluded.payload_json,
   config_revision = excluded.config_revision,
   reported_at = excluded.reported_at;
+
+
+
+
+-- name: ListGitCredentials :many
+SELECT * FROM git_credentials ORDER BY name;
+
+-- name: GetGitCredential :one
+SELECT * FROM git_credentials WHERE id = sqlc.arg(id);
+
+-- name: CountGitCredentialSources :one
+SELECT COUNT(*) FROM skill_sources WHERE credential_id = sqlc.arg(credential_id);
+
+-- name: CreateGitCredential :one
+INSERT INTO git_credentials (
+  name, kind, host, port, username, secret_sealed, known_hosts, public_key,
+  fingerprint, created_by_actor_id, created_at, updated_at
+) VALUES (
+  sqlc.arg(name),
+  sqlc.arg(kind),
+  sqlc.arg(host),
+  sqlc.arg(port),
+  sqlc.arg(username),
+  sqlc.arg(secret_sealed),
+  sqlc.arg(known_hosts),
+  sqlc.arg(public_key),
+  sqlc.arg(fingerprint),
+  NULLIF(sqlc.arg(created_by_actor_id), 0),
+  sqlc.arg(created_at),
+  sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: UpdateGitCredential :one
+UPDATE git_credentials SET
+  name = sqlc.arg(name),
+  kind = sqlc.arg(kind),
+  host = sqlc.arg(host),
+  port = sqlc.arg(port),
+  username = sqlc.arg(username),
+  secret_sealed = sqlc.arg(secret_sealed),
+  known_hosts = sqlc.arg(known_hosts),
+  public_key = sqlc.arg(public_key),
+  fingerprint = sqlc.arg(fingerprint),
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteGitCredential :execrows
+DELETE FROM git_credentials WHERE id = sqlc.arg(id);
+
+-- name: ListSkillSources :many
+SELECT * FROM skill_sources ORDER BY slug;
+
+-- name: GetSkillSource :one
+SELECT * FROM skill_sources WHERE id = sqlc.arg(id);
+
+-- name: CreateSkillSource :one
+INSERT INTO skill_sources (
+  slug, name, description, owner_kind, owner_id, repo_url, ref, path_glob,
+  credential_id, update_mode, poll_interval_s, paused, created_by_actor_id,
+  created_at, updated_at
+) VALUES (
+  sqlc.arg(slug),
+  sqlc.arg(name),
+  sqlc.arg(description),
+  sqlc.arg(owner_kind),
+  sqlc.arg(owner_id),
+  sqlc.arg(repo_url),
+  sqlc.arg(ref),
+  sqlc.arg(path_glob),
+  sqlc.arg(credential_id),
+  sqlc.arg(update_mode),
+  sqlc.arg(poll_interval_s),
+  sqlc.arg(paused),
+  NULLIF(sqlc.arg(created_by_actor_id), 0),
+  sqlc.arg(created_at),
+  sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: UpdateSkillSource :one
+UPDATE skill_sources SET
+  slug = sqlc.arg(slug),
+  name = sqlc.arg(name),
+  description = sqlc.arg(description),
+  owner_kind = sqlc.arg(owner_kind),
+  owner_id = sqlc.arg(owner_id),
+  repo_url = sqlc.arg(repo_url),
+  ref = sqlc.arg(ref),
+  path_glob = sqlc.arg(path_glob),
+  credential_id = sqlc.arg(credential_id),
+  update_mode = sqlc.arg(update_mode),
+  poll_interval_s = sqlc.arg(poll_interval_s),
+  paused = sqlc.arg(paused),
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteSkillSource :execrows
+DELETE FROM skill_sources WHERE id = sqlc.arg(id);
+
+-- name: SetSkillSourceCheck :exec
+UPDATE skill_sources SET
+  checked_at = sqlc.arg(checked_at),
+  sync_state = sqlc.arg(sync_state),
+  sync_error = sqlc.arg(sync_error),
+  pending_commit = sqlc.arg(pending_commit),
+  pending_json = sqlc.arg(pending_json),
+  problems_json = sqlc.arg(problems_json)
+WHERE id = sqlc.arg(id);
+
+-- name: SetSkillSourceApplied :exec
+UPDATE skill_sources SET
+  synced_commit = sqlc.arg(synced_commit),
+  synced_at = sqlc.arg(synced_at),
+  checked_at = sqlc.arg(checked_at),
+  sync_state = 'ok',
+  sync_error = sqlc.arg(sync_error),
+  pending_commit = '',
+  pending_json = '',
+  problems_json = sqlc.arg(problems_json)
+WHERE id = sqlc.arg(id);
+
+-- name: ListSkillSourceInstalls :many
+SELECT * FROM skill_source_installs ORDER BY source_id, scope_kind, scope_id;
+
+-- name: UpsertSkillSourceInstall :exec
+INSERT INTO skill_source_installs (
+  source_id, scope_kind, scope_id, enabled, created_by_actor_id, created_at
+) VALUES (
+  sqlc.arg(source_id),
+  sqlc.arg(scope_kind),
+  sqlc.arg(scope_id),
+  sqlc.arg(enabled),
+  NULLIF(sqlc.arg(created_by_actor_id), 0),
+  sqlc.arg(created_at)
+)
+ON CONFLICT(source_id, scope_kind, scope_id) DO UPDATE SET
+  enabled = excluded.enabled;
+
+-- name: DeleteSkillSourceInstall :execrows
+DELETE FROM skill_source_installs
+WHERE source_id = sqlc.arg(source_id)
+  AND scope_kind = sqlc.arg(scope_kind)
+  AND scope_id = sqlc.arg(scope_id);
+
+-- name: ListSkillsBySource :many
+SELECT * FROM skills WHERE source_id = sqlc.arg(source_id) ORDER BY name;
+
+-- name: GetSkillEntryByName :one
+SELECT * FROM skills WHERE name = sqlc.arg(name);
+
+-- name: CreateSourcedSkill :one
+INSERT INTO skills (
+  name, description, body, files_json, disable_model_invocation, owner_kind,
+  owner_id, enabled, source_id, source_path, source_commit, source_missing,
+  created_by_actor_id, created_at, updated_at
+) VALUES (
+  sqlc.arg(name),
+  sqlc.arg(description),
+  sqlc.arg(body),
+  sqlc.arg(files_json),
+  sqlc.arg(disable_model_invocation),
+  sqlc.arg(owner_kind),
+  sqlc.arg(owner_id),
+  sqlc.arg(enabled),
+  sqlc.arg(source_id),
+  sqlc.arg(source_path),
+  sqlc.arg(source_commit),
+  0,
+  NULLIF(sqlc.arg(created_by_actor_id), 0),
+  sqlc.arg(created_at),
+  sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: UpdateSourcedSkill :one
+UPDATE skills SET
+  name = sqlc.arg(name),
+  description = sqlc.arg(description),
+  body = sqlc.arg(body),
+  files_json = sqlc.arg(files_json),
+  disable_model_invocation = sqlc.arg(disable_model_invocation),
+  source_path = sqlc.arg(source_path),
+  source_commit = sqlc.arg(source_commit),
+  source_missing = 0,
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: MarkSourcedSkillMissing :exec
+UPDATE skills SET
+  source_commit = sqlc.arg(source_commit),
+  source_missing = 1,
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: DetachSourcedSkill :exec
+UPDATE skills SET
+  source_id = NULL,
+  source_path = '',
+  source_commit = '',
+  source_missing = 0,
+  updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: ReownSourcedSkills :exec
+UPDATE skills SET owner_kind = sqlc.arg(owner_kind), owner_id = sqlc.arg(owner_id)
+WHERE source_id = sqlc.arg(source_id);

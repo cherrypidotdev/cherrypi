@@ -116,6 +116,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("MCP & Skills Library: %v", err)
 	}
+
+	library.SetFeatures(appCtx.Settings)
 	appCtx.Integrations = library
 
 	catalog.Integrations = library
@@ -183,6 +185,10 @@ func main() {
 		Protocols: protocols,
 	}
 
+	pollerCtx, stopPoller := context.WithCancel(context.Background())
+	defer stopPoller()
+	go library.Poller(pollerCtx)
+
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
@@ -203,6 +209,8 @@ func main() {
 	}
 
 	log.Println("Shutting down")
+	stopPoller()
+	library.Wait()
 	_ = server.Shutdown(context.Background())
 	_ = server.Close()
 	drainWebhooks(appCtx)

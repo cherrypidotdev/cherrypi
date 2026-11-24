@@ -178,6 +178,12 @@ func mergeBucket(
 	merged.CacheWriteTokens += persisted.GetCacheWriteTokens()
 	merged.Cost += persisted.GetCost()
 	merged.ActiveMs += persisted.GetActiveMs()
+	merged.ToolMs += persisted.GetToolMs()
+	merged.ModelWaitMs += persisted.GetModelWaitMs()
+	merged.TtftMs += persisted.GetTtftMs()
+	merged.TtftRuns += persisted.GetTtftRuns()
+
+	merged.ThinkingMs += persisted.GetThinkingMs()
 	return merged
 }
 

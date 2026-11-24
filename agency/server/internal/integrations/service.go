@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cherrypi.vladfaust.com/agency/internal/sealed"
@@ -103,17 +104,29 @@ type SkillFile struct {
 	Text string `json:"text,omitempty"`
 }
 
+type SkillOrigin struct {
+	SourceID int64  `json:"sourceId"`
+	Slug     string `json:"slug"`
+	Path     string `json:"path"`
+	Commit   string `json:"commit"`
+
+	Missing bool `json:"missing"`
+}
+
 type Skill struct {
-	ID                     int64       `json:"id"`
-	Name                   string      `json:"name"`
-	Description            string      `json:"description"`
-	Owner                  Scope       `json:"owner"`
-	Body                   string      `json:"body"`
-	Files                  []SkillFile `json:"files"`
-	DisableModelInvocation bool        `json:"disableModelInvocation"`
-	Enabled                bool        `json:"enabled"`
-	Installs               []Install   `json:"installs"`
-	UpdatedAt              time.Time   `json:"updatedAt"`
+	ID                     int64        `json:"id"`
+	Name                   string       `json:"name"`
+	Description            string       `json:"description"`
+	Owner                  Scope        `json:"owner"`
+	Body                   string       `json:"body"`
+	Files                  []SkillFile  `json:"files"`
+	DisableModelInvocation bool         `json:"disableModelInvocation"`
+	Enabled                bool         `json:"enabled"`
+	Installs               []Install    `json:"installs"`
+	Source                 *SkillOrigin `json:"source,omitempty"`
+
+	Managed   bool      `json:"managed"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Install struct {
@@ -126,6 +139,14 @@ type Library struct {
 	Skills  []Skill  `json:"skills"`
 
 	Seal bool `json:"seal"`
+
+	Git GitSourcesStatus `json:"git"`
+
+	Sources []Source `json:"sources"`
+
+	Credentials []Credential `json:"credentials"`
+
+	Admin bool `json:"admin"`
 }
 
 type Input struct {
@@ -155,11 +176,62 @@ type Caller struct {
 	GroupIDs     []string
 }
 
+type Features interface {
+	GitSourcesEnabled(ctx context.Context) (bool, error)
+	SetGitSourcesEnabled(ctx context.Context, enabled bool) error
+}
+
+type gitClient interface {
+	head(
+		ctx context.Context,
+		repo Repo,
+		auth *gitAuth,
+		ref string,
+	) (commit, fetchRef string, err error)
+	export(
+		ctx context.Context,
+		repo Repo,
+		auth *gitAuth,
+		commit, fetchRef, dir, sparsePrefix string,
+	) error
+}
+
+type cliGit struct{}
+
+func (cliGit) head(
+	ctx context.Context, repo Repo, auth *gitAuth, ref string,
+) (string, string, error) {
+	return remoteHead(ctx, repo, auth, ref)
+}
+
+func (cliGit) export(
+	ctx context.Context,
+	repo Repo,
+	auth *gitAuth,
+	commit, fetchRef, dir, sparsePrefix string,
+) error {
+	return exportRepo(ctx, repo, auth, commit, fetchRef, dir, sparsePrefix)
+}
+
 type Service struct {
 	store store.IntegrationsStore
 	seal  *sealed.Sealer
 	auth  *Authorizer
 	now   func() time.Time
+
+	features Features
+	git      gitClient
+
+	cliMu     sync.Mutex
+	cliAt     time.Time
+	cliCached bool
+	cliGit    CLIStatus
+	cliSSH    CLIStatus
+
+	syncMu   sync.Mutex
+	inFlight map[int64]bool
+
+	pollWG sync.WaitGroup
 }
 
 func New(
@@ -171,8 +243,17 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	return &Service{store: st, seal: seal, auth: auth, now: time.Now}, nil
+	return &Service{
+		store:    st,
+		seal:     seal,
+		auth:     auth,
+		now:      time.Now,
+		git:      cliGit{},
+		inFlight: map[int64]bool{},
+	}, nil
 }
+
+func (s *Service) SetFeatures(features Features) { s.features = features }
 
 func (s *Service) Sealing() bool { return s.seal.Enabled() }
 
@@ -193,11 +274,27 @@ func (s *Service) Library(ctx context.Context, actorID int64) (Library, error) {
 	if err != nil {
 		return Library{}, err
 	}
+	sources, err := s.Sources(ctx, actorID)
+	if err != nil {
+		return Library{}, err
+	}
+	slugs := make(map[int64]string, len(sources))
+	for _, source := range sources {
+		slugs[source.ID] = source.Slug
+	}
+	gitStatus, err := s.GitStatus(ctx)
+	if err != nil {
+		return Library{}, err
+	}
 
 	out := Library{
-		Servers: []Server{},
-		Skills:  []Skill{},
-		Seal:    s.Sealing(),
+		Servers:     []Server{},
+		Skills:      []Skill{},
+		Seal:        s.Sealing(),
+		Git:         gitStatus,
+		Sources:     sources,
+		Credentials: []Credential{},
+		Admin:       s.admin(ctx, actorID),
 	}
 	for _, row := range servers {
 		visible, err := s.canSee(ctx, actorID, Scope{Kind: row.OwnerKind, ID: row.OwnerID})
@@ -221,7 +318,14 @@ func (s *Service) Library(ctx context.Context, actorID int64) (Library, error) {
 		if !visible {
 			continue
 		}
-		out.Skills = append(out.Skills, skillOf(row, skillInstalls))
+		out.Skills = append(out.Skills, skillOf(row, skillInstalls, slugs))
+	}
+	if s.admin(ctx, actorID) {
+		credentials, err := s.Credentials(ctx, actorID)
+		if err != nil {
+			return Library{}, err
+		}
+		out.Credentials = credentials
 	}
 	return out, nil
 }
@@ -268,7 +372,17 @@ func (s *Service) GetSkill(ctx context.Context, actorID, id int64) (Skill, error
 	if err != nil {
 		return Skill{}, err
 	}
-	return skillOf(row, installs), nil
+	return skillOf(row, installs, s.slugOf(ctx, row)), nil
+}
+
+func (s *Service) slugOf(ctx context.Context, row store.Skill) map[int64]string {
+	slugs := map[int64]string{}
+	if row.SourceID.Valid {
+		if source, err := s.store.GetSkillSource(ctx, row.SourceID.Int64); err == nil {
+			slugs[source.ID] = source.Slug
+		}
+	}
+	return slugs
 }
 
 func (s *Service) SaveServer(
@@ -317,6 +431,12 @@ func (s *Service) SaveSkill(
 	if err != nil {
 		return Skill{}, err
 	}
+
+	if previous.SourceID.Valid {
+		return Skill{}, invalidf(
+			"this skill is imported from a Git source; detach it to edit it",
+		)
+	}
 	if err := s.authorize(ctx, actorID, input, storedOwnerOfSkill(previous)); err != nil {
 		return Skill{}, err
 	}
@@ -340,7 +460,7 @@ func (s *Service) SaveSkill(
 	if err != nil {
 		return Skill{}, err
 	}
-	return skillOf(saved, all), nil
+	return skillOf(saved, all, s.slugOf(ctx, saved)), nil
 }
 
 func (s *Service) DeleteServer(ctx context.Context, actorID, id int64) error {
@@ -365,6 +485,11 @@ func (s *Service) DeleteSkill(ctx context.Context, actorID, id int64) error {
 	entry, err := s.GetSkill(ctx, actorID, id)
 	if err != nil {
 		return err
+	}
+	if entry.Managed {
+		return invalidf(
+			"this skill is imported from a Git source; delete the source, or detach the skill first",
+		)
 	}
 	if err := s.auth.CanAuthor(ctx, actorID, entry.Owner); err != nil {
 		return err
@@ -748,7 +873,11 @@ func (s *Service) serverOf(
 	return out, nil
 }
 
-func skillOf(row store.Skill, installs []store.SkillInstall) Skill {
+func skillOf(
+	row store.Skill,
+	installs []store.SkillInstall,
+	slugs map[int64]string,
+) Skill {
 
 	out := Skill{
 		ID:                     row.ID,
@@ -778,6 +907,16 @@ func skillOf(row store.Skill, installs []store.SkillInstall) Skill {
 		})
 	}
 	sortInstalls(out.Installs)
+	if row.SourceID.Valid {
+		out.Managed = true
+		out.Source = &SkillOrigin{
+			SourceID: row.SourceID.Int64,
+			Slug:     slugs[row.SourceID.Int64],
+			Path:     row.SourcePath,
+			Commit:   row.SourceCommit,
+			Missing:  row.SourceMissing != 0,
+		}
+	}
 	return out
 }
 

@@ -201,6 +201,30 @@ export function taskBlockersReasonPrefix(): string {
   return t("wait.reason.blockersPrefix");
 }
 
+const AGENCY_BLOCKERS_PREFIXES = [
+  "Waiting for blocking tasks to complete or be cancelled:",
+
+  "Woken for one run despite blocking tasks:",
+];
+
+function blockersClause(
+  segment: string,
+): { prefix: string; ids: string[] } | undefined {
+  for (const prefix of [
+    taskBlockersReasonPrefix(),
+    ...AGENCY_BLOCKERS_PREFIXES,
+  ]) {
+    if (!segment.startsWith(prefix)) continue;
+    const ids = segment
+      .slice(prefix.length)
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (ids.length) return { prefix, ids };
+  }
+  return undefined;
+}
+
 export type WaitingReasonPart =
   | { kind: "text"; text: string }
   | { kind: "id"; id: string }
@@ -243,17 +267,13 @@ export function waitingReasonParts(
       });
       return;
     }
-    const ids = segment
-      .slice(taskBlockersReasonPrefix().length)
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean);
-    if (!segment.startsWith(taskBlockersReasonPrefix()) || !ids.length) {
+    const clause = blockersClause(segment);
+    if (!clause) {
       text(segment);
       return;
     }
-    text(`${taskBlockersReasonPrefix()} `);
-    ids.forEach((id, idIndex) => {
+    text(`${clause.prefix} `);
+    clause.ids.forEach((id, idIndex) => {
       if (idIndex > 0) text(", ");
       parts.push({ kind: "id", id });
     });

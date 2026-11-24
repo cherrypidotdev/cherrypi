@@ -105,16 +105,17 @@ const (
 )
 
 var validEvents = map[string]bool{
-	"task_created":         true,
-	"task_started":         true,
-	"task_settled":         true,
-	"task_held":            true,
-	"task_hold_released":   true,
-	"task_requested_input": true,
-	"task_input_answered":  true,
-	"task_completed":       true,
-	"task_failed":          true,
-	"task_cancelled":       true,
+	"task_created":          true,
+	"task_started":          true,
+	"task_settled":          true,
+	"task_progress_updated": true,
+	"task_held":             true,
+	"task_hold_released":    true,
+	"task_requested_input":  true,
+	"task_input_answered":   true,
+	"task_completed":        true,
+	"task_failed":           true,
+	"task_cancelled":        true,
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,47}$`)

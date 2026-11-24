@@ -289,15 +289,10 @@ OFFSET CAST(sqlc.arg(page_offset) AS BIGINT);
 
 
 
+
+
 SELECT * FROM tasks
 WHERE state = 'queued' AND archived_at IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM task_references r
-    JOIN tasks dep ON dep.rowid = r.referenced_task_rowid
-    WHERE r.task_rowid = tasks.rowid
-      AND r.kind = 'blocking'
-      AND dep.state NOT IN ('completed', 'cancelled')
-  )
 ORDER BY priority DESC, created_at ASC;
 
 -- name: ListRunningTasks :many
@@ -793,6 +788,14 @@ WHERE id = sqlc.arg(id);
 
 UPDATE tasks SET reaction_reminders = sqlc.arg(count), updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
+
+-- name: ListTaskOriginChildren :many
+
+
+
+SELECT id FROM tasks
+WHERE origin_task_id = sqlc.arg(origin_task_id)
+ORDER BY rowid;
 
 -- name: ListLiveReactionTasksByOrigin :many
 

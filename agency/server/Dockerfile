@@ -129,7 +129,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl
+  ca-certificates curl git openssh-client
 
 COPY --from=backend /out/cherrypi-agency /usr/local/bin/cherrypi-agency
 COPY --from=backend /out/cherrypi-plugin /usr/local/bin/cherrypi-plugin

@@ -1479,6 +1479,16 @@ func (s *PgStore) SetTaskReactionReminders(
 	return s.q.SetTaskReactionReminders(ctx, pgdb.SetTaskReactionRemindersParams(p))
 }
 
+func (s *PgStore) ListTaskOriginChildren(
+	ctx context.Context,
+	originID string,
+) ([]string, error) {
+	return s.q.ListTaskOriginChildren(
+		ctx,
+		sql.NullString{String: originID, Valid: originID != ""},
+	)
+}
+
 func (s *PgStore) ListLiveReactionTasksByOrigin(
 	ctx context.Context,
 	originID string,

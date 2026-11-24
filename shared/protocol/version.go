@@ -18,7 +18,7 @@ package protocol
 
 import "golang.org/x/mod/semver"
 
-const Version = "v0.3.7"
+const Version = "v0.3.8"
 
 const TaskInputAnswersVersion = "v0.1.7"
 

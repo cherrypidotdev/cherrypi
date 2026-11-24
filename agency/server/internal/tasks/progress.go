@@ -94,7 +94,13 @@ func (s *Service) applyProgress(
 			Status:   store.ProgressItemStatus(item.Status),
 		})
 	}
-	return s.store.SetTaskProgress(ctx, params)
+	if err := s.store.SetTaskProgress(ctx, params); err != nil {
+		return err
+	}
+	if s.OnProgress != nil {
+		s.OnProgress(ctx, taskID)
+	}
+	return nil
 }
 
 func (s *Service) SetProgressBySession(

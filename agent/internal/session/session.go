@@ -1317,12 +1317,16 @@ func (s *Session) liveUsage(ctx context.Context) (Usage, bool) {
 	started := s.runStartedAt
 	now := time.Now()
 
-	active := s.runActiveDurationLocked(now)
-	thinking := s.runThinkingLocked(now)
-	tool := s.runToolDuration
-	modelWait := s.runModelWaitDuration
-	ttft := s.runTTFTDuration
-	firstToken := s.runFirstToken
+	var active, thinking, tool, modelWait, ttft time.Duration
+	firstToken := false
+	if running {
+		active = s.runActiveDurationLocked(now)
+		thinking = s.runThinkingLocked(now)
+		tool = s.runToolDuration
+		modelWait = s.runModelWaitDuration
+		ttft = s.runTTFTDuration
+		firstToken = s.runFirstToken
+	}
 	window := 0
 	if eng != nil && eng.sess.Model != nil {
 		window = eng.sess.Model.ContextWindow

@@ -43,9 +43,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           :key="option.value"
           :value="option.value"
         ) {{ $t(option.labelKey) }}
-    span.text-muted-foreground.ml-auto.text-xs.tabular-nums
+    span.text-muted-foreground.ml-auto.text-xs.tabular-nums(
+      v-if="kind !== 'git'"
+    )
       | {{ $t("library.counts", { servers: servers.length, skills: skills.length }) }}
     Button(
+      v-if="kind !== 'git'"
       type="button"
       size="sm"
       @click="startCreate"
@@ -54,13 +57,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       PlusIcon(data-icon="inline-start")
       span {{ $t("library.new") }}
 
+  GitSourcesPanel(
+    v-if="kind === 'git'"
+    :git="git"
+    :sources="sources"
+    :credentials="credentials"
+    :admin="admin"
+    :scope="scope"
+    @refresh="load"
+  )
+
   p.text-muted-foreground.text-xs(v-if="loading") {{ $t("library.loading") }}
   p.text-destructive.text-xs(v-else-if="error") {{ error }}
-  Empty(v-else-if="!rows.length")
+  Empty(v-if="kind !== 'git' && !loading && !error && !rows.length")
     EmptyTitle {{ $t("library.empty.title") }}
     EmptyDescription {{ $t("library.empty.description") }}
 
-  .flex.flex-col.divide-y(v-else)
+  .flex.flex-col.divide-y(
+    v-if="kind !== 'git' && !loading && !error && rows.length"
+  )
     button.flex.w-full.items-start.gap-3.py-2.text-left(
       v-for="row in rows"
       :key="`${row.kind}:${row.id}`"
@@ -80,6 +95,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           Badge(v-if="row.kind === 'mcp'" variant="secondary")
             | {{ $t("library.agencyTransport") }}
           Badge(v-if="!row.enabled" variant="destructive") {{ $t("library.policy") }}
+          Badge(v-if="rowSource(row)" variant="secondary")
+            GitBranchIcon(data-icon="inline-start")
+            span {{ rowSource(row)?.slug }}
+          Badge(v-if="rowSource(row)?.missing" variant="outline") {{ $t("library.importedMissing") }}
         span.text-muted-foreground.truncate.text-xs {{ row.description }}
       .flex.shrink-0.flex-col.items-end.gap-1
         span.text-muted-foreground.text-xs
@@ -95,7 +114,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             XIcon(v-else data-icon="inline-start")
             span {{ scopeLabel(install.scope) }}
 
-  Card(v-if="draft" data-testid="integrations-editor")
+  Card(v-if="draft && kind !== 'git'" data-testid="integrations-editor")
     CardHeader
       CardTitle {{ draft.id ? $t("library.editor.edit") : $t("library.editor.create") }}
       CardDescription {{ $t("library.editor.description") }}
@@ -187,11 +206,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
           )
           FieldDescription {{ $t("library.editor.toolsHint") }}
       template(v-else)
+        .flex.flex-wrap.items-start.gap-2.rounded-md.border.p-2(
+          v-if="managedOrigin"
+          data-testid="integrations-managed"
+        )
+          GitBranchIcon.size-4(class="mt-0.5")
+          .flex.min-w-0.flex-1.flex-col.gap-1
+            span.text-sm.font-medium {{ $t("library.editor.managed") }}
+            span.text-muted-foreground.font-mono.text-xs
+              | {{ managedOrigin.slug }} · {{ managedOrigin.path }}@{{ managedOrigin.commit.slice(0, 7) }}
+            span.text-muted-foreground.text-xs {{ $t("library.editor.managedHint") }}
+          Button(
+            type="button"
+            variant="outline"
+            size="sm"
+            @click="detach"
+            :disabled="detaching"
+            data-testid="integrations-detach"
+          )
+            Spinner(v-if="detaching" data-icon="inline-start")
+            UnlinkIcon(v-else data-icon="inline-start")
+            span {{ $t("library.editor.detach") }}
         Field
           FieldLabel(for="integration-body") {{ $t("library.editor.body") }}
           Textarea#integration-body.font-mono.text-sm(
             v-model="draft.body"
             :rows="8"
+            :readonly="Boolean(managedOrigin)"
           )
           FieldDescription {{ $t("library.editor.bodyHint") }}
         .flex.items-center.gap-2
@@ -199,6 +240,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
             :model-value="draft.disableModelInvocation"
             :aria-label="$t('library.editor.manual')"
             @update:model-value="draft.disableModelInvocation = Boolean($event)"
+            :disabled="Boolean(managedOrigin)"
           )
           span.text-sm {{ $t("library.editor.manual") }}
 
@@ -309,7 +351,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         Switch(
           :model-value="draft.enabled"
           :aria-label="$t('library.editor.enabled')"
-          @update:model-value="draft.enabled = Boolean($event)"
+          @update:model-value="toggleEnabled(Boolean($event))"
         )
         .flex.flex-col
           span.text-sm {{ $t("library.editor.enabled") }}
@@ -318,6 +360,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
       p.text-destructive.text-sm(v-if="saveError") {{ saveError }}
       .flex.items-center.gap-2
         Button(
+          v-if="!managedOrigin"
           type="button"
           @click="save"
           :disabled="saving"
@@ -342,6 +385,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 </template>
 
 <script setup lang="ts">
+import GitSourcesPanel from "@/components/integrations/GitSourcesPanel.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -373,6 +417,9 @@ import {
   SCOPE_KINDS,
   integrationsApi,
   scopeLabel,
+  type GitCredential,
+  type GitSource,
+  type GitSourcesStatus,
   type IntegrationInput,
   type IntegrationInstall,
   type IntegrationLibrary,
@@ -380,13 +427,16 @@ import {
   type IntegrationValue,
   type McpServerEntry,
   type SkillEntry,
+  type SkillOrigin,
 } from "@/lib/integrations";
 import {
   CheckIcon,
   FileTextIcon,
+  GitBranchIcon,
   PlusIcon,
   ServerIcon,
   Trash2Icon,
+  UnlinkIcon,
   XIcon,
 } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
@@ -400,6 +450,7 @@ const props = defineProps<{
 const KINDS = [
   { value: "mcp", labelKey: "library.kind.mcp" },
   { value: "skill", labelKey: "library.kind.skill" },
+  { value: "git", labelKey: "library.kind.git" },
 ] as const;
 
 type Kind = (typeof KINDS)[number]["value"];
@@ -414,12 +465,19 @@ const ownerFilter = ref("all");
 const servers = ref<McpServerEntry[]>([]);
 const skills = ref<SkillEntry[]>([]);
 const seal = ref(false);
+const git = ref<GitSourcesStatus | undefined>();
+const sources = ref<GitSource[]>([]);
+const credentials = ref<GitCredential[]>([]);
+const admin = ref(false);
 const loading = ref(true);
 const error = ref("");
 const draft = ref<Draft | undefined>();
 const saving = ref(false);
 const saveError = ref("");
 const installBusy = ref(false);
+const detaching = ref(false);
+
+const managedOrigin = ref<SkillOrigin | undefined>();
 const newInstall = ref<{ scope: IntegrationScope }>({
   scope: { kind: "org", id: "" },
 });
@@ -483,6 +541,7 @@ function appliesHere(row: Row): boolean {
 }
 
 function countOf(target: Kind): number {
+  if (target === "git") return sources.value.length;
   return allRows.value.filter(
     (row) => row.kind === target && (!props.scope || appliesHere(row)),
   ).length;
@@ -537,7 +596,7 @@ async function dropInstall(scope: IntegrationScope): Promise<void> {
   installBusy.value = true;
   saveError.value = "";
   try {
-    await integrationsApi.removeInstall(kind.value, entry.id, scope);
+    await integrationsApi.removeInstall(entryKind(), entry.id, scope);
     await reloadEntry();
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : String(err);
@@ -555,13 +614,22 @@ async function applyInstall(
   installBusy.value = true;
   saveError.value = "";
   try {
-    await integrationsApi.setInstall(kind.value, entry.id, scope, enabled);
+    await integrationsApi.setInstall(entryKind(), entry.id, scope, enabled);
     await reloadEntry();
   } catch (err) {
     saveError.value = err instanceof Error ? err.message : String(err);
   } finally {
     installBusy.value = false;
   }
+}
+
+function rowSource(row: Row): SkillOrigin | undefined {
+  if (row.kind !== "skill") return undefined;
+  return (row.entry as SkillEntry).source;
+}
+
+function entryKind(): "mcp" | "skill" {
+  return kind.value === "mcp" ? "mcp" : "skill";
 }
 
 async function reloadEntry(): Promise<void> {
@@ -613,6 +681,7 @@ function applyToolFilter(raw: string): void {
 
 function startCreate(): void {
   saveError.value = "";
+  managedOrigin.value = undefined;
   valueRows.value = [];
   draft.value = {
     name: "",
@@ -634,6 +703,7 @@ function startCreate(): void {
 
 function select(row: Row): void {
   saveError.value = "";
+  managedOrigin.value = undefined;
   newInstall.value = { scope: { ...row.owner } };
   if (row.kind === "mcp") {
     const entry = row.entry as McpServerEntry;
@@ -669,6 +739,7 @@ function select(row: Row): void {
     return;
   }
   const entry = row.entry as SkillEntry;
+  managedOrigin.value = entry.source;
   valueRows.value = [];
   draft.value = {
     id: entry.id,
@@ -684,6 +755,43 @@ function select(row: Row): void {
     files: [...(entry.files ?? [])],
     disableModelInvocation: entry.disableModelInvocation,
   };
+}
+
+async function toggleEnabled(enabled: boolean): Promise<void> {
+  const entry = draft.value;
+  if (!entry) return;
+  entry.enabled = enabled;
+  if (!entry.id || !managedOrigin.value) return;
+  saveError.value = "";
+  try {
+    await integrationsApi.setSkillEnabled(entry.id, enabled);
+    await load();
+  } catch (err) {
+    entry.enabled = !enabled;
+    saveError.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function detach(): Promise<void> {
+  const entry = draft.value;
+  if (!entry?.id) return;
+  detaching.value = true;
+  saveError.value = "";
+  try {
+    const detached = await integrationsApi.detachSkill(entry.id);
+    managedOrigin.value = undefined;
+    draft.value = {
+      ...entry,
+      body: detached.body,
+      files: [...(detached.files ?? [])],
+      disableModelInvocation: detached.disableModelInvocation,
+    };
+    await load();
+  } catch (err) {
+    saveError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    detaching.value = false;
+  }
 }
 
 function collectValues(): Record<string, IntegrationValue> {
@@ -704,6 +812,7 @@ function collectValues(): Record<string, IntegrationValue> {
 
 async function save(): Promise<void> {
   if (!draft.value) return;
+  if (managedOrigin.value) return;
   saving.value = true;
   saveError.value = "";
   try {
@@ -757,6 +866,10 @@ async function load(): Promise<void> {
     servers.value = library.servers ?? [];
     skills.value = library.skills ?? [];
     seal.value = library.seal;
+    git.value = library.git;
+    sources.value = library.sources ?? [];
+    credentials.value = library.credentials ?? [];
+    admin.value = library.admin === true;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -779,6 +892,7 @@ en:
     loading: "Loading the library…"
     new: "New entry"
     policy: "Policy"
+    importedMissing: "removed from repo"
     agencyTransport: "HTTP via agency"
     scope:
       org: "Org-wide"
@@ -789,6 +903,7 @@ en:
     kind:
       mcp: "MCP server"
       skill: "Skill"
+      git: "Git sources"
     empty:
       title: "Nothing here yet"
       description: "Add a server or a skill, then install it into the scopes that should receive it."
@@ -830,6 +945,9 @@ en:
       removeInstall: "Remove install"
       enabled: "Entry enabled"
       enabledHint: "Switched off is a policy entry: it never connects and removes the name everywhere it applies."
+      managed: "Imported from a Git source"
+      managedHint: "The source owns the body and files, so the next sync would overwrite an edit. Detach it to keep a hand-written copy."
+      detach: "Detach to edit"
 ru:
   library:
     ownerFilter: "Фильтр по владельцу"
@@ -841,6 +959,7 @@ ru:
     loading: "Загружаем библиотеку…"
     new: "Новая запись"
     policy: "Политика"
+    importedMissing: "удалён из репозитория"
     agencyTransport: "HTTP через агентство"
     scope:
       org: "Вся организация"
@@ -851,6 +970,7 @@ ru:
     kind:
       mcp: "MCP-сервер"
       skill: "Навык"
+      git: "Git-источники"
     empty:
       title: "Пока пусто"
       description: "Добавьте сервер или навык и установите его в нужные области."
@@ -892,4 +1012,7 @@ ru:
       removeInstall: "Удалить установку"
       enabled: "Запись включена"
       enabledHint: "Выключенная запись — это политика: она не подключается и убирает имя везде, где применяется."
+      managed: "Импортировано из Git-источника"
+      managedHint: "Текстом и файлами владеет источник, поэтому следующая синхронизация перезапишет правку. Отсоедините навык, чтобы оставить ручную копию."
+      detach: "Отсоединить для правки"
 </i18n>

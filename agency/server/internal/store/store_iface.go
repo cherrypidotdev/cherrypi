@@ -781,6 +781,7 @@ type Store interface {
 	SetTaskPendingSteering(ctx context.Context, p SetTaskPendingSteeringParams) (int64, error)
 	SetTaskNeedsOperator(ctx context.Context, p SetTaskNeedsOperatorParams) (int64, error)
 	SetTaskReactionReminders(ctx context.Context, p SetTaskReactionRemindersParams) (int64, error)
+	ListTaskOriginChildren(ctx context.Context, originID string) ([]string, error)
 	ListLiveReactionTasksByOrigin(ctx context.Context, originID string) ([]Task, error)
 	ListStalledReactionTasks(ctx context.Context, cutoffMs int64) ([]Task, error)
 	SetAgentLastOnline(ctx context.Context, id ids.AgentID, at int64) error

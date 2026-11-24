@@ -25,9 +25,9 @@ import (
 //go:embed migrations/*.sql
 var Migrations embed.FS
 
-// MigrationClaim is the one-line claim in `migration_claim`: the version and
+// LatestMigration is the one-line `latest_migration` file: the version and
 
-// conflict in git instead of merging into a tree goose refuses to migrate.
+// in git instead of merging into a tree goose refuses to migrate.
 
-//go:embed migration_claim
-var MigrationClaim []byte
+//go:embed latest_migration
+var LatestMigration []byte

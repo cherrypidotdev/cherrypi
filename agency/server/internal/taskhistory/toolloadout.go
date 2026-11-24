@@ -48,58 +48,97 @@ type systemEntry struct {
 	Message json.RawMessage `json:"message"`
 }
 
+type projectedEntry struct {
+	SystemMessage json.RawMessage   `json:"system_message"`
+	Messages      []json.RawMessage `json:"messages"`
+}
+
+type loadoutFold struct {
+	order    []string
+	byName   map[string]Tool
+	recorded bool
+}
+
+func newLoadoutFold() *loadoutFold {
+	return &loadoutFold{order: make([]string, 0, 16), byName: map[string]Tool{}}
+}
+
+func (f *loadoutFold) apply(raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+	var message toolLoadoutMessage
+	if json.Unmarshal(raw, &message) != nil {
+		return
+	}
+	if message.Role != "system" {
+		return
+	}
+	if len(message.ToolsAdded) == 0 && len(message.ToolsRemoved) == 0 {
+		return
+	}
+	f.recorded = true
+	for _, removed := range message.ToolsRemoved {
+		if removed.Name == "" {
+			continue
+		}
+		if _, ok := f.byName[removed.Name]; !ok {
+			continue
+		}
+		delete(f.byName, removed.Name)
+		f.order = withoutName(f.order, removed.Name)
+	}
+	for _, added := range message.ToolsAdded {
+		if added.Name == "" {
+			continue
+		}
+		if _, ok := f.byName[added.Name]; !ok {
+			f.order = append(f.order, added.Name)
+		}
+		f.byName[added.Name] = Tool{
+			Name:           added.Name,
+			Description:    added.Description,
+			ParametersJSON: string(added.Parameters),
+		}
+	}
+}
+
+func (f *loadoutFold) tools() []Tool {
+	tools := make([]Tool, 0, len(f.order))
+	for _, name := range f.order {
+		tools = append(tools, f.byName[name])
+	}
+	return tools
+}
+
 func CollectToolLoadout(entries []tasks.SessionHistoryEntry) ([]Tool, bool) {
-	order := make([]string, 0, 16)
-	byName := map[string]Tool{}
-	recorded := false
+	fold := newLoadoutFold()
 	for _, entry := range entries {
 		var envelope systemEntry
 		if json.Unmarshal([]byte(entry.Raw), &envelope) != nil {
 			continue
 		}
-		if envelope.Type != "message" || len(envelope.Message) == 0 {
+		if envelope.Type != "message" {
 			continue
 		}
-		var message toolLoadoutMessage
-		if json.Unmarshal(envelope.Message, &message) != nil {
-			continue
-		}
-		if message.Role != "system" {
-			continue
-		}
-		if len(message.ToolsAdded) == 0 && len(message.ToolsRemoved) == 0 {
-			continue
-		}
-		recorded = true
-		for _, removed := range message.ToolsRemoved {
-			if removed.Name == "" {
-				continue
-			}
-			if _, ok := byName[removed.Name]; !ok {
-				continue
-			}
-			delete(byName, removed.Name)
-			order = withoutName(order, removed.Name)
-		}
-		for _, added := range message.ToolsAdded {
-			if added.Name == "" {
-				continue
-			}
-			if _, ok := byName[added.Name]; !ok {
-				order = append(order, added.Name)
-			}
-			byName[added.Name] = Tool{
-				Name:           added.Name,
-				Description:    added.Description,
-				ParametersJSON: string(added.Parameters),
-			}
+		fold.apply(envelope.Message)
+	}
+	return fold.tools(), fold.recorded
+}
+
+func CollectProjectedToolLoadout(entriesJSON string) ([]Tool, bool) {
+	var entries []projectedEntry
+	if json.Unmarshal([]byte(entriesJSON), &entries) != nil {
+		return nil, false
+	}
+	fold := newLoadoutFold()
+	for _, entry := range entries {
+		fold.apply(entry.SystemMessage)
+		for _, message := range entry.Messages {
+			fold.apply(message)
 		}
 	}
-	tools := make([]Tool, 0, len(order))
-	for _, name := range order {
-		tools = append(tools, byName[name])
-	}
-	return tools, recorded
+	return fold.tools(), fold.recorded
 }
 
 func withoutName(order []string, name string) []string {
